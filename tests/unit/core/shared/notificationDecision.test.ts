@@ -3,7 +3,7 @@ import type { AgentStatusView } from '@gugu/core/shared/agentStatus'
 import { shouldNotify } from '@gugu/core/shared/ui/notificationModels'
 import { chatAttention } from '@gugu/core/shared/ui/chatModels'
 import type { ChatItem, ChatKind } from '@gugu/core/shared/types/chat'
-import { chat } from '../../../support/testHarness'
+import { chat, message } from '../../../support/testHarness'
 
 const on = { enabled: true, onScreen: false }
 /** unread 条未读,其中叫到你的 addressed 条(服务端 list_unread_locators.addressed_count)。 */
@@ -60,5 +60,31 @@ describe('chatAttention().askingYou', () => {
     expect(chatAttention(row('group', 5, 1, { is_muted: true })).askingYou).toBe(0)
     expect(chatAttention(row('dm', 5, 0)).askingYou).toBe(5)
     expect(chatAttention(row('group', 5, 0, { unread_locator: null })).askingYou).toBe(5)
+  })
+})
+
+describe('committed messages use the same notification eligibility', () => {
+  const room = row('group', 0, 0)
+  const decide = (overrides: Parameters<typeof message>[0] = {}, context = on, conversation = room) => shouldNotify({
+    kind: 'message', accountId: 'viewer', chat: conversation,
+    message: message({ chat_id: conversation.id, sender_user_id: 'peer', seq: 1, to_user_ids: ['viewer'], ...overrides }),
+  }, context)
+  it('checks each recipient instead of inferring all arrivals from a batch count', () => {
+    expect(decide()).toBe(true)
+    expect(decide({ to_user_ids: ['someone-else'] })).toBe(false)
+    expect(decide({ to_user_ids: ['*'] })).toBe(true)
+    expect(decide({ to_user_ids: null, reply_to_sender_user_id: 'viewer' })).toBe(true)
+    expect(decide({ to_user_ids: null }, on, row('dm', 0, 0))).toBe(true)
+    expect(decide({ to_user_ids: null }, on, row('ai', 0, 0))).toBe(true)
+  })
+  it('preserves read, mute, account, settings and on-screen boundaries', () => {
+    expect(decide({ sender_user_id: 'viewer' })).toBe(false)
+    expect(decide({ chat_id: 'different-chat' })).toBe(false)
+    expect(decide({}, on, { ...room, is_muted: true })).toBe(false)
+    expect(decide({}, on, { ...room, last_read_seq: 1 })).toBe(false)
+    expect(decide({}, { ...on, enabled: false })).toBe(false)
+    expect(decide({}, { ...on, onScreen: true })).toBe(false)
+    expect(decide({ thread_root_id: 'root', seq: 1 }, on, { ...room,
+      unread_locator: { ...row('group', 1, 1).unread_locator!, thread_root_id: 'root', cursor_seq: 1 } })).toBe(false)
   })
 })

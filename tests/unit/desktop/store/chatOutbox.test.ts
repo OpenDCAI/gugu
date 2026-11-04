@@ -443,3 +443,13 @@ describe('评审修复回归锁(#1762 review)', () => {
   })
 })
 void vi
+
+describe('chatOutbox 坏数据', () => {
+  it('恢复时读到解析不出的 enqueuedAt,不让此后每一次 enqueue 都炸', async () => {
+    const h = harness(async () => {})
+    h.saved.set('broken', makeRecord('broken', { enqueuedAt: 'not-a-date' }))
+    await h.outbox.restore()
+    await expect(h.outbox.enqueue(makeRecord('next'))).resolves.toBeUndefined()
+    expect(h.saved.get('next')!.enqueuedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  })
+})

@@ -1,3 +1,4 @@
+import { StringDecoder } from 'node:string_decoder';
 import type { AcpClient } from '@gugu/session-core/agents/plugins';
 import type { InitializeResponse } from '@agentclientprotocol/sdk';
 import type {
@@ -123,9 +124,12 @@ export async function createAcpAgentConnection(
 
   const stderrTail = createStderrTail();
   let stderrPartial = '';
+  // stderr 是裸字节流:多字节字符会跨 chunk 边界,逐 chunk `toString()` 会把它劈成两个 U+FFFD
+  // (`tail-reader` / `managed-terminal` 都为此用 StringDecoder;这里是同一条理由)。
+  const stderrDecoder = new StringDecoder('utf8');
   if (handle.stderr) {
     const onStderr = (data: Buffer): void => {
-      const text = data.toString();
+      const text = stderrDecoder.write(data);
       stderrTail.push(text);
       if (onStderrLine) {
         const lines = (stderrPartial + text).split('\n');

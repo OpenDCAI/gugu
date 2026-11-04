@@ -18,6 +18,8 @@ export class ManagedAgentTerminal {
   private readonly waiters: ((s: AcpTerminalExit) => void)[] = [];
   private readonly byteLimit: number;
   private readonly proc: AcpTerminalProcess;
+  private disposed = false;
+  private readonly onData = (d: Buffer) => this.append(d);
 
   readonly terminalId: string;
   readonly command: string;
@@ -41,9 +43,8 @@ export class ManagedAgentTerminal {
     this.proc = proc;
     this.byteLimit = byteLimit ?? TERMINAL_OUTPUT_BYTE_LIMIT;
 
-    const handleData = (d: Buffer) => this.append(d);
-    proc.stdout.on('data', handleData);
-    proc.stderr?.on('data', handleData);
+    proc.stdout.on('data', this.onData);
+    proc.stderr?.on('data', this.onData);
 
     proc.onExit((status) => this.settleExit(status));
 
@@ -63,6 +64,7 @@ export class ManagedAgentTerminal {
 
   /** 退出只结算一次:'error' 与 'exit' 都可能先到,先到的那个是真因。 */
   private settleExit(status: AcpTerminalExit): void {
+    if (this.disposed) return;
     if (this._exitStatus) return;
     this._exitStatus = status;
     this.waiters.splice(0).forEach((w) => w(status));
@@ -70,6 +72,7 @@ export class ManagedAgentTerminal {
   }
 
   private append(d: Buffer): void {
+    if (this.disposed) return;
     const text = this.decoder.write(d);
     if (!text) return;
 
@@ -113,7 +116,13 @@ export class ManagedAgentTerminal {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    // 先摘数据监听(杀不掉也不再转发晚到的输出),再真的杀:杀失败就照实抛,`disposed` 不落 ——
+    // 注册表留着,下一次 release 还能重试(❌ 把一次失败的清理变成静默成功)。
+    this.proc.stdout.off('data', this.onData);
+    this.proc.stderr?.off('data', this.onData);
     this.kill();
+    this.disposed = true;
     this.chunks.length = 0;
     this.bytes = 0;
     this.waiters.splice(0);

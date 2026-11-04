@@ -5,12 +5,14 @@
 // 两个缺口各钉一条,再钉「话题线收得到全部线级事件」与反例(别的 chat 的事件不动这条线):
 //   ① agent 的已读只经 delivery_changed 到达(mark_read_on_deliver 必写逐条读行;水位前面有别人的未读就不动);
 //   ② 被 @ 就是被拉进话题 ⇒ 开分栏时拉的水位表里没有它 ⇒ 收件方 = to_user_ids ∩ 表 = 空,读行到了也不出环。
-import { renderWithConversations } from '../../support/conversationAccountStub'
+import { conversationRepository, renderWithConversations } from '../../support/conversationAccountStub'
 import { act, createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import { deriveMessageSendState, deriveReadReceipt } from '@gugu/core/shared/ui/messageState'
 import { createNode, createReactHarness, message } from '../../support/testHarness'
+import { ingestAccountMessage } from '../../../apps/desktop/src/lib/imRepository'
+import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/messageItem'
 
 const getMessages = vi.fn<(...args: unknown[]) => Promise<MessageItem[]>>()
 const getOtherMembersReadSeqs = vi.fn<(chatId: string, userId: string) => Promise<Record<string, number>>>()
@@ -57,6 +59,12 @@ const subscribeAccountRevision = (event: string, listener: RevisionListener) => 
 /** 载荷与 sync_since 同形:resource_key(chat_id / entity_id|user_id / 各事件的值)并上 tombstone。 */
 async function emit(event: string, payload: Record<string, unknown>) {
   await act(async () => {
+    // The bus is stubbed here; real line listeners run after account ingestion commits.
+    if (event === 'message_created' && payload.message) {
+      const repository = conversationRepository()
+      const item = messageItemFromRow(payload.message as RawMessageRow, 'user-1')
+      if (item) await repository.transaction(tx => ingestAccountMessage(repository, tx, item, '1'))
+    }
     for (const listener of listeners.get(event) ?? []) await listener([{ revision: '1', event, payload: { tombstone: false, ...payload } }])
     for (let i = 0; i < 5; i += 1) await Promise.resolve()
   })

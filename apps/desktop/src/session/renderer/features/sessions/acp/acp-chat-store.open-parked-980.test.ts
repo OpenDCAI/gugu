@@ -281,7 +281,7 @@ describe('sender custody uses the ordinary transcript row', () => {
     expect(store.transcriptRevision).toBe(revision);
     inputState().rows = [];
     inputsChanged();
-    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'sender-input', delivery: { state: 'accepted' } });
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'sender-input', delivery: { state: 'receiving' } });
     store.chatState.transcript.history.seed([...store.chatState.transcript.state.committedTurns, turn('extra-history', 2)]);
     runInAction(() => { store.transcriptRevision++; });
     expect(store.chatState.session.state.pendingPrompt?.id).toBe('sender-input');

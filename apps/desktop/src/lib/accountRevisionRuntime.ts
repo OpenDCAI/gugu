@@ -43,7 +43,8 @@ export type AccountRevisionSource = {
 type RevisionHandler = (
   operation: AccountRevisionOperation,
   transaction: ImRepositoryTransaction,
-) => void
+  live: boolean,
+) => unknown
 
 export type AccountRevisionRuntime = {
   register: (event: string, handler: RevisionHandler) => void
@@ -82,6 +83,7 @@ export function createAccountRevisionRuntime(
   let abortController: AbortController | null = null
   let retryTimer: ReturnType<typeof setTimeout> | null = null
   let retryAttempt = 0
+  let caughtUp = false
 
   const clearRetryTimer = () => {
     if (!retryTimer) return
@@ -134,7 +136,7 @@ export function createAccountRevisionRuntime(
         if (!active || generation !== runGeneration) return
         for (const operation of page.operations) {
           if (BigInt(operation.revision) <= through && events.has(operation.event)) {
-            handlers.get(operation.event)!(operation, transaction)
+            handlers.get(operation.event)!(operation, transaction, false)
           }
         }
         if (BigInt(lastRevision) >= through) {
@@ -156,6 +158,7 @@ export function createAccountRevisionRuntime(
     if (!active || generation !== runGeneration) return cursor
 
     const lastRevision = page.operations[page.operations.length - 1]!.revision
+    const committed: Array<() => void> = []
     await repository.transaction((transaction) => {
       if (!active || generation !== runGeneration) return
       let skipped = readSkipped()
@@ -173,12 +176,14 @@ export function createAccountRevisionRuntime(
           }
           continue
         }
-        handler(operation, transaction)
+        const afterCommit = handler(operation, transaction, caughtUp)
+        if (typeof afterCommit === 'function') committed.push(afterCommit as () => void)
       }
       if (!active || generation !== runGeneration) return
       if (skippedChanged) transaction.putSyncState(ACCOUNT_REVISION_SKIPPED_KEY, skipped)
       transaction.putSyncState(ACCOUNT_REVISION_CURSOR_KEY, { revision: lastRevision })
     })
+    if (active && generation === runGeneration) for (const afterCommit of committed) afterCommit()
     return active && generation === runGeneration ? lastRevision : cursor
   }
 
@@ -212,6 +217,7 @@ export function createAccountRevisionRuntime(
         }
       }
     } while (active && generation === runGeneration && lateWakeNeedsDrain())
+    caughtUp = true
   }
 
   // @@@head-aware-wake — 广播带 head ⇒ 已被本地涵盖的通知**零往返**。从前每条通知都要花一次

@@ -14,6 +14,8 @@ import { clickElement, contact, createReactHarness, renderWithAppProviders, type
 vi.mock('../../../apps/desktop/src/lib/chat', () => import('../../support/contactsChatServiceTestDouble'))
 vi.mock('../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../apps/desktop/src/lib/auth', () => ({ authService: { requestLoginOtp: vi.fn(), verifyLoginOtp: vi.fn() } }))
+// The IME contract uses real fields and submission; browser-only brand animation is covered in native-window acceptance.
+vi.mock('../../../apps/desktop/src/pages/login/AuthBrandMotion', () => ({ AuthBrandMotion: () => null }))
 vi.mock('../../../apps/desktop/src/lib/sessionCoordinator', () => ({ sessionCoordinator: { beginInteractiveLogin: vi.fn(), acceptInteractiveSession: vi.fn() } }))
 let h: ReturnType<typeof createReactHarness>
 const kind = Object.getOwnPropertyDescriptor(platform, 'kind')!

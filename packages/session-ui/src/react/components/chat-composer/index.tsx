@@ -208,7 +208,7 @@ import { ComposerAgentLoading, ComposerAgentSelector } from './composer-agent-se
 export type ComposerQueuedPromptEdit = { id: string; text: string; originalDraftText: string; pending?: boolean };
 
 export interface ChatComposerProps {
-  editorOptions?: Pick<import('../prompt-editor/types').PromptEditorProps, 'inputTestId' | 'inputRef' | 'enterBehavior' | 'clearOnSubmit'>;
+  editorOptions?: Pick<import('../prompt-editor/types').PromptEditorProps, 'inputTestId' | 'inputRef' | 'enterBehavior' | 'clearOnSubmit' | 'emptyHint'>;
   mobile?: boolean;
   /** Scope phone action behavior separately from a compact desktop preview. */
   phoneActions?: boolean;

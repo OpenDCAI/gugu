@@ -1197,8 +1197,17 @@ input::placeholder {
   to { transform: rotate(360deg); }
 }
 .gg-ring-march { transform-origin: center; animation: gg-ring-march 1.4s linear infinite; }
+@keyframes gg-receive-wave {
+  0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+  30% { transform: translateY(-2px); opacity: 1; }
+}
+.gg-receive-dot { animation: gg-receive-wave 1.05s ease-in-out infinite; }
+.gg-message-receiving { flex-shrink: 0; display: block; opacity: .56; }
+.gg-receive-dot:nth-of-type(2) { animation-delay: 140ms; }
+.gg-receive-dot:nth-of-type(3) { animation-delay: 280ms; }
 @media (prefers-reduced-motion: reduce) {
   .gg-ring-march { animation: none; }
+  .gg-receive-dot { animation: none; }
 }
 
 @keyframes msgEnter {

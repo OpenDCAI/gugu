@@ -335,7 +335,8 @@ describe('account-scoped normalized IM repository', () => {
       { type: 'put', store: 'message', value: expect.objectContaining({ id: 'main', value: edited }) },
       { type: 'put', store: 'stream', value: expect.objectContaining({ id: 'thread:chat-1:root-b', rootMessageId: 'root-b' }) },
       { type: 'put', store: 'message', value: expect.objectContaining({ id: 'reply', streamId: 'thread:chat-1:root-b', seq: 3 }) },
-      { type: 'put', store: 'view', value: expect.objectContaining({ value: { oldestSeq: 1, maxSeq: 3, hasMoreOlder: true } }) },
+      // The main window's coverage does not include a thread's independent seq.
+      { type: 'put', store: 'view', value: expect.objectContaining({ value: { oldestSeq: 1, maxSeq: 1, hasMoreOlder: true } }) },
     ])
     const reopened = await openImRepository('account-a', { adapter, storage: window.localStorage })
     expect(imSelectors.messagesForStream('thread:chat-1:root-a')(reopened.snapshot())).toEqual([])

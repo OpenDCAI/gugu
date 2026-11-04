@@ -6,6 +6,7 @@ import { appendToDraft } from '@/store/chatContext';
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff';
 import { useSearchedTaskReveal, useSessionSourceMessage } from './use-session-source-message';
 import { canQueueNativeInput } from './queue-native-input';
+import { sendComposerInput } from './send-composer-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
 import { useRememberNativeTail } from './use-remember-native-tail';
@@ -13,7 +14,6 @@ import { useOwnerNotifications } from './use-owner-notifications';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
 import { lifeIsStarting } from '@shared/core/sessions/session-life';
-import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { AgentFailureSlot } from '@/components/AgentFailureSlot';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
@@ -47,7 +47,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Ref
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { IntegrationIcon } from '@renderer/features/integrations/integration-icon';
@@ -379,25 +379,19 @@ const ComposerForStore = observer(function ComposerForStore({
       if (sendingRef.current) return;
       sendingRef.current = true;
       try {
-        // 没有还在传的就当场发(❌ 每次发送都闪一下「在等」)。
-        if (fileUploads.unsettled()) {
-          setSendHold('waiting');
-          await fileUploads.waitForUploads();
-        }
-        const failed = fileUploads.unsettled() || attachmentsRef.current.some((att) => att.state === 'error');
-        setSendHold(failed ? 'blocked' : null);
-        if (failed) {
-          // 输入框在交出正文时已经自己清空了:没发出去就把话放回去,❌ 让人重打一遍。
-          editorApiRef.current?.setText(value);
-          return;
-        }
-        const files = fileUploads.files(attachmentsRef.current.map((att) => att.id));
-        const text = value.trim();
-        if (!text && files.length === 0) return;
-        try { await deliver(text, files); } catch { editorApiRef.current?.setText(value); return; }
-        setAttachments([]);
-        fileUploads.clear();
-        editorApiRef.current?.clear();
+        await sendComposerInput(value, {
+          unsettled: () => fileUploads.unsettled(),
+          waitForUploads: async () => { await fileUploads.waitForUploads(); },
+          hasFailedAttachments: () => attachmentsRef.current.some(att => att.state === 'error'),
+          files: () => fileUploads.files(attachmentsRef.current.map(att => att.id)),
+          status: setSendHold,
+          deliver,
+          committed: () => flushSync(() => {
+            setAttachments([]);
+            fileUploads.clear();
+            if (editorApiRef.current?.getText() === value) editorApiRef.current.clear();
+          }),
+        });
         // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
       } finally {
         sendingRef.current = false;
@@ -412,7 +406,6 @@ const ComposerForStore = observer(function ComposerForStore({
     [store, sendWhenReady]
   );
 
-  // While a turn runs the host queues the input behind it: the same custody path, nothing page-side.
   const handleSubmitWhileWorking = handleSubmit;
 
   const handleStop = useCallback(() => {
@@ -1434,7 +1427,6 @@ const ComposerForStore = observer(function ComposerForStore({
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
-      <NeedsYouSlot />
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
@@ -1469,6 +1461,7 @@ const ComposerForStore = observer(function ComposerForStore({
           && sendHold !== 'waiting' && !membershipLockedModel}
         placeholder={startupPlaceholderKeyValue ? translate(startupPlaceholderKeyValue) : undefined}
         onSubmit={handleSubmit}
+        editorOptions={{ clearOnSubmit: false }}
         onInputChange={(text) => store.setDraftText(text)}
         onSubmitWhileWorking={handleSubmitWhileWorking}
         onStop={a.isWorking ? handleStop : undefined}

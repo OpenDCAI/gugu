@@ -13,9 +13,15 @@ import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { reaction, runInAction } from 'mobx';
 import { WireError } from '@gugu/session-wire';
 import { log } from '@renderer/utils/logger';
+import type { SessionInput } from '@/lib/sessionInputOutbox';
 
 const custody = vi.fn(async (..._args: unknown[]) => {});
 vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
+const reorderLocal = vi.fn(async (_sessionId: string, _ids: readonly string[]) => {});
+vi.mock('@/lib/sessionInputOutboxBridge', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/sessionInputOutboxBridge')>(),
+  reorderQueuedSessionInputs: reorderLocal,
+}));
 
 const toasts: Array<{ title: string; description?: string; variant?: string }> = [];
 vi.mock('@renderer/lib/hooks/use-toast', () => ({
@@ -74,6 +80,7 @@ function makeStore(): InstanceType<StoreCtor> {
 beforeEach(() => {
   toasts.length = 0;
   custody.mockClear();
+  reorderLocal.mockClear();
 });
 
 describe('#3500 发送只走 custody', () => {
@@ -140,6 +147,19 @@ describe('#3507 会话不在时的其余副作用', () => {
     expect(toasts.some((entry) => entry.title === title), `${title} was silently skipped`).toBe(true);
     expect(toasts.at(-1)?.description).toBe('ACP session is not connected');
     expect(toasts.at(-1)?.variant).toBe('destructive');
+  });
+
+  it('reorders durable local entries without requiring a native session', async () => {
+    const store = makeStore();
+    const inputs = ['local-1', 'local-2'].map((id, order): SessionInput => ({
+      id, accountId: 'account', deviceId: null, sessionId: store.runtimeSessionId,
+      text: id, createdAt: order, queued: true, sendQueue: { order },
+    }));
+    (store as unknown as { _senderInputs: readonly SessionInput[] })._senderInputs = inputs;
+    store.reorderQueuedPrompts(['local-2', 'local-1']);
+    expect(reorderLocal).toHaveBeenCalledWith(store.runtimeSessionId, ['local-2', 'local-1']);
+    expect(toasts).toEqual([]);
+    store.dispose();
   });
 
   // 2026-10-02 生产:记着的模型下架 ⇒ 引擎起不来 ⇒ 换模型被「not connected」拦下,会话永远换不走。

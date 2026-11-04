@@ -13,6 +13,8 @@ import { recordImTransaction } from './perfCounters'
 import { assertIdentityClosure } from './identityClosure'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { rendererLogger } from './log'
+import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
+import { MAX_WINDOW } from '../store/chatMessageWindow'
 import {
   IM_STORE_NAMES,
   LocalImCacheError,
@@ -106,6 +108,7 @@ export interface ImRepositoryTransaction {
   putChat(id: string, value: ChatItem, order?: number): void
   putMembership(chatId: string, identityId: string, value: EntityValue): void
   putMessage(value: MessageItem): void
+  readView(key: string): unknown
   putStream(id: string, chatId: string, kind: 'main' | 'thread', rootMessageId?: string | null): void
   putPresence(identityId: string, value: EntityValue): void
   putOutbox(value: OutboxRecord): void
@@ -272,6 +275,15 @@ function createAccountRepository(
 
 function createTransaction(accountId: string, operations: LocalImDbOperation[], stored: ImRepositorySnapshot): ImRepositoryTransaction {
   const put = (store: ImStoreName, value: LocalImRow) => operations.push({ type: 'put', store, value })
+  const readView = (key: string): unknown => {
+    for (let index = operations.length - 1; index >= 0; index -= 1) {
+      const operation = operations[index]!
+      if (operation.type === 'clearAccount') return undefined
+      if (operation.type === 'put' && operation.store === 'view' && operation.value.key === key) return operation.value.value
+      if (operation.type === 'delete' && operation.store === 'view' && Array.isArray(operation.key) && operation.key[1] === key) return undefined
+    }
+    return imSelectors.view(key)(stored)
+  }
   let removed: Set<string> | null = null
   return {
     clear: () => operations.push({ type: 'clearAccount', accountId }),
@@ -291,12 +303,14 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[], 
       value,
     }),
     putMessage(value) {
+      if ((readView(`message-revision:${value.id}`) as { deleted?: boolean } | undefined)?.deleted) return
       const chatId = nonEmpty(value.chat_id, 'message.chatId')
       const root = value.thread_root_id ?? null
       const streamId = messageStreamId(value)
       put('stream', { accountId, id: streamId, chatId, kind: root ? 'thread' : 'main', rootMessageId: root })
       put('message', { accountId, id: nonEmpty(value.id, 'message.id'), chatId, streamId, seq: value.seq, value })
     },
+    readView,
     putStream: (id, chatId, kind, rootMessageId = null) => put('stream', {
       accountId,
       id: nonEmpty(id, 'stream.id'),
@@ -361,6 +375,33 @@ export interface CachedMessageWindow {
   oldestSeq: number
   maxSeq: number
   hasMoreOlder: boolean
+  /** Event rows are paintable, but do not prove a contiguous tail. */
+  sparse?: boolean
+}
+
+/**
+ * Called inside the revision inbox/cursor transaction. The per-message version row doubles as the
+ * notification claim: only the first commit that creates it wins. The repository serializes
+ * transactions and desktop runs one repository per account, so read-then-write here is atomic.
+ */
+export function ingestAccountMessage(repository: AccountImRepository, transaction: ImRepositoryTransaction,
+  message: MessageItem, revision: string): { won: boolean } {
+  const snapshot = repository.snapshot()
+  const versionKey = `message-revision:${message.id}`
+  const version = transaction.readView(versionKey) as { revision: string; deleted?: boolean } | undefined
+  if (version && (version.deleted || BigInt(version.revision) >= BigInt(revision))) return { won: false }
+  const previous = snapshot.message.find(row => row.id === message.id && row.streamId === messageStreamId(message))?.value
+  transaction.putMessage(mergeMessagesById(previous ? [previous] : [], [message], message.chat_id)[0]!)
+  transaction.putView(versionKey, { revision })
+  if (!message.thread_root_id) {
+    const key = `message-window:${message.chat_id}`
+    const cursor = imSelectors.view(key)(snapshot) as Omit<CachedMessageWindow, 'messages'> | undefined
+    // Final ranges and retention are derived once, from all writes in the page.
+    transaction.putView(key, { oldestSeq: 0, maxSeq: 0,
+      hasMoreOlder: cursor?.hasMoreOlder ?? message.seq > 1,
+      sparse: !cursor || cursor.sparse === true || message.seq > cursor.maxSeq + 1 })
+  }
+  return { won: !version }
 }
 
 export async function replaceMessageWindow(
@@ -368,9 +409,23 @@ export async function replaceMessageWindow(
   chatId: string,
   messages: MessageItem[],
   hasMoreOlder = false,
+  /** null is a local write-through, not proof that a sparse tail was fetched. */
+  verifiedTailSeq?: number | null,
 ): Promise<void> {
   await repository.transaction((transaction) => {
-    const persisted = messages.filter((message) => message.chat_id === chatId && message.seq >= 0)
+    // Account arrivals (message-revision rows): a late older window must neither drop nor revive them.
+    const arrivals = new Map(repository.snapshot().view.filter(row => row.key.startsWith('message-revision:'))
+      .map(row => [row.key.slice('message-revision:'.length), row.value as { deleted?: boolean }]))
+    const fetched = messages.filter((message) => message.chat_id === chatId && message.seq >= 0 && !arrivals.get(message.id)?.deleted)
+    const maxFetched = Math.max(0, ...fetched.map(message => message.seq))
+    const coverageTail = verifiedTailSeq ?? maxFetched
+    const sparse = (verifiedTailSeq === null
+      && (imSelectors.view(`message-window:${chatId}`)(repository.snapshot()) as { sparse?: boolean } | undefined)?.sparse === true)
+      || repository.snapshot().message.some(row => row.chatId === chatId && !row.value.thread_root_id
+        && arrivals.has(row.id) && row.seq > coverageTail)
+    const newer = imSelectors.messagesForChat(chatId)(repository.snapshot())
+      .filter(message => arrivals.has(message.id) && (message.thread_root_id || message.seq > maxFetched))
+    const persisted = mergeMessagesById(fetched, newer, chatId).slice(-MAX_WINDOW)
     const ids = new Set(persisted.map((message) => message.id))
     const streamIds = new Set(persisted.map(messageStreamId))
     for (const row of repository.snapshot().message) {
@@ -384,6 +439,7 @@ export async function replaceMessageWindow(
       oldestSeq: persisted.length > 0 ? Math.min(...persisted.map((message) => message.seq)) : 0,
       maxSeq: persisted.length > 0 ? Math.max(...persisted.map((message) => message.seq)) : 0,
       hasMoreOlder,
+      ...(sparse ? { sparse: true } : {}),
     })
   })
 }
@@ -402,6 +458,7 @@ export function readMessageWindow(repository: AccountImRepository, chatId: strin
     oldestSeq: seqs.length > 0 ? Math.min(...seqs) : 0,
     maxSeq: seqs.length > 0 ? Math.max(...seqs) : 0,
     hasMoreOlder: cursor?.hasMoreOlder ?? false,
+    ...(cursor?.sparse ? { sparse: true } : !cursor ? { sparse: true } : {}),
   }
 }
 
@@ -515,18 +572,10 @@ export async function ackOutboxRecord(
   message: MessageItem,
 ): Promise<void> {
   if (message.id !== clientMessageId) throw new Error(`outbox ack id mismatch: ${clientMessageId} != ${message.id}`)
-  const viewKey = `message-window:${message.chat_id}`
+  // applyOperations re-derives the cached window bounds from the committed main stream.
   await repository.transaction((transaction) => {
-    const snapshot = repository.snapshot()
-    const cursor = imSelectors.view(viewKey)(snapshot) as Omit<CachedMessageWindow, 'messages'> | undefined
-    const mainSeqs = message.thread_root_id || !cursor ? [] : snapshot.message
-      .filter((row) => row.streamId === `main:${message.chat_id}`)
-      .map((row) => row.seq).concat(message.seq)
     transaction.putMessage(message)
     transaction.delete('outbox', [repository.accountId, clientMessageId])
-    if (cursor && mainSeqs.length > 0) transaction.putView(viewKey, {
-      ...cursor, oldestSeq: Math.min(...mainSeqs), maxSeq: Math.max(...mainSeqs),
-    })
   })
 }
 
@@ -615,6 +664,37 @@ function applyOperations(
     } else if (rows.delete(key)) {
       changed.add(operation.store)
       effective.push(operation)
+    }
+  }
+  // Message writes re-derive each touched window's bounds from the committed main stream. Account
+  // ingestion (it writes message-revision rows) also bounds every stream it touched, once per page.
+  if (changed.has('message')) {
+    const before = new Map(snapshot.message.map(row => [row.id, row]))
+    const put = operations.flatMap(operation => operation.type === 'put' && operation.store === 'message' ? [operation.value] : [])
+    const removed = operations.flatMap(operation => operation.type === 'delete' && operation.store === 'message' && Array.isArray(operation.key)
+      ? [before.get(operation.key[1] as string)].filter(row => row !== undefined) : [])
+    const stream = (id: string) => [...rowsOf('message').values()].filter(row => row.streamId === id).sort((a, b) => (b.seq as number) - (a.seq as number))
+    const ingested = operations.some(operation => operation.type === 'put' && String(operation.value.key).startsWith('message-revision:'))
+    for (const streamId of ingested ? new Set(put.map(row => row.streamId as string)) : []) {
+      for (const row of stream(streamId).slice(MAX_WINDOW)) {
+        const key = [accountId, row.id as string]
+        rowsOf('message').delete(JSON.stringify(key))
+        effective.push({ type: 'delete', store: 'message', key })
+      }
+    }
+    for (const chatId of new Set([...put, ...removed].map(row => row.chatId as string))) {
+      const key = `message-window:${chatId}`
+      const row = rowsOf('view').get(JSON.stringify([accountId, key]))
+      if (!row) continue
+      const seqs = stream(`main:${chatId}`).map(row => row.seq as number)
+      const value = { ...(row.value as object), oldestSeq: seqs.at(-1) ?? 0, maxSeq: seqs[0] ?? 0 }
+      if (JSON.stringify(value) === JSON.stringify(row.value)) continue
+      const nextRow = { ...row, value }
+      rowsOf('view').set(JSON.stringify([accountId, key]), nextRow)
+      changed.add('view')
+      const pending = effective.findLast(operation => operation.type === 'put' && operation.store === 'view' && operation.value.key === key)
+      if (pending?.type === 'put') pending.value = nextRow
+      else effective.push({ type: 'put', store: 'view', value: nextRow })
     }
   }
   for (const store of changed) {

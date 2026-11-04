@@ -11,7 +11,8 @@ type Failure = { code: string; message: string }
 type Result = { data: unknown[] | null; error: Failure | null }
 type Query = { table: string; projection?: string; filters: [string, unknown][]; signal?: AbortSignal; order?: string }
 const missingSerial = { code: '42703', message: 'column active_users.name_serial does not exist' }
-const legacyProjection = DISPLAY_IDENTITY_SELECT.replace(', name_serial', '')
+const currentProjection = 'id, gugu_number, display_name, name_serial, avatar, bio, type, owner_user_id, agent_public, desired_status, removed_at, session_archived_at, session_lifecycle_revision, device_id, category, is_official, local_path, created_at, updated_at, onboarded_at'
+const legacyProjection = 'id, gugu_number, display_name, avatar, bio, type, owner_user_id, agent_public, desired_status, removed_at, session_archived_at, session_lifecycle_revision, device_id, category, is_official, local_path, created_at, updated_at, onboarded_at'
 
 describe('live identity directory during a backend rollout', () => {
   let results: Result[]
@@ -46,14 +47,16 @@ describe('live identity directory during a backend rollout', () => {
     it('keeps the stored serial with one request on an updated backend', async () => {
       results.push({ data: [{ ...row, name_serial: 93 }], error: null })
       await expect(reader.read()).resolves.toEqual([displayIdentity('task-1', { type: 'agent', display_name: 'Saved task', nameSerial: 93 })])
-      expect(queries).toHaveLength(1)
-      expect(queries[0].projection).toBe(DISPLAY_IDENTITY_SELECT)
+      expect(queries).toEqual([{
+        table: 'active_users', projection: currentProjection, filters: reader.filters,
+        ...('signal' in reader ? { signal: reader.signal } : { order: reader.order }),
+      }])
     })
 
     it('retries only the old projection and leaves an unavailable serial absent', async () => {
       results.push({ data: null, error: missingSerial }, { data: [row], error: null })
       await expect(reader.read()).resolves.toEqual([displayIdentity('task-1', { type: 'agent', display_name: 'Saved task', nameSerial: null })])
-      expect(queries).toEqual([DISPLAY_IDENTITY_SELECT, legacyProjection].map((projection) => ({
+      expect(queries).toEqual([currentProjection, legacyProjection].map((projection) => ({
         table: 'active_users', projection, filters: reader.filters,
         ...('signal' in reader ? { signal: reader.signal } : { order: reader.order }),
       })))
@@ -69,7 +72,10 @@ describe('live identity directory during a backend rollout', () => {
     ])('reports $code / $message without retrying', async (error) => {
       results.push({ data: null, error })
       await expect(reader.read()).rejects.toThrow(error.message)
-      expect(queries).toHaveLength(1)
+      expect(queries).toEqual([{
+        table: 'active_users', projection: currentProjection, filters: reader.filters,
+        ...('signal' in reader ? { signal: reader.signal } : { order: reader.order }),
+      }])
     })
 
     it('reports a failed legacy request without a third request', async () => {

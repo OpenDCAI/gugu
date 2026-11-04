@@ -71,7 +71,7 @@ import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units'
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
-import { activeTurnWithInputs, pendingPromptLanded, projectPendingMessages, type PendingMessageProjectionCache } from './state/pending-prompt';
+import { activeTurnWithInputs, latestVisibleTurnId, pendingPromptLanded, projectPendingMessages, type PendingMessageProjectionCache } from './state/pending-prompt';
 import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier, lastConversationMessage,
@@ -212,6 +212,7 @@ export type EngineControls = {
    * Wired by onMount; safe to call from outside the Solid reactive context.
    */
   setScrollMode?(mode: ScrollMode): void;
+  reconcileNow?(): void;
   /** Move the library-owned composer slot between supported placements. */
   setComposerPlacement?(placement: ComposerPlacement, opts?: ComposerPlacementOptions): void;
   /**
@@ -502,9 +503,18 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Flat unit view (two-tier, incremental) ────────────────────────────────
   // Identity changes only once per new turn, not for every streamed update.
-  const latestTurnId = createMemo(() => state().transcript.state.activeTurnSnapshot?.id
-    ?? state().transcript.state.committedTurns.at(-1)?.id);
-  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active, latestTurnId());
+  const latestTurnId = createMemo(() => latestVisibleTurnId(state().transcript.state.activeTurnSnapshot,
+    state().transcript.state.committedTurns, state().session.state.pendingPrompt, state().session.state.pendingMessages));
+  // Only an empty acknowledgement's visibility depends on which turn is latest.
+  // An ordinary pending input must not rebuild/re-measure every committed bubble.
+  // Keep a stable non-matching id while none of those acknowledgements is latest;
+  // undefined would make flattenTier fall back to the committed tail instead.
+  const committedLatestTurnId = createMemo(() => {
+    const id = latestTurnId();
+    return projectedCommitted().some(turn => turn.id === id && isEmptyAgentTurn(turn)) ? id : '';
+  });
+  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active,
+    active ? latestTurnId() : committedLatestTurnId());
 
   let committedUnitsArr: ReturnType<typeof flattenTier> = [];
   // O(1) lookup: itemId -> index of the FIRST unit for that item in the
@@ -662,7 +672,7 @@ export function ChatRoot(props: ChatRootProps) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
-      const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages)!;
+      const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages, state().transcript.state.committedTurns)!;
       // Reserve the same process row from send to startup: adding it at acknowledgement scrolls a long transcript.
       const pending = [...(pendingPrompt ? [pendingPrompt] : []), ...pendingMessages];
       const failedPending = !at && pending.length > 0 && pending.every(input => input.stopped || input.delivery?.state === 'waiting' || input.delivery?.state === 'failed' || input.delivery?.state === 'unknown');
@@ -976,7 +986,7 @@ export function ChatRoot(props: ChatRootProps) {
       const s = state();
       const pending = s.session.state.pendingPrompt;
       const active =
-        activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
+        activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting, s.transcript.state.committedTurns);
       if (!active) return userTurns();
       const base = committedUnitsArr.length;
       const inActive = collectUserTurnUnits(
@@ -1010,7 +1020,7 @@ export function ChatRoot(props: ChatRootProps) {
       committedUnitsVersion();
       const s = state();
       const pending = s.session.state.pendingPrompt;
-      const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
+      const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting, s.transcript.state.committedTurns);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
       const base = committedUnitsArr.length;
       const ends = active
@@ -1849,6 +1859,13 @@ export function ChatRoot(props: ChatRootProps) {
       props.controls.heroSlot = heroSlotEl ?? null;
       props.controls.contentOverlay = contentOverlaySlotEl ?? null;
       props.controls.setComposerPlacement = setComposerPlacement;
+      props.controls.reconcileNow = () => {
+        // The host just changed the React composer in this same task. Read its
+        // final size and mount/place the Solid rows before either side paints.
+        updateSlotPadBottom();
+        readPhase();
+        writePhase();
+      };
       // Declarative scroll intent: host sets intent; ChatRoot projects it.
       // A new intent supersedes a smooth scroll still in flight: left armed, the above-compensation would re-aim it
       // at its old target and slide the view there, until the settle window let the projection jump back.

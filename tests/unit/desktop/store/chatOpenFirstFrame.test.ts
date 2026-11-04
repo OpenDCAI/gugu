@@ -87,7 +87,7 @@ const { useChatConversation } = await import('../../../../apps/desktop/src/store
 const { chatService } = await import('../../../../apps/desktop/src/lib/chat')
 const { topicService } = await import('../../../../apps/desktop/src/lib/topics')
 const { createMemoryLocalSyncDb } = await import('../../../../apps/desktop/src/lib/localSyncDb')
-const { replaceMessageWindow } = await import('../../../../apps/desktop/src/lib/imRepository')
+const { replaceMessageWindow, ingestAccountMessage } = await import('../../../../apps/desktop/src/lib/imRepository')
 
 type Frame = Pick<ChatContextValue, 'activeChatId' | 'messages' | 'loadingMessages' | 'messageWindow' | 'memberReadSeqs'>
 const frames: Frame[] = []
@@ -247,10 +247,16 @@ describe('打开会话的第一帧', () => {
     try {
       await vi.waitFor(() => expect(scopedLines.get('chatA')?.messages.length).toBe(1), WAIT)
       await act(async () => {
-        for (let seq = 2; seq <= 121; seq++) for (const listener of revisionListeners.get('message_created')!) await listener([{ event: 'message_created', revision: String(seq), payload: {
+        // This suite replaces the account coordinator. Its line consumers now
+        // receive arrivals only after the real account repository commit.
+        for (let seq = 2; seq <= 121; seq++) {
+          await repository.transaction(tx => ingestAccountMessage(repository, tx,
+            message({ id: `send-${seq}`, chat_id: 'chatA', seq, sender_user_id: 'a1', content: 'incoming' }), String(seq)))
+          for (const listener of revisionListeners.get('message_created')!) await listener([{ event: 'message_created', revision: String(seq), payload: {
           chat_id: 'chatA', entity_id: `send-${seq}`, message: { id: `send-${seq}`, chat_id: 'chatA', seq,
             sender_user_id: 'a1', content: 'incoming', content_type: 'text', created_at: new Date().toISOString() },
-        } }])
+          } }])
+        }
         scopedLines.get('chatA')!.setFollowingTail(false)
       })
       const before = scopedLines.get('chatA')!.messageWindow
@@ -394,17 +400,23 @@ describe('打开会话的第一帧', () => {
 
   it('retains a peer arrival while a secondary cold page is pending', async () => {
     const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
+    let dispatch: Promise<unknown> = Promise.resolve()
     try {
       await vi.waitFor(() => expect(revisionListeners.has('message_created')).toBe(true), WAIT)
       await act(async () => {
-        for (const listener of revisionListeners.get('message_created')!) await listener([{ event: 'message_created', revision: '1', payload: {
+        await repository.transaction(tx => ingestAccountMessage(repository, tx,
+          message({ id: 'live-2', chat_id: 'chatA', seq: 2, sender_user_id: 'peer', content: 'arrival' }), '1'))
+        // The UI already observes the account commit while the line's gap
+        // repair is pending; coordinator dispatch does not block that paint.
+        dispatch = Promise.all([...revisionListeners.get('message_created')!].map(listener => listener([{ event: 'message_created', revision: '1', payload: {
           chat_id: 'chatA', entity_id: 'live-2', message: {
             id: 'live-2', chat_id: 'chatA', seq: 2, sender_user_id: 'peer', content: 'arrival', content_type: 'text', created_at: '2026-10-23T00:00:02Z',
           },
-        } }])
+        } }])))
       })
       expect(sharedAccess.read('chatA').messageWindow.messages.map((row) => row.id)).toEqual(['live-2'])
       await act(async () => { network.resolve() })
+      await dispatch
       await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.map((row) => row.id)).toEqual(['msgA1', 'live-2']), WAIT)
     } finally { network.resolve(); harness.cleanup() }
   })
@@ -415,6 +427,8 @@ describe('打开会话的第一帧', () => {
     try {
       await vi.waitFor(() => expect(scopedFrames.some((frame) => frame.ids.includes('msgA1'))).toBe(true), WAIT)
       const emit = async (seq: number) => {
+        await repository.transaction(tx => ingestAccountMessage(repository, tx,
+          message({ id: `stream-${seq}`, chat_id: 'chatA', seq, sender_user_id: 'a1', content: 'stream' }), String(seq)))
         for (const listener of revisionListeners.get('message_created')!) await listener([{ event: 'message_created', revision: String(seq), payload: {
           chat_id: 'chatA', entity_id: `stream-${seq}`, message: { id: `stream-${seq}`, chat_id: 'chatA', seq,
             sender_user_id: 'a1', content: 'stream', content_type: 'text', created_at: new Date().toISOString() },

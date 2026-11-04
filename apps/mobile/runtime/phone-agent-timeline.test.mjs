@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, mkdir, writeFile, appendFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, appendFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createPhoneTimelineRuntime } from './phone-agent-timeline.mjs'
@@ -315,3 +315,64 @@ test('file input projection survives a host restart and job cleanup, without cha
     assert.deepEqual(Object.keys(f.agent.fileInputs), ['u1']);
   } finally { await f.close(); }
 });
+
+
+test('actual Pi retry recovery notices stay in the completed job turn after cold reopen', async () => {
+  const f = await fixture()
+  const raw = await readFile(new URL('./fixtures/phone-model-retry.jsonl', import.meta.url), 'utf8')
+  const entries = raw.trim().split('\n').map((value) => JSON.parse(value))
+  const input = entries.find((entry) => entry.message?.role === 'user')
+  const notices = [
+    { key: 'retry-1', at: 1793782141813, title: '模型请求正在重试', description: '第 1/3 次，等待 2000 毫秒。' },
+    { key: 'retry-2', at: 1793782143861, title: '模型请求正在重试', description: '第 2/3 次，等待 4000 毫秒。' },
+    { key: 'retry-end', at: 1793782153751, title: '模型请求已恢复', description: 'Pi 已结束第 2 次重试。' },
+  ]
+  const job = { id: randomUUID(), agentUserId: f.agent.agentUserId, contextEpoch: f.agent.contextEpoch,
+    prompt: input.message.content[0].text, status: 'done', createdAt: '2026-11-04T08:49:01.036Z',
+    startedAt: '2026-11-04T08:49:01.039Z', finishedAt: '2026-11-04T08:49:13.754Z', runtimeNotices: notices }
+  f.store.state.jobs[job.id] = job
+  try {
+    await writeFile(f.path, raw); f.agent.record = f.record
+    for (const mode of ['cold', 'reopened']) {
+      if (mode === 'reopened') await f.reopen()
+      const snapshot = await f.api.snapshot(f.agent, {})
+      assert.equal(snapshot.turns.at(-1).outcome?.kind, 'done', mode)
+      assert.equal(snapshot.turns.length, 3, 'two real failures and one completed reply, with no notice-only turn')
+      const shown = snapshot.turns.flatMap((turn) => turn.items).filter((item) => item.kind === 'session-notice')
+      assert.deepEqual(shown.map((item) => ({ at: item.at, title: item.title, detail: item.detail })),
+        notices.map((notice) => ({ at: notice.at, title: notice.title, detail: notice.description })))
+      assert.equal(snapshot.turns.at(-1).items.filter((item) => item.kind === 'session-notice').length, 2)
+    }
+    await f.append([row('next-user', '97bcf0ed', 1793782200000, { role: 'user', content: 'A later task is genuinely running' })])
+    const busy = await f.api.snapshot(f.agent, {})
+    assert.equal(busy.turns.at(-1).outcome, undefined, 'the next real running task must not be closed')
+    assert.equal(busy.turns.at(-1).items.some((item) => item.kind === 'session-notice'), false)
+  } finally { await f.close() }
+})
+
+
+test('late notices are anchored only by their completed job and never close a running successor', async () => {
+  const f = await fixture()
+  const at = 1_700_000_000_000
+  const job = { id: randomUUID(), agentUserId: f.agent.agentUserId, contextEpoch: f.agent.contextEpoch,
+    inputRecordId: 'u1', prompt: 'original attachment text', status: 'running',
+    createdAt: stamp(at - 1), startedAt: stamp(at - 1),
+    runtimeNotices: [{ key: 'recovered', at: at + 3, title: 'Recovered' }] }
+  f.store.state.jobs[job.id] = job
+  try {
+    await f.write([row('u1', null, at, { role: 'user', content: 'recorded attachment body' }), row('a1', 'u1', at + 1, assistant('Done'))])
+    const during = await f.api.snapshot(f.agent, {})
+    assert.equal(during.turns.at(-1).outcome, undefined, 'no fabricated job completion while still running')
+    job.status = 'done'; job.finishedAt = stamp(at + 4)
+    await f.api.finish(f.agent, job)
+    const done = await f.api.snapshot(f.agent, {})
+    assert.equal(done.turns.length, 1)
+    assert.equal(done.turns[0].outcome.kind, 'done')
+    assert.equal(done.turns[0].items.find((item) => item.kind === 'session-notice').at, at + 3)
+    await f.append([row('u2', 'a1', at + 5, { role: 'user', content: 'next task' })])
+    const next = await f.api.snapshot(f.agent, {})
+    assert.equal(next.turns.length, 2)
+    assert.equal(next.turns[1].outcome, undefined)
+    assert.equal(next.turns[0].items.filter((item) => item.kind === 'session-notice').length, 1)
+  } finally { await f.close() }
+})
