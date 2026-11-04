@@ -153,8 +153,22 @@ export function useChatProjectionBinding(deps: {
 }) {
   const { ledger, repositoryRef, getRepository, chatsRef, activeChatIdRef, requestSeqRef, setChats, onActiveRevoked, canAcknowledge, visibleSeqOf } = deps
   const ownerRef = useRef<{ accountId: string; owner: ChatProjection } | null>(null)
-  const patchChat: PatchChat = useCallback((chatId, partial, expectedReadStateVersion) =>
-    setChats(patchChatRows(chatsRef.current, chatId, partial, expectedReadStateVersion)), [chatsRef, setChats])
+  // React may batch several publications before layout effects refresh chatsRef. Keep
+  // the accepted tuples at the publication boundary, independently of render timing.
+  const acceptedRef = useRef<{ accountId: string; rows: ChatItem[] } | null>(null)
+  const currentRows = useCallback((accountId: string) => mergeFetchedChatsPreservingActiveLocal(
+    chatsRef.current, acceptedRef.current?.accountId === accountId ? acceptedRef.current.rows : [],
+    activeChatIdRef.current, { preserveMissingActive: false }), [chatsRef, activeChatIdRef])
+  const acceptRows = useCallback((accountId: string, rows: ChatItem[]) => {
+    if (repositoryRef.current?.accountId !== accountId) return
+    acceptedRef.current = { accountId, rows }
+    chatsRef.current = rows
+    setChats(rows)
+  }, [repositoryRef, chatsRef, setChats])
+  const patchChatFor = useCallback((accountId: string): PatchChat => (chatId, partial, expectedReadStateVersion) => {
+    if (repositoryRef.current?.accountId !== accountId) return
+    acceptRows(accountId, patchChatRows(currentRows(accountId), chatId, partial, expectedReadStateVersion))
+  }, [repositoryRef, acceptRows, currentRows])
 
   const ownerFor = useCallback((accountId: string): ChatProjection => {
     if (ownerRef.current?.accountId !== accountId) {
@@ -170,31 +184,33 @@ export function useChatProjectionBinding(deps: {
     identities: readonly unknown[],
     options: { requestSeq: number; notify: boolean; preserveMissingActive?: boolean; revokedMembership?: (chatId: string) => boolean },
   ): Promise<void> => {
+    const repository = await getRepository()
+    const accountId = repository.accountId
+    if (repositoryRef.current?.accountId !== accountId) return
     const activeChatId = activeChatIdRef.current
-    const isConversationDeleted = ownerRef.current?.owner.isConversationDeleted
+    const isConversationDeleted = ownerRef.current?.accountId === accountId
+      ? ownerRef.current.owner.isConversationDeleted : undefined
     const revokeMissingActive = !!activeChatId && !!isConversationDeleted?.(activeChatId) || ledger.shouldRevokeActive({
       activeChatId, fetched, requestSeq: options.requestSeq, preserveMissingActive: options.preserveMissingActive,
     }) && (!options.revokedMembership || options.revokedMembership(activeChatId!))
     ledger.recordProjected(fetched, options.requestSeq)
-    const repository = await getRepository()
     const published = await applyFetchedChatList(ledger, repository, { fetched, identities },
-      { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted })
-    // Snapshot publication can wait on a repository commit. Rejoin the latest complete read
-    // tuples after that wait; never prepare an optimistic read on the other side of an await.
-    const current = chatsRef.current
+      { currentChats: currentRows(accountId), activeChatId, revokeMissingActive, isConversationDeleted })
+    if (repositoryRef.current?.accountId !== accountId) return
+    // Rejoin external updates delivered during the repository wait, including a
+    // complete tuple accepted before React has committed either publication.
+    const current = currentRows(accountId)
     const merged = mergeFetchedChatsPreservingActiveLocal(published, current, activeChatIdRef.current,
       { preserveMissingActive: false })
     const pendingReads: Array<() => void> = []
     const acknowledged = acknowledgeOnScreenChatRows(merged, {
-      current, onScreen: isChatOnScreen, canAcknowledge, visibleSeqOf, patchChat,
+      current, onScreen: isChatOnScreen, canAcknowledge, visibleSeqOf, patchChat: patchChatFor(accountId),
       deferPersist: (persist) => pendingReads.push(persist),
     })
-    // No await between preparing, publishing and persisting: no discarded optimistic tuple
-    // can be painted while its RPC is skipped because the preparation became stale.
-    setChats(acknowledged)
+    acceptRows(accountId, acknowledged)
     for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
-  }, [ledger, activeChatIdRef, canAcknowledge, visibleSeqOf, chatsRef, getRepository, onActiveRevoked, patchChat, setChats])
+  }, [ledger, activeChatIdRef, canAcknowledge, visibleSeqOf, currentRows, getRepository, onActiveRevoked, patchChatFor, acceptRows, repositoryRef])
 
   /** 冷启快照:一次「哪些会话属于我」的读 + 与增量同一套族读 ⇒ 2 波(spec I7,没有第二条拉取路)。 */
   const hydrate = useCallback((accountId: string) => ownerFor(accountId)

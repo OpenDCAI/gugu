@@ -227,7 +227,8 @@ export function mergeFetchedChatsPreservingActiveLocal(
         unread_count: local.unread_count,
         unread_locator: local.unread_locator,
       }
-    } else if (fetched.id === activeChatId && local && fetched.last_read_seq < local.last_read_seq) {
+    } else if (fetchedReadStateVersion === 0 && localReadStateVersion === 0
+      && fetched.id === activeChatId && local && fetched.last_read_seq < local.last_read_seq) {
       // Compatibility for cached rows written before read_state_version existed.
       next = {
         ...next,
