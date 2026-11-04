@@ -5,6 +5,8 @@ import { Trans, useTranslation } from 'react-i18next'
 import { authService } from '../lib/auth'
 import { sessionCoordinator } from '../lib/sessionCoordinator'
 import { googleLogin } from '../lib/googleLogin'
+import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
+import { readGoogleProviderEnabled } from '../lib/authProviderSettings'
 import { Button } from '@/components/ui/Button'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion'
@@ -27,6 +29,7 @@ function PrimaryButton({ disabled, loading, label }: { disabled: boolean; loadin
 
 export function LoginPage() {
   const { t } = useTranslation('main')
+  const [googleEnabled, setGoogleEnabled] = useState<boolean | null>(null)
   const [step, setStep] = useState<Step>('email')
   const [email, setEmail] = useState('')
   const [otpCode, setOtpCode] = useState('')
@@ -36,6 +39,14 @@ export function LoginPage() {
   const [resendCountdown, setResendCountdown] = useState(0)
   const reduceMotion = usePrefersReducedMotion()
   const google = useSyncExternalStore(googleLogin.subscribe, googleLogin.getSnapshot)
+
+  useEffect(() => {
+    if (!googleLogin.available) { setGoogleEnabled(false); return }
+    const controller = new AbortController()
+    void readGoogleProviderEnabled(getSupabaseUrl(), getSupabaseAnonKey(), undefined, controller.signal)
+      .then(enabled => { if (!controller.signal.aborted) setGoogleEnabled(enabled) })
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     if (resendCountdown <= 0) return
@@ -95,7 +106,7 @@ export function LoginPage() {
   }
 
   return <main className="gugu-auth-page">
-    <section className="gugu-auth-shell" aria-labelledby="gugu-auth-title">
+    <section className="gugu-auth-shell" aria-labelledby={googleEnabled === null ? undefined : "gugu-auth-title"} aria-busy={googleEnabled === null}>
       <aside className="gugu-auth-brand" aria-label={t('brand.name')}>
         <AuthBrandMotion />
         <div>
@@ -103,7 +114,7 @@ export function LoginPage() {
           <p className="gugu-auth-brand-sub">{t('auth.brandSubtitle')}</p>
         </div>
       </aside>
-      <div className="gugu-auth-pane"><div className="gugu-auth-login">
+      <div className="gugu-auth-pane">{googleEnabled === null ? <div className="gugu-auth-placeholder" role="status" aria-label={t('auth.loadingMethods')} /> : <div className="gugu-auth-login">
         <header className="gugu-auth-heading">
           <img className="gugu-auth-logo" src={APP_LOGO_URL} alt={t('brand.name')} draggable={false} />
           <h1 id="gugu-auth-title">{t('auth.welcome')}</h1>
@@ -111,17 +122,15 @@ export function LoginPage() {
         </header>
         <AnimatePresence mode="wait" initial={false}>
           {step === 'email' && <motion.form key="email" {...stepMotion(reduceMotion, -10)} onSubmit={handleRequestOtp} className="gugu-auth-form">
-            {googleLogin.available && <>
-              <Button type="button" variant="secondary" size="xl" className="gugu-auth-google"
+            {googleLogin.available && googleEnabled && <Button type="button" variant="secondary" size="xl" className="gugu-auth-google"
                 disabled={loading || google.phase === 'restoring' || google.phase === 'accepting' || (google.busy && google.phase === 'failed')}
                 onClick={() => { setError(''); void (google.busy ? googleLogin.cancel() : googleLogin.start()) }}>
                 <GoogleMark />{t(google.busy && google.phase !== 'failed' ? 'auth.google.cancel' : 'auth.google.signIn')}
-              </Button>
-              {google.busy && google.phase !== 'failed' && <p role="status" className="gugu-auth-status">{t(google.phase === 'authorizing' ? 'auth.google.waiting' : 'auth.google.exchanging')}</p>}
-              {google.failure && <p role="alert" className="gugu-auth-error">{t(`auth.google.${google.failure}`)}</p>}
-              {google.notice && <p role="alert" className="gugu-auth-error">{t('auth.google.staleCallback')}</p>}
-              <div className="gugu-auth-divider">{t('auth.or')}</div>
-            </>}
+            </Button>}
+            {google.busy && google.phase !== 'failed' && <p role="status" className="gugu-auth-status">{t(google.phase === 'authorizing' ? 'auth.google.waiting' : 'auth.google.exchanging')}</p>}
+            {google.failure && <p role="alert" className="gugu-auth-error">{t(`auth.google.${google.failure}`)}</p>}
+            {google.notice && <p role="alert" className="gugu-auth-error">{t('auth.google.staleCallback')}</p>}
+            {googleLogin.available && googleEnabled && <div className="gugu-auth-divider">{t('auth.or')}</div>}
             <label htmlFor="gugu-auth-email" className="gugu-auth-label">{t('auth.emailLabel')}</label>
             <input id="gugu-auth-email" className="gugu-auth-input" type="email" inputMode="email" autoComplete="email"
               value={email} placeholder={t('auth.emailPlaceholder')}
@@ -149,7 +158,7 @@ export function LoginPage() {
           terms: <a href="https://gugu.nextmind.space/zh/terms.html" target="_blank" rel="noreferrer" />,
           privacy: <a href="https://gugu.nextmind.space/zh/privacy.html" target="_blank" rel="noreferrer" />,
         }} /></p>
-      </div></div>
+      </div>}</div>
     </section>
   </main>
 }

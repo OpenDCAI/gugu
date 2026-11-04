@@ -8,13 +8,14 @@ import '../../../../apps/desktop/src/i18n/registerMainCatalog'
 
 const m = vi.hoisted(() => ({
   state: { phase: 'idle', busy: false } as GoogleLoginState,
-  listeners: new Set<() => void>(), start: vi.fn(async () => {}), cancel: vi.fn(async () => {}), requestOtp: vi.fn(),
+  listeners: new Set<() => void>(), start: vi.fn(async () => {}), cancel: vi.fn(async () => {}), requestOtp: vi.fn(), settings: vi.fn<() => Promise<Response>>(),
 }))
 vi.mock('../../../../apps/desktop/src/lib/googleLogin', () => ({ googleLogin: {
   available: true, getSnapshot: () => m.state,
   subscribe: (listener: () => void) => { m.listeners.add(listener); return () => m.listeners.delete(listener) },
   start: m.start, cancel: m.cancel,
 } }))
+vi.mock('@gugu/core/cloud/config', () => ({ getSupabaseUrl: () => 'https://auth.example.test', getSupabaseAnonKey: () => 'public-test-key' }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: { requestLoginOtp: m.requestOtp } }))
 vi.mock('../../../../apps/desktop/src/lib/sessionCoordinator', () => ({ sessionCoordinator: {} }))
 vi.mock('../../../../apps/desktop/src/pages/login/AuthBrandMotion', () => ({ AuthBrandMotion: () => null }))
@@ -26,6 +27,12 @@ async function state(value: GoogleLoginState) { await act(async () => { m.state 
 beforeEach(async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.clearAllMocks()
+  m.settings.mockImplementation(async () => Response.json({ external: { google: true } }))
+  vi.stubGlobal('fetch', function (this: unknown, input: RequestInfo | URL) {
+    expect(this).toBe(globalThis)
+    expect(input).toBe('https://auth.example.test/auth/v1/settings')
+    return m.settings()
+  })
   m.state = { phase: 'idle', busy: false }
   await i18n.changeLanguage('zh-CN')
   host = document.createElement('div')
@@ -33,7 +40,7 @@ beforeEach(async () => {
   root = createRoot(host)
   await act(async () => root.render(<LoginPage />))
 })
-afterEach(async () => { await act(async () => root.unmount()); host.remove() })
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 it('starts Google with one minimal button and exposes explicit cancellation while authorization is pending', async () => {
   expect(button('用 Google 登录')).toBeDefined()
@@ -68,4 +75,46 @@ it('does not let email submission overwrite an active Google verifier', async ()
   expect(submit.disabled).toBe(true)
   await act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
   expect(m.requestOtp).not.toHaveBeenCalled()
+})
+
+async function remountSettings(request: () => Promise<Response>) {
+  await act(async () => root.unmount())
+  m.settings.mockImplementation(request)
+  root = createRoot(host)
+  await act(async () => root.render(<LoginPage />))
+}
+
+it('shows the Google button and divider together only when backend Google is enabled', async () => {
+  expect(button('用 Google 登录')).toBeDefined()
+  expect(host.querySelector('.gugu-auth-divider')?.textContent).toBe('或')
+  await remountSettings(async () => Response.json({ external: { google: false } }))
+  expect(button('用 Google 登录')).toBeUndefined()
+  expect(host.querySelector('.gugu-auth-divider')).toBeNull()
+  expect(host.querySelector('input[type="email"]')).not.toBeNull()
+})
+
+it('uses a neutral card while settings waits, then shows email after 2 seconds without a late Google insertion', async () => {
+  vi.useFakeTimers()
+  let release!: (value: Response) => void
+  const response = new Promise<Response>(resolve => { release = resolve })
+  await remountSettings(() => response)
+  expect(host.querySelector('.gugu-auth-placeholder')).not.toBeNull()
+  expect(host.querySelectorAll('button, .gugu-auth-divider')).toHaveLength(0)
+  expect(host.querySelector('.gugu-auth-shell')?.getAttribute('aria-busy')).toBe('true')
+  await act(async () => { await vi.advanceTimersByTimeAsync(2_000) })
+  expect(host.querySelector('.gugu-auth-placeholder')).toBeNull()
+  expect(host.querySelector('input[type="email"]')).not.toBeNull()
+  expect(button('用 Google 登录')).toBeUndefined()
+  expect(host.querySelector('.gugu-auth-divider')).toBeNull()
+  await act(async () => { release(Response.json({ external: { google: true } })) })
+  expect(button('用 Google 登录')).toBeUndefined()
+  expect(host.querySelector('.gugu-auth-divider')).toBeNull()
+})
+
+it('keeps email on a settings failure without hiding an actual OAuth failure', async () => {
+  await remountSettings(async () => { throw new TypeError('offline') })
+  expect(button('用 Google 登录')).toBeUndefined()
+  expect(host.querySelector('.gugu-auth-divider')).toBeNull()
+  await state({ phase: 'failed', failure: 'invalidCode', busy: false })
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe('登录授权已过期或与本次登录不匹配，请重试')
 })

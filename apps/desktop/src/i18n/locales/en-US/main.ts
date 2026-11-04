@@ -373,6 +373,7 @@ export default {
     }
   },
   "auth": {
+    "loadingMethods": "Loading sign-in methods",
     "google": {
       "signIn": "Sign in with Google",
       "cancel": "Cancel Google sign-in",

@@ -367,6 +367,7 @@ export default {
     }
   },
   "auth": {
+    "loadingMethods": "正在加载登录方式",
     "google": {
       "signIn": "用 Google 登录",
       "cancel": "取消 Google 登录",
