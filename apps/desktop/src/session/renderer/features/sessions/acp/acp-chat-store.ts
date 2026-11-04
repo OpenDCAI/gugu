@@ -3009,6 +3009,9 @@ export class AcpChatStore {
           ? withTranscriptTurnIdentity(row.turn, turn.id, turn.seq) : turn);
       } else {
         const settled = withTranscriptTurnIdentity(row.turn, origin.id, origin.seq);
+        // An older run can reuse this runtime id. Only an equal immutable reference
+        // owns this settlement; the older stored row must not hide the new run.
+        this._persistedRuntimeTurnIds = new Set([...this._persistedRuntimeTurnIds].filter(id => id !== origin.id));
         const turns = new Map(this._runtimeTurns.map(turn => [turn.seq, turn]));
         turns.set(origin.seq, settled);
         this._runtimeTurns = [...turns.values()].sort((a, b) => a.seq - b.seq);
