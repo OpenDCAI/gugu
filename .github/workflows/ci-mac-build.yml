@@ -1,7 +1,12 @@
 # Reusable only: callers remain unchanged until a reviewed immutable revision is admitted.
 name: Reusable macOS build
 on:
-  workflow_call: null
+  workflow_call:
+    inputs:
+      build-required:
+        description: Original changes decision; never grants runner access.
+        required: true
+        type: string
 permissions:
   contents: read
 env:
@@ -83,3 +88,4 @@ jobs:
         env:
           GUGU_BUILD_SERIAL: '1'
       - run: pnpm rebuild:native
+    if: ${{ inputs.build-required == 'true' }}
