@@ -106,6 +106,8 @@ export function acknowledgeOnScreenChatRows(
     /** 屏幕上真正可见的最大 seq(已落地的窗口消息);确认不得越过它。 */
     visibleSeqOf?: (chatId: string) => number
     patchChat: PatchChat
+    /** 延迟写入真正执行时用它读**当前**的行:决策与执行之间隔着 await(评审)。 */
+    liveRows?: () => readonly ChatItem[]
     deferPersist?: (persist: () => void) => void
   },
 ): ChatItem[] {
@@ -127,8 +129,14 @@ export function acknowledgeOnScreenChatRows(
     }
     if (seq <= chat.last_read_seq) return chat
     const prepared = prepareProjectedReadWatermark(chat, seq, context.patchChat)
-    if (context.deferPersist) context.deferPersist(prepared.persist)
-    else prepared.persist()
+    const persist = () => {
+      // 决策到这里中间隔着 await(评审):用户若刚标了手工未读,或读状态已往前走,这条确认作废 —— 本地不写,RPC 也不发。
+      const latest = context.liveRows?.().find((row) => row.id === chat.id)
+      if (latest?.is_marked_unread || (latest?.read_state_version ?? 0) > (chat.read_state_version ?? 0)) return
+      prepared.persist()
+    }
+    if (context.deferPersist) context.deferPersist(persist)
+    else persist()
     return prepared.chat
   })
 }
@@ -181,12 +189,16 @@ export function useChatProjectionBinding(deps: {
       notifyForRefreshedChats(chatsRef.current, fetched,
         { onScreen: isChatOnScreen, notificationsEnabled: notifyMessages, soundEnabled: notifySound })
     }
+    // 仓库先拿到手:确认(以及随它进合并的乐观行)必须基于**这一刻**的本地读状态 —— 等仓库的那一会儿用户若
+    // 标了手工未读,先算好的乐观行会以同版本把它盖掉,mark_read 也照样发出去(评审)。
+    const repository = await getRepository()
     const pendingReads: Array<() => void> = []
     const acknowledged = acknowledgeOnScreenChatRows(fetched, {
       current: chatsRef.current, onScreen: isChatOnScreen, canAcknowledge, visibleSeqOf, patchChat,
+      liveRows: () => chatsRef.current,
       deferPersist: (persist) => pendingReads.push(persist),
     })
-    setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched: acknowledged, identities },
+    setChats(await applyFetchedChatList(ledger, repository, { fetched: acknowledged, identities },
       { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted }))
     for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
