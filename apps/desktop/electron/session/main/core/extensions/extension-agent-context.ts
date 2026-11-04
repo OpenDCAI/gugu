@@ -5,6 +5,7 @@ import { sessions } from '@main/db/schema';
 import { persistedWorkspacePath } from '@main/core/projects/utils';
 import { sessionModelLabel, sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
 import { sessionModelFromDecision } from '@main/core/sessions/session-model-fact';
+import { knownTaskName } from '@main/core/sessions/task-name';
 
 /**
  * #6615 问题 11 What an extension program is told about the agent session that called it, beyond who
@@ -33,6 +34,9 @@ export interface AgentSessionContext {
   model: string | null;
   /** That model's name as the model menu shows it (`sessionModelLabel`, kept with the decision); null for an engine's own. */
   modelLabel: string | null;
+  /** The actual assistant name and task title, never inferred from the model label. */
+  agentName?: string;
+  taskTitle?: string;
 }
 
 const isFolder = (path: string) => fs.stat(path).then((found) => found.isDirectory(), () => false);
@@ -43,7 +47,7 @@ const isFolder = (path: string) => fs.stat(path).then((found) => found.isDirecto
  */
 export async function agentSessionContext(agentId: string): Promise<AgentSessionContext | null> {
   const [session] = await db
-    .select({ workspaceId: sessions.workspaceId, projectId: sessions.projectId, config: sessions.config, provider: sessions.provider, runtime: sessions.runtime })
+    .select({ workspaceId: sessions.workspaceId, projectId: sessions.projectId, config: sessions.config, provider: sessions.provider, runtime: sessions.runtime, title: sessions.title })
     .from(sessions)
     .where(eq(sessions.id, agentId))
     .limit(1);
@@ -53,5 +57,8 @@ export async function agentSessionContext(agentId: string): Promise<AgentSession
   const decision = await sessionPlatformModel(agentId);
   const model = sessionModelFromDecision(decision, session.config?.model ?? null).spawn_model_id ?? null;
   const modelLabel = await sessionModelLabel(agentId, decision, session.provider, session.runtime);
-  return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot, model, modelLabel };
+  const agentName = knownTaskName({ id: agentId, config: session.config });
+  const taskTitle = session.title?.trim();
+  return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot, model, modelLabel,
+    ...(agentName ? { agentName } : {}), ...(taskTitle ? { taskTitle } : {}) };
 }

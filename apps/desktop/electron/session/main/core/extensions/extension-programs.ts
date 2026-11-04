@@ -196,11 +196,14 @@ export const WORKSPACE_META_KEY = 'gugu/workspaceRoot';
 /** The model gugu runs the caller's session on, as `listAgents()` gives it — an App shows which model did a thing (片场's cards). */
 export const MODEL_META_KEY = 'gugu/model';
 export const MODEL_LABEL_META_KEY = 'gugu/modelLabel';
+export const AGENT_NAME_META_KEY = 'gugu/agentName';
+export const TASK_TITLE_META_KEY = 'gugu/taskTitle';
 /** The caller's conversation: the person's private chat with it — where `gugu.dispatch` / `sendToMember` reaches them. */
 export const CONVERSATION_META_KEY = 'gugu/conversation';
 
 /** Where the calling session works, read at call time; null when the session is not a session-page one. */
-export type CallerSessionContext = (agentId: string) => Promise<{ sessionId: string; workspaceRoot: string | null; model: string | null; modelLabel?: string | null; conversation?: string | null } | null>;
+export type CallerSessionContext = (agentId: string) => Promise<{ sessionId: string; workspaceRoot: string | null; model: string | null; modelLabel?: string | null;
+  agentName?: string; taskTitle?: string; conversation?: string | null } | null>;
 
 /** The agent calling: its session here (`agentId`) and its gugu identity (`agentUserId`, a uuid). */
 export interface Caller {
@@ -240,6 +243,8 @@ export async function callerMeta(caller: Caller, sessionContext?: CallerSessionC
     ...(context?.workspaceRoot ? { [WORKSPACE_META_KEY]: context.workspaceRoot } : {}),
     ...(context?.model ? { [MODEL_META_KEY]: context.model } : {}),
     ...(context?.modelLabel ? { [MODEL_LABEL_META_KEY]: context.modelLabel } : {}),
+    ...(context?.agentName ? { [AGENT_NAME_META_KEY]: context.agentName } : {}),
+    ...(context?.taskTitle ? { [TASK_TITLE_META_KEY]: context.taskTitle } : {}),
   };
 }
 
@@ -557,7 +562,7 @@ async function use<T>(program: ExtensionProgram, signal: AbortSignal, work: (cli
   try {
     signal.throwIfAborted();
     if (instance.stopping) throw new Error('App program access was revoked');
-    release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats, call.sessionId, call.callerKind ?? 'agent') : undefined;
+    release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats, call.sessionId, call.callerKind ?? 'agent', signal) : undefined;
     return await work(instance.client);
   } finally {
     await release?.();
@@ -619,7 +624,7 @@ export const extensionPrograms: ExtensionPrograms = {
         } else lastWorked.set(program.extensionId, new Date().toISOString());
         return result;
       });
-    });
+    }, agent ? sessionId : undefined);
   },
   handedFiles: handedFilesAs,
   handedChats: handedChatsAs,
@@ -659,6 +664,8 @@ export const extensionPrograms: ExtensionPrograms = {
           ...(from.sessionId ? { [SESSION_META_KEY]: from.sessionId } : {}),
           ...(context?.workspaceRoot ? { [WORKSPACE_META_KEY]: context.workspaceRoot } : {}),
           ...(context?.conversation ? { [CONVERSATION_META_KEY]: context.conversation } : {}),
+          ...(context?.agentName ? { [AGENT_NAME_META_KEY]: context.agentName } : {}),
+          ...(context?.taskTitle ? { [TASK_TITLE_META_KEY]: context.taskTitle } : {}),
         };
         if (program.native) return extensionPrograms.call(program, { name, arguments: args, _meta }, { signal, sessionId: from.sessionId });
         return use(program, signal, (client) => client.callTool({ name, arguments: args, _meta }, undefined, { signal }) as Promise<CallToolResult>,
@@ -673,7 +680,7 @@ export const extensionPrograms: ExtensionPrograms = {
       if (program.native) return extensionPrograms.call(program, { name, arguments: given.args, _meta }, { signal, sessionId: from.agentSession });
       return use(program, signal, (client) => client.callTool({ name, arguments: given.args, _meta }, undefined, { signal }) as Promise<CallToolResult>,
         { id, agent: from.agent.slice('user:'.length), sessionId: from.agentSession, handed: given.handed, handedChats: given.handedChats });
-    });
+    }, 'agent' in from ? from.agentSession : undefined);
   },
 };
 

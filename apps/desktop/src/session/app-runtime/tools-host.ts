@@ -31,7 +31,8 @@ import { programCall } from './program-call';
  */
 
 /** Who called and from where: each field from its `_meta` key, as gugu's gateway stamped it; one it did not stamp is absent, never empty. */
-const STAMP = { agent: 'gugu/agent', session: 'gugu/sessionId', workspaceRoot: 'gugu/workspaceRoot', model: 'gugu/model', modelLabel: 'gugu/modelLabel' } as const;
+const STAMP = { agent: 'gugu/agent', session: 'gugu/sessionId', workspaceRoot: 'gugu/workspaceRoot', model: 'gugu/model', modelLabel: 'gugu/modelLabel',
+  agentName: 'gugu/agentName', taskTitle: 'gugu/taskTitle', callId: 'gugu/call' } as const;
 export type ToolCall = { [field in keyof typeof STAMP]?: string } & { signal: AbortSignal };
 
 function callOf(meta: Record<string, unknown> | undefined, signal: AbortSignal): ToolCall {

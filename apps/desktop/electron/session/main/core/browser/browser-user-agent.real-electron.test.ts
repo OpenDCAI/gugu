@@ -34,7 +34,7 @@ describe.skipIf(!electron)('browser UA during native-to-CDP navigation handoff',
       '@main/lib/events': 'export const events = { emit() {} }',
       '@main/lib/logger': 'export const log = { info() {}, warn() {}, error() {}, debug() {} }',
       '@main/core/extensions/extension-agent-context': 'export async function agentSessionContext() { return null }',
-      '@main/core/sessions/session-orchestration': 'export async function openAgentBrowserPane() {}',
+      '@main/core/sessions/session-orchestration': 'export async function openTaskBrowserPane() {}',
       './browser-webcontents-registry': 'export const browserWebContentsRegistry = { setMouseDownObserver() {}, browsersOfSession() { return [] } }',
     };
     await build({
