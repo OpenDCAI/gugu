@@ -38,13 +38,18 @@ export function watchSessionSendQueues(accountId: string, currentDeviceId: () =>
               // A background child does not hold the composer's foreground queue. A retained native turn does.
               if (snapshot.lifecycle !== 'ready' || snapshot.activeTurnId !== null || snapshot.lastTurnOutcome !== 'none') return
               const life = await rpcOn(machine).sessions.lifeView(input.sessionId)
-              if (life.hold !== null) return
+              if (life.kind !== 'ready' || life.hold !== null) return
               const history = await client.getHistory({ sessionId: input.sessionId, limit: 100 })
               if (!history.success) throw new Error(history.error.type)
               if (closed || watch.closed || !own.valid() || own.accountId !== accountId) return
+              if (watch.again) continue
               const latest = watch.replica!.current()
               if (latest.lifecycle !== 'ready' || latest.activeTurnId !== null || latest.lastTurnOutcome !== 'none') return
-              await releaseQueuedSessionInput(input.sessionId, history.data.turns)
+              await releaseQueuedSessionInput(input.sessionId, history.data.turns, undefined, false, () => {
+                const current = watch.replica!.current()
+                return !closed && !watch.closed && !watch.again && own.valid() && own.accountId === accountId
+                  && current.lifecycle === 'ready' && current.activeTurnId === null && current.lastTurnOutcome === 'none'
+              })
             } while (watch.again)
           } catch (error) { report(error) }
           finally { watch.checking = false }

@@ -103,7 +103,7 @@ export class SessionInputOutbox {
       const last = Math.max(0, ...rows.map(input => input.createdAt))
       const at = Math.max(Date.now(), last + 1)
       const { composer, ...body } = target
-      const previous = rows.filter(row => row.sessionId === target.sessionId && row.deviceId === target.deviceId)
+      const previous = rows.filter(row => row.sessionId === target.sessionId && row.deviceId === target.deviceId && row.admission !== 'rejected')
       const afterInputId = previous.find(row => !row.sendQueue)?.id ?? previous.find(row => row.sendQueue)?.sendQueue?.afterInputId
       const sendQueue = target.sendQueue ?? (composer && previous.length ? { order: at, ...(afterInputId ? { afterInputId } : {}) } : undefined)
       const input: SessionInput = { ...body, ...(sendQueue ? { queued: true, sendQueue: { ...sendQueue, order: at } } : {}),
@@ -143,7 +143,13 @@ export class SessionInputOutbox {
       const next = change(input)
       this.generations.delete(id)
       if (next) await this.storage.put(next)
-      else await this.storage.remove(this.accountId, id)
+      else {
+        const following = (await this.list()).filter(row => row.sendQueue?.afterInputId === id).map(row => {
+          const { afterInputId: _after, ...sendQueue } = row.sendQueue!
+          return { ...row, sendQueue }
+        })
+        await this.persist(following, [id])
+      }
       this.changed()
     })
     this.writing = written
@@ -196,13 +202,15 @@ export class SessionInputOutbox {
 
   /** One foreground completion releases one input, never all of a session's queue. */
   releaseQueued(sessionId: string, baseline: Pick<SessionInput, 'baseline' | 'afterTurnId'>,
-    completed: ReadonlySet<string>, nowId?: string, steers = false): Promise<SessionInput | null> {
+    completed: ReadonlySet<string>, nowId?: string, steers = false, canRelease: () => boolean = () => true): Promise<SessionInput | null> {
     return this.write(async () => {
       const rows = (await this.list()).filter(row => row.sessionId === sessionId)
-      if (!nowId && rows.some(row => !row.sendQueue)) return null
+      if (!canRelease() || (!nowId && rows.some(row => !row.sendQueue && row.admission !== 'rejected'))) return null
       const queued = rows.filter(row => row.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order)
       const input = nowId ? queued.find(row => row.id === nowId) : queued[0]
-      if (!input || input.sendQueue!.edit || (!nowId && input.sendQueue!.afterInputId && !completed.has(input.sendQueue!.afterInputId!))) return null
+      const predecessor = input?.sendQueue?.afterInputId
+      if (!input || input.sendQueue!.edit || (!nowId && predecessor && !completed.has(predecessor)
+        && !rows.some(row => row.id === predecessor && row.admission === 'rejected'))) return null
       // Remaining entries wait for this exact input to finish, including across a shell restart.
       const following = queued.filter(row => row.id !== input.id).map(row => ({ ...row, sendQueue: { ...row.sendQueue!, afterInputId: input.id } }))
       const { sendQueue: _queue, ...released } = input

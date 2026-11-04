@@ -63,7 +63,7 @@ export async function reorderQueuedSessionInputs(sessionId: string, ids: readonl
 }
 
 /** Call only with an authoritative foreground-idle snapshot, or the person's explicit send-now action. */
-export async function releaseQueuedSessionInput(sessionId: string, turns: readonly TranscriptTurn[], nowId?: string, steers = false): Promise<SessionInput | null> {
+export async function releaseQueuedSessionInput(sessionId: string, turns: readonly TranscriptTurn[], nowId?: string, steers = false, canRelease: () => boolean = () => true): Promise<SessionInput | null> {
   if (steers && !Object.values(liveDeviceSessions()).some(host => !host.cached && host.sessions.some(session => session.conversationId === sessionId && session.nativeInputSteering === true))) {
     throw new Error(translateSessionMessage('composer.steeringHostUpdateRequired'))
   }
@@ -73,7 +73,7 @@ export async function releaseQueuedSessionInput(sessionId: string, turns: readon
     if (typeof item._meta?.guguClientMessageId === 'string') completed.add(item._meta.guguClientMessageId)
   }
   const queue = await currentQueue()
-  const input = await queue.releaseQueued(sessionId, sessionInputBaseline(turns), completed, nowId, steers)
+  const input = await queue.releaseQueued(sessionId, sessionInputBaseline(turns), completed, nowId, steers, canRelease)
   if (input) void queue.flush().catch(error => rendererLogger('session/input-outbox').warn({ error: String(error) }, 'Could not flush released input'))
   return input
 }
