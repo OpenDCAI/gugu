@@ -31,7 +31,7 @@ import { bindOutboxActions, createOutboxWiring, type OutboxWiring } from './chat
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
 import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, useDraftQuotesStore, type RefreshChatsOptions } from './chatContext'
-import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen, isChatOnScreen } from '../lib/onScreenChat'
+import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen, isChatOnScreen, isAppActive, useAppActive } from '../lib/onScreenChat'
 import { useMessageReadFailures, useMessageSnapshotEpochs } from './chatMessageReads'
 import { useChatConversation, type ChatConversationAccess } from './useChatConversation'
 import { useActiveChatTransitionState } from './activeChatTransition'; import { fetchChatHistoryPage, restoreChatHistoryAnchor, openCachedChatWindow, useChatWindowCache, type WindowObserver } from './chatWindowPublication'
@@ -61,7 +61,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const { user: authenticatedUser } = useAuth(), user = active ? authenticatedUser : null
   const { toast } = useToast()
   const userId = user?.id ?? null
-  const notificationSettings = useNotificationSettings()
+  const notificationSettings = useNotificationSettings(), appActive = useAppActive()
   const [chats, setChats, chatsRef] = useChatListState()
   const [identitiesById, setIdentitiesById] = useState<ReturnType<typeof imSelectors.identitiesById>>({})
   const [activeChatId, setActiveChatIdState] = useActiveChatTransitionState()
@@ -479,7 +479,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [userId, cache, persistWindowToLocalSync, revalidateWindowOverlays])
   const markMessageVisible = useCallback((message: MessageItem) => {
     const chatId = message.chat_id
-    if (!userId || !cache.isObserved(chatId)) return
+    if (!userId || !appActive || !isAppActive() || !cache.isObserved(chatId)) return
     const receipts = cache.readReceipts(chatId)
     if (message.seq > 0 && !message.is_mine && !message.thread_root_id && !unreadNavigationRef.current?.ownsChat(chatId)
       && cache.rows(chatId).some((row) => row.id === message.id)) {
@@ -494,7 +494,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       receipts.delete(message.id)
       revisionLog.warn({ error, chatId }, 'message read receipt failed')
     })
-  }, [cache, chatsRef, patchChat, userId])
+  }, [appActive, cache, chatsRef, patchChat, userId]) // Activity changes remeasure the current visible rows; never replay cached history.
 
   useEffect(() => {
     if (!userId) {
