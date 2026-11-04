@@ -55,6 +55,22 @@ describe('协议登录弹窗(acp-authenticate,#6335)', () => {
       acpLoginAttemptSucceeded({ status: { kind: 'authenticated' }, login: null }, { sawInitialReading: false })
     ).toBe(false);
   });
+  it('厂商对 authenticate 回了成功 ⇒ 这一趟成了,即使登录态判不出(unknown)也收尾 —— 否则弹窗一直停在等浏览器', () => {
+    const progress = { sawInitialReading: true };
+    const succeeded = login({ outcome: { kind: 'succeeded' } });
+    expect(acpLoginAttemptSucceeded({ status: { kind: 'unknown' }, login: succeeded }, progress)).toBe(true);
+    expect(acpLoginAttemptSucceeded({ status: { kind: 'authenticated' }, login: succeeded }, progress)).toBe(true);
+    expect(
+      acpLoginAttemptSucceeded({ status: { kind: 'unknown' }, login: succeeded }, { sawInitialReading: false })
+    ).toBe(false);
+    expect(acpLoginAttemptSucceeded({ status: { kind: 'unknown' }, login: login() }, progress)).toBe(false);
+    expect(
+      acpLoginAttemptSucceeded(
+        { status: { kind: 'unknown' }, login: login({ outcome: { kind: 'failed', message: 'x' } }) },
+        progress
+      )
+    ).toBe(false);
+  });
 });
 
 describe('rereadOnReturn(终端登录:回到窗口时再问一次,#6335)', () => {
