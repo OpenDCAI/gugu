@@ -42,9 +42,9 @@ export function LowBalanceBanner({ user, onRecharge }: { user: AuthUser | null; 
       data-testid={AUTOMATION_TEST_IDS.lowBalanceBanner}
       role="status"
       style={{
-        position: 'fixed', left: '50%', top: 'calc(var(--titlebar-actions-lane) + 8px)',
-        transform: 'translateX(-50%)', zIndex: 'var(--z-banner)',
-        maxWidth: 420,
+        position: 'fixed', left: 12, right: 12, top: 'calc(var(--titlebar-actions-lane) + 8px)',
+        // Opposing insets give flex the full viewport before centering; left: 50% shrink-to-fit used only half.
+        marginInline: 'auto', maxWidth: 420, boxSizing: 'border-box', zIndex: 'var(--z-banner)',
         background: 'var(--bg-elevated)',
         border: '1px solid var(--border-strong)',
         borderRadius: 'var(--radius-xl)',
