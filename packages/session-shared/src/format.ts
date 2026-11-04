@@ -5,16 +5,53 @@ export type DateValue = Date | number | string;
 export type TimeUnit = 'second' | 'minute' | 'hour' | 'day' | 'month' | 'year';
 
 export function formatNumber(value: number, options: Intl.NumberFormatOptions | undefined, locale: string): string {
-  return new Intl.NumberFormat(locale, options).format(value);
+  return cachedNumberFormat(locale, options ?? {}).format(value);
+}
+
+// Number/RelativeTime formatters are cached for the same reason as the date ones below: message rows and
+// relative-time labels format on a clock, and rebuilding an Intl formatter per call was measurable.
+const numberFormats = new Map<string, Intl.NumberFormat>();
+function cachedNumberFormat(locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let format = numberFormats.get(key);
+  if (!format) numberFormats.set(key, format = new Intl.NumberFormat(locale, options));
+  return format;
+}
+
+const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
+function cachedRelativeTimeFormat(locale: string, options: Intl.RelativeTimeFormatOptions): Intl.RelativeTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let format = relativeTimeFormats.get(key);
+  if (!format) relativeTimeFormats.set(key, format = new Intl.RelativeTimeFormat(locale, options));
+  return format;
 }
 
 // One formatter per locale, options and time zone: every message row formats its time, and building an
 // Intl.DateTimeFormat per call was a measurable part of switching chats. A formatter fixes the zone it was built in,
-// so the key carries the current UTC offset: a zone change (travel, DST) gets a fresh one.
+// so the key carries the zone NAME and the current UTC offset: 只带 offset 不够 —— 利马与纽约同时刻 offset 相同、
+// 规则不同(评审:7 月 4 日会被画成 7 月 3 日)。时区名本身经由下面的探针取 —— 每次调用都问 Intl 太贵。
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 
+// 每次调用都去问 Intl 要时区名(≈55µs)的话,这份缓存就白做了(评审)。用 Date.toString() 里的时区段 + offset
+// 当探针(≈1µs):探针变了(切时区、夏令时)立刻换一份;探针看不出来的两个时区(纽约/坎昆这种同段同 offset)
+// 最多 5 秒后再确认一次。
+const ZONE_RECHECK_MS = 5_000;
+let zoneMemo: { probe: string; name: string; at: number } | null = null;
+
+function timeZoneName(now: number): string {
+  const date = new Date(now);
+  const raw = date.toString();
+  const open = raw.indexOf('(');
+  const probe = `${open < 0 ? 'local' : raw.slice(open + 1, -1)}|${date.getTimezoneOffset()}`;
+  if (!zoneMemo || zoneMemo.probe !== probe || now - zoneMemo.at >= ZONE_RECHECK_MS) {
+    zoneMemo = { probe, at: now, name: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  }
+  return zoneMemo.name;
+}
+
 export function formatDate(value: DateValue, options: Intl.DateTimeFormatOptions | undefined, locale: string): string {
-  const key = `${locale}|${new Date().getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
+  const now = Date.now();
+  const key = `${locale}|${timeZoneName(now)}|${new Date(now).getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
   let format = dateFormats.get(key);
   if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, options));
   return format.format(value instanceof Date ? value : new Date(value));
@@ -64,7 +101,7 @@ export function formatCalendarDay(value: DateValue, locale: string, { withTime =
   if (days === 0) return formatClock(date, locale);
   if (days === 1) {
     // 英文 Intl 给小写「yesterday」;它常单独当标签用,首字母大写(中文不受影响)。
-    const word = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-1, 'day');
+    const word = cachedRelativeTimeFormat(locale, { numeric: 'auto' }).format(-1, 'day');
     const yesterday = word.charAt(0).toLocaleUpperCase(locale) + word.slice(1);
     return withTime ? `${yesterday} ${formatClock(date, locale)}` : yesterday;
   }
@@ -130,8 +167,8 @@ export function formatRelativeTimeParts(
   const distanceParts = (compact: boolean, addSuffix: boolean): RelativeTimePart[] => {
     const { count, unit } = strictDistance(timestamp, nowMs, compact ? Math.floor : Math.round);
     // 短形(侧栏、提交列表)与长形是同一个 Intl 单位格式,只差 narrow/long:中文「10分钟 / 3小时」,英文「10m / 3h」。
-    if (!addSuffix) return text(new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: compact ? 'narrow' : 'long' }).format(count));
-    return new Intl.RelativeTimeFormat(locale, { numeric: 'always', style: compact ? 'narrow' : 'long' })
+    if (!addSuffix) return text(cachedNumberFormat(locale, { style: 'unit', unit, unitDisplay: compact ? 'narrow' : 'long' }).format(count));
+    return cachedRelativeTimeFormat(locale, { numeric: 'always', style: compact ? 'narrow' : 'long' })
       .formatToParts(timestamp > nowMs ? count : -count, unit)
       .map((part): RelativeTimePart => ({ type: part.type === 'literal' ? 'suffix' : 'value', value: part.value }));
   };
