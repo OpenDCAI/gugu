@@ -14,6 +14,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
+import type { PatchChat } from '../../../../apps/desktop/src/store/chatRealtimeMutations'
 import { chat, createNode, createReactHarness, deferred, displayIdentity, message } from '../../../support/testHarness'
 const {
   authUser,
@@ -254,6 +255,9 @@ afterEach(() => {
   harness?.cleanup(); vi.restoreAllMocks()
 })
 
+// The public context accepts two arguments; its actual root callback is PatchChat.
+const patchProviderRead: PatchChat = (id, partial, version) => (latestStore!.patchChat as PatchChat)(id, partial, version)
+
 const readTuple = { last_read_seq: 3, read_state_version: 8, unread_count: 2, is_marked_unread: false,
   unread_locator: { stream_id: 'main:chat-1', stream_kind: 'main' as const, thread_root_id: null,
     message_id: 'unread-6', message_seq: 6, unread_count: 2, addressed_count: 1,
@@ -273,7 +277,7 @@ it('keeps a Provider rollback after a later hidden list refresh', async () => {
   await act(async () => {
     latestStore!.patchChat('chat-1', { ...readTuple, last_read_seq: 7, read_state_version: 9, unread_count: 0, unread_locator: null })
     await latestStore!.refreshChats()
-    latestStore!.patchChat('chat-1', readTuple, 9)
+    patchProviderRead('chat-1', readTuple, 9)
     await latestStore!.refreshChats()
   })
   expect(latestStore!.chats[0]).toMatchObject(readTuple)
@@ -285,7 +289,7 @@ it('does not apply an older failed-read patch over a newer Provider read tuple',
   await act(async () => {
     latestStore!.patchChat('chat-1', { ...readTuple, last_read_seq: 7, read_state_version: 9, unread_count: 0 })
     latestStore!.patchChat('chat-1', newer)
-    latestStore!.patchChat('chat-1', readTuple, 9)
+    patchProviderRead('chat-1', readTuple, 9)
     await latestStore!.refreshChats()
   })
   expect(latestStore!.chats[0]).toMatchObject(newer)
@@ -400,7 +404,7 @@ it('does not replay a captured optimistic tuple when the Provider rolls back dur
   let pending!: Promise<void>
   await act(async () => { pending = latestStore!.refreshChats() })
   await flushReact(12)
-  await act(async () => { latestStore!.patchChat('chat-1', readTuple, 9) })
+  await act(async () => { patchProviderRead('chat-1', readTuple, 9) })
   expect(latestStore!.chats[0]).toMatchObject(readTuple)
   await act(async () => { gate.resolve(); await pending })
   expect(latestStore!.chats[0]).toMatchObject(readTuple)
