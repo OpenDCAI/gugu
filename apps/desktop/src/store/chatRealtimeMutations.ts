@@ -188,14 +188,39 @@ function projectedReadWatermark(
     optimisticVersion,
     previousReadState,
     partial: {
-      // A thread can remain unread while the main stream advances. The next
-      // authoritative list refresh owns the aggregate; do not erase a locator
-      // for another stream optimistically.
-      ...(!current?.unread_locator || current.unread_locator.stream_kind === 'main' ? { unread_locator: null, unread_count: 0 } : {}),
+      ...unreadAfterConfirm(current, seq),
       last_read_seq: seq,
       is_marked_unread: false,
       read_state_version: optimisticVersion,
       ...extraPatch,
+    },
+  }
+}
+
+/**
+ * 确认到 seq 之后未读怎么落。整段尾巴都在窗口里(或没记尾巴位置)才整片清 —— 只加载到一半时(评审),
+ * 未读数与定位只减掉**真正确认掉**的那些:还没上屏的那几条不能因为没加载就一起算读了。
+ */
+function unreadAfterConfirm(current: ChatItem | undefined, seq: number): Partial<ChatItem> {
+  // A thread can remain unread while the main stream advances. The next authoritative list refresh owns the
+  // aggregate; do not erase a locator for another stream optimistically.
+  const locator = current?.unread_locator
+  if (locator && locator.stream_kind !== 'main') return {}
+  const confirmed = Math.max(0, seq - (current?.last_read_seq ?? 0))
+  const tail = (current?.next_message_seq ?? seq + 1) - 1
+  if (seq >= tail) return { unread_locator: null, unread_count: 0 }
+  const remaining = Math.max(0, (current?.unread_count ?? 0) - confirmed)
+  if (!locator) return { unread_count: remaining }
+  const inLocator = Math.max(0, locator.unread_count - confirmed)
+  return {
+    unread_count: remaining,
+    unread_locator: {
+      ...locator,
+      message_id: null,
+      message_seq: seq + 1,
+      unread_count: inLocator,
+      // 哪几条点名了你不从这一跳可知:夹在上限内,下一次权威刷新校正。
+      addressed_count: Math.min(locator.addressed_count, inLocator),
     },
   }
 }

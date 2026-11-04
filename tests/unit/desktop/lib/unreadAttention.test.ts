@@ -173,13 +173,46 @@ describe('open-chat 的确认不会越过可见进度与手工未读', () => {
     expect(reads.write).not.toHaveBeenCalled()
   })
 
-  it('尾消息还没加载时只确认到真正可见的 seq', () => {
-    const fetched = chat({ id: 'tail-pending', kind: 'group', unread_count: 2, last_read_seq: 4, next_message_seq: 8, read_state_version: 7,
-      unread_locator: { ...locator(2, 2), stream_id: 'main:tail-pending', message_seq: 7 } })
+  it('await 期间本地读状态变了:延迟的确认作废,不写本地也不发 mark_read', () => {
+    const fetched = chat({ id: 'race-manual', kind: 'group', unread_count: 1, last_read_seq: 4, next_message_seq: 6, read_state_version: 7,
+      unread_locator: { ...locator(1, 1), stream_id: 'main:race-manual', message_seq: 5 } })
+    const live: ChatItem[] = [fetched]
+    const pending: Array<() => void> = []
+    const patchChat = vi.fn()
+    const [acknowledged] = acknowledgeOnScreenChatRows([fetched], {
+      current: [fetched], onScreen: () => true, patchChat, liveRows: () => live,
+      deferPersist: (persist) => pending.push(persist),
+    })
+    expect(acknowledged).toMatchObject({ last_read_seq: 5 })
+
+    // applyFetchedChatList 的 await 期间:用户手工标未读,版本抬到与乐观行同一格(评审的竞态)。
+    live[0] = { ...acknowledged, is_marked_unread: true }
+    pending.forEach((persist) => persist())
+    expect(reads.write, '作废的确认不发 mark_read').not.toHaveBeenCalled()
+    expect(patchChat, '作废的确认不写本地').not.toHaveBeenCalled()
+
+    // 只是本地读状态往前走了(没有手工位)同样作废。
+    reads.write.mockClear()
+    live[0] = { ...fetched, last_read_seq: 6, read_state_version: 8 }
+    const again: Array<() => void> = []
+    acknowledgeOnScreenChatRows([fetched], {
+      current: [fetched], onScreen: () => true, patchChat, liveRows: () => live,
+      deferPersist: (persist) => again.push(persist),
+    })
+    again.forEach((persist) => persist())
+    expect(reads.write).not.toHaveBeenCalled()
+  })
+
+  it('尾消息还没加载时只确认到真正可见的 seq,未读只减已确认的', () => {
+    const fetched = chat({ id: 'tail-pending', kind: 'group', unread_count: 5, last_read_seq: 2, next_message_seq: 8, read_state_version: 7,
+      unread_locator: { ...locator(5, 2), stream_id: 'main:tail-pending', message_seq: 3 } })
     const [shown] = acknowledgeOnScreenChatRows([fetched], {
       onScreen: () => true, visibleSeqOf: () => 5, patchChat: vi.fn(),
     })
     expect(shown.last_read_seq).toBe(5)
+    // 5-2=3 条确认掉:6、7 还在下面没上屏,未读数与定位只减这三条(评审:不能整片清零)。
+    expect(shown.unread_count).toBe(2)
+    expect(shown.unread_locator).toMatchObject({ stream_id: 'main:tail-pending', message_id: null, message_seq: 6, unread_count: 2, addressed_count: 2 })
     expect(reads.write).toHaveBeenCalledWith({ kind: 'main', chatId: fetched.id, seq: 5 })
   })
 
