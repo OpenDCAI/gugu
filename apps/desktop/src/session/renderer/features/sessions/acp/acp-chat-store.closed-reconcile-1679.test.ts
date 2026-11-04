@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { runInAction } from 'mobx';
+import { batch } from 'solid-js';
 import type { TranscriptTurn, SessionState } from '@gugu/session-core/acp/client';
 
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
@@ -73,6 +74,37 @@ it.each(['closed-first', 'active-null-first'] as const)('consumes the actual ter
   await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.at(-1)?.outcome).toEqual(stored.turn.outcome), { timeout: 500 });
   expect(store.chatState.transcript.state.activeTurnSnapshot).toBeNull();
   expect(store.session).toBeNull();
+});
+
+it('an idle close whose last turn already shows its outcome reads nothing and warns nothing (older servers)', async () => {
+  read.mockRejectedValue(new Error('No handler registered for sessions.getStoredSettledTurn'));
+  const { store, session, close } = attached();
+  session.activeTurn.push(null);
+  // The normal commit path already settled it on screen before the host closed the session.
+  runInAction(() => batch(() => {
+    store.chatState.transcript.history.seed([stored.turn]);
+    store.chatState.transcript.activeTurn.set(null);
+  }));
+  close();
+  receipt();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(read).not.toHaveBeenCalled();
+  expect(store.loadError).toBeNull();
+  expect(toasts).toHaveLength(0);
+  expect(store.session).toBeNull();
+});
+
+it("an earlier turn's outcome does not make a just-stopped turn look settled: its retained frame still reads", async () => {
+  const older = { ...stored.turn, id: 'A:turn:s6', seq: 6, referenceId: 'source:older-run' } as TranscriptTurn;
+  const { store, session, close } = attached();
+  runInAction(() => { store.chatState.transcript.history.seed([older]); store.chatState.transcript.activeTurn.set(live); });
+  // The turn ended: its last frame stays on screen until the history read lands (chat-state syncActiveTurn).
+  session.activeTurn.push(null);
+  expect(store.chatState.transcript.state.activeTurnSnapshot?.referenceId).toBe(live.referenceId);
+  close();
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.at(-1)?.referenceId).toBe(live.referenceId));
+  expect(store.chatState.transcript.state.committedTurns.at(-1)?.outcome?.kind).toBe('cancelled');
 });
 
 it('retains the last real frame until a late matching persistence receipt arrives, without polling', async () => {
