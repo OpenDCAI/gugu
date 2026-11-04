@@ -508,8 +508,9 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
       // Inspection must not open or refresh either activity indicator.
       const control = t.kind === 'act' ? ctx.deps.computerControl : undefined
       const launching = t.cua === 'launch_app'
-      const namedTargets = new Map<string, Promise<{ pid?: number; windowId?: number }>>()
-      const targetOf = async (args: Args): Promise<{ pid?: number; windowId?: number }> => {
+      type Target = { pid?: number; windowId?: number; stopped?: string }
+      const namedTargets = new Map<string, Promise<Target>>()
+      const targetOf = async (args: Args): Promise<Target> => {
         if (!launching && control && str(args, 'app') && targetPid(args) === undefined && typeof args.element_token !== 'string') {
           // App-name actions resolve afresh: a previously launched PID may have
           // exited, while the driver will operate the app that is running now.
@@ -520,19 +521,39 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
               try {
                 const listed = await ctx.deps.cua().callTool('list_windows', { app: args.app, on_screen_only: true }, { signal: ctx.signal, timeoutMs: 5_000, lane: session })
                 const raw = listed.structuredContent
-                if (listed.isError || !isRecord(raw) || !Array.isArray(raw.windows)) return {}
-                const data = { ...raw, windows: raw.windows.filter(w => !str(args, 'window') || (isRecord(w) && lower(w.title).includes(lower(args.window)))) }
-                const pids = new Set(data.windows.flatMap(w => isRecord(w) && isNum(w.pid) && w.pid > 0 ? [w.pid] : []))
-                if (pids.size !== 1) return {}
-                const pid = [...pids][0]!
-                apps.learn(session, data, args)
-                const window = resolveComputerWindow(data, { pid, ...(isNum(args.window_id) ? { windowId: args.window_id } : {}) })
-                return { pid, ...(window ? { windowId: window.windowId } : {}) }
-              } catch {
-                // This read only locates the indicator. Its failure must
-                // not prevent the original action from reaching the driver.
-                return {}
-              }
+                if (!listed.isError && isRecord(raw) && Array.isArray(raw.windows)) {
+                  const data = { ...raw, windows: raw.windows.filter(w => !str(args, 'window') || (isRecord(w) && lower(w.title).includes(lower(args.window)))) }
+                  const pids = new Set(data.windows.flatMap(w => isRecord(w) && isNum(w.pid) && w.pid > 0 ? [w.pid] : []))
+                  if (pids.size === 1) {
+                    const pid = [...pids][0]!
+                    apps.learn(session, data, args)
+                    const window = resolveComputerWindow(data, { pid, ...(isNum(args.window_id) ? { windowId: args.window_id } : {}) })
+                    return { pid, ...(window ? { windowId: window.windowId } : {}) }
+                  }
+                }
+              } catch { /* Window placement may fail while the App is still running. */ }
+              try {
+                // Reprove the App identity independently of window placement.
+                // A cached name→PID can refer to an exited or reused process.
+                const listed = await ctx.deps.cua().callTool('list_apps', {}, { signal: ctx.signal, timeoutMs: 5_000, lane: session })
+                const raw = listed.structuredContent
+                if (!listed.isError && isRecord(raw) && Array.isArray(raw.apps)) {
+                  const matched = raw.apps.filter(app => isRecord(app) && [app.name, app.app_name, app.bundle_id].some(name => lower(name) === lower(args.app)))
+                  const pids = new Set(matched.flatMap(app => isRecord(app) && isNum(app.pid) && app.pid > 0 ? [app.pid] : []))
+                  if (pids.size === 1) {
+                    const pid = [...pids][0]!
+                    apps.learn(session, { ...raw, pid, apps: matched }, args)
+                    return { pid }
+                  }
+                }
+              } catch { /* Unknown placement/identity never becomes an attachment gate. */ }
+              // A lookup outage cannot erase a known user Stop. Only consult
+              // the cached PID's pause state; never use it to address input or
+              // place the indicator without fresh process evidence.
+              const known = apps.pidOf(session, args)
+              const stopped = known !== undefined ? control.stoppedFor?.(known) : null
+              if (stopped) return { stopped }
+              return {}
             })()
             namedTargets.set(key, pending)
           }
@@ -549,10 +570,13 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
             return targetOf(args)
           }))
         : [await targetOf(forward)]
+      const stoppedTarget = targets.find(target => target.stopped)
+      if (stoppedTarget) return fail('revoked', stoppedTarget.stopped!)
       const first = targets[0]
-      const target = first && targets.every(other => other.pid === first.pid && other.windowId === first.windowId) ? first : undefined
-      const pid = target?.pid ?? (launching ? apps.pidOf(session, { app: forward.name ?? forward.bundle_id }) : undefined)
-      const windowId = target?.windowId
+      const appTarget = first && targets.every(other => other.pid === first.pid) ? first : undefined
+      const pid = appTarget?.pid ?? (launching ? apps.pidOf(session, { app: forward.name ?? forward.bundle_id }) : undefined)
+      const windowId = appTarget && targets.every(other => other.windowId === appTarget.windowId) ? appTarget.windowId : undefined
+      const targetPids = [...new Set(targets.flatMap(target => target.pid !== undefined ? [target.pid] : []))]
       const protectedTarget = [...targets, { pid }].find(target => target.pid !== undefined && self.pids.has(target.pid))
       if (t.kind === 'act' && protectedTarget) {
         return fail('invalid_args', refusal(t.cua, { pid: protectedTarget.pid }, self)!)
@@ -568,6 +592,7 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
         ...identity,
         ...(launching ? { deferAttachment: true } : {}),
         ...(pid !== undefined ? { pid } : {}),
+        ...(targetPids.some(target => target !== pid) ? { targetPids } : {}),
         ...(windowId !== undefined ? { windowId } : {}),
         ...(appName ? { appName } : {}),
       })

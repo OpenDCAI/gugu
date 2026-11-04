@@ -167,11 +167,12 @@ describe('window-relative computer indicator', () => {
   it('dispatches a mixed-window batch unchanged even when attachment fails', async () => {
     const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows: async () => result(), strings, onStop: vi.fn(), onResume: vi.fn() })
     const control = createComputerControl({ view: bar })
-    const callTool = vi.fn(async () => result())
+    const callTool = vi.fn(async (_name: string) => result())
     const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
     const args = { steps: [11, 12].map(window_id => ({ click: { pid: 7, window_id, x: 1, y: 1 } })) }
     expect(await createComputerFamily(null).actions.find(a => a.name === 'computer.run_steps')!.run(args, ctx)).toHaveProperty('ok', true)
-    expect(callTool).toHaveBeenCalledExactlyOnceWith('run_steps', expect.objectContaining(args), expect.anything())
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(1)
+    expect(callTool).toHaveBeenLastCalledWith('run_steps', expect.objectContaining(args), expect.anything())
     control.dispose()
   })
 

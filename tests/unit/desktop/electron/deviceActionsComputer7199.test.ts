@@ -47,7 +47,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-type CallTool = (name: string, args: Record<string, unknown>) => Promise<CuaToolResult>
+type CallTool = (name: string, args: Record<string, unknown>, options?: { signal?: AbortSignal }) => Promise<CuaToolResult>
 
 function setup(options: { callTool?: CallTool; control?: ComputerControlHooks; helper?: (method: string, params?: unknown) => Promise<unknown>; platform?: NodeJS.Platform; exec?: FamilyDeps['exec'] } = {}) {
   const callTool = vi.fn(options.callTool ?? (async () => ({ content: [{ type: 'text', text: 'ok' }], structuredContent: { summary: 'done' } })))
@@ -379,6 +379,92 @@ describe('电脑控制:人接管那个 App(停止只停它)', () => {
     // 每个进程只读一次。
     await invoke('computer.click', { pid: 31, window_id: 5, x: 1, y: 1 })
     expect(exec.mock.calls.filter(([, a]) => a.join(' ').includes('-Id 31 '))).toHaveLength(1)
+  })
+
+  it.each(['same-app windows', 'mixed apps', 'known and unresolved'] as const)('cannot bypass a paused App with a %s batch, even when no indicator attaches', async shape => {
+    const control = createComputerControl({ view: { show: vi.fn(async () => false), hide: vi.fn() } })
+    const prior = control.begin({ pid: 77, windowId: 5, appName: 'Calculator' })
+    control.stop()
+    if ('end' in prior) prior.end()
+    const { invoke, callTool } = setup({ control, callTool: okResult })
+    const args = shape === 'same-app windows'
+      ? { pid: 77, steps: [5, 6].map(window_id => ({ tool: 'click', args: { window_id, x: 1, y: 2 } })) }
+      : shape === 'mixed apps'
+        ? { steps: [88, 77].map(pid => ({ click: { pid, window_id: 5, x: 1, y: 2 } })) }
+        : { steps: [{ click: { x: 1, y: 2 } }, { click: { pid: 77, window_id: 5, x: 1, y: 2 } }] }
+    expect(await invoke('computer.run_steps', args)).toMatchObject({ code: 'revoked' })
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(0)
+    expect(control.stoppedFor(77)).not.toBeNull()
+    control.resume()
+    expect(await invoke('computer.run_steps', args)).toHaveProperty('ok', true)
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(1)
+    expect(callTool).toHaveBeenLastCalledWith('run_steps', expect.objectContaining(args), expect.anything())
+    control.dispose()
+  })
+
+  it('forwards a participating App Stop to an already running mixed-App native batch', async () => {
+    let running = false
+    const control = createComputerControl({ view: { show: vi.fn(async () => false), hide: vi.fn() } })
+    const { invoke, callTool } = setup({ control, callTool: async (name, _args, opts) => {
+      if (name !== 'run_steps') return okResult()
+      return new Promise<CuaToolResult>((_, reject) => {
+        opts?.signal?.addEventListener('abort', () => reject(new NativeCallError('execution_failed', 'cancelled')), { once: true })
+        running = true
+      })
+    } })
+    const pending = invoke('computer.run_steps', { steps: [77, 88].map(pid => ({ click: { pid, window_id: 5, x: 1, y: 2 } })) })
+    await vi.waitFor(() => expect(running).toBe(true))
+    const other = control.begin({ pid: 88, windowId: 5, appName: 'Notes' })
+    control.stop()
+    expect(await pending).toMatchObject({ code: 'revoked', message: expect.stringContaining('Notes') })
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(1)
+    if ('end' in other) other.end()
+    control.dispose()
+  })
+
+  it('preserves a known App Stop during a lookup outage without using its cached PID as an input target', async () => {
+    let outage = false
+    const control = createComputerControl({ view: { show: vi.fn(async () => false), hide: vi.fn() } })
+    const { invoke, callTool } = setup({ control, callTool: async name => {
+      if (name === 'list_apps' && !outage) return { structuredContent: { apps: [{ pid: 77, name: 'Calculator' }] } }
+      if (name === 'list_windows' || name === 'list_apps') throw new NativeCallError('execution_failed', 'lookup unavailable')
+      return okResult()
+    } })
+    await invoke('computer.list_apps', {})
+    const prior = control.begin({ pid: 77, windowId: 5, appName: 'Calculator' })
+    control.stop()
+    if ('end' in prior) prior.end()
+    outage = true
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '1' })).toMatchObject({ code: 'revoked' })
+    expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(0)
+    control.resume()
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '2' })).toHaveProperty('ok', true)
+    expect(callTool).toHaveBeenLastCalledWith('click', expect.objectContaining({ app: 'Calculator', role: 'button', name: '2' }), expect.anything())
+    expect((forwarded(callTool, callTool.mock.calls.length - 1))[1]).not.toHaveProperty('pid')
+    control.dispose()
+  })
+
+  it('rechecks a named App pause against live process identity when window lookup times out', async () => {
+    let livePid = 77
+    const control = createComputerControl({ view: { show: vi.fn(async () => false), hide: vi.fn() } })
+    const { invoke, callTool } = setup({ control, callTool: async (name, args) => {
+      if (name === 'list_apps') return { structuredContent: { apps: [{ pid: livePid, name: 'Calculator', bundle_id: 'com.apple.calculator' }] } }
+      if (name === 'list_windows' && args.app) throw new NativeCallError('execution_failed', 'window query timed out')
+      if (name === 'list_windows') return { structuredContent: { windows: [] } }
+      return okResult()
+    } })
+    await invoke('computer.list_apps', {}) // Learn the old PID first.
+    const prior = control.begin({ pid: 77, windowId: 5, appName: 'Calculator' })
+    control.stop()
+    if ('end' in prior) prior.end()
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '1' })).toMatchObject({ code: 'revoked' })
+    expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(0)
+    livePid = 88 // The app restarted; do not use the stale cached PID.
+    expect(await invoke('computer.click', { app: 'Calculator', role: 'button', name: '2' })).toHaveProperty('ok', true)
+    expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(1)
+    expect(control.stoppedFor(77)).not.toBeNull()
+    expect(control.stoppedFor(88)).toBeNull()
+    control.dispose()
   })
 
   it('人按停止:计算器上在途的那一下回 revoked(❌ 当成执行失败),之后不再发给 cua;备忘录照常;「让它继续」后恢复', async () => {
