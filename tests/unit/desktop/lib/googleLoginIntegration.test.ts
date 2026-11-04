@@ -117,3 +117,13 @@ it('keeps authorization closed after a callback source failure and checks readin
   expect(m.signIn).toHaveBeenCalledOnce()
   await googleLogin.cancel()
 })
+
+it('keeps the current state when App initializes an already prepared flow again', async () => {
+  const { googleLogin } = await import('../../../../apps/desktop/src/lib/googleLogin')
+  googleLogin.initialize()
+  await vi.waitFor(() => expect(googleLogin.getSnapshot().phase).toBe('idle'))
+  googleLogin.initialize()
+  await vi.waitFor(() => expect(googleLogin.getSnapshot()).toEqual({ phase: 'idle', busy: false }))
+  expect(m.browserSubscribe).toHaveBeenCalledOnce()
+  expect(m.subscribe).toHaveBeenCalledOnce()
+})

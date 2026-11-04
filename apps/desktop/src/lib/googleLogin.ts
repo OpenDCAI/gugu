@@ -79,8 +79,8 @@ export const googleLogin = {
   getSnapshot: (): GoogleLoginState => snapshot,
   initialize(): void {
     if (this.available) {
-      publish({ phase: 'restoring', busy: true })
-      void prepare().catch(() => { /* prepare publishes the failure. */ })
+      if (!preparing) publish({ phase: 'restoring', busy: true })
+      void prepare().then((flow) => { if (flow) publish(flow.getSnapshot()) }).catch(() => { /* prepare publishes the failure. */ })
     }
   },
   async start(): Promise<void> {
