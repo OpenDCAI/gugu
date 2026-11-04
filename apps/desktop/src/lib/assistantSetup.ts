@@ -4,7 +4,6 @@
 // 两条都带同一份初始化任务(@gugu/core/shared/assistantPolicy):建好它先开口。界面在 components/assistant/onboarding;手机也用这里。
 import {
   ASSISTANT_CHILD_HARNESS,
-  ASSISTANT_DEFAULT_MODEL,
   ASSISTANT_FIRST_TASK,
   ownerProfileMarkdown,
   type OwnerProfileInput,
@@ -29,7 +28,6 @@ import {
 import { ASSISTANT_HOME_CHANNELS, type AssistantEngine } from './assistantHomeIpc'
 import { prepareLocalAssistantSetup } from './assistantSetupPreparation'
 import { provisionCloudComputer } from './cloudComputerStore'
-import { platformModelsEnabled } from '@gugu/core/cloud/optionalServices'
 import { contactsService } from './contacts'
 import { getCurrentAuthUserId } from './supabase'
 import { cancelTeamProvision } from './teamProvisionSaga'
@@ -102,7 +100,7 @@ export function completedAssistantSetup(result: Awaited<ReturnType<typeof provis
 async function startDeps(engine: AssistantEngine = 'claude'): Promise<SingleProvisionDeps> {
   return {
     resumeStore: assistantResumeStore,
-    model: engine === 'claude' && platformModelsEnabled() ? ASSISTANT_DEFAULT_MODEL : null,
+    model: null,
     assistant: { childHarness: engine === 'codex' ? 'codex' : ASSISTANT_CHILD_HARNESS, firstTask: ASSISTANT_FIRST_TASK },
   }
 }

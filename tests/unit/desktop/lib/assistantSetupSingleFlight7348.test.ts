@@ -67,6 +67,22 @@ describe('local assistant setup runs once at a time on this computer (#7348)', (
     expect(provision.resumeSingleAgent).toHaveBeenCalledWith(expect.anything(),
       expect.objectContaining({ model: null, assistant: expect.objectContaining({ childHarness: 'codex' }) }))
   })
+  it('keeps the existing Claude model connection for new local setup even when platform models are enabled', async () => {
+    vi.stubEnv('GUGU_PLATFORM_MODELS_ENABLED', 'true')
+    provision.provisionSingleAgent.mockResolvedValueOnce(completed('claude-assistant'))
+    await setUpAssistantOnThisComputer(draft as never, 'device-1', { engine: 'claude' })
+    expect(provision.provisionSingleAgent).toHaveBeenCalledWith('device-1',
+      expect.objectContaining({ agentType: 'claude-code' }),
+      expect.objectContaining({ model: null, assistant: expect.objectContaining({ childHarness: 'claude' }) }))
+  })
+  it('keeps the existing Claude model connection when recovering local setup with platform models enabled', async () => {
+    vi.stubEnv('GUGU_PLATFORM_MODELS_ENABLED', 'true')
+    provision.resumeSingleAgent.mockResolvedValueOnce(completed('claude-assistant'))
+    await resumeLocalAssistant({ operationId: 'recover-claude', ownerUserId: 'owner', deviceId: 'device-1',
+      members: [{ provisionId: 'member' }], blueprint: { members: [{ agent_type: 'claude-code' }] } } as never)
+    expect(provision.resumeSingleAgent).toHaveBeenCalledWith(expect.anything(),
+      expect.objectContaining({ model: null, assistant: expect.objectContaining({ childHarness: 'claude' }) }))
+  })
   it('waits for local identification instead of treating a cold-starting local host as a server', async () => {
     let notify!: () => void
     let known = false
@@ -116,7 +132,7 @@ describe('local assistant setup runs once at a time on this computer (#7348)', (
     expect(provision.provisionSingleAgent).toHaveBeenCalledWith(
       'device-1',
       expect.objectContaining({ agentType: 'claude-code' }),
-      expect.objectContaining({ model: 'platform:glm-5.3-flash', assistant: expect.objectContaining({ childHarness: 'claude' }) }),
+      expect.objectContaining({ model: null, assistant: expect.objectContaining({ childHarness: 'claude' }) }),
     )
   })
 

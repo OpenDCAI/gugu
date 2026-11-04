@@ -1,6 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRoot, type Root } from 'react-dom/client';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
+import { AssistantMainPanel } from '@renderer/features/assistant/assistant-view';
+import { installAssistantShellBridge, publishAssistantShell } from '@/lib/assistantShellBridge';
+import { installShellSlots, readShellSlots } from '@/lib/shellSlots';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import type { AgentPayload } from '@shared/core/agents/agent-payload';
@@ -62,6 +66,20 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
     readSubscriptionUsage: async () => ({ success: true, data: { kind: 'unavailable', reason: 'not-signed-in' } }),
   }),
 }));
+// Keep the real main panel, ShellSlot and shell portal registry: the shell's
+// read models and unrelated device services are the only substituted boundaries.
+vi.mock('@renderer/lib/layout/navigation-provider', async original => ({ ...await original<typeof import('@renderer/lib/layout/navigation-provider')>(), useParams: () => ({ params: {}, setParams: vi.fn() }) }));
+vi.mock('@/lib/assistantTaskChat', () => ({ useOpenedAssistantTaskChat: () => null, OPEN_ASSISTANT_TASK_CHAT: 'open-task', showAssistantTaskChat: vi.fn() }));
+vi.mock('@/lib/assistantSetup', () => ({ refreshLocalAssistantHome: vi.fn(async () => {}) }));
+vi.mock('@renderer/features/assistant/assistant-data', () => ({
+  assistantWorkdir: () => null, useAssistantMachine: () => ({ data: null, isLoading: false, error: null }),
+}));
+vi.mock('@renderer/features/assistant/assistant-home-sessions', () => ({ homeTarget: () => null, localHomeSessions: { use: () => () => {} } }));
+vi.mock('@renderer/features/assistant/voice-notes/voice-recording-bar', () => ({ useVoiceNotesHost: () => {}, VoiceRecordingBar: () => null }));
+vi.mock('@renderer/features/assistant/assistant-pages', () => ({ ASSISTANT_PAGES: { today: () => null } }));
+vi.mock('@renderer/features/assistant/assistant-ideas-layer', () => ({ AssistantIdeasLayer: () => null }));
+vi.mock('@renderer/features/assistant/assistant-setup-finish', () => ({ AssistantSetupFinish: () => { throw new Error('Expected the onboarding shell, not completed setup'); } }));
+vi.mock('@renderer/lib/components/titlebar/shell-titlebar', () => ({ ShellTitlebar: () => { throw new Error('Expected the onboarding shell, not the assistant titlebar'); } }));
 let root: Root;
 let host: HTMLDivElement;
 let client: QueryClient;
@@ -70,17 +88,24 @@ beforeEach(() => {
   f.states = { claude: 'authenticated', codex: 'authenticated' }; f.hold = null; f.missingProgram = false; f.saved = false; f.selected = '';
   f.continued.mockClear(); f.back.mockClear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  host = document.createElement('div'); host.className = 'gugu-skin emlight'; host.style.cssText = 'padding:16px;height:100vh';
+  host = document.createElement('div'); host.className = 'gugu-skin emlight'; host.style.cssText = 'height:100vh';
   document.body.append(host); root = createRoot(host);
+  installShellSlots(); installAssistantShellBridge();
+  publishAssistantShell({ cloudAvailable: true, canHostHere: true, cloud: null, loadError: null,
+    assistant: null, assistantState: 'none', ownerName: 'Owner', chatId: null, home: null,
+    setup: 'shell', member: true, preparing: false });
 });
 afterEach(() => { modalStore.closeModal(); root.unmount(); client.clear(); host.remove(); });
 function Harness() {
   const [engine, setEngine] = useState<AssistantEngine>('claude');
-  return <div className="ta-onb-slot ta-onb-slot-engine"><section className="ta-onb ta-onb-engine" data-testid="engine-frame">
+  const slots = readShellSlots()!;
+  const registered = useSyncExternalStore(slots.subscribeSlots, slots.getSlots);
+  const slot = registered.get('assistant:onboarding');
+  return <><AssistantMainPanel />{slot && createPortal(<div className="ta-onb-slot ta-onb-slot-engine"><section className="ta-onb ta-onb-engine" data-testid="engine-frame">
     <AssistantEngineChoice engine={engine} onEngineChange={setEngine} draft={{ name: 'Gugu', ...DEFAULT_ASSISTANT_LOOK,
       owner: { preferredName: 'Owner', about: '' } }} onContinue={() => f.continued(engine)} onBack={f.back} />
     <ModalRenderer />
-  </section></div>;
+  </section></div>, slot)}</>;
 }
 function render() {
   root.render(<QueryClientProvider client={client}><SessionLocalizationProvider><Harness /></SessionLocalizationProvider></QueryClientProvider>);
@@ -102,6 +127,8 @@ it.each([1440, 390])('keeps both 74px cards, the frame and single action fixed t
   const initial = boxes();
   const samples: Array<{ engine: string; state: string; boxes: ReturnType<typeof boxes> }> = [];
   expect(initial[0].width).toBeGreaterThan(300);
+  // 8px of the actual main panel plus 24px of the engine step's top inset.
+  expect(initial[0].y - host.getBoundingClientRect().y).toBe(32);
   for (const box of initial.slice(1, 3)) { expect(box.height).toBe(74); expect(box.width).toBeGreaterThan(200); }
   for (const id of ['claude', 'codex']) {
     await userEvent.click(page.getByTestId(`assistant-engine-${id}`));
