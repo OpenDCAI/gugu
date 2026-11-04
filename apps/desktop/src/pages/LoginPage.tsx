@@ -1,4 +1,4 @@
-import { useState, useEffect, useSyncExternalStore } from 'react'
+import { useState, useEffect, useLayoutEffect, useSyncExternalStore } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets'
 import { Trans, useTranslation } from 'react-i18next'
@@ -12,6 +12,7 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion'
 import { AuthBrandMotion } from './login/AuthBrandMotion'
 import { GoogleMark } from './login/GoogleMark'
+import { retainStartupMotion } from '../lib/startup-motion'
 import './login/login.css'
 
 const APP_LOGO_URL = publicAssetPath('/assets/app/gugu-icon-512.png')
@@ -39,6 +40,7 @@ export function LoginPage() {
   const [resendCountdown, setResendCountdown] = useState(0)
   const reduceMotion = usePrefersReducedMotion()
   const google = useSyncExternalStore(googleLogin.subscribe, googleLogin.getSnapshot)
+  useLayoutEffect(() => googleEnabled === null ? retainStartupMotion() : undefined, [googleEnabled])
 
   useEffect(() => {
     if (!googleLogin.available) { setGoogleEnabled(false); return }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="startup_error_title">咕咕未能启动</string>
+    <string name="startup_error_body">应用未能显示首个画面。请重试，或关闭后重新打开。</string>
+    <string name="startup_retry">重试</string>
+    <string name="startup_close">关闭</string>
+    <string name="startup_compat">兼容启动</string>
+    <string name="startup_restore">恢复启动动效</string>
+    <string name="startup_policy_failed">未能保存启动设置，原设置仍然有效。</string>
+</resources>
