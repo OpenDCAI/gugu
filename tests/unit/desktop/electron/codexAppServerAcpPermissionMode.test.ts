@@ -18,6 +18,7 @@ rl.on('line', (line) => {
   fs.appendFileSync(process.env.FIXTURE_RECORD, JSON.stringify(m) + '\\n')
   let result = { data: [] }
   if (m.method === 'thread/start') result = { thread: { id: 'thread-permission' }, activePermissionProfile: ':danger-full-access' }
+  if (m.method === 'model/list') result = { data: [{ id: 'model-a', model: 'model-a', displayName: 'Model A', supportedReasoningEfforts: [] }] }
   if (m.method === 'permissionProfile/list') result = { data: [':read-only', ':workspace', ':danger-full-access', 'custom'].map(id => ({ id, allowed: true })) }
   process.stdout.write(JSON.stringify({ id: m.id, result }) + '\\n')
 })
@@ -47,7 +48,7 @@ it('hot-switches approval policy with each builtin profile while preserving nati
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   adapter = child
-  const responses = new Map<number, { result?: unknown; error?: { code: number } }>()
+  const responses = new Map<number, { result?: unknown; error?: { code: number; data?: unknown } }>()
   createInterface({ input: child.stdout }).on('line', (line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, m)
@@ -82,4 +83,12 @@ it('hot-switches approval policy with each builtin profile while preserving nati
   const before = settings()
   expect((await call('session/set_config_option', { sessionId: 'thread-permission', type: 'id', configId: 'mode', value: 'missing' })).error?.code).toBe(-32602)
   expect(settings()).toEqual(before)
+  const missingModel = await call('session/set_config_option', { sessionId: 'thread-permission', type: 'id', configId: 'model', value: 'retired-model' })
+  expect(missingModel.error).toMatchObject({ code: -32602, data: {
+    kind: 'model-unavailable', requestedValue: 'retired-model',
+  } })
+  expect(settings()).toEqual(before)
+  expect((await call('session/set_config_option', { sessionId: 'thread-permission', type: 'id', configId: 'mode', value: ':read-only' })).error).toBeUndefined()
+  expect((await call('session/set_config_option', { sessionId: 'thread-permission', type: 'id', configId: 'model', value: 'model-a' })).error).toBeUndefined()
+  expect(settings().at(-1)).toEqual({ threadId: 'thread-permission', model: 'model-a' })
 })

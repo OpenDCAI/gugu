@@ -68,6 +68,7 @@ import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
 import { failureText } from '../gugu-reason';
+import { modelSettingRejection, type ModelSettingRejection } from '../session-config/model-setting-rejection';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import { sessionHasPriorContext } from '@shared/core/sessions/prior-context';
@@ -100,6 +101,7 @@ const HOST_NOT_SETTLED: ReadonlySet<string> = new Set(['closed', 'lost', 'starti
 export type LiveSettingOutcome =
   | { kind: 'applied'; effectiveValue: string }
   | { kind: 'restart-required'; requestedValue: string }
+  | ModelSettingRejection
   | null;
 
 export interface AgentAffordances {
@@ -243,6 +245,8 @@ export class AcpChatStore {
     requestId: number;
   } | null = null;
   private _permissionModeRequestId = 0;
+  /** A model failure stays beside that setting until a model change is confirmed. */
+  modelSettingError: string | null = null;
   private _draftTimer: number | null = null;
   private _lastQueuedPrompts: QueuedPrompt[] = [];
   /** The side chat's fork entry in session-life (`lifeFork`); ended when the page is disposed. */
@@ -341,6 +345,7 @@ export class AcpChatStore {
       liveSubagentIds: computed,
       session: observable.ref,
       pendingPermissionMode: observable.ref,
+      modelSettingError: observable,
       historyLoading: observable,
       _loadError: observable.ref,
       _lifeRetriedVersion: observable,
@@ -1492,20 +1497,38 @@ export class AcpChatStore {
   }
 
   async setModel(model: string): Promise<LiveSettingOutcome> {
-    if (!this.session && this.starting) return this._chooseAtStartup('model', model, 'acpFailure.changeSetting');
+    if (!this.session && this.starting) return this._chooseAtStartup('model', model, 'acpFailure.changeModel');
     // 没有活会话(起不来、或已经停了):换模型不需要它 —— 这一维只能按记录重开,交给调用方那条
     // 「宿主先写记录、再停、再起」的重开路。❌ 不拿「not connected」拦:记着的模型下架后会话正是因此
     // 起不来,拦下就等于这条会话永远换不走(2026-10-02 生产实撞)。
     const session = this.session;
     if (!session) return { kind: 'restart-required', requestedValue: model };
     try {
-      return this._settleLiveSetting(
-        'acpFailure.changeSetting',
-        await session.setModelOption('model', model),
-      );
+      const result = await session.setModelOption('model', model);
+      const rejection = result.success ? null : modelSettingRejection(result.error);
+      const reason = result.success ? undefined : describeFailureCause(result.error);
+      const displayReason = rejection ? reason?.split('\n')[0] : reason;
+      runInAction(() => {
+        if (!result.success) {
+          this.modelSettingError = failureText(displayReason ?? '', translateSessionMessage);
+        } else if (result.data.status === 'applied') {
+          this.modelSettingError = null;
+        }
+      });
+      if (!result.success && rejection) {
+        this._toastError('acpFailure.changeModel', result.error, displayReason);
+        return rejection;
+      }
+      return this._settleLiveSetting('acpFailure.changeModel', result);
     } catch (error: unknown) {
-      this._toastError('acpFailure.changeSetting', error);
-      return null;
+      const rejection = modelSettingRejection(error);
+      const reason = describeFailureCause(error);
+      const displayReason = rejection ? reason?.split('\n')[0] : reason;
+      runInAction(() => {
+        this.modelSettingError = failureText(displayReason ?? '', translateSessionMessage);
+      });
+      this._toastError('acpFailure.changeModel', error, displayReason);
+      return rejection;
     }
   }
 
@@ -3023,7 +3046,7 @@ export class AcpChatStore {
   }
 
   /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
-  private _toastError(title: AcpFailureTitle, error: unknown): void {
+  private _toastError(title: AcpFailureTitle, error: unknown, displayReason?: string): void {
     const cause = describeFailureCause(error);
     const errorType = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
     log.error('ACP chat action failed', { sessionId: this.sessionId, title, errorType, error: cause });
@@ -3031,7 +3054,7 @@ export class AcpChatStore {
       title: translateSessionMessage(title),
       description: errorType === 'conversation_not_found'
         ? translateSessionMessage('acpFailure.sessionUnavailable')
-        : failureText(cause ?? '', translateSessionMessage),
+        : failureText(displayReason ?? cause ?? '', translateSessionMessage),
       variant: 'destructive',
     });
   }

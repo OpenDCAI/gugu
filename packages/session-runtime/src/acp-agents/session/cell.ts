@@ -175,7 +175,10 @@ export class SessionCell {
   private readonly liveSettings: LiveSettingsCapability | undefined;
   private settingsTail: Promise<void> = Promise.resolve();
   private settingsInFlight = 0;
-  private settingsBlockedReason: string | null = null;
+  private readonly settingsBlockedReasons = new Map<LiveSettingDimension, string>();
+  private get settingsBlockedReason(): string | null {
+    return [...this.settingsBlockedReasons.values()].join('; ') || null;
+  }
   /**
    * 刚落定的那一轮**还能不能被改口** —— 只由 `classifyTurnFailure` 在 prompt 边界上打开,
    * 任何一次新的落定都把它收回(见 `settleTurn`)。理由与守卫写在 `turn-failure.ts` 上:
@@ -1151,7 +1154,7 @@ export class SessionCell {
       const result = await this.applyLiveSetting(dimension, value, configId, capability, startupOnly, fail);
       if (!result.success) {
         const causeMessage = 'cause' in result.error ? result.error.cause?.message : undefined;
-        this.settingsBlockedReason = causeMessage ?? result.error.message ?? `Unable to apply ${dimension}`;
+        this.settingsBlockedReasons.set(dimension, causeMessage ?? result.error.message ?? `Unable to apply ${dimension}`);
         return result;
       }
       // 用户在会话里改了档 ⇒ 作答判据跟着换(见 autoApprovePermissions)。
@@ -1165,10 +1168,10 @@ export class SessionCell {
         if (result.data.status === 'applied' || !fullAccess) this.autoApprovePermissions = fullAccess;
       }
       if (result.data.status !== 'applied') {
-        this.settingsBlockedReason =
-          `Setting '${dimension}' was not confirmed (${result.data.status}); next turn is paused`;
+        this.settingsBlockedReasons.set(dimension,
+          `Setting '${dimension}' was not confirmed (${result.data.status}); next turn is paused`);
       } else {
-        this.settingsBlockedReason = null;
+        this.settingsBlockedReasons.delete(dimension);
       }
       return result;
     };

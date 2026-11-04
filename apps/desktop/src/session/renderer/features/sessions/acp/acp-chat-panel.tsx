@@ -153,7 +153,7 @@ import {
 import { failureReason, failureText, guguReasonCopy, guguReasonText, reasonActions } from '@renderer/features/sessions/gugu-reason';
 import { askPlatformAgain } from '@renderer/features/sessions/platform-retry';
 import { guguReasonOf } from '@gugu/session-core/session-record/contract';
-import { sessionBillingRoute, runningPlatformModelId } from '@renderer/features/sessions/session-config/platform-model-selection';
+import { sessionBillingRoute, runningPlatformModelId, unavailablePlatformModelId } from '@renderer/features/sessions/session-config/platform-model-selection';
 import { planModelSwitch } from '@renderer/features/sessions/session-config/model-switch-plan';
 import { findSessionHostBridge } from '@renderer/lib/electron-api';
 import { SessionReloadConfirm } from '@renderer/features/sessions/session-reload-confirm';
@@ -896,6 +896,8 @@ const ComposerForStore = observer(function ComposerForStore({
     platformCatalog.models.map((entry) => entry.id),
   );
   const runningOn = runningPlatformModel ? 'platform' : 'own';
+  const retiredModel = unavailablePlatformModelId({ ...platformCatalog, liveModel: store.model });
+  const modelSettingNotice = retiredModel ? translate('composer.modelRetired') : store.modelSettingError;
 
   /**
    * #7056 会员中途到期:正在用的咕咕模型这一档用不了了 ⇒ 下一轮之前就停下(发送键不放行),面板那一行说清原因、
@@ -954,10 +956,10 @@ const ComposerForStore = observer(function ComposerForStore({
 
   const sessionModelOptions = useMemo(() => {
     // 能力声明还没到 ⇒ 还答不出「哪些能当场换」:❌ 不拿「未声明」去判(那会把整张菜单暂时置灰)。
-    if (!merged || !providerCapabilities) return null;
+    if ((!merged && !retiredModel) || !providerCapabilities) return null;
     const catalog = platformCatalog.models;
     const options = Object.fromEntries(
-      Object.entries(merged).map(([id, option]) => {
+      Object.entries(merged ?? {}).map(([id, option]) => {
         // 四态见 @@@session-options-disabled。hot / reload 都是"能选",
         // unavailable / unsupported 才置灰 —— ❌ 别按 `platform:` 前缀判,那会把能重开换成的也灰掉。
         const plan = planModelSwitch({
@@ -990,6 +992,7 @@ const ComposerForStore = observer(function ComposerForStore({
     return options;
   }, [
     merged,
+    retiredModel,
     advertisedModels,
     platformCatalog.models,
     runningOn,
@@ -1111,7 +1114,11 @@ const ComposerForStore = observer(function ComposerForStore({
           // 活会话确认生效之后,会话记录跟上(宿主的 `recordLiveModelSwitch`,与 Agent 级改模型同一个写者)。
           // 不跟上:不报当前模型的家(copilot)触发器读的就是旧记录;任何一家冷启动都按旧记录 spawn(#6182)。
           // 运行时分叉视图(`isTransient`)没有会话记录,活会话本身就是它的全部。
-          if (outcome?.kind !== 'applied' || store.isTransient) return;
+          if (outcome?.kind !== 'applied') {
+            platformCatalog.refresh();
+            return;
+          }
+          if (store.isTransient) return;
           // 记的是活会话**确认在跑的**那个(`effectiveValue`),不是我们请求的那个 —— provider 可能把别名规范成另一条。
           // 平台模型的生效值是它自己的寻址形式(`gugu-platform/<id>`),翻回规范 id;翻不出就是我们请求的那条(copilot 这类不回读的家)。
           const recorded = source === 'platform'
@@ -1493,6 +1500,8 @@ const ComposerForStore = observer(function ComposerForStore({
         })}
         onModelChange={handleModelChange}
         modelMenuOpenRequest={modelMenuRequest}
+        modelSettingNotice={modelSettingNotice}
+        onModelMenuOpen={platformCatalog.refresh}
         // 底部「管理模型 / 升级解锁更多模型」(#7056),三个模型菜单同一份。
         {...composerModelFooter(platformCatalog.models)}
         effortOptions={localizeEffortOptions(sessionEffortOptions, translate)}

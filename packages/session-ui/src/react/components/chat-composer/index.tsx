@@ -247,6 +247,9 @@ export interface ChatComposerProps {
   onModelChange?: (modelId: string) => void;
   /** 宿主要把模型面板打开:每变一次开一次(见 `ComposerModelMenu.openRequest`)。 */
   modelMenuOpenRequest?: number;
+  /** Failure/recovery copy stays inside the model setting; other settings remain usable. */
+  modelSettingNotice?: string | null;
+  onModelMenuOpen?: () => void;
   /**
    * 拿不到模型时「模型」那一行放什么。设了它,面板即使一个模型都没有也照常打开 ——
    * 否则触发器整颗消失,用户连「为什么没有模型」都无处可问。
@@ -426,6 +429,8 @@ export function ChatComposer({
   selectedModel,
   onModelChange,
   modelMenuOpenRequest,
+  modelSettingNotice,
+  onModelMenuOpen,
   modelUnlock,
   onModelUnlock,
   onManageModels,
@@ -982,6 +987,8 @@ export function ChatComposer({
                 selectedModel={selectedModel}
                 onModelChange={onModelChange}
                 openRequest={modelMenuOpenRequest}
+                settingNotice={modelSettingNotice}
+                onOpen={onModelMenuOpen}
                 modelUnlock={modelUnlock}
                 onModelUnlock={onModelUnlock}
                 onManageModels={onManageModels}
