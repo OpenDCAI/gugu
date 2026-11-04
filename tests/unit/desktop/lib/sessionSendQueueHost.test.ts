@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const fixture = vi.hoisted(() => ({
   rows: [] as Array<{ id: string; accountId: string; deviceId: string | null; sessionId: string; sendQueue: { order: number } }>,
-  valid: true, accountId: 'owner', lifecycle: 'ready', activeTurnId: null as string | null, lastTurnOutcome: 'none',
+  valid: true, accountId: 'owner', lifecycle: 'ready', activeTurnId: null as string | null, lastTurnOutcome: 'none', queuedPrompts: [] as unknown[],
   hold: null as string | null, lifeKind: 'ready', history: vi.fn(), release: vi.fn(), dispose: vi.fn(), stopLife: vi.fn(),
   rowListeners: new Set<() => void>(), changes: new Set<() => void>(),
   gone: undefined as undefined | ((error: unknown) => void), lifeEvent: undefined as undefined | ((view: { sessionId: string }) => void),
@@ -14,7 +14,7 @@ vi.mock('@/lib/sessionInputOutboxBridge', () => ({
 }))
 vi.mock('@gugu/session-wire', async importOriginal => ({ ...await importOriginal<typeof import('@gugu/session-wire')>(), ReplicaState: class {
   ready = Promise.resolve()
-  current() { return { lifecycle: fixture.lifecycle, activeTurnId: fixture.activeTurnId, lastTurnOutcome: fixture.lastTurnOutcome } }
+  current() { return { lifecycle: fixture.lifecycle, activeTurnId: fixture.activeTurnId, lastTurnOutcome: fixture.lastTurnOutcome, queuedPrompts: fixture.queuedPrompts } }
   onChange(listener: () => void) { fixture.changes.add(listener) }
   onGone(listener: (error: unknown) => void) { fixture.gone = listener }
   dispose() { fixture.dispose(); fixture.changes.clear() }
@@ -35,6 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   Object.assign(fixture, { valid: true, accountId: 'owner', lifecycle: 'ready', activeTurnId: null, lastTurnOutcome: 'none', hold: null, lifeKind: 'ready', gone: undefined, lifeEvent: undefined })
   fixture.rows = [{ id: 'held', accountId: 'owner', deviceId: null, sessionId: 'session', sendQueue: { order: 1 } }]
+  fixture.queuedPrompts = []
   fixture.history.mockResolvedValue({ success: true, data: { turns: [] } })
   fixture.release.mockResolvedValue(null)
 })
@@ -75,6 +76,16 @@ it('does not release during host restoration even if the older native snapshot s
   await expect.poll(() => !!fixture.lifeEvent).toBe(true)
   expect(fixture.history).not.toHaveBeenCalled()
   fixture.lifeKind = 'ready'; fixture.lifeEvent!({ sessionId: 'session' })
+  await expect.poll(() => fixture.release.mock.calls.length).toBe(1)
+})
+
+it('lets the older host queue drain before sending new local held inputs', async () => {
+  fixture.queuedPrompts = [{ id: 'legacy-before-upgrade' }]
+  close = watchSessionSendQueues('owner', () => undefined)
+  await expect.poll(() => !!fixture.lifeEvent).toBe(true)
+  expect(fixture.history).not.toHaveBeenCalled()
+  fixture.queuedPrompts = []
+  for (const change of fixture.changes) change()
   await expect.poll(() => fixture.release.mock.calls.length).toBe(1)
 })
 
