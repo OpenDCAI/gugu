@@ -1,19 +1,25 @@
-import { useCallback, useLayoutEffect, useRef, useState, type SetStateAction } from 'react'
+import { useCallback, useLayoutEffect, useSyncExternalStore, type RefObject, type SetStateAction } from 'react'
+import type { PromptEditorRef } from '@gugu/session-ui/react/components'
 import { useChatDraft } from '@/components/chat/useChatDraft'
-import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft'
-import { useSessionInputAccount } from '@/lib/sessionInputOutboxBridge'
-import { appendToDraft } from '@/store/chatContext'
+import { readNativeOfflineDraft, subscribeNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft'
+import { state as sessionInputs, useSessionInputAccount } from '@/lib/sessionInputOutboxBridge'
+import { appendToDraft, useChatStore } from '@/store/chatContext'
 
 const flushed = () => {}
 
 /** Desktop native timelines hand the same durable text to ACP; phone drafts keep their existing store. */
-export function useSessionConversationDraft(deviceId: string, sessionId: string, nativeOffline: boolean) {
-  const chat = useChatDraft(`session:${deviceId}/${sessionId}`)
+export function useSessionConversationDraft(deviceId: string, sessionId: string, nativeOffline: boolean, editor?: RefObject<PromptEditorRef | null>) {
+  const chatId = `session:${deviceId}/${sessionId}`
+  const chat = useChatDraft(chatId)
+  const { writeDraft, registerDraftEditor } = useChatStore('writeDraft', 'registerDraftEditor')
   const { text: chatText, setText: setChatText, flush: flushChat } = chat
   const account = useSessionInputAccount()
-  const key = `${account}/${deviceId}/${sessionId}`
-  const [kept, setKept] = useState(() => ({ key, text: nativeOffline && account ? readNativeOfflineDraft(deviceId, sessionId) : '' }))
-  const current = useRef(kept)
+  const readNative = useCallback(() => nativeOffline && account ? readNativeOfflineDraft(deviceId, sessionId) : '', [nativeOffline, account, deviceId, sessionId])
+  const kept = useSyncExternalStore(subscribeNativeOfflineDraft, readNative, readNative)
+  useLayoutEffect(() => {
+    if (nativeOffline && account) return
+    return registerDraftEditor(chatId, () => editor?.current ?? null)
+  }, [nativeOffline, account, chatId, registerDraftEditor, editor])
   useLayoutEffect(() => {
     if (!nativeOffline || !account) return
     // Consume an older desktop timeline draft once, so ACP cannot leave a stale second copy behind.
@@ -23,19 +29,22 @@ export function useSessionConversationDraft(deviceId: string, sessionId: string,
       writeNativeOfflineDraft(deviceId, sessionId, text)
       setChatText(''); flushChat()
     }
-    const next = { key, text }
-    current.current = next; setKept(next)
-  }, [nativeOffline, account, key, deviceId, sessionId, chatText, setChatText, flushChat])
+  }, [nativeOffline, account, deviceId, sessionId, chatText, setChatText, flushChat])
   const setText = useCallback((update: SetStateAction<string>) => {
-    const previous = current.current.key === key ? current.current.text : readNativeOfflineDraft(deviceId, sessionId)
+    const previous = readNativeOfflineDraft(deviceId, sessionId)
     const text = typeof update === 'function' ? update(previous) : update
     writeNativeOfflineDraft(deviceId, sessionId, text)
-    current.current = { key, text }; setKept(current.current)
-  }, [key, deviceId, sessionId])
+  }, [deviceId, sessionId])
+  const committed = useCallback((submitted: string) => {
+    const own = sessionInputs()
+    if (!account || own.accountId !== account || !own.valid()) return
+    if (nativeOffline && account) {
+      if (readNativeOfflineDraft(deviceId, sessionId) === submitted) writeNativeOfflineDraft(deviceId, sessionId, '')
+    } else writeDraft(chatId, { clearIf: submitted })
+  }, [nativeOffline, account, deviceId, sessionId, chatId, writeDraft])
   return nativeOffline && account ? {
-    text: kept.key === key ? kept.text : readNativeOfflineDraft(deviceId, sessionId),
-    setText,
+    text: kept, setText, committed,
     // Native text is persisted synchronously by the existing nativeOfflineDraft writer.
     flush: flushed,
-  } : chat
+  } : { ...chat, committed }
 }
