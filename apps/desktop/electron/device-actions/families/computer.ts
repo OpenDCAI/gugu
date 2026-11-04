@@ -7,8 +7,8 @@
  *
  * 咕咕在 cua-driver 之上多管四件事(它自己不管):
  * 1. **不碰咕咕自己**:目标是咕咕本身(pid、bundle id、App 名)的一律拒 —— 否则 agent 能自己点开设置给自己加权限。
- * 2. **不动人的真鼠标**:把整个桌面当目标的输入(scope / target = desktop,或不指定窗口的点、输、按键)会挪人的真鼠标、
- *    落到人正在用的窗口上 —— 拒;只动 agent 自己画的那个鼠标(move_cursor 不带目标)照常。
+ * 2. **不动人的真鼠标**:显式把整个桌面当目标的输入(scope / target = desktop)仍拒绝;
+ *    未指定目标的调用原样交给驱动校验,小条是否附着不决定动作能否执行。
  * 3. **抢焦点前先问**:delivery_mode = foreground / foreground_fallback 会短暂把目标切到前台,前台 HID 鼠标输入还会移动人的真实指针;
  *    bring_to_front 会把目标一直留在前台,
  *    Windows 上普通启动的 App 可能自己跳到前台(start_minimized 除外),都先回 needs_confirmation。
@@ -70,12 +70,12 @@ interface CuaTool {
   question?(args: Args): string
   /** 接在 cua 自己的说明后面的那句。 */
   note?: string
-  /** 输入类:目标必须是一个窗口(pid / window target / element_token)。 */
+  /** 输入类:补充窗口目标与独立权限规则。 */
   windowInput?: true
   timeoutMs?(args: Args): number
 }
 
-const WINDOW_ONLY = 'Target one window (pid with window_id, a window target, or an element_token from computer.get_window_state). Desktop-wide input (scope or target "desktop", or no window at all) moves the person\'s real pointer and is refused by 咕咕.'
+const WINDOW_ONLY = 'Prefer a window target (pid with window_id, or an element_token from computer.get_window_state). Calls without a target are passed to the driver for its normal validation. Explicit desktop-wide input (scope or target "desktop") moves the person\'s real pointer and is refused by 咕咕.'
 const FOREGROUND = 'delivery_mode "foreground" briefly brings the target to the front and interrupts the person: 咕咕 asks them first (needs_confirmation, then call again with confirmed: true). Foreground HID mouse input moves the person\'s real pointer, including across displays. The person and agent share the pointer and keyboard focus; simultaneous input can interfere with clicks. Coordinate foreground work with the person; standing authorization does not isolate their concurrent desktop use.'
 const NOT_GUGU = 'Operating 咕咕 itself is refused.'
 const MENU_FOCUS = 'Some native menus need the app to remain active across calls. A foreground click immediately restores the previous app and can dismiss such a menu. After the person has authorized foreground work, record the previous active app with list_apps, use bring_to_front to keep the target active, read the menu and choose its item, then restore the previous app. Check fresh pixels and list_windows filtered by pid; a successful dispatch alone does not prove that a menu opened.'
@@ -145,7 +145,7 @@ const TOOLS: readonly CuaTool[] = [
     titleEn: 'Run steps',
     kind: 'act',
     confirm: 'on_conflict',
-    note: 'Every step must name its window (pid, or app — a window title alone is not enough); the same 咕咕 rules apply to each step.',
+    note: 'Targets may be supplied on each step. The same 咕咕 protection and foreground-consent rules apply to each step; Stop indicator placement does not change batch admission.',
     timeoutMs: () => 75_000,
   },
 ]
@@ -221,13 +221,6 @@ function refusal(tool: string, args: Args, self: SelfApp, inherited: { pid?: num
   }
   if (!INPUT_TOOLS.has(tool)) return null
   if (isDesktop(args)) return 'Desktop-wide input moves the person\'s real pointer / acts on whatever they are using: 咕咕 refuses it. Target one window (pid and window_id, or an element_token).'
-  if (tool === 'move_cursor') return null
-  const hasWindow = pid !== undefined || typeof args.element_token === 'string' || (inherited.app ?? str(args, 'app')) !== ''
-  if (!hasWindow) {
-    return typeof args.window === 'string'
-      ? 'Name the app too (app or pid): a window title alone could match 咕咕 or a window the person is using.'
-      : 'First use computer.launch_app to open the target app, or computer.list_windows to find it. Then specify the target app, pid/window_id or an element_token from computer.get_window_state before clicking or typing; input without a target window is refused.'
-  }
   return null
 }
 
@@ -533,8 +526,8 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
                 const window = resolveComputerWindow(data, { pid, ...(isNum(args.window_id) ? { windowId: args.window_id } : {}) })
                 return { pid, ...(window ? { windowId: window.windowId } : {}) }
               } catch {
-                // This read only locates the indicator. Unknown input still
-                // requires the existing foreground attachment below.
+                // This read only locates the indicator. Its failure must
+                // not prevent the original action from reaching the driver.
                 return {}
               }
             })()
@@ -581,13 +574,8 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
       // 人按了停止:这个 App 上在途的这一下被撤,报错其实是「人接过去了」。
       const stopped = () => (handle?.signal.aborted ? fail('revoked', String(handle.signal.reason)) : null)
       try {
-        const needsAttachment = pid === undefined || (targetPid(forward) === undefined && typeof forward.element_token !== 'string')
-        if (!launching && needsAttachment && handle?.ready && !await handle.ready) {
-          const next = t.cua === 'run_steps'
-            ? 'Use one target window per computer.run_steps call; split steps by window. First use computer.launch_app or computer.list_windows, then specify each step’s app, pid/window_id or element_token.'
-            : 'First use computer.launch_app to open the target app, or computer.list_windows to find it; then specify app, pid/window_id or element_token before clicking or typing.'
-          return stopped() ?? fail('execution_failed', `Computer Use could not attach its Stop control. ${next}`)
-        }
+        // Attachment is best effort, never an admission condition. The native
+        // driver still validates the original call and its permissions.
         const outcome = await callCua(ctx, name, t.cua, takesSession ? { ...forward, session } : forward, t.timeoutMs?.(args), signal)
         if (outcome.ok) {
           apps.learn(session, outcome.data, launching ? { ...forward, app: forward.name ?? forward.bundle_id ?? forward.app } : forward)

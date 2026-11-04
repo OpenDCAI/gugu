@@ -242,23 +242,23 @@ describe('电脑控制:咕咕的规矩', () => {
     expect(callTool).not.toHaveBeenCalled()
   })
 
-  it('不动人的真鼠标:整个桌面当目标、或不指定窗口的点 / 输 → 拒;只动 agent 鼠标(move_cursor 不带目标)、截整个屏幕照常', async () => {
+  it('保留显式桌面目标限制;裸输入与批次原样交给驱动,不依赖小条附着', async () => {
     const { invoke, callTool } = setup()
     for (const [action, args] of [
       ['computer.click', { target: { kind: 'desktop', display_id: 'primary' }, x: 10, y: 10 }],
-      ['computer.click', { x: 10, y: 10 }],
-      ['computer.type_text', { text: 'hi' }],
       ['computer.move_cursor', { x: 1, y: 1, target: { kind: 'desktop' } }],
-      ['computer.run_steps', { steps: [{ click: { window: '设置', role: 'button', name: 'OK' } }] }],
     ] as const) {
       expect(await invoke(action, { ...args }), `${action} ${JSON.stringify(args)}`).toMatchObject({ ok: false, code: 'invalid_args' })
     }
     expect(callTool).not.toHaveBeenCalled()
+    expect(await invoke('computer.click', { x: 10, y: 10 })).toMatchObject({ ok: true })
+    expect(await invoke('computer.type_text', { text: 'hi' })).toMatchObject({ ok: true })
+    expect(await invoke('computer.run_steps', { steps: [{ click: { window: '设置', role: 'button', name: 'OK' } }] })).toMatchObject({ ok: true })
     expect(await invoke('computer.move_cursor', { x: 100, y: 120 })).toMatchObject({ ok: true })
     expect(await invoke('computer.get_desktop_state', {})).toMatchObject({ ok: true })
     expect(await invoke('computer.click', { pid: 77, window_id: 5, element_token: 's1:5' })).toMatchObject({ ok: true })
     expect(await invoke('computer.run_steps', { app: 'Calculator', steps: [{ click: { role: 'button', name: '7' } }] })).toMatchObject({ ok: true })
-    expect(callTool.mock.calls.map((c) => c[0])).toEqual(['move_cursor', 'get_desktop_state', 'click', 'run_steps'])
+    expect(callTool.mock.calls.map((c) => c[0])).toEqual(['click', 'type_text', 'run_steps', 'move_cursor', 'get_desktop_state', 'click', 'run_steps'])
   })
 
   it('抢焦点前先问:foreground 投递 / foreground_fallback → needs_confirmation;带 confirmed 才发,confirmed 不转给 cua', async () => {
