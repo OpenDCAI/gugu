@@ -1,10 +1,78 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
+import { SessionInputAdmissionError } from '@gugu/core/shared/sessionInputAdmission'
 import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput, type SessionInputFailure } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
+  it('honors an explicit custody acceptance even when a later operation reports an error', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    let attempts = 0
+    const queue = new SessionInputOutbox('owner', storage, async () => {
+      attempts++
+      throw new SessionInputAdmissionError('accepted, but notification failed', 'accepted', 'same-code')
+    }, () => true)
+    await queue.enqueue({ deviceId: null, sessionId: 'agent', text: 'already in host custody' })
+    await queue.flush(); await queue.flush()
+    expect(attempts).toBe(1)
+    expect(await queue.list()).toEqual([])
+  })
+
+  it.each([undefined, null])('keeps an untyped %s rejection uncertain rather than treating it as acceptance', async error => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const queue = new SessionInputOutbox('owner', storage, async () => { throw error }, () => true)
+    const input = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'retain this input' })
+    await queue.flush()
+    expect(await queue.list()).toEqual([expect.objectContaining({ id: input.id, admission: 'uncertain' })])
+  })
+
+  it('hands definitive refusals to the person across restarts, with independent single-input recovery', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const attempts: [string, string][] = []
+    let refuse = true
+    const send = async (input: SessionInput) => {
+      attempts.push([input.id, input.text])
+      if (refuse) throw new SessionInputAdmissionError('This input is not allowed', 'rejected', 'a-future-host-code')
+    }
+    const queue = new SessionInputOutbox('owner', storage, send, () => true)
+    const a = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'original' })
+    const b = await queue.enqueue({ deviceId: 'host', sessionId: 'other', text: 'keep this too' })
+    await queue.flush()
+    expect((await queue.list()).map(input => input.admission)).toEqual(['rejected', 'rejected'])
+    const restarted = new SessionInputOutbox('owner', storage, send, () => true)
+    await restarted.flush(); await restarted.flush(true)
+    expect(attempts).toHaveLength(2)
+    expect(sessionInputBubbles(await restarted.list(), [], null).map(bubble => bubble.state)).toEqual(['failed', 'failed'])
+    await restarted.edit(a.id, 'edited')
+    await restarted.flush()
+    expect(attempts).toHaveLength(2)
+    refuse = false
+    await restarted.retry(a.id)
+    expect(attempts).toEqual([[a.id, 'original'], [b.id, 'keep this too'], [a.id, 'edited']])
+    expect((await restarted.list()).map(input => input.id)).toEqual([b.id])
+    await restarted.discard(b.id)
+    expect(await restarted.list()).toEqual([])
+  })
+
+  it.each(['uncertain', undefined] as const)('automatically recovers a %s result with the same id, independent of its diagnostic code', async admission => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const attempts: string[] = []
+    const send = async (input: SessionInput) => {
+      attempts.push(input.id)
+      if (attempts.length === 1) throw Object.assign(new Error('session not found'), { code: 'session_not_found', ...(admission ? { admission } : {}) })
+    }
+    const queue = new SessionInputOutbox('owner', storage, send, () => true)
+    const input = await queue.enqueue({ deviceId: null, sessionId: 'agent', text: 'retry the original' })
+    await queue.flush()
+    expect(sessionInputBubbles(await queue.list(), [], null)[0].state).toBe('waiting')
+    await expect(queue.edit(input.id, 'unsafe change')).rejects.toThrow('manual decision')
+    await expect(queue.discard(input.id)).rejects.toThrow('manual decision')
+    await queue.flush()
+    expect(attempts).toEqual([input.id, input.id])
+    expect(await queue.list()).toEqual([])
+  })
+
   it('keeps a failure visible through automatic retry and clears it when a manual retry actually begins', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     let finish: (() => void) | undefined
@@ -103,6 +171,146 @@ describe('native session input persistence', () => {
     await owner.flush()
     expect(await new SessionInputOutbox('other', storage, async () => {}, () => true).list()).toEqual([])
     expect(await owner.list()).toHaveLength(1)
+  })
+})
+
+describe('admission results arriving after the sender deadline', () => {
+  function setup(send: (input: SessionInput) => Promise<void>, current = () => true) {
+    const saved = new Map<string, SessionInput>()
+    const storage = {
+      list: async (accountId: string) => [...saved.values()].filter(row => row.accountId === accountId).map(row => structuredClone(row)),
+      put: async (input: SessionInput) => { saved.set(input.id, structuredClone(input)) },
+      remove: async (_accountId: string, id: string) => { saved.delete(id) },
+    }
+    return new SessionInputOutbox('owner', storage, send, current)
+  }
+  const delayed = () => {
+    let resolve!: () => void, reject!: (error: Error) => void
+    const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no })
+    return { promise, resolve, reject }
+  }
+  async function deadline(queue: SessionInputOutbox) {
+    const flushing = queue.flush()
+    await vi.advanceTimersByTimeAsync(30_000)
+    await flushing
+    expect((await queue.list())[0].admission).toBe('uncertain')
+  }
+
+  it.each(['accepted', 'rejected'] as const)('reconciles a late %s decision without another automatic send', async admission => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const late = delayed(), send = vi.fn(() => late.promise), queue = setup(send)
+      const input = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'original input' })
+      await deadline(queue)
+      if (admission === 'accepted') late.resolve()
+      else late.reject(new SessionInputAdmissionError('definitive late refusal', 'rejected'))
+      await vi.advanceTimersByTimeAsync(0)
+      if (admission === 'accepted') expect(await queue.list()).toEqual([])
+      else expect(await queue.list()).toEqual([expect.objectContaining({ id: input.id, admission: 'rejected' })])
+      await queue.flush()
+      expect(send).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each(['accepted', 'rejected'] as const)('reconciles a late %s decision even while an automatic replay is still pending', async admission => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const original = delayed(), replay = delayed()
+      const send = vi.fn().mockImplementationOnce(() => original.promise).mockImplementation(() => replay.promise)
+      const queue = setup(send)
+      await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'same original admission' })
+      await deadline(queue)
+      const flushing = queue.flush(); await vi.advanceTimersByTimeAsync(0)
+      if (admission === 'accepted') original.resolve()
+      else original.reject(new SessionInputAdmissionError('original late refusal', 'rejected'))
+      await vi.advanceTimersByTimeAsync(0)
+      if (admission === 'accepted') expect(await queue.list()).toEqual([])
+      else expect((await queue.list())[0].admission).toBe('rejected')
+      replay.reject(new Error('replay connection lost')); await flushing
+      await queue.flush(); expect(send).toHaveBeenCalledTimes(2)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each([true, false])('hands over confirmed custody after an earlier refusal of the same automatic generation (original refused: %s)', async originalRefused => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const original = delayed(), replay = delayed()
+      const send = vi.fn().mockImplementationOnce(() => original.promise).mockImplementation(() => replay.promise)
+      const queue = setup(send)
+      await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'one unchanged original input' })
+      await deadline(queue)
+      const flushing = queue.flush(); await vi.advanceTimersByTimeAsync(0)
+      const refused = originalRefused ? original : replay
+      const accepted = originalRefused ? replay : original
+      refused.reject(new SessionInputAdmissionError('refused before another attempt took custody', 'rejected'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect((await queue.list())[0].admission).toBe('rejected')
+      accepted.resolve(); await vi.advanceTimersByTimeAsync(0); await flushing
+      expect(await queue.list()).toEqual([])
+      await queue.flush(); expect(send).toHaveBeenCalledTimes(2)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each(['accepted', 'rejected'] as const)('does not replay a stale drain snapshot after another input receives late %s', async admission => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const late = delayed(), other = delayed()
+      let otherCalls = 0, lateCalls = 0
+      const queue = setup(async input => {
+        if (input.sessionId === 'other') {
+          if (++otherCalls === 1) throw new Error('temporary connection failure')
+          return other.promise
+        }
+        lateCalls++; return late.promise
+      })
+      await queue.enqueue({ deviceId: 'host', sessionId: 'other', text: 'first in the snapshot' })
+      await queue.enqueue({ deviceId: 'host', sessionId: 'late', text: 'second in the snapshot' })
+      await deadline(queue)
+      const replay = queue.flush(); await vi.advanceTimersByTimeAsync(0)
+      if (admission === 'accepted') late.resolve()
+      else late.reject(new SessionInputAdmissionError('late refusal', 'rejected'))
+      await vi.advanceTimersByTimeAsync(0); other.resolve(); await replay
+      expect(lateCalls).toBe(1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each(['accepted', 'rejected'] as const)('an old late %s decision cannot override editing, discard or a newer manual retry', async admission => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      for (const action of ['edit', 'discard', 'retry'] as const) {
+        const old = delayed(), replacement = delayed()
+        const send = vi.fn().mockImplementationOnce(() => old.promise)
+          .mockRejectedValueOnce(new SessionInputAdmissionError('explicit refusal of replay', 'rejected'))
+          .mockImplementation(() => replacement.promise)
+        const queue = setup(send)
+        const input = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'original' })
+        await deadline(queue)
+        await queue.flush()
+        await queue.edit(input.id, 'the person edited this')
+        let retry: Promise<void> | undefined
+        if (action === 'discard') await queue.discard(input.id)
+        if (action === 'retry') { retry = queue.retry(input.id); await vi.advanceTimersByTimeAsync(0) }
+        if (admission === 'accepted') old.resolve()
+        else old.reject(new SessionInputAdmissionError('old late refusal', 'rejected'))
+        await vi.advanceTimersByTimeAsync(0)
+        if (action === 'discard') expect(await queue.list()).toEqual([])
+        else expect(await queue.list()).toEqual([expect.objectContaining({ id: input.id, text: 'the person edited this',
+          ...(action === 'edit' ? { admission: 'rejected' } : {}) })])
+        if (retry) { expect((await queue.list())[0].admission).toBeUndefined(); replacement.resolve(); await retry }
+      }
+    } finally { vi.useRealTimers() }
+  })
+
+  it('does not apply a late decision after this account stopped owning the queue', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let current = true
+      const late = delayed(), queue = setup(() => late.promise, () => current)
+      await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'account scoped' })
+      await deadline(queue); current = false; late.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+      expect((await queue.list())[0].admission).toBe('uncertain')
+    } finally { vi.useRealTimers() }
   })
 })
 

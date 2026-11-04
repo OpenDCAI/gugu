@@ -30,6 +30,15 @@ export async function retrySessionInputs(): Promise<void> {
   await (await own.queue).flush(true)
 }
 
+export async function changeRejectedSessionInput(id: string, action: { kind: 'retry' } | { kind: 'edit'; text: string } | { kind: 'discard' }): Promise<void> {
+  const own = state()
+  if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
+  const queue = await own.queue
+  if (action.kind === 'edit') await queue.edit(id, action.text)
+  else if (action.kind === 'retry') await queue.retry(id)
+  else await queue.discard(id)
+}
+
 export function useQueuedSessionInputs(sessionId: string): readonly SessionInput[] {
   const rows = useSyncExternalStore(listener => { state().listeners.add(listener); return () => { state().listeners.delete(listener) } }, () => state().rows, () => EMPTY)
   const ownerId = state().valid() ? state().accountId : null

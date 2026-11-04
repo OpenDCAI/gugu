@@ -59,7 +59,7 @@ export class DeviceRpcChannelError extends Error {
 }
 
 export type DeviceRpcRequester = {
-  call(deviceId: string, type: string, payload: unknown, options: { timeoutMs: number; signal?: AbortSignal }): Promise<DeviceRpcResponse<unknown>>
+  call(deviceId: string, type: string, payload: unknown, options: { timeoutMs: number; signal?: AbortSignal; retainReplyOnTimeout?: boolean }): Promise<DeviceRpcResponse<unknown>>
   /** 只开管道(推送订阅者要先有管道才收得到)。 */
   open(deviceId: string): Promise<void>
   /** 拆掉这台机器的管道,在途的请求以 `error` 失败。 */
@@ -137,7 +137,7 @@ export function createDeviceRpcRequester(options: {
   }
 
   return {
-    async call(deviceId, type, payload, { timeoutMs, signal }) {
+    async call(deviceId, type, payload, { timeoutMs, signal, retainReplyOnTimeout }) {
       signal?.throwIfAborted()
       const userId = await options.userId()
       let entry = ensure(deviceId)
@@ -179,6 +179,9 @@ export function createDeviceRpcRequester(options: {
             write()
             return
           }
+          // Durable admission has its own presentation deadline. Keep observing the original request:
+          // a late authoritative receipt still belongs to it, until a reply, abort or real channel closure.
+          if (retainReplyOnTimeout) return
           settle(() => {
             reject(new DeviceRpcTimeoutError(`no reply to ${type} within ${timeoutMs} ms${retried ? ' (asked twice)' : ''}`))
             entry.live?.onRequestTimeout?.(timeoutMs)

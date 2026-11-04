@@ -28,13 +28,14 @@ export function sessionInputWaitingReason(failure: SessionInputFailure): string 
 /** One ordinary input follows sender custody, host custody and its native echo without changing its row. */
 export function projectSessionPendingInput(previous: PendingPrompt | null, sender: readonly SessionInput[],
   host: readonly HostPendingRow[], turns: readonly TranscriptTurn[]): PendingPrompt | null {
-  const input = sender.find(row => row.queued === false && (!previous?.delivery || row.id === previous.id))
+  if (sender.some(row => row.id === previous?.id && row.admission === 'rejected')) previous = null
+  const input = sender.find(row => row.admission !== 'rejected' && row.queued === false && (!previous?.delivery || row.id === previous.id))
   let prompt: PendingPrompt | null = input ? {
     id: input.id, text: input.text, sentAt: input.createdAt, baselineMessageIds: input.baseline, afterTurnId: input.afterTurnId,
     attachments: input.files?.map(file => ({ id: file.itemId, name: file.name, href: `gugu-file://${file.itemId}?v=${file.version}`, kind: file.mimeType.startsWith('image/') ? 'image' : 'file' })),
-    // Presence in the durable sender outbox means automatic recovery, for every failure code.
     held: true, delivery: input.failure ? { state: 'waiting', retryable: false, reason: sessionInputWaitingReason(input.failure), error: sessionInputFailureText(input.failure) } : { state: 'sending' },
-  } : previous?.delivery ? { ...previous, held: true, delivery: { state: 'accepted' } } : null
+  } : previous?.delivery && !(previous.delivery.state === 'failed' && previous.delivery.retryable === true)
+    ? { ...previous, held: true, delivery: { state: 'accepted' } } : null
   if (!prompt) return null
   const promptId = prompt.id
   const receipt = host.find(row => row.messageId === promptId)
@@ -45,4 +46,16 @@ export function projectSessionPendingInput(previous: PendingPrompt | null, sende
     prompt = { ...prompt, delivery: { state: 'accepted' } }
   }
   return pendingPromptLanded(prompt, turns) ? null : prompt
+}
+
+/** Rejected inputs use ordinary transcript messages, including more than one refusal for a task. */
+export function projectRejectedSessionInputs(sender: readonly SessionInput[], turns: readonly TranscriptTurn[]): PendingPrompt[] {
+  return sender.filter(input => input.admission === 'rejected').flatMap(input => {
+    const prompt: PendingPrompt = { id: input.id, text: input.text, sentAt: input.createdAt, held: true, senderRejected: true,
+      baselineMessageIds: input.baseline, afterTurnId: input.afterTurnId,
+      attachments: input.files?.map(file => ({ id: file.itemId, name: file.name, href: `gugu-file://${file.itemId}?v=${file.version}`, kind: file.mimeType.startsWith('image/') ? 'image' : 'file' })),
+      delivery: { state: 'failed', retryable: true, reason: input.failure ? sessionInputFailureText(input.failure) : undefined,
+        error: input.failure ? sessionInputFailureText(input.failure) : undefined } }
+    return pendingPromptLanded(prompt, turns) ? [] : [prompt]
+  })
 }

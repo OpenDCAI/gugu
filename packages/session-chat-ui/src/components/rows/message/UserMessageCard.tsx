@@ -79,7 +79,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
 
   const isCurrent = () => turn.currentMessageId() === props.data.id;
   /** 这一条就是正在跑的那一轮 —— 卡片高亮用它，与宿主接没接停止回调无关。 */
-  const isGenerating = () => isCurrent() && turn.turnStatus() === 'generating';
+  const isGenerating = () => !commands().canDiscardSend?.(props.data.id) && isCurrent() && turn.turnStatus() === 'generating';
   /**
    * 停止按钮多一道门：宿主必须真的注入了 `onStop`。
    *

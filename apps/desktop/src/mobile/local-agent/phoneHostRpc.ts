@@ -1,4 +1,5 @@
 import { callDeviceRpc } from '@/lib/deviceRpc'
+import { SessionInputAdmissionError, sessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission'
 import { getCurrentAuthUserId } from '@/lib/supabase'
 import { thisPhoneDeviceId } from '../phone-device/phoneDeviceSettings'
 import { nativeAgent, phoneAgentAvailable } from './nativeAgent'
@@ -11,7 +12,8 @@ function localCall(ownerId: string, deviceId: string, id: string, channel: strin
   const timeoutMs = timeout ?? (channel === 'sessionTimeline.sessionCreate' ? 180_000 : 12_000)
   return new Promise((resolve, reject) => {
     let settled = false
-    const timer = setTimeout(() => {
+    // The durable sender owns the display deadline; it must still see the native admission receipt.
+    const timer = channel === 'sessionTimeline.sessionSend' ? undefined : setTimeout(() => {
       settled = true
       signal?.removeEventListener('abort', abort)
       reject(Object.assign(new Error(channel === 'sessionTimeline.sessionCreate'
@@ -40,7 +42,7 @@ function localCall(ownerId: string, deviceId: string, id: string, channel: strin
             delayMs = Math.min(delayMs * 2, 1000)
             continue
           }
-          if (reply.error) finish(Object.assign(new Error(reply.error.message), { code: reply.error.code }))
+          if (reply.error) finish(new SessionInputAdmissionError(reply.error.message, sessionInputAdmission(reply.error), reply.error.code))
           else finish(null, reply.result)
           return
         } catch (error) { finish(error); return }
@@ -56,8 +58,8 @@ export async function invokePhoneHost<T>(deviceId: string, channel: string, args
   if (phoneAgentAvailable() && thisPhoneDeviceId(ownerId) === deviceId) {
     return localCall(ownerId, deviceId, requestId, channel, args, timeoutMs, signal) as Promise<T>
   }
-  const reply = await callDeviceRpc<{ value: T }>(deviceId, 'taskhost.call', { channel, args }, { timeoutMs: timeoutMs ?? (channel === 'sessionTimeline.sessionCreate' ? 180_000 : 12_000), signal })
-  if (reply.error) throw Object.assign(new Error(reply.error.message), { code: reply.error.code })
+  const reply = await callDeviceRpc<{ value: T }>(deviceId, 'taskhost.call', { channel, args }, { timeoutMs: timeoutMs ?? (channel === 'sessionTimeline.sessionCreate' ? 180_000 : 12_000), signal, ...(channel === 'sessionTimeline.sessionSend' ? { retainReplyOnTimeout: true } : {}) })
+  if (reply.error) throw new SessionInputAdmissionError(reply.error.message, sessionInputAdmission(reply.error), reply.error.code)
   if (!reply.result || !('value' in reply.result)) throw new Error('手机尚未返回操作结果，请重试')
   return reply.result.value
 }

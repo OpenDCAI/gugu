@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import { desktopProtocolOutsideWindow } from '../../../packages/core/src/cloud/serverDesktopVersions'
 import { helloProtocol, MIN_CLIENT_PROTOCOL, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION, serverProtocolTooOld } from '../../../packages/core/src/cloud/serverMachineHealth'
+import { sessionInputAdmission } from '../../../packages/core/src/shared/sessionInputAdmission'
 import { settlementFromWire, type Settlement } from '../../../packages/session-core/src/session-record/contract'
 
 describe('one protocol notch down still connects; the newer side degrades', () => {
@@ -35,4 +36,15 @@ describe('one protocol notch down still connects; the newer side degrades', () =
     expect(settlementFromWire(fresh)).toBe(fresh)
     expect(settlementFromWire({ ...base } as Settlement).origin).toBeUndefined()
   })
+})
+
+it('keeps task input admission additive in both directions within the protocol window', () => {
+  const previous = REMOTE_PROTOCOL_VERSION - 1
+  // New desktop -> previous server: hello speaks the previous version; absent decisions remain automatic.
+  expect(helloProtocol(previous)).toBe(previous)
+  expect(sessionInputAdmission({ code: 'session_not_found', message: 'missing' })).toBe('uncertain')
+  // Previous desktop -> new server: its hello remains inside the new server's accepted window.
+  expect(desktopProtocolOutsideWindow(previous)).toBe(false)
+  const error = { code: 'session_not_found', message: 'missing', admission: 'rejected' }
+  expect(sessionInputAdmission(error)).toBe('rejected')
 })

@@ -126,6 +126,17 @@ describe('#3498 transcript 的停止按钮', () => {
 
 
 describe('conversation edit control', () => {
+  it('keeps the existing edit action on a refused input while another input is running', () => {
+    const edit = vi.fn(), stop = vi.fn();
+    const el = renderCard({ generating: true, message: () => ({ ...MESSAGE, sendStatus: { state: 'failed', retryable: true } }),
+      commands: { canDiscardSend: id => id === MESSAGE.id, canRevertMessage: () => true, onEditMessage: edit, onStop: stop } });
+    expect(el.querySelector('[data-slot="message-stop"]')).toBeNull();
+    const button = el.querySelector<HTMLButtonElement>('[data-slot="message-edit"]');
+    expect(button).not.toBeNull();
+    button!.click();
+    expect(edit).toHaveBeenCalledExactlyOnceWith({ itemId: MESSAGE.id });
+    expect(stop).not.toHaveBeenCalled();
+  });
   it('shows only a real valid message time and follows virtual row reuse', () => {
     const [message, setMessage] = createSignal(MESSAGE);
     const el = renderCard({ generating: false, message });
