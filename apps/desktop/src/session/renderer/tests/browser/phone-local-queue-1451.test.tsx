@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useLayoutEffect, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation'
@@ -12,6 +12,7 @@ import type { SessionInputOutbox } from '@/lib/sessionInputOutbox'
 import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
+import { readComposer, writeComposer } from '../../../../../../../tests/support/composerEditor'
 import type { LifeView } from '@shared/core/sessions/session-life'
 
 const life = vi.hoisted(() => ({ view: null as LifeView | null }))
@@ -219,4 +220,36 @@ it.each((['accepted', 'failed'] as const).flatMap(result => (['unchanged', 'shar
   else expect(own.rows).toHaveLength(0)
   expect(page.getByTestId('prompt-editor').element().textContent).toBe(result === 'accepted' && live === 'Hi' ? '' : live)
   expect(send).toHaveBeenCalledTimes(1)
+})
+
+
+it.each((['phone', 'native'] as const).flatMap(mode => ['', 'Hi again', 'Hi appended'].map(text => ({ mode, text }))))('keeps input that advances before draft hydration ($mode / $text)', async ({ mode, text }) => {
+  await page.viewport(mode === 'phone' ? 390 : 1000, 844)
+  localStorage.removeItem('gugu.native-offline-draft:owner/host/hydrate')
+  let pulse!: () => void
+  function AfterInput({ active }: { active: boolean }) {
+    useLayoutEffect(() => {
+      if (active) {
+        const editor = document.querySelector('[data-testid="prompt-editor"]')!
+        writeComposer(editor, text)
+        expect(readComposer(editor)).toBe(text)
+        expect(editor.textContent).toBe(text)
+      }
+    }, [active])
+    return null
+  }
+  function Fixture() {
+    const [active, setActive] = useState(false)
+    pulse = () => setActive(true)
+    return <><SessionConversation timeline={emptyAgentWatchTimeline()} deviceId="host" sessionId="hydrate" agentName="Agent" nativeRecord
+      sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking
+      onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} /><AfterInput active={active} /></>
+  }
+  Object.assign(state(), { accountId: 'owner', rows: EMPTY, valid: () => true })
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  await renderWithAppProviders(harness, <Fixture />, { contacts: {} })
+  await page.getByTestId('prompt-editor').fill('different')
+  await act(async () => { writeComposer(page.getByTestId('prompt-editor').element(), 'Hi'); pulse() })
+  expect(page.getByTestId('prompt-editor').element().textContent).toBe(text)
 })

@@ -2,7 +2,7 @@ import { useRejectedSessionInputCommands } from '@/hooks/useRejectedSessionInput
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff'
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead'
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toolImageUrl } from '@gugu/session-core/acp/client'
 import { openImageViewer } from '@/lib/imageViewer'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
@@ -101,8 +101,14 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [attachmentWaiting, setAttachmentWaiting] = useState(false)
   const applied = useRef<typeof draft>(undefined)
+  const mirroredText = useRef(draftText)
   // Hydrate before applying an App handoff, so the old mirror cannot overwrite its new text.
-  useEffect(() => { if (editor.current?.getText() !== draftText) editor.current?.setText(draftText) }, [draftText])
+  useLayoutEffect(() => {
+    const previous = mirroredText.current
+    mirroredText.current = draftText
+    // Input can advance after this render. Only apply external changes to the document it observed.
+    if (editor.current?.getText() === previous && previous !== draftText) editor.current.setText(draftText)
+  }, [draftText])
   useEffect(() => {
     if (!draft || applied.current === draft) return
     applied.current = draft
