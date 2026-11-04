@@ -5,7 +5,10 @@ import Module from 'node:module'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ runtime: vi.fn(), installed: vi.fn(), supervisor: vi.fn(), holder: vi.fn() }))
-vi.mock('../../../../apps/desktop/electron/server/server-account-lock', () => ({ accountLockHolder: mocks.holder }))
+vi.mock('../../../../apps/desktop/electron/server/server-account-lock', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../apps/desktop/electron/server/server-account-lock')>(),
+  accountLockHolder: mocks.holder,
+}))
 vi.mock('../../../../apps/desktop/electron/server/server-keeper', () => ({ liveKeeperPid: () => null, markStopped: () => {} }))
 vi.mock('../../../../apps/desktop/electron/server/server-account-runtime', () => ({ readAccountRuntime: mocks.runtime, installedPackageVersion: mocks.installed }))
 vi.mock('../../../../apps/desktop/electron/server/server-service', () => ({ describeService: () => 'test supervisor', readRunningServer: mocks.supervisor }))
@@ -70,13 +73,14 @@ it.each(['running', 'stopped', 'waiting', 'migration'] as const)('status --json 
   expect(exit).toHaveBeenCalledTimes(1)
 })
 
-it.each(['initial inspection', 'signal-time recheck'])('stop does not signal an unverified account PID during %s', async (stage) => {
+it.each(['account', 'accounts/u1', 'retired/u1'].flatMap(directory =>
+  ['initial inspection', 'signal-time recheck'].map(stage => [directory, stage] as const)))('stop does not signal an unverified account PID in %s during %s', async (directory, stage) => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-stop-entry-1447-'))
   vi.stubEnv('GUGU_SERVER_HOME', home)
   vi.stubEnv('GUGU_TIER', 'beta')
   vi.stubEnv('GUGU_SERVER_MODE', undefined)
   process.argv = ['node', 'server-entry.js', 'stop']
-  const account = path.join(home, 'account')
+  const account = path.join(home, directory)
   fs.mkdirSync(path.join(account, 'data'), { recursive: true })
   fs.writeFileSync(path.join(account, 'account.json'), JSON.stringify({ userId: 'u1' }))
   mocks.holder.mockImplementation(() => { throw new Error('Cannot verify account lock ownership') })

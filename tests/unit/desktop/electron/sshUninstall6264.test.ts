@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { describe, expect, it } from 'vitest'
 import {
@@ -20,6 +20,8 @@ import { createServerUpdateStateWriter } from '../../../../apps/desktop/electron
 import type { SpawnSsh } from '../../../../apps/desktop/electron/server/ssh-install/runner'
 import { SERVER_SSH_MACHINES_CHANNELS, type ServerUninstallState } from '../../../../apps/desktop/src/lib/serverSshMachines'
 import { binLauncher } from '../../../../apps/desktop/electron/server/server-names'
+import { migrateAccountLayout } from '../../../../apps/desktop/electron/server/server-boot.cjs'
+import { accountLockHolder } from '../../../../apps/desktop/electron/server/server-account-lock'
 
 const ME = '11111111-1111-4111-8111-111111111111'
 const OTHER = '22222222-2222-4222-8222-222222222222'
@@ -122,22 +124,66 @@ describe('#6264 从这台机器上卸载咕咕 server:远端脚本', () => {
     } finally { fs.rmSync(home, { recursive: true, force: true }) }
   })
 
-  it('fails closed for an invalid fixed-account lock even without a legacy accounts directory', () => {
+  it.each(['account', 'retired/u1'])('fails closed for an invalid lock in %s even without a legacy accounts directory', directory => {
     const home = tmp()
     try {
       const root = fakeInstall(home)
-      fs.renameSync(path.join(root, 'accounts', ME), path.join(root, 'account'))
+      fs.mkdirSync(path.dirname(path.join(root, directory)), { recursive: true })
+      fs.renameSync(path.join(root, 'accounts', ME), path.join(root, directory))
       fs.rmSync(path.join(root, 'accounts'), { recursive: true })
       const nodeDir = path.join(root, 'current/node/bin')
       fs.mkdirSync(nodeDir, { recursive: true })
       fs.symlinkSync(process.execPath, path.join(nodeDir, 'node'))
-      const file = path.join(root, 'account/data/server.lock')
+      const file = path.join(root, directory, 'data/server.lock')
       fs.writeFileSync(file, '')
       expect(() => runSh(home, uninstallScript())).toThrow('Cannot verify account lock ownership')
       expect(fs.readFileSync(file, 'utf8')).toBe('')
       expect(fs.existsSync(path.join(root, 'data/stopped'))).toBe(false)
     } finally { fs.rmSync(home, { recursive: true, force: true }) }
   })
+
+  it.each([false, true])('stops a sessionless live owner before removal, including after actual retirement (migrate=%s)', async migrate => {
+    const home = tmp(), root = fakeInstall(home), data = path.join(root, 'accounts', ME, 'data')
+    const term = path.join(home, 'term-observed')
+    fs.rmSync(path.join(data, 'server-session.enc'))
+    const nodeDir = path.join(root, 'current/node/bin'), tmuxDir = path.join(root, 'current/app/tmux-bundle')
+    fs.mkdirSync(nodeDir, { recursive: true }); fs.symlinkSync(process.execPath, path.join(nodeDir, 'node'))
+    fs.mkdirSync(tmuxDir, { recursive: true }); fs.writeFileSync(path.join(tmuxDir, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    const child = spawn(process.execPath, ['-e', `
+      const fs = require('node:fs');
+      const fd = fs.openSync(process.argv[1], 'wx'); fs.writeSync(fd, String(process.pid));
+      process.on('SIGTERM', () => { fs.writeFileSync(process.argv[2], 'term'); process.exit(0); });
+      process.stdin.resume(); process.stdin.on('end', () => process.exit(0)); process.stdout.write('ready');
+    `, path.join(data, 'server.lock'), term], {
+      env: { ...process.env, GUGU_HOME: path.join(home, 'owner-home'), GUGU_USER_DATA_DIR: path.join(home, 'owner-data') },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const exited = once(child, 'exit')
+    try {
+      await once(child.stdout, 'data')
+      if (migrate) migrateAccountLayout(root)
+      const current = migrate ? path.join(root, 'retired', ME, 'data') : data
+      expect(accountLockHolder(current)).toBe(child.pid)
+      expect(spawnSync('/usr/bin/pgrep', ['-af', path.join(data, 'server.lock')], { encoding: 'utf8' }).stdout).toContain(String(child.pid))
+      const shell = spawn('/bin/sh', [], {
+        env: { ...process.env, HOME: home, GUGU_SERVER_HOME: '', GUGU_HOME: path.join(home, 'uninstall-home'), GUGU_USER_DATA_DIR: path.join(home, 'uninstall-data') },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      let output = '', error = ''
+      shell.stdout.on('data', value => { output += value }); shell.stderr.on('data', value => { error += value })
+      const shellExit = once(shell, 'exit')
+      shell.stdin.end(uninstallScript())
+      expect((await shellExit)[0], error).toBe(0)
+      expect(output).toContain(UNINSTALLED_MARK)
+      expect(fs.readFileSync(term, 'utf8')).toBe('term')
+      expect((await exited)[0]).toBe(0)
+      expect(fs.existsSync(root)).toBe(false)
+    } finally {
+      child.stdin.end()
+      await exited
+      fs.rmSync(home, { recursive: true, force: true })
+    }
+  }, 15_000)
 
   it('reads the fixed account and retained history once, skipping rollback aliases', () => {
     const home = tmp()

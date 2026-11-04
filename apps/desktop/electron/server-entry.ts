@@ -13,7 +13,7 @@ import fs from 'node:fs'
 import Module from 'node:module'
 import path from 'node:path'
 import { isProcessAlive } from './server/process-alive'
-import { accountLockHolder } from './server/server-account-lock'
+import { accountLockDataDirs, accountLockHolder } from './server/server-account-lock'
 import { ensureCaBundleForChildren } from './server/server-ca-bundle'
 import {
   applyAccountEnv,
@@ -119,8 +119,7 @@ function lockHolder(dataDir: string): number | null {
  * 按各账号锁里的进程号收掉。先 SIGTERM 等它正常退出(收会话、放锁),30 秒不走再 SIGKILL。
  */
 async function stopAccountProcesses(): Promise<number[]> {
-  const holders = inspectAccountLayout(serverHome).flatMap((account) => {
-    const dataDir = path.join(account.dir, 'data')
+  const holders = accountLockDataDirs(serverHome).flatMap((dataDir) => {
     const pid = accountLockHolder(dataDir)
     return pid !== null && pid !== process.pid ? [{ pid, dataDir }] : []
   })

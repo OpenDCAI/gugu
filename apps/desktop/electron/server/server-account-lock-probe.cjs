@@ -1,6 +1,23 @@
 // Shared by the local server and self-contained SSH uninstall. Runtime services
 // are supplied by the caller, so both use the same ownership/error semantics.
 function createAccountLockProbe({ fs, spawnSync, platform, kill }) {
+  // A sessionless account may still own a writable lock after migration to
+  // retired. Enumerate every real account directory inside the deletion scope.
+  function directories(home) {
+    const dirs = [`${home}/account`];
+    for (const name of ['accounts', 'retired']) {
+      const root = `${home}/${name}`;
+      try {
+        if (!fs.lstatSync(root).isDirectory()) throw new Error(`Cannot verify account directory root ${root}`);
+        dirs.push(...fs.readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory())
+          .map(entry => `${root}/${entry.name}`));
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    return dirs.filter(dir => {
+      try { return fs.lstatSync(dir).isDirectory(); }
+      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    }).map(dir => `${dir}/data`);
+  }
   const unknown = (pid, cause) => Object.assign(new Error(`Cannot verify account lock ownership for PID ${pid}`, { cause }), { code: 'ACCOUNT_LOCK_UNVERIFIABLE' });
   function alive(pid) {
     try { kill(pid, 0); } catch (error) {
@@ -105,6 +122,6 @@ function createAccountLockProbe({ fs, spawnSync, platform, kill }) {
     }
     return owned ? saved.pid : null;
   }
-  return { alive, snapshot, same, owns, holder };
+  return { directories, alive, snapshot, same, owns, holder };
 }
 module.exports = { createAccountLockProbe };

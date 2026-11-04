@@ -4,9 +4,10 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { afterEach, expect, it, vi } from 'vitest'
 import { readAccountRuntime } from '../../../../apps/desktop/electron/server/server-account-runtime'
-import { accountLockHolder } from '../../../../apps/desktop/electron/server/server-account-lock'
+import { accountLockDataDirs, accountLockHolder } from '../../../../apps/desktop/electron/server/server-account-lock'
+import { migrateAccountLayout } from '../../../../apps/desktop/electron/server/server-boot.cjs'
 import { AccountInstanceLock } from '../../../../apps/desktop/electron/server/server-account-instance-lock'
-import { createAccountLockProbe } from '../../../../apps/desktop/electron/server/server-account-lock-probe.cjs'
+import { createAccountLockProbe, type AccountLockInspector } from '../../../../apps/desktop/electron/server/server-account-lock-probe.cjs'
 
 const linuxProbe = createAccountLockProbe({ fs, spawnSync, platform: 'linux', kill: () => {} })
 
@@ -26,6 +27,9 @@ const hold = (dir: string, flags = 'wx') => {
   if (flags !== 'r') fs.writeSync(fd, String(process.pid))
   return file
 }
+const inspection = (result: { status: number; stdout: string; stderr: string }) => vi.fn<AccountLockInspector>().mockReturnValue({
+  ...result, pid: process.pid, output: [null, result.stdout, result.stderr], signal: null,
+})
 afterEach(() => {
   release?.()
   release = undefined
@@ -42,6 +46,29 @@ it('does not report another account as running when its PID was reused', () => {
   fs.writeFileSync(path.join(accountB, 'server.lock'), String(process.pid))
   expect(readAccountRuntime(accountB, { alive: () => true })).toEqual({ pid: null, version: null })
   expect(readAccountRuntime(accountA, { alive: () => true }).pid).toBe(process.pid)
+})
+
+it('still verifies a sessionless live account after the real migration retires it', () => {
+  const home = tmp(), dir = path.join(home, 'accounts/u1/data')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(home, 'accounts/u1/account.json'), JSON.stringify({ userId: 'u1' }))
+  hold(dir)
+  expect(accountLockDataDirs(home)).toEqual([dir])
+  migrateAccountLayout(home)
+  const retired = path.join(home, 'retired/u1/data')
+  expect(accountLockDataDirs(home)).toEqual([retired])
+  expect(accountLockHolder(retired)).toBe(process.pid)
+})
+
+it('omits account aliases but refuses a symlinked retained-account root', () => {
+  const home = tmp(), foreign = tmp(), dir = path.join(home, 'account/data')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.mkdirSync(path.join(home, 'accounts'))
+  fs.symlinkSync('../account', path.join(home, 'accounts/u1'))
+  fs.symlinkSync(foreign, path.join(home, 'accounts/foreign'))
+  expect(accountLockDataDirs(home)).toEqual([dir])
+  fs.symlinkSync(foreign, path.join(home, 'retired'))
+  expect(() => accountLockDataDirs(home)).toThrow('Cannot verify account directory root')
 })
 
 it('does not trust the same PID holding an unlinked previous incarnation of the lock', () => {
@@ -150,7 +177,7 @@ it.each([
   { status: 0, stdout: `p${process.pid}\nferr\na \nnFD info error: Operation not permitted\n`, stderr: '' },
 ])('rejects incomplete macOS inspection without treating it as stale: %j', (result) => {
   const dir = tmp(), file = hold(dir)
-  const probe = createAccountLockProbe({ fs, platform: 'darwin', kill: () => {}, spawnSync: (() => result) as typeof spawnSync })
+  const probe = createAccountLockProbe({ fs, platform: 'darwin', kill: () => {}, spawnSync: inspection(result) })
   expect(() => probe.holder(dir)).toThrow('Cannot verify account lock ownership')
   expect(fs.readFileSync(file, 'utf8')).toBe(String(process.pid))
 })
@@ -158,8 +185,8 @@ it.each([
 it.each(['r', 'w', 'u'])('uses complete macOS FD enumeration with access %s', (access) => {
   const dir = tmp(), file = hold(dir)
   const stat = fs.statSync(file, { bigint: true })
-  const inspect = vi.fn((..._args: Parameters<typeof spawnSync>) => ({ status: 0, stderr: '', stdout: `p${process.pid}\nf7\na${access}\ntREG\nD0x${stat.dev.toString(16)}\ni${stat.ino}\nn${file}\n` }))
-  const probe = createAccountLockProbe({ fs, platform: 'darwin', kill: () => {}, spawnSync: inspect as unknown as typeof spawnSync })
+  const inspect = inspection({ status: 0, stderr: '', stdout: `p${process.pid}\nf7\na${access}\ntREG\nD0x${stat.dev.toString(16)}\ni${stat.ino}\nn${file}\n` })
+  const probe = createAccountLockProbe({ fs, platform: 'darwin', kill: () => {}, spawnSync: inspect })
   expect(probe.holder(dir)).toBe(access === 'r' ? null : process.pid)
   expect(inspect.mock.calls[0][1]).toEqual(['-nP', '-a', '-p', String(process.pid), '-F', 'faDitn'])
 })
@@ -205,8 +232,8 @@ it('publishes a complete PID record atomically instead of exposing an empty new 
 
 it('can prove a macOS PID is stale even when another regular filename contains error', () => {
   const dir = tmp(), file = hold(dir), stat = fs.statSync(file, { bigint: true })
-  const inspect = () => ({ status: 0, stderr: '', stdout: `p${process.pid}\nf7\naw\ntREG\nD0x${stat.dev.toString(16)}\ni${stat.ino + 1n}\nn/var/log/error.log\n` })
-  const probe = createAccountLockProbe({ fs, platform: 'darwin', kill: () => {}, spawnSync: inspect as typeof spawnSync })
+  const inspect = inspection({ status: 0, stderr: '', stdout: `p${process.pid}\nf7\naw\ntREG\nD0x${stat.dev.toString(16)}\ni${stat.ino + 1n}\nn/var/log/error.log\n` })
+  const probe = createAccountLockProbe({ fs, platform: 'darwin', kill: () => {}, spawnSync: inspect })
   expect(probe.holder(dir)).toBe(null)
 })
 
