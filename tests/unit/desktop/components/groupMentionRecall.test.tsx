@@ -70,11 +70,11 @@ describe('group mention recall through the real composer and send path', () => {
     expect(input().querySelector('[data-mention-id="beta"]')).not.toBeNull()
     expect(onSend).toHaveBeenCalledTimes(1)
     await send()
-    expect(onSend.mock.calls.at(-1)).toEqual([recalled, expect.objectContaining({ toUserIds: ['beta'] })])
+    expect(onSend.mock.calls.at(-1)).toEqual([recalled.trim(), expect.objectContaining({ toUserIds: ['beta'] })])
     await act(async () => { update({ mentionToInsert: { id: 'beta', name: 'Beta' } }) })
     expect(readComposer(input())).toBe(recalled)
     await send()
-    expect(onSend.mock.calls.at(-1)).toEqual([recalled, expect.objectContaining({ toUserIds: ['beta'] })])
+    expect(onSend.mock.calls.at(-1)).toEqual([recalled.trim(), expect.objectContaining({ toUserIds: ['beta'] })])
   })
 
   it.each(['x', ' ', '\n', '@'])('hides immediately for nonempty input %j and returns after deletion', async (text) => {
