@@ -45,6 +45,19 @@ function inventoryEntry(path: string, workflow: object) {
   return { path, source: YAML.stringify(workflow) }
 }
 
+function realCiEntry() {
+  const source = readFileSync('.github/workflows/ci.yml', 'utf8')
+  const workflow = YAML.parse(source)
+  const reusableWorkflows = Object.fromEntries(Object.values(workflow.jobs)
+    .filter((job) => (job as { uses?: string }).uses)
+    .map((job) => {
+      const use = (job as { uses: string }).uses
+      const [workflowPath, sha] = use.replace('GUYI-AI/gugu/', '').split('@')
+      return [use, { path: workflowPath, source: execFileSync('git', ['show', `${sha}:${workflowPath}`], { encoding: 'utf8' }) }]
+    }))
+  return { path: '.github/workflows/ci.yml', source, reusableWorkflows }
+}
+
 function event(overrides: Record<string, unknown> = {}) {
   return {
     id: 'push:dev',
@@ -784,7 +797,8 @@ if (args[0] === 'pr') {
     const ciSource = readFileSync('.github/workflows/ci.yml', 'utf8')
     const execute = vi.fn((_command: string, args: string[]) => {
       if (args[0] === 'ls-tree') return Buffer.from('.github/workflows/ci.yml\0')
-      if (args[0] === 'show') return ciSource
+      if (args[0] === 'show') return args[1] === 'candidate-sha:.github/workflows/ci.yml'
+        ? ciSource : execFileSync('git', ['show', args[1]], { encoding: 'utf8' })
       throw new Error(`unexpected git operation ${args[0]}`)
     })
     const workflows = loadWorkflowInventory('/candidate', 'candidate-sha', execute)
@@ -813,7 +827,8 @@ if (args[0] === 'pr') {
     expect(names).toContain('Renderer build (web target)')
     // #6270: linux 原生重编并进 desktop-build —— 清单里再出现它,PR 会一直等一个永远不会出现的检查。
     expect(names).not.toContain('Linux native addon rebuild (Electron headers)')
-    expect(names).toContain('Desktop app build (macos-15)')
+    expect(names).toContain('Desktop app build (macos-15) / Route')
+    expect(names).toContain('Desktop app build (macos-15) / Desktop app build (macos-15)')
     expect(names).toContain('Desktop app build (ubuntu-24.04)')
     expect(names).toContain('Typecheck, lint, and test')
     // 共享那两片 2026-08-12 摘出了必过闸(见 ci.yml 的 matrix 注释与 ci-spec-coverage.json 的
@@ -822,31 +837,15 @@ if (args[0] === 'pr') {
     expect(names).not.toContain('Web E2E (shared-1)')
     expect(names).not.toContain('Web E2E (shared-2)')
     expect(names).not.toContain('Fresh upstream and anchored suffix parity')
-    expect(execute.mock.calls).toEqual([
-      [
-        'git',
-        [
-          'ls-tree',
-          '-r',
-          '-z',
-          '--name-only',
-          'candidate-sha',
-          '--',
-          '.github/workflows'
-        ],
-        { cwd: '/candidate' }
-      ],
-      [
-        'git',
-        ['show', 'candidate-sha:.github/workflows/ci.yml'],
-        { cwd: '/candidate', encoding: 'utf8' }
-      ]
-    ])
+    for (const use of Object.keys(realCiEntry().reusableWorkflows)) {
+      const [workflowPath, sha] = use.replace('GUYI-AI/gugu/', '').split('@')
+      expect(execute).toHaveBeenCalledWith('git', ['show', `${sha}:${workflowPath}`], { cwd: '/candidate', encoding: 'utf8' })
+    }
   })
 
   describe('builds that the changes job skipped by design (@@@path-filtered-jobs)', () => {
     const DECIDER = 'Detect changed areas'
-    const MAC = 'Desktop app build (macos-15)'
+    const MAC = 'Desktop app build (macos-15) / Desktop app build (macos-15)'
     const ANDROID = 'Android debug build'
 
     function realCiProfiles() {
@@ -859,7 +858,7 @@ if (args[0] === 'pr') {
           changedPaths: ['apps/desktop/src/App.tsx'],
           inventoryRef: 'HEAD',
           workflows: [
-            { path: '.github/workflows/ci.yml', source: readFileSync('.github/workflows/ci.yml', 'utf8') }
+            realCiEntry()
           ]
         })
       ])
@@ -887,8 +886,9 @@ if (args[0] === 'pr') {
         [MAC]: { decider: DECIDER, output: 'desktop-mac' },
         [ANDROID]: { decider: DECIDER, output: 'android' },
         ...Object.fromEntries([
-          'Session database, chat UI browser and tooling', 'Session browser project',
-          'Projection native media', 'Client and community database contracts',
+          'Session database, chat UI browser and tooling / Session database, chat UI browser and tooling',
+          'Session browser project', 'Projection native media',
+          'Client and community database contracts',
         ].map(name => [name, { decider: DECIDER, output: 'tests' }]))
       })
     })
@@ -934,7 +934,7 @@ if (args[0] === 'pr') {
         verdict: 'RED',
         failed: [`pull_request/${ANDROID} (skipped; ${DECIDER} failure)`, `pull_request/${DECIDER} (failure)`]
       })
-      // A test skip needs the original docs-only decision.
+      // Test skips are rejected without the original docs-only decision.
       expect(
         verdict({ [DECIDER]: { outputs: typicalSourcePr }, 'Unit tests (1/4)': skipped })
       ).toMatchObject({ verdict: 'RED', failed: ['pull_request/Unit tests (1/4) (skipped)'] })
@@ -970,6 +970,31 @@ if (args[0] === 'pr') {
       ).toBeUndefined()
       expect(parseJobOutputsAnnotations([{ title: JOB_OUTPUTS_MARKER, message: 'build true' }])).toBeUndefined()
     })
+  })
+
+
+  it('fails closed when a pinned child, original output binding, or child check is missing', () => {
+    const entry = realCiEntry()
+    const run = (workflows: unknown[]) => deriveCheckProfiles([event({
+      type: 'pull_request', action: 'synchronize', baseRef: 'dev', workflows
+    })])
+    expect(() => run([{ ...entry, reusableWorkflows: {} }])).toThrow('missing exact pinned workflow')
+    const workflow = YAML.parse(entry.source)
+    workflow.jobs['desktop-build-mac'].with['build-required'] = 'false'
+    expect(() => run([{ ...entry, source: YAML.stringify(workflow) }])).toThrow('original changes output binding')
+    workflow.jobs['desktop-build-mac'].with['build-required'] = '${{ needs.changes.outputs.desktop-mac }}'
+    workflow.jobs['desktop-build-mac'].if = "needs.changes.outputs.desktop-mac == 'true'"
+    expect(() => run([{ ...entry, source: YAML.stringify(workflow) }])).toThrow('conditional reusable callers')
+    const profiles = run([entry])
+    const runs = profiles.flatMap((profile) => profile.checks)
+      .filter((name) => !name.endsWith(' / Desktop app build (macos-15)'))
+      .map((name, index) => completed(index + 1, 'pull_request', name))
+    expect(evaluateCheckSnapshots(profiles, [runs, runs])).toMatchObject({
+      verdict: 'INCOMPLETE', missing: ['pull_request/Desktop app build (macos-15) / Desktop app build (macos-15)']
+    })
+    const changed = structuredClone(entry)
+    Object.values(changed.reusableWorkflows)[0].source += '\n# Changed fixed source\n'
+    expect(run([changed])[0].generation).not.toBe(profiles[0].generation)
   })
 
   it('fails loudly on ambiguous or dynamically named workflow inventory', () => {
