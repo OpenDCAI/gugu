@@ -122,6 +122,8 @@ it('keeps host key routing, tab identity and forward history through four keys a
   for (const key of ['[', ']', '[', ']'] as const) await press(key, tabId, key === '[' ? kind : 'file');
   await press('[', tabId, kind);
   native.guest = guest; guest.focus();
+  expect(document.activeElement, 'the visible folder guest before closing').toBe(guest);
+  expect(extensionViewStore.claims.size, 'one visible folder claim before closing').toBe(1);
   await act(async () => layout.focusedPane.requestCloseTab(tabId)); await settle();
   expect(native.guest).toBeNull();
   expect(extensionViewStore.claims.size).toBe(0);

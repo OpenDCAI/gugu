@@ -134,7 +134,7 @@ describe('each actual pane owns its content', () => {
     layout.splitPane(layout.activePaneId, 'right', b);
     layout.open('page', { id: 'README' }, { from: a, intent: 'navigate' });
     const first = layout.groups.find((group) => group.pane.entries.has(a))!.pane;
-    act(() => root.render(<>{layout.groups.map((group) => <PaneContext.Provider key={group.paneId} value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>));
+    act(() => root.render(<>{layout.groups.map((group) => <PaneContext.Provider key={group.paneId} value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: group.pane === first }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>));
     commandRegistry.setContext(dom.window.document.querySelector<HTMLElement>(`[data-page="${a}"]`)!);
     await act(async () => { expect(commandRegistry.dispatch('app.navigateBack')).toBe(true); });
     expect(first.entries.get(a)?.state).toEqual({ id: 'folder' });

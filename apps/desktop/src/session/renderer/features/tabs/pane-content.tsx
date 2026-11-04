@@ -34,7 +34,7 @@ export const PaneContent = observer(function PaneContent({
   const shellRef = useRef<HTMLDivElement | null>(null);
   useCommandProvider(useMemo(() => ({
     scopeId: 'session-sub' as const,
-    isActive: (element: HTMLElement | null) => isFocusedPane && (!!element && !!shellRef.current?.contains(element) || document.activeElement === document.body),
+    isActive: () => isFocusedPane,
     getCommands: () => ([-1, 1] as const).map((delta) => ({
       id: delta === -1 ? 'app.navigateBack' as const : 'app.navigateForward' as const,
       hideFromPalette: true,
