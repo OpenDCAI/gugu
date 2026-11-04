@@ -17,6 +17,7 @@ vi.mock('../../../../apps/desktop/src/lib/googleLogin', () => ({ googleLogin: {
 } }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: { requestLoginOtp: m.requestOtp } }))
 vi.mock('../../../../apps/desktop/src/lib/sessionCoordinator', () => ({ sessionCoordinator: {} }))
+vi.mock('../../../../apps/desktop/src/pages/login/AuthBrandMotion', () => ({ AuthBrandMotion: () => null }))
 vi.mock('../../../../apps/desktop/src/hooks/usePrefersReducedMotion', () => ({ usePrefersReducedMotion: () => true }))
 const { LoginPage } = await import('../../../../apps/desktop/src/pages/LoginPage')
 let root: Root, host: HTMLDivElement

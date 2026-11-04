@@ -132,7 +132,7 @@ describe('the login page in the master\'s roles (#7333)', () => {
       await userEvent.hover(button);
       await untilStable(`hovered primary settles (${theme})`, () => css(button, 'opacity'));
       expect({ background: css(button, 'background-color'), color: css(button, 'color'), opacity: css(button, 'opacity') }).toEqual({ ...ink, opacity: '0.88' });
-      await userEvent.hover(q('.gugu-auth-headline')!);
+      await userEvent.hover(q('.gugu-auth-heading h1')!);
       // Keyboard focus: the ring (Tab from the email field lands on the button).
       email().focus();
       await userEvent.tab();
@@ -142,10 +142,9 @@ describe('the login page in the master\'s roles (#7333)', () => {
     });
   }
 
-  it('sets the page in the ladder: headline 24/32, wordmark 20/28, field and button 40 high, control text 14, legal 12/18', () => {
-    expect(type(q('.gugu-auth-headline')!)).toEqual({ size: 24, leading: 32, weight: 600 });
-    const wordmark = [...host.querySelectorAll('span')].find((s) => s.textContent === t('brand.name'))!;
-    expect(type(wordmark)).toMatchObject({ size: 20, leading: 28 });
+  it('keeps D v2.3 type and controls: heading 24/32, complete logo 40, field/button 40 high, legal 12/18', () => {
+    expect(type(q('.gugu-auth-heading h1')!)).toEqual({ size: 24, leading: 32, weight: 600 });
+    expect(box(q('.gugu-auth-logo')!)).toEqual({ width: 40, height: 40 });
     expect(box(email()).height).toBe(40);
     expect(box(submit()).height).toBe(40);
     expect(type(submit()).size).toBe(14);
@@ -158,6 +157,7 @@ describe('the login page in the master\'s roles (#7333)', () => {
     try {
       await until('the touch size applies', () => box(submit()).height === 44);
       expect(box(email()).height).toBe(44);
+      expect(css(q('.gugu-auth-brand')!, 'display')).toBe('none');
     } finally {
       await page.viewport(1080, 760);
     }
