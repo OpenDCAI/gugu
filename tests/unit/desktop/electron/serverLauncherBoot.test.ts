@@ -83,7 +83,7 @@ describe('the packaged launcher verifies before loading application code', () =>
     fs.writeFileSync(app(), 'const broken = ;')
     const oldApp = path.join(home, 'versions/1.0.0/app/dist-electron/server.js')
     fs.writeFileSync(oldApp, "process.stdout.write('old package without pin repair')")
-    for (const attempt of [1, 2, 3]) expect(run().status).toBe(1)
+    for (let attempt = 0; attempt < 3; attempt++) expect(run().status).toBe(1)
     const fault = path.join(home, 'pin-fault.cjs')
     const destination = faultTarget === 'pin' ? data('server-version.json') : path.join(home, 'current')
     fs.writeFileSync(fault, `const fs=require('node:fs'),rename=fs.renameSync;fs.renameSync=(a,b)=>{if(b===${JSON.stringify(destination)})throw new Error('${faultTarget} rename refused');return rename(a,b)}`)
