@@ -84,10 +84,11 @@ const NotificationTaskRow = observer(function NotificationTaskRow({ task, mobile
       }
     }
     if (typeof IntersectionObserver === 'undefined') { acknowledge(); return }
+    // The viewport includes clipping above the list (collapsed sidebar and retained surfaces).
     const observer = new IntersectionObserver(entries => {
       entry = entries.find(entry => entry.target === node)
       if (entry) acknowledge()
-    }, { root: node.closest<HTMLElement>('[data-notification-scroll]'), threshold: [...MESSAGE_SEEN_THRESHOLDS] })
+    }, { threshold: [...MESSAGE_SEEN_THRESHOLDS] })
     const onVisibility = () => { if (entry) acknowledge() }
     observer.observe(node)
     document.addEventListener('visibilitychange', onVisibility)
