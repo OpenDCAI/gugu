@@ -4,7 +4,8 @@ import { createChatView } from '@session-chat/chat-view'
 import type { ChatCommands } from '@session-chat/commands'
 import { DEFAULT_THEME } from '@session-chat/core/theme'
 import type { BackgroundCommandEntry } from '@session-chat/lib/background-command-roster'
-import { placeSubagentPanel } from '@session-chat/components/rows/background-tasks/background-tasks-parts'
+import { backgroundTaskMetaLayout, placeSubagentPanel } from '@session-chat/components/rows/background-tasks/background-tasks-parts'
+import type { MeasureCtx } from '@session-chat/core/define'
 import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster'
 import type { TranscriptTurn } from '@session-chat/model'
 import { createChatState } from '@session-chat/state/chat-state'
@@ -72,6 +73,32 @@ const agent = (over: Partial<SubagentRosterEntry> = {}): SubagentRosterEntry => 
 
 const row = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-slot="background-tasks"]')
 const items = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>('[data-slot="background-task"]')]
+
+describe('元数据:实时文案 + 最坏宽度预留', () => {
+  it('量高按单位最坏串预留,9m59s 与 10m00s 同高,文案仍是实时值', () => {
+    const ctx = { theme: DEFAULT_THEME, width: 640 } as unknown as MeasureCtx
+    const nine = backgroundTaskMetaLayout(agent(), ctx, '9m59s')
+    const ten = backgroundTaskMetaLayout(agent(), ctx, '10m00s')
+    expect(nine.text).toContain('9m59s')
+    expect(ten.text).toContain('10m00s')
+    // 评审的反例:多一个字符那一跳会换行,但预留高度取 `00m00s`,两跳同高。
+    expect(nine.height).toBe(ten.height)
+    expect(nine.height).toBe(backgroundTaskMetaLayout(agent(), ctx, '00m00s').height)
+    expect(backgroundTaskMetaLayout(agent({ elapsedMs: 3_600_000 }), ctx, '1h00m').height)
+      .toBe(backgroundTaskMetaLayout(agent({ elapsedMs: 3_600_000 }), ctx, '00h00m').height)
+  })
+
+  it('行内计时器每秒在跳(评审:不能冻在快照上)', async () => {
+    const { state, host } = mount()
+    state.transcript.history.seed([settled])
+    state.session.setBackgroundTasks({ commands: [], subagents: [agent({ completedSteps: 137, elapsedMs: 599_000, startedAt: Date.now() - 599_000 })] })
+    await until('后台行在屏上', () => row(host) !== null)
+    host.querySelector<HTMLElement>('[data-collapse-id="background-tasks:open"]')?.click()
+    await until('单子展开', () => items(host).length === 1)
+    const meta = items(host)[0].querySelector<HTMLElement>('[data-slot="background-task-meta"]')
+    await until('计时器自己跳到 10m00s', () => meta?.textContent?.includes('10m00s') === true)
+  })
+})
 
 describe('background tasks at the end of the transcript', () => {
   it('stays after the turn settled, folded into one line until opened', async () => {
