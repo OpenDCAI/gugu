@@ -164,7 +164,6 @@ it.each([1440, 390])('keeps both 74px cards, the frame and single action fixed t
     await expect.element(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
     expect(boxes()).toEqual(initial);
   }
-  console.info('ENGINE_GEOMETRY_JSON', JSON.stringify({ width, initial, samples, cardGap: initial[2].y - initial[1].y - initial[1].height, brandFontSizes: brandNames.map(name => getComputedStyle(name).fontSize), framePadding: getComputedStyle(page.getByTestId('engine-frame').element()).padding, frameBorder: getComputedStyle(page.getByTestId('engine-frame').element()).borderWidth }));
 });
 
 it.each(['claude', 'codex'])('continues with usable %s API credentials without an account subscription', async id => {
