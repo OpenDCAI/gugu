@@ -18,7 +18,8 @@ import { useLocale } from '@/i18n'
 import { useTheme } from '@/store/theme'
 import { useSessionConversationDraft } from './use-session-conversation-draft'
 import { useMobileShell } from '@/hooks/useMobileShell'
-import { useConversationQueue } from '@/components/chat/useConversationQueue'
+import { usePhoneInputQueue } from './use-phone-input-queue'
+import { phoneWaitingReceipts } from './phone-input-queue'
 import { SessionTranscriptView } from '@/components/assistant-ui/session-transcript-view.aui'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
 import { useComposerFileUploads } from '@renderer/features/sessions/acp/use-composer-file-uploads'
@@ -47,7 +48,8 @@ import { engineLabel } from '@/lib/usage/engineLabel'
 import { useQueuedSessionInputs, useSessionInputAccount } from '@/lib/sessionInputOutboxBridge'
 import { localQueuedInputs } from './local-queued-inputs'
 import type { SessionInput } from '@/lib/sessionInputOutbox'
-import { projectRejectedSessionInputs, projectSessionPendingInput } from '@/lib/pendingSessionInput'
+import { projectRejectedSessionInputs } from '@/lib/pendingSessionInput'
+import { projectPhonePendingInputs } from './phone-pending-inputs'
 import { projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { useSessionLifeView } from './useSessionLifeView'
@@ -60,7 +62,7 @@ import { pendingPromptLanded } from '@session-chat/state/pending-prompt'
 export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, harness, draft, onDraftApplied, startupPrompt, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
   machineLabel, sessionRuntime, respondingItemId, onRespond, onSend, pendingSends, sending, agentWorking,
   onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote, onBeforeSend,
-  historyReady = true, historyCursor,
+  historyReady = true, historyCursor, queueReady = false,
 }: {
   timeline: AgentWatchTimeline; deviceId: string; sessionId: string; agentName: string; agentUserId?: string | null
   /** 这条会话的 harness(claude-code / codex …):输入框里模型左边那颗锁着的标,同桌面会话页。 */
@@ -77,6 +79,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   onStop: () => void; stopping: boolean; footerNotice?: ReactNode; onLoadOlder: () => Promise<void>
   onAtBottom?: () => void; onLoadToolImage?: (itemId: string, index: number) => Promise<void>; emptyNote?: ReactNode
   historyReady?: boolean; historyCursor?: number | null
+  /** A live foreground snapshot, not a cached/offline history window. */
+  queueReady?: boolean
 }) {
   const { resolvedLocale } = useLocale()
   const { theme } = useTheme()
@@ -115,7 +119,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const localInputs = mobile && account ? localQueuedInputs(localQueue.current.key === localQueueKey ? localQueue.current.inputs : [],
     senderInputs, timeline.queuedPrompts, timeline.turns) : []
   localQueue.current = { key: localQueueKey, inputs: localInputs }
-  const queue = useConversationQueue({ deviceId, sessionId, local, phoneHost }, timeline.queuedPrompts.filter(input => !readDeliveryEnvelope(input.text)), agentWorking, options.steers)
+  const queue = usePhoneInputQueue({ deviceId, sessionId, local, phoneHost }, senderInputs, timeline.queuedPrompts,
+    timeline.turns, agentWorking, stopping, queueReady && visibility.shown, options.steers)
   const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
   const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })
   editorState.current = { text: draftText, edit: quotes.composer.queuedPromptEdit }
@@ -213,12 +218,18 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const nativeTurns = timeline.turns
   const life = useSessionLifeView(deviceId, sessionId, local, !phoneHost && hostReachable,
     timeline.queuedPrompts.length > 0 || pendingSends.length > 0 || senderInputs.length > 0)
-  const pendingInput = useRef<{ sessionId: string; prompt: PendingPrompt | null }>({ sessionId, prompt: null })
-  const projectedInput = projectSessionPendingInput(pendingInput.current.sessionId === sessionId ? pendingInput.current.prompt : null,
-    senderInputs, life.view?.pending.items ?? [], nativeTurns)
+  const pendingInput = useRef<{ sessionId: string; prompts: readonly PendingPrompt[] }>({ sessionId, prompts: [] })
+  const hostInputs = useMemo(() => {
+    const inputs = [...(life.view?.pending.items ?? [])]
+    for (const receipt of phoneWaitingReceipts(timeline.queuedPrompts)) if (!inputs.some(input => input.messageId === receipt.messageId)) inputs.push(receipt)
+    return inputs
+  }, [life.view?.pending.items, timeline.queuedPrompts])
+  const projectedInputs = useMemo(() => projectPhonePendingInputs(pendingInput.current.sessionId === sessionId ? pendingInput.current.prompts : [],
+    senderInputs, hostInputs, nativeTurns), [sessionId, senderInputs, hostInputs, nativeTurns])
+  const projectedInput = projectedInputs[0]
   const pendingPrompt = projectedInput && startupPrompt?.id === projectedInput.id
     ? { ...projectedInput, starting: startupPrompt.starting } : projectedInput
-  pendingInput.current = { sessionId, prompt: pendingPrompt }
+  pendingInput.current = { sessionId, prompts: projectedInputs }
   const received = useRef<{ key: string; inputs: readonly PendingPrompt[] }>({ key: '', inputs: [] })
   const receivedKey = `${deviceId}/${sessionId}`
   // Phone-host jobs expose their waiting envelope through the existing native queue snapshot.
@@ -234,8 +245,9 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const turns = receiptHistory.turns
   const settledInputs = useMemo(() => receivedInputs.filter(input => input.delivery?.state !== 'accepted' || !pendingPromptLanded(input, turns)), [receivedInputs, turns])
   received.current = { key: receivedKey, inputs: settledInputs }
-  const pendingMessages = useMemo(() => [...settledInputs.filter(receiptHistory.visible), ...projectRejectedSessionInputs(senderInputs, nativeTurns)],
-    [settledInputs, receiptHistory.visible, senderInputs, nativeTurns])
+  const pendingMessages = useMemo(() => [...settledInputs.filter(receiptHistory.visible), ...projectedInputs.slice(1), ...projectRejectedSessionInputs(senderInputs, nativeTurns), ...pendingSends.slice(1).map(send => ({
+    ...send, held: true, baselineMessageIds: [...send.baseline], delivery: { state: 'sending' as const },
+  }))], [settledInputs, projectedInputs, receiptHistory.visible, pendingSends, senderInputs, nativeTurns])
   const rejectedInputCommands = useRejectedSessionInputCommands(sessionId)
   const attachmentTurns = useRef(turns)
   attachmentTurns.current = turns
@@ -281,7 +293,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     {phoneHost ? <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={recoveryComposer} sending={sending} /> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
     <input ref={input} type="file" hidden multiple onChange={event => { addFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
-    <AgentConversationComposer {...options.props} {...queue.props} {...lockedHarness(harness)} queuedPrompts={[...queue.props.queuedPrompts, ...localInputs.filter(input => !input.failure).map(input => ({ id: input.id, text: input.text, origin: 'manual' as const, locked: true })), ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile phoneActions={mobile} isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
+    <AgentConversationComposer {...options.props} {...queue.props} {...lockedHarness(harness)} queuedPrompts={[...queue.props.queuedPrompts, ...localInputs.filter(input => !input.failure).map(input => ({ id: input.id, text: input.text, origin: 'manual' as const, locked: true }))]} mobile phoneActions={mobile} isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
       onStop={agentWorking ? onStop : undefined} editorApiRef={receiveEditor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}
       queuedPromptEdit={quotes.composer.queuedPromptEdit} onChangeQueuedPromptEdit={quotes.composer.changeQueuedPromptEdit} onFinishQueuedPromptEdit={quotes.composer.finishQueuedPromptEdit} renderQueuedPromptText={quotes.composer.renderQueuedPromptText}
       onInputChange={composerDraft.setText} onSubmit={submit} onSubmitWhileWorking={submit}

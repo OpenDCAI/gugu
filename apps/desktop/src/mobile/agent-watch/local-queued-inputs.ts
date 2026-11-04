@@ -18,8 +18,8 @@ export function hostedInputIds(hosted: readonly { id: string; clientMessageId?: 
 export function localQueuedInputs(previous: readonly SessionInput[], sender: readonly SessionInput[],
   hosted: readonly { id: string; clientMessageId?: string }[], turns: readonly TranscriptTurn[]): readonly SessionInput[] {
   const senderIds = new Set(sender.map(input => input.id))
-  const inputs = new Map(previous.filter(input => !input.failure || senderIds.has(input.id)).map(input => [input.id, input]))
-  for (const input of sender) if (input.queued === true) inputs.set(input.id, input)
+  const inputs = new Map(previous.filter(input => !input.sendQueue && (!input.failure || senderIds.has(input.id))).map(input => [input.id, input]))
+  for (const input of sender) if (input.queued === true && !input.sendQueue) inputs.set(input.id, input)
   const handedOff = hostedInputIds(hosted, turns)
   // Text is not a receipt: another queued input may have exactly the same words.
   return [...inputs.values()].filter(input => !handedOff.has(nativeMessageKey(input.id)))

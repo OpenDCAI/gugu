@@ -40,6 +40,7 @@ import { useNetworkOnline } from '@/hooks/useNetworkOnline'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { hostedInputIds } from './local-queued-inputs'
+import { phoneInputQueueIntent } from './phone-input-queue'
 
 /**
  * owner 10-16 The App tabs a session offers on the phone: installed, switched on, opening no file — the session page's 「+」
@@ -122,7 +123,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
   const attention = deriveAttention(timeline)
-  const queuedInput = attention === 'running' || queuedInputs.some(input => !input.queued)
+  const queuedInput = attention === 'running' || queuedInputs.length > 0
   const beforeSend = () => {
     if (mobile && native && queuedInput && session.nativeInputIdentity !== true) {
       throw new Error(t('settings:devices.notice.serverTooOldHint'))
@@ -258,13 +259,14 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           draft={draft === appliedDraft ? undefined : draft}
           onDraftApplied={() => setAppliedDraft(draft)}
           phoneHost={phoneHost} local={local} nativeRecord={native} hostReachable={answering}
+          queueReady={answering && phase === 'ready' && link === 'ok' && (!native || Boolean(nativeRecord.record && !nativeRecord.record.hasNewer))}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
           onRespond={respond}
           onBeforeSend={beforeSend}
           onSend={async (text, files) => { beforeSend(); await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text,
-            queued: queuedInput, ...sessionInputBaseline(conversation.turns), ...(files?.length ? { files } : {}) }); if (native) nativeRecord.followTail() }}
+            ...phoneInputQueueIntent(attention === 'running', queuedInputs), ...sessionInputBaseline(conversation.turns), ...(files?.length ? { files } : {}) }); if (native) nativeRecord.followTail() }}
           pendingSends={pendingSends}
           startupPrompt={recovery.pendingPrompt}
           sending={sending}
