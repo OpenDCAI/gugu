@@ -176,7 +176,7 @@ describe('renderer task opening and empty Recent', () => {
     expect(taskRows()).toEqual(freshIds);
 
     openOld();
-    expect(fixture.opened).toHaveBeenCalledWith('acp-chat', { sessionId: OLD }, { preview: false });
+    expect(fixture.opened).toHaveBeenCalledWith('acp-chat', { sessionId: OLD }, { from: null, intent: 'newTab' });
     await emptyPalette();
     expect(taskRows()).toEqual([OLD, ...freshIds.slice(0, 9)]);
     expect(fixture.results.map(row => row.id)).toEqual(freshIds);
