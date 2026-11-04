@@ -62,7 +62,9 @@ function backgroundTaskMetaText(agent: SubagentRosterEntry, translate: ChatTrans
   ].filter(Boolean).join(' · ');
 }
 
-/** 元数据按实际的等宽小字量好并写入同一组换行，避免浏览器另换一遍后把行撑高。 */
+/** 元数据按实际的等宽小字量好并写入同一组换行，避免浏览器另换一遍后把行撑高。
+ *  布局与文案取同一个值(快照) —— 评审:一边按 elapsedMs 量高、一边用实时时钟显示,计时器换行时
+ *  外层固定高度就不够了;数据更新时两边永远同步,量出来的高度不会少一行。 */
 function backgroundTaskMetaLayout(agent: SubagentRosterEntry, ctx: MeasureCtx, elapsed = formatElapsed(agent.elapsedMs)) {
   const text = backgroundTaskMetaText(agent, rowTranslator(ctx), elapsed);
   const font = `400 ${AGENT_META_FONT_SIZE}px ${ctx.theme.config.fonts.mono.join(', ')}`;
@@ -231,7 +233,7 @@ export function BackgroundTasksList(props: {
             <span style={{ display: 'flex', 'flex-direction': props.measureCtx().width < 360 ? 'column' : 'row', gap: props.measureCtx().width < 360 ? '0' : '8px', flex: 1, 'min-width': 0 }}>
             <span class={backgroundTaskName}>{backgroundTaskNameLayout(agent.name, props.measureCtx(), (props.measureCtx().width < 360 ? 0 : AGENT_META_W + 8) + (agent.canCancel && commands().onStopBackgroundTask ? 32 : 0) + (commands().onDismissBackgroundTask ? 32 : 0)).text}</span>
             <span class={backgroundTaskMeta} data-slot="background-task-meta" style={{ width: `${AGENT_META_W}px`, 'white-space': 'pre-wrap' }}>
-              {backgroundTaskMetaLayout(agent, props.measureCtx(), elapsed(agent.startedAt)).text}
+              {backgroundTaskMetaLayout(agent, props.measureCtx()).text}
             </span>
             </span>
             <Show when={agent.canCancel && commands().onStopBackgroundTask}>

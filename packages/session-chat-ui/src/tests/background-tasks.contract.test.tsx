@@ -64,7 +64,7 @@ const agent = (over: Partial<SubagentRosterEntry> = {}): SubagentRosterEntry => 
   name: 'Audit chat perf',
   completedSteps: 3,
   calls: [],
-  elapsedMs: 0,
+  elapsedMs: 30_000,
   startedAt: Date.now() - 30_000,
   canCancel: true,
   ...over
@@ -91,7 +91,8 @@ describe('background tasks at the end of the transcript', () => {
     expect(cmdRow.textContent).toContain('pnpm test')
     expect(agentRow.textContent).toContain('Audit chat perf')
     expect(agentRow.textContent).toContain('3 steps')
-    expect(agentRow.textContent).toMatch(/3\ds/)
+    // 文案与量高取同一个值(快照):显示 30s,就是量高的那个 elapsedMs(评审)。
+    expect(agentRow.textContent).toContain('3 steps · 30s')
 
     // 它是最后一行:回复在它上面。
     const reply = [...host.querySelectorAll('*')].find((el) => el.textContent === 'Started them; I will report back.')
