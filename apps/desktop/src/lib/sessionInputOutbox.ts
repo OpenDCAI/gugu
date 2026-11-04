@@ -17,6 +17,8 @@ export type SessionInput = {
   sendQueue?: { order: number; afterInputId?: string; edit?: { draftText: string; originalDraftText: string } }
   baseline?: string[]
   afterTurnId?: string
+  /** Explicit send-now insertion, never used by automatic queue release. */
+  steerIfBusy?: true
 }
 /** Failures the sender itself names; any other send error keeps the host's own words. */
 export type SessionInputFailure =
@@ -91,14 +93,19 @@ export class SessionInputOutbox {
     private readonly changed: () => void = () => {},
     private readonly beforeEnqueue: (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>) => void = () => {}) {}
 
-  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId' | 'sendQueue'>): Promise<SessionInput> {
+  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId' | 'sendQueue'> & { composer?: true }): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current()) throw new Error('Session input account changed')
       this.beforeEnqueue(target)
-      const last = Math.max(0, ...(await this.list()).map(input => input.createdAt))
+      const rows = await this.list()
+      const last = Math.max(0, ...rows.map(input => input.createdAt))
       const at = Math.max(Date.now(), last + 1)
-      const input: SessionInput = { ...target, ...(target.sendQueue ? { sendQueue: { ...target.sendQueue, order: at } } : {}),
+      const { composer, ...body } = target
+      const previous = rows.filter(row => row.sessionId === target.sessionId && row.deviceId === target.deviceId)
+      const afterInputId = previous.find(row => !row.sendQueue)?.id ?? previous.find(row => row.sendQueue)?.sendQueue?.afterInputId
+      const sendQueue = target.sendQueue ?? (composer && previous.length ? { order: at, ...(afterInputId ? { afterInputId } : {}) } : undefined)
+      const input: SessionInput = { ...body, ...(sendQueue ? { queued: true, sendQueue: { ...sendQueue, order: at } } : {}),
         accountId: this.accountId, id: crypto.randomUUID(), createdAt: at }
       await this.storage.put(input)
       this.changed()
@@ -181,7 +188,7 @@ export class SessionInputOutbox {
 
   /** One foreground completion releases one input, never all of a session's queue. */
   releaseQueued(sessionId: string, baseline: Pick<SessionInput, 'baseline' | 'afterTurnId'>,
-    completed: ReadonlySet<string>, nowId?: string): Promise<SessionInput | null> {
+    completed: ReadonlySet<string>, nowId?: string, steers = false): Promise<SessionInput | null> {
     return this.write(async () => {
       const rows = (await this.list()).filter(row => row.sessionId === sessionId)
       if (!nowId && rows.some(row => !row.sendQueue)) return null
@@ -193,7 +200,7 @@ export class SessionInputOutbox {
         await this.storage.put({ ...following, sendQueue: { ...following.sendQueue!, afterInputId: input.id } })
       }
       const { sendQueue: _queue, ...released } = input
-      const sent: SessionInput = { ...released, ...baseline, queued: false }
+      const sent: SessionInput = { ...released, ...baseline, queued: false, ...(steers ? { steerIfBusy: true } : {}) }
       await this.storage.put(sent)
       this.changed()
       return sent

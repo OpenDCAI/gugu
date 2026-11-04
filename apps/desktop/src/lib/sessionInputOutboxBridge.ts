@@ -4,6 +4,8 @@ import { rendererLogger } from './log'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { sessionInputBaseline } from './pendingSessionInput'
 import { nativeMessageKey } from '@gugu/session-core/session-record/native-read'
+import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 
 type State = { accountId: string | null; queue: Promise<SessionInputOutbox> | null; rows: readonly SessionInput[]; listeners: Set<() => void>; valid: () => boolean }
 const KEY = '__GUGU_NATIVE_INPUT_OUTBOX__'
@@ -17,7 +19,7 @@ export const state = (): State => {
 export const changed = () => { for (const listener of state().listeners) listener() }
 export const sessionInputOutboxAvailable = (): boolean => Boolean(state().queue && state().valid())
 
-export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId' | 'sendQueue'>): Promise<SessionInput> {
+export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId' | 'sendQueue'> & { composer?: true }): Promise<SessionInput> {
   const own = state()
   if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
   const queue = await own.queue
@@ -61,14 +63,17 @@ export async function reorderQueuedSessionInputs(sessionId: string, ids: readonl
 }
 
 /** Call only with an authoritative foreground-idle snapshot, or the person's explicit send-now action. */
-export async function releaseQueuedSessionInput(sessionId: string, turns: readonly TranscriptTurn[], nowId?: string): Promise<SessionInput | null> {
+export async function releaseQueuedSessionInput(sessionId: string, turns: readonly TranscriptTurn[], nowId?: string, steers = false): Promise<SessionInput | null> {
+  if (steers && !Object.values(liveDeviceSessions()).some(host => !host.cached && host.sessions.some(session => session.conversationId === sessionId && session.nativeInputSteering === true))) {
+    throw new Error(translateSessionMessage('composer.steeringHostUpdateRequired'))
+  }
   const completed = new Set<string>()
   for (const turn of turns) if (turn.outcome) for (const item of turn.items) if (item.kind === 'message' && item.role === 'user') {
     completed.add(nativeMessageKey(item.id))
     if (typeof item._meta?.guguClientMessageId === 'string') completed.add(item._meta.guguClientMessageId)
   }
   const queue = await currentQueue()
-  const input = await queue.releaseQueued(sessionId, sessionInputBaseline(turns), completed, nowId)
+  const input = await queue.releaseQueued(sessionId, sessionInputBaseline(turns), completed, nowId, steers)
   if (input) void queue.flush().catch(error => rendererLogger('session/input-outbox').warn({ error: String(error) }, 'Could not flush released input'))
   return input
 }

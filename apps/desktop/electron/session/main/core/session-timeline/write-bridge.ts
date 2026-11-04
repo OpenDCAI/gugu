@@ -126,7 +126,8 @@ export async function deliverSessionText(
   text: string,
   clientMessageId?: string,
   files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
-  attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
+  attachments?: import('@gugu/session-core/acp/client').PromptAttachment[],
+  steerIfBusy?: true
 ): Promise<{ accepted: 'started' | 'queued' }> {
   if (!text.trim() && !files?.length && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的', 'rejected');
 
@@ -146,11 +147,12 @@ export async function deliverSessionText(
   if (target.runtime === 'acp') {
     sessionLife().enqueue({
       sessionId: target.id, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'session-direct',
-      delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) },
+      delivery: { queue: true, origin: 'manual', ...(steerIfBusy ? { steerIfBusy } : {}), ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) },
     });
     return { accepted: 'queued' };
   }
   if (target.runtime === 'pty' || target.runtime === null) {
+    if (steerIfBusy) throw new SessionWriteError('unsupported_runtime', '终端任务不支持立即插话', 'rejected');
     if (attachments?.length) throw new SessionWriteError('unsupported_runtime', '终端任务不能回放图片附件', 'rejected');
     const turn = files?.length ? await turnFileText(target.id, files, false) : null;
     const body = [text.trim(), turn?.text].filter(Boolean).join('\n\n');

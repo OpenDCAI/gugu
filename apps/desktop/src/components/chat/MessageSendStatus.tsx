@@ -9,7 +9,7 @@ import type { MessageSendState, MessageItem } from '@gugu/core/shared/types/chat
 import { useChatStore } from '../../store/chatContext'
 import { FailedSendStatus } from './FailedSendStatus'
 import { useAttachmentUploadProgress } from '../../lib/attachmentUploadProgress'
-import { MessageSendingIndicator } from './MessageSendingIndicator'
+import { MessageReceivingIndicator, MessageSendingIndicator } from './MessageSendingIndicator'
 
 type Props = { state: MessageSendState; messageId: string; reason?: string | null; retryable?: boolean; blocks?: MessageItem['delivery_blocks']; undeliveredTo?: readonly string[] }
 
@@ -39,8 +39,9 @@ function MessageTransportStatus({ state, messageId, reason, retryable = true }: 
     className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t('message.sendStatus.unknown')}</span>
 
   // queued = 已经落库、它叫醒的助理还没接走:同一个发送中,悬停说明在等助理就绪。
-  if (state === 'sending' || state === 'queued') {
-    const label = t(state === 'queued' ? 'message.sendStatus.queued' : 'message.sendStatus.sending')
+  if (state === 'queued') return <MessageReceivingIndicator label={t('message.sendStatus.queued')} />
+  if (state === 'sending') {
+    const label = t('message.sendStatus.sending')
     if (state === 'sending' && progress?.total && progress.loaded > 0) {
       const percent = Math.max(0, Math.min(100, Math.floor(progress.loaded / progress.total * 100)))
       return <span role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}

@@ -71,7 +71,7 @@ import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units'
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
-import { activeTurnWithInputs, pendingPromptLanded, projectPendingMessages, type PendingMessageProjectionCache } from './state/pending-prompt';
+import { activeTurnWithInputs, latestVisibleTurnId, pendingPromptLanded, projectPendingMessages, type PendingMessageProjectionCache } from './state/pending-prompt';
 import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier, lastConversationMessage,
@@ -502,8 +502,8 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Flat unit view (two-tier, incremental) ────────────────────────────────
   // Identity changes only once per new turn, not for every streamed update.
-  const latestTurnId = createMemo(() => state().transcript.state.activeTurnSnapshot?.id
-    ?? state().transcript.state.committedTurns.at(-1)?.id);
+  const latestTurnId = createMemo(() => latestVisibleTurnId(state().transcript.state.activeTurnSnapshot,
+    state().transcript.state.committedTurns, state().session.state.pendingPrompt, state().session.state.pendingMessages));
   const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active, latestTurnId());
 
   let committedUnitsArr: ReturnType<typeof flattenTier> = [];

@@ -2423,6 +2423,7 @@ export function sessionpageSessionDigest(): Array<{
   nativeInputVersion?: 1 | 2
   /** Client identity survives host queue admission and provider transcript IDs. */
   nativeInputIdentity?: true
+  nativeInputSteering?: true
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
@@ -2448,6 +2449,7 @@ export function sessionpageSessionDigest(): Array<{
     .map((session) => ({
       nativeInputVersion: session.nativeInputVersion,
       ...(session.nativeInputIdentity ? { nativeInputIdentity: true as const } : {}),
+      ...(session.nativeInputSteering ? { nativeInputSteering: true as const } : {}),
       runtime: session.runtime,
       conversationId: session.conversationId,
       projectId: session.projectId,
