@@ -31,7 +31,8 @@ async function setup() {
   root.style.cssText = 'width:400px;height:400px';
   document.body.append(root);
   const states: string[] = [];
-  const view = await mountProjection(host, root, 'source', { state: state => states.push(state) });
+  const painted: Array<{ sequence: number; width: number; height: number } | null> = [];
+  const view = await mountProjection(host, root, 'source', { state: state => states.push(state), painted: frame => painted.push(frame) });
   close = view.close;
   const canvas = document.createElement('canvas');
   canvas.width = 640; canvas.height = 480;
@@ -45,7 +46,7 @@ async function setup() {
     emit({ type: 'frame', generation, frame: { sequence: 1, width: 640, height: 480, mime: 'image/png', data: canvas.toDataURL().split(',')[1]! } });
     await vi.waitFor(() => expect(packets.filter(packet => packet.type === 'ack')).toHaveLength(acks + 1));
   };
-  return { root, packets, states, emit, paint, view, watches: () => watches,
+  return { root, packets, states, painted, emit, paint, view, watches: () => watches,
     holdInputs: () => { const gate = Promise.withResolvers<void>(); inputGate = gate.promise; return gate.resolve; },
     refuseInput: (value: boolean) => { refuseInput = value; }, rejectInput: (value = true) => { rejectInput = value; }, input: root.querySelector('textarea')! };
 }
@@ -82,6 +83,7 @@ describe('shared projection surface in Chromium', () => {
     expect(s.packets).toEqual([]);
     await s.paint();
     expect(s.packets[0]).toMatchObject({ type: 'ack', frame: 1 });
+    expect(s.painted.at(-1)).toEqual({ sequence: 1, width: 640, height: 480 });
     await page.elementLocator(s.root.querySelector('img')!).click({ position: { x: 200, y: 200 } });
     for (const action of ['down', 'up']) {
       const pointer = s.packets.find(p => p.type === 'input' && p.input.kind === 'pointer' && p.input.action === action);
@@ -95,6 +97,7 @@ describe('shared projection surface in Chromium', () => {
     expect(offCenter.input.x).toBeCloseTo(0.25, 4);
     expect(offCenter.input.y).toBeCloseTo(1 / 6, 4);
     s.emit({ type: 'state', generation: 'a', state: 'closed' });
+    expect(s.painted.at(-1)).toBeNull();
     expect(s.input.disabled).toBe(true);
     const count = s.packets.length;
     s.input.value = 'late';

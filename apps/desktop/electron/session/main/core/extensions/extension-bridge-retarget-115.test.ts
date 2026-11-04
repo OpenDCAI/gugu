@@ -12,6 +12,7 @@ const PAGE = 7;
 const CHAT = '0b000000-0000-4000-8000-000000000001';
 const PLAN = '0c000000-0000-4000-8000-000000000001';
 const CFG = '0c000000-0000-4000-8000-000000000002';
+const machine = vi.hoisted(() => ({ deviceId: 'actual-task-host' }));
 const resourceChat = vi.hoisted(() => vi.fn(async (chatId: string, _reader: { asAgent: string | null }) => chatId));
 const sent: { id: number; event: { type: string; context?: { file?: { id: string }; layout?: { width: number; height: number } } } }[] = [];
 
@@ -30,7 +31,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({ grantedCapabilities: () => ['files:read'], hasCapability: () => true,
     isEnabled: () => true, get: () => ({ manifest: { name: 'Workspace', version: '1.0.0' } }) }),
 }));
-vi.mock('@main/core/extensions/app-programs-elsewhere', () => ({ knownSessionMachine: () => ({ deviceId: 'actual-task-host' }), sessionMachine: async () => null }));
+vi.mock('@main/core/extensions/app-programs-elsewhere', () => ({ knownSessionMachine: () => machine, sessionMachine: async () => null }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // A page in a group hears its context only with its chat (「在本群打开」): the chat is read before the first push.
 vi.mock('@main/core/extensions/app-files', () => ({
@@ -45,6 +46,7 @@ const { bindExtensionSurface, retargetExtensionSurface, setExtensionBridgeHost, 
 const contexts = () => sent.filter(({ event }) => event.type === 'context').map(({ event }) => event.context!);
 
 beforeEach(async () => {
+  machine.deviceId = 'actual-task-host';
   setExtensionBridgeHost({
     deliver: () => Promise.resolve(),
     presentation: () => ({ locale: 'en', themeMode: 'dark' as const, fullscreen: false, windowFocused: true }),
@@ -168,4 +170,17 @@ describe('a resident page moved to another file (摩擦单 F115)', () => {
     } finally { closed.mockRestore(); }
   });
 
+});
+
+it('a changed task machine revokes the old media signer before another control packet can be signed', async () => {
+  const { captureSessionpageProjectionViewer } = await import('./extension-bridge');
+  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabKind: 'workspace.main', tabId: 'slot-1',
+    workspace: sessionWorkspace('task-a'), conversation: CHAT });
+  const captured = await captureSessionpageProjectionViewer(PAGE);
+  expect(() => captured.assertCurrent()).not.toThrow();
+  machine.deviceId = 'replacement-task-host';
+  expect(() => captured.assertCurrent()).toThrow('page changed');
+  expect(captured.signal.aborted).toBe(true);
+  const next = await captureSessionpageProjectionViewer(PAGE);
+  expect(next.deviceId).toBe('replacement-task-host'); next.release();
 });

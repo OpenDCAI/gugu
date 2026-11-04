@@ -2,17 +2,21 @@ import { PROJECTION_NOT_SENT, PROJECTION_UNCONFIRMED, type ProjectionFrame, type
 import { ProjectionInputNotSent } from './projection-input-queue';
 import { projectionClient } from './projection-client';
 import type { ProjectionHost } from './projection-source';
+import { projectionVideoClient } from './projection-video-client';
 export type PendingProjectionText = { id: number; text: string; state: 'not-sent' | 'unconfirmed'; reason?: string };
 export type ProjectionViewState = 'connecting' | 'live' | 'input-paused' | 'closed';
 
 /** The shared picture/input surface. Its App owns surrounding chrome, target selection, and driver code. */
 export async function mountProjection(host: ProjectionHost, root: HTMLElement, id: string, options: {
   state?(state: ProjectionViewState, reason?: string): void; error?(error: unknown): void;
+  painted?(frame: Pick<ProjectionFrame, 'sequence' | 'width' | 'height'> | null): void;
 } = {}) {
+  const remote = !!(await host.getContext?.())?.workspace?.deviceId;
   const surface = document.createElement('div');
   surface.style.cssText = 'position:relative;width:100%;height:100%;overflow:hidden;touch-action:none';
-  const image = document.createElement('img');
-  image.alt = '';
+  const image = remote ? document.createElement('video') : document.createElement('img');
+  if (image instanceof HTMLImageElement) image.alt = '';
+  else { image.autoplay = true; image.muted = true; image.playsInline = true; }
   image.draggable = false;
   image.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;user-select:none';
   // A focus proxy lets the platform IME commit text normally, with no second input form.
@@ -22,7 +26,7 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
   input.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;resize:none';
   surface.append(image, input);
   root.append(surface);
-  let frame: ProjectionFrame | null = null;
+  let frame: Pick<ProjectionFrame, 'sequence' | 'width' | 'height'> | null = null;
   let ready = false;
   let nextText = 0;
   const observed = new WeakSet<Promise<unknown>>();
@@ -68,7 +72,7 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
   const point = (event: MouseEvent, clamp = false) => {
     if (!frame || !ready) return null;
     const box = image.getBoundingClientRect();
-    const ratio = (image.naturalWidth || frame.width) / (image.naturalHeight || frame.height);
+    const ratio = frame.width / frame.height;
     const width = Math.min(box.width, box.height * ratio);
     const height = width / ratio;
     if (width <= 0 || height <= 0) return null;
@@ -138,19 +142,25 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
     });
   }
   try {
-    client = await projectionClient(host, id, {
-      paint: async next => {
-        image.src = `data:${next.mime};base64,${next.data}`;
-        await image.decode();
+    const changed = (state: 'connecting' | 'live' | 'closed', reason?: string) => {
+      ready = state === 'live'; input.disabled = !ready; options.state?.(state, reason);
+    };
+    const painted = (next: Pick<ProjectionFrame, 'sequence' | 'width' | 'height'> | null) => {
+      frame = next; if (next) recoveryAttempts = 0; options.painted?.(next);
+    };
+    client = remote ? await projectionVideoClient(host, image as HTMLVideoElement, id, {
+      frame: next => painted(next ? { sequence: next.sequence, width: next.width, height: next.height } : null), state: changed, error: pause,
+    }) : await projectionClient(host, id, {
+      paint: async (next, current) => {
+        const decoded = new Image();
+        decoded.src = `data:${next.mime};base64,${next.data}`;
+        await decoded.decode();
+        if (!current()) return;
+        (image as HTMLImageElement).src = decoded.src;
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        frame = next;
-        recoveryAttempts = 0;
       },
-      state: (state, reason) => {
-        ready = state === 'live';
-        input.disabled = !ready;
-        options.state?.(state, reason);
-      },
+      painted,
+      state: changed,
       error: pause,
     });
   } catch (error) { lifetime.abort(); surface.remove(); throw error; }

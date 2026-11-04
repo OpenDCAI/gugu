@@ -57,6 +57,22 @@ beforeEach(() => {
 });
 
 describe('a program opening a handed file as the agent that handed it (F16)', () => {
+  it('host-only payload metadata uses the same agent door, preserves unknown size and rejects folders and loss of membership', async () => {
+    agentSees.set(AGENT, row);
+    const surface = { pageId: -1, extensionId: 'board', itemId: ITEM, asAgent: AGENT };
+    expect(await files.payloadMetadata(surface, { ref: { id: ITEM } })).toMatchObject({ id: ITEM, chat: CHAT, size: 2 });
+    expect(rpcCalls).toEqual([{ name: 'workspace_get_as', args: { p_item_id: ITEM, p_as_user_id: AGENT } }]);
+    agentSees.set(AGENT, { ...row, size_bytes: null } as unknown as typeof row);
+    expect((await files.payloadMetadata(surface, { ref: { id: ITEM } })).size).toBeNull();
+    agentSees.set(AGENT, { ...row, kind: 'folder' });
+    await expect(files.payloadMetadata(surface, { ref: { id: ITEM } })).rejects.toMatchObject({ code: 'invalid' });
+    agentSees.clear(); personSees = [row];
+    await expect(files.payloadMetadata(surface, { ref: { id: ITEM } })).rejects.toMatchObject({ code: 'not-found' });
+    const controller = new AbortController(); controller.abort(); rpcCalls.length = 0;
+    await expect(files.payloadMetadata({ ...surface, signal: controller.signal }, { ref: { id: ITEM } })).rejects.toThrow();
+    expect(rpcCalls).toEqual([]);
+  });
+
   it('reads it as the agent, even in a group the person is not in; grants it as the agent; self is the agent', async () => {
     agentSees.set(AGENT, row);
     const opened = await files.open({ pageId: -1, extensionId: 'board', itemId: ITEM, asAgent: AGENT }, { ref: { id: ITEM } });

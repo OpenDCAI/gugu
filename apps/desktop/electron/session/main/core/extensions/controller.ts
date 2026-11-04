@@ -465,11 +465,17 @@ export const extensionsController = createRPCController({
     visible: boolean;
     width: number;
     height: number;
+    x?: number;
+    y?: number;
+    clip?: { x: number; y: number; width: number; height: number };
   }) => {
     updateExtensionSurfaceLayout(args.webContentsId, {
       visible: args.visible,
       width: args.width,
       height: args.height,
+      x: args.x,
+      y: args.y,
+      clip: args.clip,
     });
     return { success: true };
   },

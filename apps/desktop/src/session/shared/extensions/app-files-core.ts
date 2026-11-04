@@ -937,6 +937,16 @@ export function createAppFiles(platform: FilesPlatform) {
     open,
     self,
     read,
+    /** Host-only metadata for a separately authorized, bounded file payload read. */
+    async payloadMetadata(surface: FileSurface, args: { ref: ChatFileRef }) {
+      surface.signal?.throwIfAborted();
+      const account = await platform.account();
+      surface.signal?.throwIfAborted();
+      const row = await readable(surface, account, args.ref, 'opening');
+      surface.signal?.throwIfAborted();
+      return { id: row.id, chat: row.chat_id, name: row.filename, contentType: row.content_type,
+        version: row.version, size: row.size_bytes ?? null };
+    },
     /** Diagnostic only; no bridge capability exposes this counter. */
     readHandleCount: () => [...snapshots.values()].filter(entry => entry.file !== undefined).length,
 

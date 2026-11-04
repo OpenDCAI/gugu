@@ -661,7 +661,7 @@ describe("an extension's own pages call its programs (#6635)", () => {
     });
     try {
       await fromPage('whoami');
-      expect(handed).toHaveBeenCalledWith(expect.any(String), null, [], [], 'task-1', 'person');
+      expect(handed).toHaveBeenCalledWith(expect.any(String), null, [], [], 'task-1', 'person', expect.any(AbortSignal));
     } finally { attached.mockRestore(); }
   });
 

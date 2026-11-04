@@ -48,6 +48,18 @@ async function served(exports: Record<string, unknown>) {
 }
 
 describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
+  it('gives tools the stamped display identity, independently of forged tool arguments', async () => {
+    let seen: unknown;
+    const client = await served({ display: { description: 'Read caller display facts', inputSchema: { type: 'object', properties: {} },
+      run: (_args: unknown, call: unknown) => { seen = callerStamp(call); return 'ok'; } } });
+    try {
+      await client.callTool({ name: 'display', arguments: { agentName: 'forged', taskTitle: 'forged' },
+        _meta: { 'gugu/agentName': '论文助理', 'gugu/taskTitle': '核对参考文献' } });
+      expect(seen).toEqual({ agentName: '论文助理', taskTitle: '核对参考文献' });
+      await client.callTool({ name: 'display', arguments: { agentName: 'forged' } });
+      expect(seen).toEqual({});
+    } finally { await client.close(); }
+  });
   it('keeps legacy whole-call data writes serializable while exposing the real signal directly', async () => {
     const data = openData() as unknown as Record<string, unknown>;
     let descriptor: PropertyDescriptor | undefined;
@@ -223,8 +235,8 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
       client.callTool({ name: 'probe', arguments: {}, _meta: { ...stamp('s-b'), 'gugu/call': 'call-b' } }),
     ]);
     expect([...seen].sort((a, b) => String(a.callId).localeCompare(String(b.callId))).map(item => ({ ...item, call: callerStamp(item.call) }))).toStrictEqual([
-      { callId: 'call-a', call: { agent: AGENT, session: 's-a', workspaceRoot: '/work/s-a' } },
-      { callId: 'call-b', call: { agent: AGENT, session: 's-b', workspaceRoot: '/work/s-b' } },
+      { callId: 'call-a', call: { agent: AGENT, session: 's-a', workspaceRoot: '/work/s-a', callId: 'call-a' } },
+      { callId: 'call-b', call: { agent: AGENT, session: 's-b', workspaceRoot: '/work/s-b', callId: 'call-b' } },
     ]);
     await client.callTool({ name: 'probe', arguments: {}, _meta: stamp('s-c') });
     expect({ ...seen.at(-1), call: callerStamp(seen.at(-1)!.call) }).toStrictEqual({ callId: undefined, call: { agent: AGENT, session: 's-c', workspaceRoot: '/work/s-c' } });

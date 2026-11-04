@@ -13,7 +13,7 @@ const registry = vi.hoisted(() => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: (_channel: unknown, payload: (typeof emitted)[number]) => emitted.push(payload) } }));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@main/core/extensions/extension-agent-context', () => ({ agentSessionContext: vi.fn(async () => null) }));
-vi.mock('@main/core/sessions/session-orchestration', () => ({ openAgentBrowserPane: vi.fn() }));
+vi.mock('@main/core/sessions/session-orchestration', () => ({ openTaskBrowserPane: vi.fn() }));
 vi.mock('./browser-page-runtime', () => ({ acquireBrowserPage: vi.fn() }));
 vi.mock('./browser-webcontents-registry', () => ({
   browserWebContentsRegistry: {
@@ -43,7 +43,7 @@ import {
 } from './agent-browser';
 import { agentSessionContext } from '@main/core/extensions/extension-agent-context';
 import { createRPCClient, registerRPCRouter, type RpcIpcMainLike } from '@shared/lib/ipc/rpc';
-import { openAgentBrowserPane } from '@main/core/sessions/session-orchestration';
+import { openTaskBrowserPane } from '@main/core/sessions/session-orchestration';
 import { acquireBrowserPage } from './browser-page-runtime';
 
 /** 网页的 webContents:只做 transport 碰得到的那几样。debugger 的每个命令都记下来。 */
@@ -219,27 +219,27 @@ describe('#7323 reconnect resolves a persisted browser identity', () => {
     registry.browsers = [{ browserId: 'other', webContents: other.wc }, { browserId: 'original', webContents: original.wc }];
     registry.preferred = 'original';
     vi.mocked(agentSessionContext).mockResolvedValueOnce({ projectId: 'p' } as never);
-    vi.mocked(openAgentBrowserPane).mockResolvedValueOnce('original');
+    vi.mocked(openTaskBrowserPane).mockResolvedValueOnce('original');
     const transport = await openAgentBrowserTransport('reconnect');
-    expect(openAgentBrowserPane).toHaveBeenLastCalledWith({ projectId: 'p', sessionId: 'reconnect' }, undefined, undefined, 'original');
+    expect(openTaskBrowserPane).toHaveBeenLastCalledWith({ projectId: 'p', sessionId: 'reconnect' }, undefined, undefined, 'original');
     expect(original.wc.listenerCount('destroyed')).toBe(2); // Lease plus the page-lifetime navigation observer.
     expect(other.wc.listenerCount('destroyed')).toBe(0);
     transport.close();
     // The user may be viewing another tab when this transport is lost; reconnect still belongs to the original tab.
     registry.preferred = 'other';
     vi.mocked(agentSessionContext).mockResolvedValueOnce({ projectId: 'p' } as never);
-    vi.mocked(openAgentBrowserPane).mockResolvedValueOnce('original');
+    vi.mocked(openTaskBrowserPane).mockResolvedValueOnce('original');
     const reconnected = await openAgentBrowserTransport('reconnect');
-    expect(openAgentBrowserPane).toHaveBeenLastCalledWith({ projectId: 'p', sessionId: 'reconnect' }, undefined, undefined, 'original');
+    expect(openTaskBrowserPane).toHaveBeenLastCalledWith({ projectId: 'p', sessionId: 'reconnect' }, undefined, undefined, 'original');
     reconnected.close();
   });
 
   it('first navigation forwards the URL and refuses a missing restored page without falling back to another tab', async () => {
     vi.mocked(agentSessionContext).mockResolvedValueOnce({ projectId: 'p' } as never);
-    vi.mocked(openAgentBrowserPane).mockResolvedValueOnce('original');
+    vi.mocked(openTaskBrowserPane).mockResolvedValueOnce('original');
     setAgentBrowserInitialUrl('first', 'https://qwen.test/');
     await expect(openAgentBrowserTransport('first')).rejects.toThrow('no live page');
-    expect(openAgentBrowserPane).toHaveBeenLastCalledWith({ projectId: 'p', sessionId: 'first' }, 'https://qwen.test/', undefined, undefined);
+    expect(openTaskBrowserPane).toHaveBeenLastCalledWith({ projectId: 'p', sessionId: 'first' }, 'https://qwen.test/', undefined, undefined);
   });
 });
 

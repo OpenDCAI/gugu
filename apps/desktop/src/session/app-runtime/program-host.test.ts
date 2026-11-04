@@ -34,6 +34,60 @@ async function program() {
 }
 
 describe('gugu in a program', () => {
+  it('page protocol events never inherit another active call; maintenance carries only its resource identity', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    type Lease = { onMessage(fn: () => void): void; onPresentation(fn: () => void): void; presentation(): Promise<unknown>;
+      maintain(method: string): Promise<unknown>; send(method: string): Promise<unknown> };
+    const api = gugu.pages as { acquire(): Promise<Lease> };
+    const opening = programCall.run('acquire-a', () => api.acquire());
+    const request = await nextCall(0);
+    const watchId = (request as unknown as { args: { watchId: string } }).args.watchId;
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: request.id, ok: true, value: { id: 'page-a', title: 'A', url: 'https://example.test' } });
+    const lease = await opening;
+    let maintenance: Promise<unknown> | undefined, operation: Promise<unknown> | undefined;
+    lease.onMessage(() => { maintenance = lease.maintain('Runtime.enable'); operation = lease.send('Runtime.evaluate'); });
+    const before = sent.length;
+    programCall.run('unrelated-b', () => deliver({ m: APP_FRAME_MARKER, t: 'event',
+      event: { type: 'taskPage', event: { type: 'message', watchId, method: 'Target.attachedToTarget', params: {} } } }));
+    const maintain = await nextCall(before);
+    expect(maintain).toMatchObject({ method: 'taskPageMaintain', args: { id: 'page-a' } });
+    expect(maintain).not.toHaveProperty('call');
+    const send = sent.slice(before).find(message => message.method === 'taskPageSend')!;
+    expect(send).not.toHaveProperty('call');
+    const denied = expect(operation).rejects.toThrow('current task call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: maintain.id, ok: true, value: {} });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: send.id, ok: false, code: 'denied', message: 'A current task call is required' });
+    await maintenance; await denied;
+    let geometry: Promise<unknown> | undefined;
+    lease.onPresentation(() => { geometry = lease.presentation(); });
+    const geometryStart = sent.length;
+    programCall.run('unrelated-b', () => deliver({ m: APP_FRAME_MARKER, t: 'event',
+      event: { type: 'taskPage', event: { type: 'presentation', watchId, presentation: null } } }));
+    const measure = await nextCall(geometryStart);
+    expect(measure).toMatchObject({ method: 'taskPagePresentation', args: { id: 'page-a' } });
+    expect(measure).not.toHaveProperty('call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: measure.id, ok: true, value: null }); await geometry;
+  });
+  it('custom MCP adapters enter their own stamped call without leaking it to another invocation', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const withCall = gugu.withCall as <T>(meta: Record<string, unknown> | undefined, work: () => T) => T;
+    expect(() => withCall(undefined, () => {})).toThrow('metadata');
+    const first = withCall({ 'gugu/call': 'custom-a', 'gugu/sessionId': 'untrusted-selection' }, async () => {
+      await Promise.resolve(); return gugu.files.list({ chat: CHAT });
+    });
+    const a = await nextCall(0);
+    expect(a).toMatchObject({ call: 'custom-a', method: 'filesList' });
+    const before = sent.length;
+    const second = withCall({ 'gugu/call': 'custom-b' }, () => gugu.files.list({ chat: CHAT }));
+    const b = await nextCall(before);
+    expect(b).toMatchObject({ call: 'custom-b', method: 'filesList' });
+    for (const call of [a, b]) deliver({ m: APP_FRAME_MARKER, t: 'result', id: call.id, ok: true, value: [] });
+    await first; await second;
+    const after = sent.length, outside = gugu.files.list({ chat: CHAT });
+    const c = await nextCall(after); expect(c).not.toHaveProperty('call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: c.id, ok: true, value: [] }); await outside;
+  });
   it('is the same gugu — files and the host verbs — without a page’s editor', async () => {
     const { gugu } = await program();
     expect(typeof gugu.files.open).toBe('function');
@@ -52,6 +106,39 @@ describe('gugu in a program', () => {
     expect(call).toMatchObject({ m: APP_FRAME_MARKER, method: 'filesList', args: { place: { chat: CHAT } } });
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: call.id, ok: true, value: [{ id: 'item-1', name: 'a.md' }] });
     await expect(listing).resolves.toEqual([{ id: 'item-1', name: 'a.md' }]);
+  });
+  it('stamps file-payload requests with their exact live tool call and own page lease', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    const pages = gugu.pages as { acquire(): Promise<{ filePayloads(refs: unknown[]): Promise<unknown> }> };
+    const acquiring = programCall.run('upload-owner', () => pages.acquire());
+    const open = await nextCall(0);
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: open.id, ok: true, value: { id: 'own-page', title: '', url: '' } });
+    const lease = await acquiring, start = sent.length;
+    const payload = programCall.run('upload-b', () => lease.filePayloads([{ file: 'card' }]));
+    const request = await nextCall(start);
+    expect(request).toMatchObject({ method: 'taskPageFilePayloads', call: 'upload-b', args: { id: 'own-page', refs: [{ file: 'card' }] } });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: request.id, ok: true, value: [] });
+    await expect(payload).resolves.toEqual([]);
+  });
+
+  it('surface buttons update their owned display outside another active tool caller', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    const surfaces = gugu.surfaces as { open(options: unknown): Promise<{ id: string; onEvent(fn: () => void): void; update(value: unknown): Promise<void> }> };
+    const opening = programCall.run('surface-owner', () => surfaces.open({ entry: 'bar.html', bounds: { x: 0, y: 0, width: 200, height: 30 } }));
+    const request = await nextCall(0);
+    expect(request).toMatchObject({ method: 'appSurfaceOpen', call: 'surface-owner' });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: request.id, ok: true, value: { id: 'owned-display', shown: false } });
+    const surface = await opening;
+    let updated: Promise<void> | undefined;
+    surface.onEvent(() => { updated = surface.update({ data: { paused: true } }); });
+    const before = sent.length;
+    programCall.run('another-task', () => deliver({ m: APP_FRAME_MARKER, t: 'event',
+      event: { type: 'appSurface', event: { id: surface.id, type: 'message', message: { action: 'app-defined' } } } }));
+    const update = await nextCall(before);
+    expect(update).toMatchObject({ method: 'appSurfaceUpdate' }); expect(update).not.toHaveProperty('call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: update.id, ok: true }); await updated;
   });
 
   it('exposes projection sources and keeps later capture outside the finished calling agent scope', async () => {

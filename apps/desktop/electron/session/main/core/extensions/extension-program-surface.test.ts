@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileHandle } from '@gugu/core/shared/fileResolver';
+import { ownProgramResource } from './program-resource-lifetime';
 import { createAppFiles } from '@shared/extensions/app-files-core';
 import { FileSyncRelay } from '@shared/extensions/file-sync-core';
 
@@ -690,4 +691,20 @@ describe('R3 scoped file reads follow the program call lifetime', () => {
       expect(pages[2]).not.toHaveProperty('callId');
     } finally { openAppFile.mockImplementation(async () => ({ docName: 'd@1' })); await surface.close(); }
   });
+});
+
+it('keeps a program alive for owned host resources and waits for every cleanup at exit', async () => {
+  const program = attachProgramSurface('board', fakeChild() as unknown as ChildProcess);
+  const cleanup = Promise.withResolvers<void>();
+  const close = vi.fn(() => cleanup.promise);
+  ownProgramResource(program.pageId, close);
+  expect(program.openFiles()).toBe(1);
+  const releaseCall = program.hand('finished-tool', null, []);
+  await releaseCall();
+  expect(program.openFiles()).toBe(1); expect(close).not.toHaveBeenCalled();
+  let done = false;
+  const exit = Promise.resolve(program.close()).then(() => { done = true; });
+  expect(close).toHaveBeenCalledTimes(1);
+  await Promise.resolve(); expect(done).toBe(false);
+  cleanup.resolve(); await exit;
 });

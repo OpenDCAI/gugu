@@ -19,7 +19,7 @@ describe.skipIf(!electron)('page protocol with real Electron and Playwright MCP'
       '@main/lib/events': 'export const events={emit(...args){globalThis.pageProbeEvent?.(...args)}}',
       '@main/lib/logger': logger,
       '@main/core/extensions/extension-agent-context': 'export async function agentSessionContext(){return null}',
-      '@main/core/sessions/session-orchestration': 'export async function openAgentBrowserPane(){}',
+      '@main/core/sessions/session-orchestration': 'export async function openTaskBrowserPane(){}',
       './browser-webcontents-registry': 'export const browserWebContentsRegistry={setMouseDownObserver(){},browsersOfSession(){return []}}',
       './lib/logger': logger,
     };

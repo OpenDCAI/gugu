@@ -51,6 +51,7 @@ vi.mock('electron', async () => {
     setZoomFactor(factor: number) {
       this.zoom = factor;
     }
+    getZoomFactor() { return this.zoom; }
     // 照 Electron v44:网页的 JS 对话框走这两个内部事件(browser-page-dialogs.ts 接管)。
     debugger = Object.assign(new Emitter(), { isAttached: () => false });
     constructor() {
@@ -81,6 +82,8 @@ vi.mock('electron', async () => {
     setBounds(bounds: unknown) {
       this.bounds = bounds;
     }
+    getBounds() { return this.bounds; }
+    getVisible() { return this.visible; }
     setVisible(visible: boolean) {
       this.visible = visible;
     }
@@ -157,6 +160,7 @@ import {
   destroyBrowserPage,
   forwardAgentCursorInput,
   layoutBrowserPage,
+  leaseBrowserPagePresentation,
   mountBrowserPage,
   releaseBrowserPage,
   closeAgentOverlayLayers,
@@ -164,6 +168,9 @@ import {
   snapshotBrowserPage,
   toDip,
   visibleHostOfPage,
+  browserPagePresentation,
+  onBrowserPagePresentation,
+  setBrowserPageZoom,
 } from './browser-page-views';
 import { acquireBrowserPage } from './browser-page-runtime';
 import { windowLayerResponse } from '../../../../window-layers';
@@ -720,5 +727,52 @@ describe('real cursor-layer input still reaches its page', () => {
     }
     expect(view.webContents.inputs).toEqual([]);
     expect(view.webContents.focused).toBe(0);
+  });
+});
+
+describe('App-native presentation lease', () => {
+  it('measures the current native mount and invalidates on window visibility, zoom, unmount and destruction', async () => {
+    const { view } = mount('b1'); await settled(view);
+    const changes = vi.fn();
+    const off = onBrowserPagePresentation('b1', changes);
+    expect(changes).toHaveBeenLastCalledWith(null);
+    const appHost = fakeWindow('gugu-aux:app', 1.5); state.windows.push(appHost);
+    const lease = leaseBrowserPagePresentation('b1', appHost as any);
+    lease.layout({ x: 30, y: 40, width: 300, height: 200 });
+    expect(browserPagePresentation('b1')).toMatchObject({ bounds: { x: 145, y: 110, width: 450, height: 300 }, zoomFactor: 1 });
+    appHost.getContentBounds = () => ({ x: 500, y: 300, width: 1200, height: 800 }); appHost.emit('move');
+    expect(changes).toHaveBeenLastCalledWith(expect.objectContaining({ bounds: { x: 545, y: 360, width: 450, height: 300 } }));
+    appHost.visible = false; appHost.emit('hide'); expect(changes).toHaveBeenLastCalledWith(null);
+    appHost.visible = true; appHost.emit('show');
+    setBrowserPageZoom('b1', 2);
+    expect(changes).toHaveBeenLastCalledWith(expect.objectContaining({ zoomFactor: 2 }));
+    appHost.minimized = true; appHost.emit('minimize'); expect(changes).toHaveBeenLastCalledWith(null);
+    appHost.minimized = false; appHost.emit('restore');
+    lease.layout(null); expect(changes).toHaveBeenLastCalledWith(null);
+    lease.close(); expect(browserPagePresentation('b1')).toBeNull();
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    expect(browserPagePresentation('b1')).not.toBeNull();
+    destroyBrowserPage('b1'); expect(changes).toHaveBeenLastCalledWith(null);
+    const count = changes.mock.calls.length;
+    appHost.emit('show'); expect(changes).toHaveBeenCalledTimes(count); off();
+  });
+  it('keeps the App viewport despite old tab layout and restores the latest original position when closed', async () => {
+    const { view } = mount('b1'); await settled(view);
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    const appHost = fakeWindow('gugu-aux:app', 1.5); state.windows.push(appHost);
+    const appRect = { x: 30, y: 40, width: 300, height: 200 };
+    const lease = leaseBrowserPagePresentation('b1', appHost as any);
+    lease.layout(appRect);
+    expect(appHost.children).toContain(view); expect(mainWindow.children).not.toContain(view);
+    expect(view.bounds).toEqual(toDip(appRect, 1.5));
+    const updated = { ...RECT, x: 99 };
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: updated, mode: 'shown' });
+    expect(view.bounds).toEqual(toDip(appRect, 1.5));
+    expect(() => leaseBrowserPagePresentation('b1', mainWindow as any)).toThrow('already mounted');
+    lease.layout(null); expect(view.visible).toBe(false);
+    lease.close(); lease.close();
+    expect(mainWindow.children).toContain(view); expect(appHost.children).not.toContain(view);
+    expect(view.bounds).toEqual(toDip(updated, 1)); expect(view.visible).toBe(true);
+    expect(view.webContents.loaded).toHaveLength(1);
   });
 });
