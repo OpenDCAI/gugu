@@ -19,7 +19,7 @@ env:
 jobs:
   # Decides which packaging jobs a pull request needs. Test jobs never depend on this: they run on
   # every event (scripts/ci/ci-spec-coverage.mts rejects conditions on any job that runs a test runner).
-  # Manual diagnostic runs always build everything; ci-dev-mac.yml covers the merged dev tree.
+  # Manual diagnostic runs always build everything; ci-dev-mac.yml compiles merged dev changes.
   changes:
     name: Detect changed areas
     runs-on: ubuntu-24.04
