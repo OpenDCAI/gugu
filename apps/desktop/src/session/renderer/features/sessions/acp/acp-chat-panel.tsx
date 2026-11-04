@@ -14,7 +14,6 @@ import { useOwnerNotifications } from './use-owner-notifications';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
 import { lifeIsStarting } from '@shared/core/sessions/session-life';
-import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { AgentFailureSlot } from '@/components/AgentFailureSlot';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
@@ -1428,7 +1427,6 @@ const ComposerForStore = observer(function ComposerForStore({
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
-      <NeedsYouSlot />
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}

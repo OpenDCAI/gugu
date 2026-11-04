@@ -1,4 +1,3 @@
-import { NeedsYouSlot } from '../needsYou/NeedsYouSlot'
 import { createContext, useContext, type ReactNode } from 'react'
 
 /**
@@ -82,7 +81,7 @@ export function ComposerExtras() {
 
 /** 输入框上方插槽；宿主没塞就什么都不画。 */
 export function ComposerAboveExtras() {
-  return <>{useContext(ComposerSlotsContext).above}<NeedsYouSlot /></>
+  return <>{useContext(ComposerSlotsContext).above}</>
 }
 
 /** 时间线末尾插槽；宿主没塞就什么都不画。 */
