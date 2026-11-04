@@ -92,13 +92,14 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
       server.server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
         const signal = anySignal([grantSignal, extra.signal])
         // entries() precedes the tracked upstream work; retain that metric boundary and its original error.
-        const entries = await getContext().entries().catch((error: unknown) => {
+        let entries: readonly IntegrationBridgeEntry[]
+        try { entries = await getContext().entries() } catch (error) {
           const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
           log.warn({ errorType: error instanceof Error ? error.name : 'unknown',
             errorCode: typeof code === 'number' ? code : undefined,
             mcpSessionId: extra.sessionId, requestId: extra.requestId }, 'connected app entries unavailable')
           throw error
-        })
+        }
         return trackRequest(
           listConnectedTools(entries, signal, extra).then((tools) => ({ tools })),
           'tools/list',
