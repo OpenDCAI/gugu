@@ -50,6 +50,5 @@ for (const mode of ['on', 'off', 'timeout', 'error'] as const) for (const theme 
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     expect(host.querySelectorAll('.gugu-auth-google')).toHaveLength(mode === 'on' ? 1 : 0)
     if (mode === 'on' || mode === 'off') await page.screenshot({ element: host, path: `__screenshots__/google-provider-${mode}-${theme}.png` })
-    console.log(JSON.stringify({ mode, theme, before, after: rect(card), google: mode === 'on', divider: mode === 'on' }))
   }, 15_000)
 }

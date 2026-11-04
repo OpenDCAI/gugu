@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import type { Session } from '@supabase/supabase-js'
-import { beforeEach, expect, it, vi } from 'vitest'
-import { MAIN_PKCE_STORAGE_KEY } from '../../../../apps/desktop/shared/auth-storage-keys'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { MAIN_PKCE_STORAGE_KEY, OAUTH_PENDING_STORAGE_KEY } from '../../../../apps/desktop/shared/auth-storage-keys'
 
 const m = vi.hoisted(() => ({
   authenticated: vi.fn(), session: null as Session | null, status: 'anonymous', coordinatorSubscribe: vi.fn((_listener: () => void) => () => {}),
   sourceReady: vi.fn(async () => {}), redirectTo: vi.fn(async () => 'gugu-beta://auth/callback'), subscribe: vi.fn(),
   browserSubscribe: vi.fn(async () => () => {}), openBrowser: vi.fn(async (_url: string) => {}),
+  persistent: false, requestOtp: vi.fn(async (_email: string) => ({ success: false, error: 'fixture send failure' })),
   values: new Map<string, string>(), signIn: vi.fn(), exchange: vi.fn(),
   begin: vi.fn(() => 17), accept: vi.fn(async (_attempt: number, _session: Session) => {}), referrer: vi.fn(),
 }))
@@ -14,18 +15,25 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { authCallba
 vi.mock('../../../../apps/desktop/src/lib/authCallbacks', () => ({ authCallbacks: { ready: m.sourceReady, redirectTo: m.redirectTo, subscribe: m.subscribe, setAuthenticated: m.authenticated } }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   mainAuthTemporaryStorage: {
-    getItem: async (key: string) => m.values.get(key) ?? null,
-    setItem: async (key: string, value: string) => { m.values.set(key, value) },
-    removeItem: async (key: string) => { m.values.delete(key) },
+    getItem: async (key: string) => m.persistent ? localStorage.getItem(key) : m.values.get(key) ?? null,
+    setItem: async (key: string, value: string) => { if (m.persistent) localStorage.setItem(key, value); else m.values.set(key, value) },
+    removeItem: async (key: string) => { if (m.persistent) localStorage.removeItem(key); else m.values.delete(key) },
   },
   supabase: { auth: { signInWithOAuth: m.signIn, exchangeCodeForSession: m.exchange } },
 }))
 vi.mock('../../../../apps/desktop/src/lib/sessionCoordinator', () => ({ sessionCoordinator: { beginInteractiveLogin: m.begin, acceptInteractiveSession: m.accept, getSnapshot: () => ({ status: m.status, session: m.session }), subscribe: m.coordinatorSubscribe } }))
 vi.mock('../../../../apps/desktop/src/lib/referral', () => ({ clearPendingReferrer: m.referrer }))
-vi.mock('@gugu/core/cloud/config', () => ({ getSupabaseUrl: () => 'https://auth.example.test' }))
+vi.mock('@gugu/core/cloud/config', () => ({ getSupabaseUrl: () => 'https://auth.example.test', getSupabaseAnonKey: () => 'public-test-key' }))
+vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: { requestLoginOtp: m.requestOtp } }))
+vi.mock('../../../../apps/desktop/src/pages/login/AuthBrandMotion', () => ({ AuthBrandMotion: () => null }))
+vi.mock('../../../../apps/desktop/src/hooks/usePrefersReducedMotion', () => ({ usePrefersReducedMotion: () => true }))
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  m.persistent = false
+  localStorage.removeItem(MAIN_PKCE_STORAGE_KEY)
+  localStorage.removeItem(OAUTH_PENDING_STORAGE_KEY)
   m.values.clear()
   m.session = null
   m.status = 'anonymous'
@@ -126,4 +134,52 @@ it('keeps the current state when App initializes an already prepared flow again'
   await vi.waitFor(() => expect(googleLogin.getSnapshot()).toEqual({ phase: 'idle', busy: false }))
   expect(m.browserSubscribe).toHaveBeenCalledOnce()
   expect(m.subscribe).toHaveBeenCalledOnce()
+})
+
+
+it.each(['off', 'error', 'timeout'] as const)('can cancel a real persisted authorization and return to email when settings is %s', async (mode) => {
+  vi.useFakeTimers()
+  m.persistent = true
+  localStorage.setItem(MAIN_PKCE_STORAGE_KEY, JSON.stringify('originating-verifier'))
+  localStorage.setItem(OAUTH_PENDING_STORAGE_KEY, JSON.stringify({ version: 1, id: '5aa55e8b-f140-4d30-81bb-692d26e17c91', phase: 'authorizing', expiresAt: Date.now() + 300_000 }))
+  vi.stubGlobal('fetch', async () => mode === 'timeout' ? new Promise<Response>(() => {})
+    : Response.json({ external: { google: false } }, { status: mode === 'error' ? 503 : 200 }))
+  const { googleLogin } = await import('../../../../apps/desktop/src/lib/googleLogin')
+  googleLogin.initialize()
+  await vi.waitFor(() => expect(googleLogin.getSnapshot().phase).toBe('authorizing'))
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { i18n } = await import('../../../../apps/desktop/src/i18n')
+  await import('../../../../apps/desktop/src/i18n/registerMainCatalog')
+  await i18n.changeLanguage('zh-CN')
+  const { LoginPage } = await import('../../../../apps/desktop/src/pages/LoginPage')
+  const host = document.createElement('div'); document.body.append(host)
+  const root = createRoot(host)
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  try {
+    await act(async () => { root.render(createElement(LoginPage)) })
+    if (mode === 'timeout') await act(async () => { await vi.advanceTimersByTimeAsync(2_000) })
+    const cancel = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '取消 Google 登录')
+    expect(cancel).toBeDefined()
+    expect(cancel!.disabled).toBe(false)
+    expect(host.querySelector('.gugu-auth-divider')).toBeNull()
+    const input = host.querySelector<HTMLInputElement>('input[type="email"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'verified@example.test')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const submit = host.querySelector<HTMLButtonElement>('button[type="submit"]')!
+    expect(submit.disabled).toBe(true)
+    await act(async () => { cancel!.click() })
+    expect(googleLogin.getSnapshot()).toEqual({ phase: 'failed', failure: 'cancelled', busy: false })
+    expect(localStorage.getItem(MAIN_PKCE_STORAGE_KEY)).toBeNull()
+    expect(localStorage.getItem(OAUTH_PENDING_STORAGE_KEY)).toBeNull()
+    expect(submit.disabled).toBe(false)
+    await act(async () => { submit.click() })
+    expect(m.requestOtp).toHaveBeenCalledExactlyOnceWith('verified@example.test')
+    expect(m.signIn).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => { await googleLogin.cancel(); root.unmount() })
+    host.remove()
+  }
 })

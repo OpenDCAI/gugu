@@ -122,7 +122,7 @@ export function LoginPage() {
         </header>
         <AnimatePresence mode="wait" initial={false}>
           {step === 'email' && <motion.form key="email" {...stepMotion(reduceMotion, -10)} onSubmit={handleRequestOtp} className="gugu-auth-form">
-            {googleLogin.available && googleEnabled && <Button type="button" variant="secondary" size="xl" className="gugu-auth-google"
+            {googleLogin.available && (googleEnabled || (google.busy && google.phase !== 'failed')) && <Button type="button" variant="secondary" size="xl" className="gugu-auth-google"
                 disabled={loading || google.phase === 'restoring' || google.phase === 'accepting' || (google.busy && google.phase === 'failed')}
                 onClick={() => { setError(''); void (google.busy ? googleLogin.cancel() : googleLogin.start()) }}>
                 <GoogleMark />{t(google.busy && google.phase !== 'failed' ? 'auth.google.cancel' : 'auth.google.signIn')}
