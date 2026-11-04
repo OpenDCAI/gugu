@@ -102,6 +102,22 @@ function mentionParts(text: string) {
   return { references, plain }
 }
 
+/** First explicit mention in document order, using the same tokens and resolved recipients as delivery. */
+export function firstMentionedUserId(text: string, recipientIds: readonly string[], members: MentionCandidate[]): string | null | undefined {
+  const { references, plain } = mentionParts(text)
+  const recipients = new Set(recipientIds)
+  const mentions = [
+    ...references.filter((ref) => ref.target.startsWith('aid:')).map((ref) => ({ start: ref.start, ids: [ref.target.slice(4)] })),
+    ...findMentionSpans(plain, members.map((member) => member.name)).map((span) => ({ start: span.start,
+      ids: members.filter((member) => member.name === span.name).map((member) => member.type === 'all' ? MENTION_ALL_USER_ID : member.id) })),
+  ].sort((a, b) => a.start - b.start)
+  for (const mention of mentions) {
+    const ids = mention.ids.filter((id) => recipients.has(id))
+    if (ids.length) return ids.length === 1 ? ids[0] : null
+  }
+  return undefined
+}
+
 /**
  * Resolve the final `to_user_ids` for a send, unioning:
  *  1. ids the user selected via the picker (acceptMention), and
