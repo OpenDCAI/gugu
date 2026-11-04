@@ -302,7 +302,7 @@ it.each((['phone', 'native'] as const).flatMap(mode => ['', 'Hi again', 'Hi appe
 })
 
 
-// Keep the old failing input operation and compare callback ownership, without changing the product.
+// Compare fixture callback churn with real production stores after a model-level keyboard clear.
 it.each(['fixture', 'production'] as const)('traces reopened clear with %s persistence callbacks', async mode => {
   await page.viewport(390, 844)
   const own = state()
@@ -350,8 +350,17 @@ it.each(['fixture', 'production'] as const)('traces reopened clear with %s persi
   await render(null)
   await render(2)
   phoneDraftTrace.observeEditor(page.getByTestId('prompt-editor').element())
-  await page.getByTestId('prompt-editor').fill('')
-  phoneDraftTrace.note('clear.fill-returned')
+  // Playwright fill('') selects the DOM and sends Delete in separate protocol commands.
+  // The captured failure handles Delete at a collapsed model caret before selectionchange arrives.
+  await page.getByTestId('prompt-editor').click()
+  const modifier = /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
+  await userEvent.keyboard(`{${modifier}>}a{/${modifier}}{Backspace}`)
+  await until('the clear has reached the document and DOM before failure', () => {
+    const node = page.getByTestId('prompt-editor').element()
+    return readComposer(node) === '' && node.textContent === ''
+  })
+  phoneDraftTrace.note('clear.model-established')
+  expect(capture.entries.some(entry => entry.event === 'onChange.enter' && (entry.detail as { value: unknown }).value === '')).toBe(true)
   await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
   await render(2)
   phoneDraftTrace.note('failure.rendered')
