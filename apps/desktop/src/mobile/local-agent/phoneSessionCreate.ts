@@ -8,7 +8,13 @@ const key = (ownerId: string, deviceId: string) => `gugu:phone-session-create:v1
 export function readPhoneSessionCreate(ownerId: string, deviceId: string, storage: StorageLike = window.localStorage): SessionpageSessionCreateRequest | null {
   const raw = storage.getItem(key(ownerId, deviceId))
   if (raw) {
-    const request = JSON.parse(raw) as SessionpageSessionCreateRequest
+    let request: SessionpageSessionCreateRequest
+    try {
+      request = JSON.parse(raw) as SessionpageSessionCreateRequest
+    } catch {
+      // 值坏了(手改/跨版本脏数据)按同一条「记录不完整」处理,❌ 漏出原生 SyntaxError。
+      throw new Error('上次创建记录不完整，请保留记录后重试')
+    }
     if (!request.clientRequestId || !request.prompt?.trim() || request.harness !== 'pi') throw new Error('上次创建记录不完整，请保留记录后重试')
     return request
   }
