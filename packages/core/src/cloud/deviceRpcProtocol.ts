@@ -1,4 +1,5 @@
 import { unwrapPayload } from './payload'
+import { sessionInputAdmission, type SessionInputAdmission } from '../shared/sessionInputAdmission'
 
 /**
  * Device RPC wire protocol.
@@ -17,7 +18,7 @@ import { unwrapPayload } from './payload'
  * Inbound payload:  { type: `${type}:reply`, request_id, result?, error? }
  */
 
-export type DeviceRpcError = { code: string; message: string }
+export type DeviceRpcError = { code: string; message: string; admission?: SessionInputAdmission }
 
 export type DeviceRpcResponse<T> = {
   result?: T
@@ -153,6 +154,7 @@ export function parseDeviceRpcReply(payload: unknown): DeviceRpcReplyEnvelope | 
         ? {
             code: String((error as Record<string, unknown>).code ?? 'internal_error'),
             message: String((error as Record<string, unknown>).message ?? 'Unknown error'),
+            ...('admission' in error ? { admission: sessionInputAdmission(error) } : {}),
           }
         : undefined,
   }

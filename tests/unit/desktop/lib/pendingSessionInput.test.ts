@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { projectSessionPendingInput, sessionInputBaseline } from '@/lib/pendingSessionInput'
+import { projectRejectedSessionInputs, projectSessionPendingInput, sessionInputBaseline } from '@/lib/pendingSessionInput'
 import { activeTurnWithPending } from '@session-chat/state/pending-prompt'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { HostPendingRow, SessionInput, SessionInputFailure } from '@/lib/sessionInputOutbox'
@@ -94,4 +94,19 @@ describe('ordinary input transcript custody', () => {
 it('keeps the offline input waiting in its transcript without a Retry action', () => {
   const failed = projectSessionPendingInput(null, [{ ...input(), failure: { code: 'host-offline' } }], [], [old])
   expect(failed).toMatchObject({ id: 'send', text: 'hello', delivery: { state: 'waiting', retryable: false, reason: expect.any(String), error: expect.any(String) } })
+})
+
+it('projects every definitive refusal once, separately from automatic sender custody', () => {
+  const a = { ...input(), admission: 'rejected' as const, failure: { code: 'send-failed' as const, message: 'No access to this task' } }
+  const b = { ...a, id: 'second', text: 'another input', createdAt: 21 }
+  const automatic = { ...input(), id: 'automatic', admission: 'uncertain' as const }
+  expect(projectRejectedSessionInputs([a, b, automatic], [old])).toMatchObject([
+    { id: a.id, text: a.text, senderRejected: true, delivery: { state: 'failed', retryable: true, reason: 'No access to this task' } },
+    { id: b.id, text: b.text, senderRejected: true, delivery: { state: 'failed', retryable: true } },
+  ])
+  expect(projectSessionPendingInput(null, [a, b, automatic], [], [old])).toMatchObject({ id: automatic.id, delivery: { state: 'sending' } })
+  expect(projectSessionPendingInput(projectSessionPendingInput(null, [input()], [], [old]), [a], [], [old])).toBeNull()
+  expect(projectSessionPendingInput(projectSessionPendingInput(null, [input()], [], [old]), [a, { ...automatic, failure: { code: 'host-offline' } }], [], [old]))
+    .toMatchObject({ id: automatic.id, delivery: { state: 'waiting', retryable: false } })
+  expect(projectRejectedSessionInputs([], [old])).toEqual([])
 })

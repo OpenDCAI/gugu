@@ -18,6 +18,10 @@
     "how": "keyed-map",
     "why": "出处按 message id 存模块级 map,渲染期用**当前** messageId 取值;自有 state 只是一个重绘计数器,不承载读数 ⇒ 换消息立刻换答案。"
   },
+  "apps/desktop/src/hooks/useRejectedSessionInputCommands.ts::useRejectedSessionInputCommands": {
+    "how": "subject-scoped",
+    "why": "Actions resolve input IDs from the current session's outbox snapshot on every render. Editor state carries its input ID and is exposed only while that ID is rejected in the current session; switching sessions cannot display or edit the prior session's input."
+  },
   "apps/desktop/src/hooks/useSessionpageSessionStartupFailure.ts::useSessionpageSessionStartupFailure": {
     "how": "derived",
     "why": "无自有的主体读数:值在渲染期由当前 conversationId 从账本快照(useSyncExternalStore)里当场挑出;唯一自有状态是「桥装上了没有」,与主体无关。"

@@ -29,6 +29,8 @@ export type PendingPrompt = {
   /** Host-owned incoming delivery, with its original envelope and sender. */
   received?: boolean;
   hostSequence?: number;
+  /** A definitive sender-side refusal is rebuilt from the outbox, never retained as a host receipt. */
+  senderRejected?: boolean;
   stopped?: boolean;
   /** Once found, a receipt stays on this native message even if a later history window omits it. */
   nativeEcho?: { turnId: string; itemId: string };

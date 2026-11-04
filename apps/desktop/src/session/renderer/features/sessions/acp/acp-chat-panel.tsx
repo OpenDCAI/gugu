@@ -1445,7 +1445,7 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life}
-        inTranscript={[store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
+        inTranscript={[...store.chatState.session.state.pendingMessages.map(input => input.id), store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         bandAbove={schedules.length > 0 ? (
@@ -2084,13 +2084,15 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // `commands().onStop?.()` 在 `?.` 上整条短路，按下去一个字节都不发（#3498 查出来的，
       // 与 #3500 同形）。composer 上那颗是另一条路，它一直是通的，于是这颗死按钮
       // 被它掩护着看不出来。⇒ 这里补上；同时 UserMessageCard 改成没接回调就不渲染。
-      canRevertMessage: (itemId) => historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false),
+      canRevertMessage: (itemId) => (store?.isRejectedInput(itemId) ?? false) || (historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false)),
+      canDiscardSend: (itemId) => store?.isRejectedInput(itemId) ?? false,
+      onDiscardSend: (itemId) => store?.discardRejectedInput(itemId),
       onEditMessage: ({ itemId }) => store?.beginMessageEdit(itemId),
-      onRetrySend: () => store?.retryPendingInput(),
+      onRetrySend: (itemId) => store?.retryPendingInput(itemId),
       editingMessage: messageEdit ? {
         ...messageEdit,
         pending: messageEditPending,
-        canSubmit: historyActionsEnabled && messageEdit.text.trim().length > 0,
+        canSubmit: (historyActionsEnabled || !!store?.isRejectedInput(messageEdit.itemId)) && !messageEditPending && messageEdit.text.trim().length > 0,
         onChange: (text) => store?.changeMessageEdit(messageEdit.itemId, text),
         onCancel: () => store?.cancelMessageEdit(messageEdit.itemId),
         onSubmit: () => void store?.sendMessageEdit(messageEdit.itemId),
