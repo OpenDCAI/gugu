@@ -114,13 +114,15 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const options = useConversationOptions({ deviceId, sessionId, local, phoneHost, reachable: hostReachable }, harness ? engineLabel(harness) : agentName)
   const senderInputs = useQueuedSessionInputs(sessionId)
   const account = useSessionInputAccount()
+  const life = useSessionLifeView(deviceId, sessionId, local, !phoneHost && hostReachable,
+    timeline.queuedPrompts.length > 0 || pendingSends.length > 0 || senderInputs.length > 0)
   const localQueue = useRef<{ key: string; inputs: readonly SessionInput[] }>({ key: '', inputs: [] })
   const localQueueKey = `${account}/${deviceId}/${sessionId}`
   const localInputs = mobile && account ? localQueuedInputs(localQueue.current.key === localQueueKey ? localQueue.current.inputs : [],
     senderInputs, timeline.queuedPrompts, timeline.turns) : []
   localQueue.current = { key: localQueueKey, inputs: localInputs }
   const queue = usePhoneInputQueue({ deviceId, sessionId, local, phoneHost }, senderInputs, timeline.queuedPrompts,
-    timeline.turns, agentWorking, stopping, queueReady && visibility.shown, options.steers)
+    timeline.turns, agentWorking, stopping, queueReady && (!life.view || (life.view.hold === null && life.view.kind === 'ready')), options.steers)
   const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
   const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })
   editorState.current = { text: draftText, edit: quotes.composer.queuedPromptEdit }
@@ -216,8 +218,6 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const { openFile, handlers: outputHandlers } = outputs
   const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost, localClient?.fetchBackgroundTasks)
   const nativeTurns = timeline.turns
-  const life = useSessionLifeView(deviceId, sessionId, local, !phoneHost && hostReachable,
-    timeline.queuedPrompts.length > 0 || pendingSends.length > 0 || senderInputs.length > 0)
   const pendingInput = useRef<{ sessionId: string; prompts: readonly PendingPrompt[] }>({ sessionId, prompts: [] })
   const hostInputs = useMemo(() => {
     const inputs = [...(life.view?.pending.items ?? [])]

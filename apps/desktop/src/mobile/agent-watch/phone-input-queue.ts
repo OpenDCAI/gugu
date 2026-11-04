@@ -23,7 +23,7 @@ export function phoneInputQueueIntent(working: boolean, inputs: readonly Session
 
 /** Cached history, a pending approval and a lost connection are not permission to drain a phone's queue. */
 export function canReleasePhoneInput(ready: boolean, working: boolean, stopping: boolean, turns: readonly TranscriptTurn[]): boolean {
-  return ready && !working && !stopping && (turns.length === 0 || Boolean(turns.at(-1)?.outcome))
+  return ready && !working && !stopping && (turns.length === 0 || turns.at(-1)?.outcome?.kind === 'done')
 }
 
 /** Phone-hosted tasks expose the same custody identity in their timeline queue instead of a desktop LifeView. */

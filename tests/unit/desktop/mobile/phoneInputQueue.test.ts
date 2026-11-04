@@ -57,4 +57,9 @@ describe('phone composer ownership', () => {
   ])('requires a live foreground completion before draining (%s/%s/%s/%s)', (ready, working, stopping, done, allowed) => {
     expect(canReleasePhoneInput(ready, working, stopping, [turn(done)])).toBe(allowed)
   })
+
+  it('does not restart a stopped or failed foreground turn just because its history is settled', () => {
+    expect(canReleasePhoneInput(true, false, false, [{ ...turn(true), outcome: { kind: 'cancelled' } }])).toBe(false)
+    expect(canReleasePhoneInput(true, false, false, [{ ...turn(true), outcome: { kind: 'error' } }])).toBe(false)
+  })
 })
