@@ -108,26 +108,23 @@ export function acknowledgeOnScreenChatRows(
 ): ChatItem[] {
   const currentById = new Map(context.current?.map((chat) => [chat.id, chat]) ?? [])
   return rows.map((chat) => {
-    if (!context.onScreen(chat.id) || context.canAcknowledge?.(chat.id) === false || chat.unread_count <= 0 || chat.is_marked_unread) return chat
-    if (chat.unread_locator && chat.unread_locator.stream_kind !== 'main') return chat
-    // 只确认真的看到的进度:尾消息还没加载时按可见的 seq 推进(评审)。
-    const visible = context.visibleSeqOf ? context.visibleSeqOf(chat.id) : Number.POSITIVE_INFINITY
-    const seq = Math.min(Math.max(chat.last_read_seq, chat.next_message_seq - 1), visible)
+    if (!context.onScreen(chat.id) || context.canAcknowledge?.(chat.id) === false || chat.is_marked_unread) return chat
     const current = currentById.get(chat.id)
-    // 手工未读是用户的本地意图:❌ 不在这里合成「已读」把它拿掉(评审) —— 权威合并(applyFetchedChatList)本来就会保留手工未读。
+    // Leave manual intent to the authoritative merge, without preparing a competing read.
     if (current?.is_marked_unread) return chat
-    // mark_read 还在路上时，旧投影可能重复到达；本地更新过的读状态(更高版本)优先,❌ 投影回放把它清掉。
-    const currentIsNewerProgress = !!current && current.last_read_seq >= seq && (current.read_state_version ?? 0) > (chat.read_state_version ?? 0)
-    if (currentIsNewerProgress) {
-      return { ...chat, last_read_seq: current.last_read_seq, is_marked_unread: current.is_marked_unread,
-        read_state_version: current.read_state_version, unread_count: current.unread_count, unread_locator: current.unread_locator }
-    }
-    if (seq <= chat.last_read_seq) return chat
-    const prepared = prepareProjectedReadWatermark(chat, seq, context.patchChat)
+    // Choose the whole read tuple before raising its version. Combining an old count/locator
+    // with a new optimistic version would defeat the merge's stale-response protection.
+    const [basis] = mergeFetchedChatsPreservingActiveLocal([chat], current ? [current] : [], chat.id,
+      { preserveMissingActive: false })
+    if (basis.unread_count <= 0 || (basis.unread_locator && basis.unread_locator.stream_kind !== 'main')) return basis
+    const visible = context.visibleSeqOf ? context.visibleSeqOf(chat.id) : Number.POSITIVE_INFINITY
+    const seq = Math.min(Math.max(basis.last_read_seq, basis.next_message_seq - 1), visible)
+    if (seq <= basis.last_read_seq) return basis
+    const prepared = prepareProjectedReadWatermark(basis, seq, context.patchChat)
     const persist = () => {
       // 决策到这里中间隔着 await(评审):用户若刚标了手工未读,或读状态已往前走,这条确认作废 —— 本地不写,RPC 也不发。
       const latest = context.liveRows?.().find((row) => row.id === chat.id)
-      if (latest?.is_marked_unread || (latest?.read_state_version ?? 0) > (chat.read_state_version ?? 0)) return
+      if (latest?.is_marked_unread || (latest?.read_state_version ?? 0) > (basis.read_state_version ?? 0)) return
       prepared.persist()
     }
     if (context.deferPersist) context.deferPersist(persist)
@@ -179,17 +176,22 @@ export function useChatProjectionBinding(deps: {
       activeChatId, fetched, requestSeq: options.requestSeq, preserveMissingActive: options.preserveMissingActive,
     }) && (!options.revokedMembership || options.revokedMembership(activeChatId!))
     ledger.recordProjected(fetched, options.requestSeq)
-    // 仓库先拿到手:确认(以及随它进合并的乐观行)必须基于**这一刻**的本地读状态 —— 等仓库的那一会儿用户若
-    // 标了手工未读,先算好的乐观行会以同版本把它盖掉,mark_read 也照样发出去(评审)。
     const repository = await getRepository()
+    const published = await applyFetchedChatList(ledger, repository, { fetched, identities },
+      { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted })
+    // Snapshot publication can wait on a repository commit. Rejoin the latest complete read
+    // tuples after that wait; never prepare an optimistic read on the other side of an await.
+    const current = chatsRef.current
+    const merged = mergeFetchedChatsPreservingActiveLocal(published, current, activeChatIdRef.current,
+      { preserveMissingActive: false })
     const pendingReads: Array<() => void> = []
-    const acknowledged = acknowledgeOnScreenChatRows(fetched, {
-      current: chatsRef.current, onScreen: isChatOnScreen, canAcknowledge, visibleSeqOf, patchChat,
-      liveRows: () => chatsRef.current,
+    const acknowledged = acknowledgeOnScreenChatRows(merged, {
+      current, onScreen: isChatOnScreen, canAcknowledge, visibleSeqOf, patchChat,
       deferPersist: (persist) => pendingReads.push(persist),
     })
-    setChats(await applyFetchedChatList(ledger, repository, { fetched: acknowledged, identities },
-      { currentChats: chatsRef.current, activeChatId, revokeMissingActive, isConversationDeleted }))
+    // No await between preparing, publishing and persisting: no discarded optimistic tuple
+    // can be painted while its RPC is skipped because the preparation became stale.
+    setChats(acknowledged)
     for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
   }, [ledger, activeChatIdRef, canAcknowledge, visibleSeqOf, chatsRef, getRepository, onActiveRevoked, patchChat, setChats])

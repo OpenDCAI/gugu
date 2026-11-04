@@ -279,6 +279,20 @@ describe('open-chat 的确认不会越过可见进度与手工未读', () => {
     quiet.mockRestore()
   })
 
+  it('confirms from the latest complete authoritative tuple when an older projection arrives', () => {
+    const fetched = chat({ id: 'newer-tuple', kind: 'group', unread_count: 5, last_read_seq: 2, next_message_seq: 8, read_state_version: 7,
+      unread_locator: { ...locator(5, 2), stream_id: 'main:newer-tuple', message_seq: 3 } })
+    const current = { ...fetched, unread_count: 2, last_read_seq: 3, read_state_version: 8,
+      unread_locator: { ...fetched.unread_locator!, message_seq: 6, unread_count: 2, addressed_count: 1, cursor_seq: 3, version: 8 } }
+    const pending: Array<() => void> = []
+    const [shown] = acknowledgeOnScreenChatRows([fetched], { current: [current], onScreen: () => true,
+      visibleSeqOf: () => 5, patchChat: vi.fn(), liveRows: () => [current], deferPersist: persist => pending.push(persist) })
+    const [merged] = mergeFetchedChatsPreservingActiveLocal([shown], [current], fetched.id)
+    pending.forEach(persist => persist())
+    expect.soft(merged).toMatchObject({ unread_count: 2, last_read_seq: 5, read_state_version: 9, unread_locator: current.unread_locator })
+    expect.soft(reads.write).toHaveBeenCalledExactlyOnceWith({ kind: 'main', chatId: fetched.id, seq: 5 })
+  })
+
   it('可见进度没有前进时不凭空推进水位', () => {
     const fetched = chat({ id: 'nothing-visible', kind: 'group', unread_count: 1, last_read_seq: 4, next_message_seq: 6, read_state_version: 7 })
     const [same] = acknowledgeOnScreenChatRows([fetched], { onScreen: () => true, visibleSeqOf: () => 4, patchChat: vi.fn() })
