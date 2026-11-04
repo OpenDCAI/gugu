@@ -198,6 +198,10 @@ describe('background tasks at the end of the transcript', () => {
     expect(items(host).at(-1)!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
       toolRun.getBoundingClientRect().top
     )
+    // 评审:文字长了就该长高,❌ 用固定高度 + overflow:hidden 静默裁掉。
+    const metaEl = host.querySelector<HTMLElement>('[data-slot="background-task-meta"]')!
+    expect(getComputedStyle(metaEl).overflow).not.toBe('hidden')
+    expect(metaEl.scrollHeight).toBeLessThanOrEqual(metaEl.clientHeight + 1)
     // owner 10-28:过程行和后台各管各的 —— 收起过程,后台单子照样开着、照样能点;开合后台,过程行不动。
     const line = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]')!
     const processOpen = line().dataset.expanded

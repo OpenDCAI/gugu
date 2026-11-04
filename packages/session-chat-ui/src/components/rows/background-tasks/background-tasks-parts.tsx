@@ -230,7 +230,7 @@ export function BackgroundTasksList(props: {
             </span>
             <span style={{ display: 'flex', 'flex-direction': props.measureCtx().width < 360 ? 'column' : 'row', gap: props.measureCtx().width < 360 ? '0' : '8px', flex: 1, 'min-width': 0 }}>
             <span class={backgroundTaskName}>{backgroundTaskNameLayout(agent.name, props.measureCtx(), (props.measureCtx().width < 360 ? 0 : AGENT_META_W + 8) + (agent.canCancel && commands().onStopBackgroundTask ? 32 : 0) + (commands().onDismissBackgroundTask ? 32 : 0)).text}</span>
-            <span class={backgroundTaskMeta} style={{ width: `${AGENT_META_W}px`, height: `${backgroundTaskMetaLayout(agent, props.measureCtx()).height}px`, 'white-space': 'pre-wrap', overflow: 'hidden' }}>
+            <span class={backgroundTaskMeta} data-slot="background-task-meta" style={{ width: `${AGENT_META_W}px`, 'white-space': 'pre-wrap' }}>
               {backgroundTaskMetaLayout(agent, props.measureCtx(), elapsed(agent.startedAt)).text}
             </span>
             </span>
