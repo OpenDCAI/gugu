@@ -31,7 +31,10 @@ const link = vi.hoisted(() => ({
 }));
 vi.mock('@renderer/lib/machine-clients', async (original) => ({
   ...(await original<typeof import('@renderer/lib/machine-clients')>()),
-  machineClient: () => ({ api: { invoke: (channel: string, ...args: unknown[]) => window.electronAPI!.invoke(channel, ...args) } }),
+  machineClient: () => ({ api: {
+    invoke: (channel: string, ...args: unknown[]) => window.electronAPI!.invoke(channel, ...args),
+    eventOn: (channel: string, listener: (data: unknown) => void) => window.electronAPI!.eventOn(channel, listener),
+  } }),
   machineLinkState: () => link.state,
   machineLinkHandingOff: () => false,
   onMachineReconnected: (_machine: string, listener: () => void) => {
