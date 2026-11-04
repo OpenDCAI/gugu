@@ -87,6 +87,8 @@ export class ExtensionTaskPages {
     }
     const pending = Promise.withResolvers<void>();
     owner.pending.add(pending.promise);
+    void pending.promise.catch(this.report);
+    let cleanupFailure: unknown;
     const epoch = this.taskEpochs.get(from.sessionId) ?? 0;
     const access = openExtensionProgramAccess(caller.extensionId, caller.interruption, from.sessionId);
     const signal = anySignal([from.signal, access.signal, owner.controller.signal]);
@@ -128,14 +130,24 @@ export class ExtensionTaskPages {
       // late result, without closing the person's page or retaining its debugger.
       if (admitted) {
         try { await this.close(admitted, 'Task page acquisition cancelled'); }
-        catch (cleanup) { throw new AggregateError([error, cleanup], 'Task page acquisition and cleanup failed'); }
+        catch (cleanup) { cleanupFailure = cleanup; throw new AggregateError([error, cleanup], 'Task page acquisition and cleanup failed'); }
       }
       else {
-        try { native?.protocol.close('Task page acquisition cancelled'); }
-        finally { try { native?.release(); } finally { access.release(); } }
+        const failures: unknown[] = [];
+        for (const finish of [() => native?.protocol.close('Task page acquisition cancelled'), () => native?.release(), () => access.release()]) {
+          try { finish(); } catch (cleanup) { failures.push(cleanup); }
+        }
+        if (failures.length) {
+          cleanupFailure = new AggregateError(failures, 'Late task page cleanup failed');
+          throw new AggregateError([error, cleanupFailure], 'Task page acquisition and cleanup failed');
+        }
       }
       throw error;
-    } finally { owner.pending.delete(pending.promise); pending.resolve(); this.releaseIdleOwner(caller.pageId); }
+    } finally {
+      owner.pending.delete(pending.promise);
+      if (cleanupFailure === undefined) pending.resolve(); else pending.reject(cleanupFailure);
+      this.releaseIdleOwner(caller.pageId);
+    }
   }
 
   async send(caller: BridgeCaller, args: Record<string, unknown>): Promise<unknown> {
@@ -232,10 +244,10 @@ export class ExtensionTaskPages {
       cleanup.add(this.close(page, 'App program closed'));
     }
     // A native restoration that ignores cancellation must still release its late result before shutdown completes.
-    await Promise.all(owner?.pending ?? []);
+    const acquisitions = await Promise.allSettled(owner?.pending ?? []);
     for (const pending of this.closing.get(pageId) ?? []) cleanup.add(pending);
     const results = await Promise.allSettled(cleanup);
-    const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    const failures = [...acquisitions, ...results].flatMap(result => result.status === 'rejected' ? [result.reason] : []);
     if (failures.length) throw new AggregateError(failures, 'Task pages did not close cleanly');
   }
 

@@ -157,6 +157,7 @@ import {
   destroyBrowserPage,
   forwardAgentCursorInput,
   layoutBrowserPage,
+  leaseBrowserPagePresentation,
   mountBrowserPage,
   releaseBrowserPage,
   closeAgentOverlayLayers,
@@ -720,5 +721,27 @@ describe('real cursor-layer input still reaches its page', () => {
     }
     expect(view.webContents.inputs).toEqual([]);
     expect(view.webContents.focused).toBe(0);
+  });
+});
+
+describe('App-native presentation lease', () => {
+  it('keeps the App viewport despite old tab layout and restores the latest original position when closed', async () => {
+    const { view } = mount('b1'); await settled(view);
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    const appHost = fakeWindow('gugu-aux:app', 1.5); state.windows.push(appHost);
+    const appRect = { x: 30, y: 40, width: 300, height: 200 };
+    const lease = leaseBrowserPagePresentation('b1', appHost as any);
+    lease.layout(appRect);
+    expect(appHost.children).toContain(view); expect(mainWindow.children).not.toContain(view);
+    expect(view.bounds).toEqual(toDip(appRect, 1.5));
+    const updated = { ...RECT, x: 99 };
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: updated, mode: 'shown' });
+    expect(view.bounds).toEqual(toDip(appRect, 1.5));
+    expect(() => leaseBrowserPagePresentation('b1', mainWindow as any)).toThrow('already mounted');
+    lease.layout(null); expect(view.visible).toBe(false);
+    lease.close(); lease.close();
+    expect(mainWindow.children).toContain(view); expect(appHost.children).not.toContain(view);
+    expect(view.bounds).toEqual(toDip(updated, 1)); expect(view.visible).toBe(true);
+    expect(view.webContents.loaded).toHaveLength(1);
   });
 });

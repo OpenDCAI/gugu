@@ -14,6 +14,7 @@ vi.mock('@main/core/extensions/extension-bridge', () => ({
   setExtensionBridgeHost: vi.fn(),
 }));
 
+const { openProjectionViewer } = await import('./projection-viewer-provider');
 const { extensionBridgeRelayHost, setExtensionHostWindowChannel } = await import('./extension-bridge-relay');
 
 function channel(record: { locale: string; tone: 'light' | 'dark' }) {
@@ -64,4 +65,14 @@ describe('the presentation an App is given is the host record, from the first as
     setExtensionHostWindowChannel(null);
     expect(() => extensionBridgeRelayHost.presentation()).toThrow(/never injected/);
   });
+});
+
+it('injects media through the real host channel and withdraws it when that channel ends', async () => {
+  const client = { signal: new AbortController().signal, open: vi.fn(), answer: vi.fn(), sign: vi.fn(), close: vi.fn() };
+  const open = vi.fn(async () => client);
+  setExtensionHostWindowChannel({ ...channel({ locale: 'zh-CN', tone: 'light' }).value, openProjectionViewer: open });
+  await expect(openProjectionViewer(42)).resolves.toBe(client);
+  expect(open).toHaveBeenCalledWith(42);
+  setExtensionHostWindowChannel(null);
+  expect(() => openProjectionViewer(42)).toThrow('no authenticated');
 });

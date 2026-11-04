@@ -234,18 +234,20 @@ export async function captureSessionpageProjectionViewer(webContentsId: number) 
   const page = extensionProjections.viewerPage(pageCaller(binding, webContentsId, false));
   try {
     const version = extensionsService().get(binding.extensionId).manifest.version;
+    const deviceId = knownSessionMachine(page.sessionId)?.deviceId;
+    if (!deviceId) throw new Error('Projection task has no remote host');
     const assertCurrent = () => {
       try {
         page.assertCurrent();
         const service = extensionsService();
         if (contents.isDestroyed() || bindings.get(webContentsId) !== binding || service.get(binding.extensionId).manifest.version !== version
-          || !service.isEnabled(binding.extensionId) || !service.hasCapability(binding.extensionId, 'agents:tools')) {
+          || !service.isEnabled(binding.extensionId) || !service.hasCapability(binding.extensionId, 'agents:tools')
+          || knownSessionMachine(page.sessionId)?.deviceId !== deviceId) {
           throw new Error('Projection viewer App or page changed');
         }
       } catch (error) { page.release(); throw error; }
     };
-    assertCurrent(); const deviceId = knownSessionMachine(page.sessionId)?.deviceId;
-    if (!deviceId) throw new Error('Projection task has no remote host');
+    assertCurrent();
     return Object.freeze({ ...page, deviceId, version, assertCurrent });
   } catch (error) { page.release(); throw error; }
 }

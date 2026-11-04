@@ -34,6 +34,25 @@ async function program() {
 }
 
 describe('gugu in a program', () => {
+  it('custom MCP adapters enter their own stamped call without leaking it to another invocation', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const withCall = gugu.withCall as <T>(meta: Record<string, unknown> | undefined, work: () => T) => T;
+    expect(() => withCall(undefined, () => {})).toThrow('metadata');
+    const first = withCall({ 'gugu/call': 'custom-a', 'gugu/sessionId': 'untrusted-selection' }, async () => {
+      await Promise.resolve(); return gugu.files.list({ chat: CHAT });
+    });
+    const a = await nextCall(0);
+    expect(a).toMatchObject({ call: 'custom-a', method: 'filesList' });
+    const before = sent.length;
+    const second = withCall({ 'gugu/call': 'custom-b' }, () => gugu.files.list({ chat: CHAT }));
+    const b = await nextCall(before);
+    expect(b).toMatchObject({ call: 'custom-b', method: 'filesList' });
+    for (const call of [a, b]) deliver({ m: APP_FRAME_MARKER, t: 'result', id: call.id, ok: true, value: [] });
+    await first; await second;
+    const after = sent.length, outside = gugu.files.list({ chat: CHAT });
+    const c = await nextCall(after); expect(c).not.toHaveProperty('call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: c.id, ok: true, value: [] }); await outside;
+  });
   it('is the same gugu — files and the host verbs — without a page’s editor', async () => {
     const { gugu } = await program();
     expect(typeof gugu.files.open).toBe('function');
@@ -52,6 +71,24 @@ describe('gugu in a program', () => {
     expect(call).toMatchObject({ m: APP_FRAME_MARKER, method: 'filesList', args: { place: { chat: CHAT } } });
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: call.id, ok: true, value: [{ id: 'item-1', name: 'a.md' }] });
     await expect(listing).resolves.toEqual([{ id: 'item-1', name: 'a.md' }]);
+  });
+  it('surface buttons update their owned display outside another active tool caller', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    const surfaces = gugu.surfaces as { open(options: unknown): Promise<{ id: string; onEvent(fn: () => void): void; update(value: unknown): Promise<void> }> };
+    const opening = programCall.run('surface-owner', () => surfaces.open({ entry: 'bar.html', bounds: { x: 0, y: 0, width: 200, height: 30 } }));
+    const request = await nextCall(0);
+    expect(request).toMatchObject({ method: 'appSurfaceOpen', call: 'surface-owner' });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: request.id, ok: true, value: { id: 'owned-display', shown: false } });
+    const surface = await opening;
+    let updated: Promise<void> | undefined;
+    surface.onEvent(() => { updated = surface.update({ data: { paused: true } }); });
+    const before = sent.length;
+    programCall.run('another-task', () => deliver({ m: APP_FRAME_MARKER, t: 'event',
+      event: { type: 'appSurface', event: { id: surface.id, type: 'message', message: { action: 'app-defined' } } } }));
+    const update = await nextCall(before);
+    expect(update).toMatchObject({ method: 'appSurfaceUpdate' }); expect(update).not.toHaveProperty('call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: update.id, ok: true }); await updated;
   });
 
   it('exposes projection sources and keeps later capture outside the finished calling agent scope', async () => {
