@@ -3,6 +3,7 @@ import type { PromptEditorRef } from '@gugu/session-ui/react/components'
 import { ArrowRight } from '@/lib/icons'
 import { useGroupMentionRecall } from '@/lib/groupMentionRecall'
 import type { MentionCandidate } from '@/lib/mention'
+import { mentionMatchScore } from '@/lib/mentionMatch'
 
 /** A placeholder action only: accepting it uses exactly the member picker's editor command. */
 export function useGroupMentionHint({ accountId, chatId, members, text, enabled, editor, input }: {
@@ -11,7 +12,7 @@ export function useGroupMentionHint({ accountId, chatId, members, text, enabled,
 }) {
   const targetId = useGroupMentionRecall(enabled ? accountId : null, chatId)
   const [composing, setComposing] = useState(false)
-  const target = enabled && text === '' && !composing ? members.find((member) => member.id === targetId && member.type === 'agent') : undefined
+  const target = enabled && text === '' && !composing ? members.find((member) => member.id === targetId && member.type === 'agent' && mentionMatchScore(member, '') > 0) : undefined
   const accept = () => {
     if (!target || !editor.current?.isEmpty() || input.current?.getAttribute('aria-expanded') === 'true') return false
     editor.current.insertMention({ id: target.id, label: target.name, name: target.name, role: 'agent', kind: 'custom' })

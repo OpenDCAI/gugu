@@ -148,12 +148,16 @@ describe('group mention recall through the real composer and send path', () => {
     await mount(); await type('@Alpha hi'); await send()
     await act(async () => update({ groupMembers: [{ ...members[0]!, name: 'Renamed' }] }))
     expect(hint()?.textContent).toBe('@Renamed')
+    await act(async () => update({ groupMembers: [{ ...members[0]!, session_archived_at: '2026-11-01T00:00:00Z' }] }))
+    expect(hint()).toBeNull()
     await act(async () => update({ groupMembers: [{ ...members[0]!, id: 'same-name-impostor' }] }))
     expect(hint()).toBeNull()
     await act(async () => update({ groupMembers: [] }))
     expect(hint()).toBeNull()
     // Real roster projection excludes removed agents before the shared composer sees them.
-    const removed = buildGroupRosterCandidates({ humans: [], agents: [{ id: 'alpha', type: 'agent', account_status: 'removed' }] } as Parameters<typeof buildGroupRosterCandidates>[0], { alpha: { display_name: 'Alpha' } })
+    const removed = buildGroupRosterCandidates({ humans: [], agents: [{ id: 'alpha', role: 'member', type: 'agent', account_status: 'removed',
+      client: null, model_source: null, tools: [], permission_scope: null, current_task_id: null,
+      current_task_title: null, last_action: null, last_active_at: null, listen_mode: 'passive' }] }, { alpha: { display_name: 'Alpha' } })
     await act(async () => update({ groupMembers: removed }))
     expect(hint()).toBeNull()
     await act(async () => update({ groupMembers: members, surface: 'aside', participantIds: ['beta'] }))
