@@ -25,7 +25,7 @@ export function registerGuguTool(server, def, run, track) {
         // Transport metadata stays out of model arguments and follows auth/dispatch awaits.
         const work = runWithGuguToolInvocation(extra, connectionScopes.get(server), () =>
           run(def.permissive ? strictArgs(def, rawArgs) : rawArgs, extra.signal))
-        return await track(work, def.name)
+        return await track(work, def.name, extra.requestId)
       } catch (error) {
         // MCP 约定：工具错误走 isError,让 agent 看得到原因并自处理。
         return { content: [{ type: 'text', text: `error: ${error instanceof Error ? error.message : String(error)}` }], isError: true }
