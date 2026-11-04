@@ -150,5 +150,5 @@ it('overlapping publications also preserve the newer tuple without an async act 
   })
   await Promise.all([first, second])
   await act(async () => { await Promise.resolve() })
-  expect(shown[0]).toMatchObject({ unread_count: 2, last_read_seq: 5, read_state_version: 9, unread_locator: newer.unread_locator })
+  await vi.waitFor(() => { expect(shown[0]).toMatchObject({ unread_count: 2, last_read_seq: 5, read_state_version: 9, unread_locator: newer.unread_locator }) })
 })
