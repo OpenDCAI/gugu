@@ -72,7 +72,7 @@ export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
 const FOLLOW_STILL_FRAMES = 10;
 const FOLLOW_MAX_MS = 2_000;
 
-function releaseHiddenFocus(box: HTMLElement, slot?: HTMLElement): void {
+function releaseHiddenFocus(box: HTMLElement, claim?: ExtensionViewClaim): void {
   const focused = box.ownerDocument.activeElement;
   if (!(focused instanceof HTMLElement) || !box.contains(focused)) return;
   // A resident guest is outside its pane and can retain native focus after
@@ -80,8 +80,7 @@ function releaseHiddenFocus(box: HTMLElement, slot?: HTMLElement): void {
   void rpc.browser.focusHost(box.ownerDocument.defaultView?.name ?? '')
     .catch((error: unknown) => log.warn('Failed to return extension focus to its host:', error));
   focused.blur();
-  const pane = slot?.closest<HTMLElement>('[data-pane-content]');
-  if (pane?.isConnected) pane.focus();
+  claim?.focusContent?.();
 }
 
 interface Surface {
@@ -371,7 +370,7 @@ export const ExtensionPage = observer(function ExtensionPage({
           const layer = layerRef.current;
           if (!box || !layer) return;
           if (!claim) {
-            releaseHiddenFocus(box, previous?.element);
+            releaseHiddenFocus(box, previous);
             box.style.visibility = 'hidden';
             if (managed) box.style.opacity = '0';
             box.inert = true;
@@ -385,7 +384,7 @@ export const ExtensionPage = observer(function ExtensionPage({
               clip.height > 0 &&
               claim.element.isConnected &&
               claim.element.checkVisibility({ visibilityProperty: true, opacityProperty: true });
-            if (!shown) releaseHiddenFocus(box, claim.element);
+            if (!shown) releaseHiddenFocus(box, claim);
             box.style.left = `${clip.left}px`;
             box.style.top = `${clip.top}px`;
             box.style.width = `${clip.width}px`;

@@ -33,6 +33,8 @@ export interface ExtensionViewClaim {
   navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   /** 那一格的内容区。根层量它的框来摆页、报尺寸。 */
   element: HTMLElement;
+  /** The owning pane survives its slot being removed during history navigation or close. */
+  focusContent?: () => void;
 }
 
 /** 一张常驻页:哪个 App 的哪一类 tab,住在哪个地方。 */

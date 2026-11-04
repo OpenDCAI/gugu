@@ -1,4 +1,5 @@
 import { useContext, useLayoutEffect, useRef } from 'react';
+import { PaneContext } from '@renderer/features/tabs/pane-context';
 import { TabLayerShownContext } from '@renderer/features/tabs/retained-tab-content';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { AppPeekSlot } from '@/components/appSlot/AppPeekSlot';
@@ -37,6 +38,7 @@ export function ExtensionSharedSlot({
   navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
 }) {
   const slotRef = useRef<HTMLDivElement | null>(null);
+  const pane = useContext(PaneContext)?.pane;
   // A retained session page that is hidden keeps this slot mounted, but must not hold the App page: the
   // root layer only re-places it on a claim change, so a hidden claim would leave it drawn over the
   // session now shown. Claim while shown, release when hidden — the page itself stays in the root layer.
@@ -51,9 +53,9 @@ export function ExtensionSharedSlot({
   useLayoutEffect(() => {
     const element = slotRef.current;
     if (!element || !shown) return;
-    const token = extensionViewStore.claim(tabKind, { ...(sessionId ? { sessionId } : {}), ...(chatId ? { chatId } : {}), ...(conversation ? { conversation } : {}), ...(itemId ? { itemId } : {}), ...(perSession ? { perSession } : {}), tabId, viewState, navigation, element });
+    const token = extensionViewStore.claim(tabKind, { ...(sessionId ? { sessionId } : {}), ...(chatId ? { chatId } : {}), ...(conversation ? { conversation } : {}), ...(itemId ? { itemId } : {}), ...(perSession ? { perSession } : {}), tabId, viewState, navigation, element, focusContent: pane ? () => pane.focusActiveContent() : undefined });
     return () => extensionViewStore.release(tabKind, token);
-  }, [tabKind, sessionId, chatId, conversation, itemId, tabId, shown, perSession, viewState, navigation?.canBack, navigation?.canForward, navigation?.backToConversation]);
+  }, [tabKind, sessionId, chatId, conversation, itemId, tabId, shown, perSession, viewState, pane, navigation?.canBack, navigation?.canForward, navigation?.backToConversation]);
 
   return (
     <div className="flex h-full w-full flex-col">
