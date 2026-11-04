@@ -1,0 +1,41 @@
+/** @jsxImportSource solid-js */
+import { expect, it, vi } from 'vitest';
+import type { TurnOutcomeItem } from '@session-chat/model';
+import { turnOutcomeUnitDef } from '@session-chat/components/rows/turn-outcome/turn-outcome.def';
+import { isCreditExhaustion } from '@session-chat/components/rows/turn-outcome/credit-exhaustion';
+import { makeContractCtx, renderAndMeasureUnit } from './contract';
+
+const said = '咕咕积分用完了。充值后再发一次，或等下个周期额度刷新。';
+const item: TurnOutcomeItem = { kind: 'turn-outcome', id: 'credit-turn:outcome', turnId: 'credit-turn', prompt: 'hello',
+  outcome: { kind: 'error', reason: 'prompt_failed', said, detail: `{"error":{"message":"${said}","code":"credits_exhausted"}}\ncode=-32603` } };
+
+it.each([288, 328, 360, 390, 800])('uses one ordinary body row with a working recharge link at %spx', async width => {
+  const recharge = vi.fn();
+  const result = await renderAndMeasureUnit(turnOutcomeUnitDef, item, makeContractCtx({ width }), host => {
+    expect(host.querySelectorAll('[data-credit-exhausted]')).toHaveLength(1);
+    expect(host.textContent?.replace(/\s+/g, ' ')).toContain('You’re out of credits. Top up to continue.');
+    expect(host.textContent).not.toContain(said);
+    expect(host.querySelector('[role="alert"], [data-slot="turn-outcome-badge"], [data-slot="turn-outcome-rule"]')).toBeNull();
+    host.querySelector<HTMLButtonElement>('[data-slot="credit-recharge"]')!.click();
+    expect(recharge).toHaveBeenCalledOnce();
+    expect(host.scrollWidth).toBeLessThanOrEqual(width);
+    return {};
+  }, { onRechargeCredits: recharge });
+  expect(result.dom).toBe(result.computed);
+});
+
+it('requires an authoritative gateway refusal, rather than the balance or another provider’s quota failure', () => {
+  expect(isCreditExhaustion(item.outcome)).toBe(true);
+  expect(isCreditExhaustion({ kind: 'done' })).toBe(false);
+  expect(isCreditExhaustion({ kind: 'error', reason: 'prompt_failed', said: 'Weekly usage limit reached' })).toBe(false);
+  expect(isCreditExhaustion({ kind: 'error', detail: '{"error":{"code":"credits_exhausted","message":"Provider credits exhausted"}}' })).toBe(false);
+  expect(isCreditExhaustion({ kind: 'error', signInRequired: true, said })).toBe(false);
+});
+
+it('does not invent a recharge button when the host did not connect that action', async () => {
+  await renderAndMeasureUnit(turnOutcomeUnitDef, item, makeContractCtx({ width: 360 }), host => {
+    expect(host.querySelector('button')).toBeNull();
+    expect(host.textContent).toBe('You’re out of credits. Top up to continue.');
+    return {};
+  });
+});

@@ -109,6 +109,7 @@
  *    #3568 判的从来不是「收尾行不许有字形」，而是**同一枚字形不得同时替两种范围说话**。
  */
 import { readableLabel, rowTranslator, wrappedRowHeight } from '../readable-label';
+import { CreditExhaustionRow, creditExhaustionLayout, isCreditExhaustion } from './credit-exhaustion';
 import { ROW_H } from '@session-chat/components/engine/row-metrics';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import {
@@ -288,6 +289,7 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
    * 量高度与画内容各读各的开关,行就会长成一个高度与内容对不上的框。
    */
   measure(data, ctx) {
+    if (isCreditExhaustion(data.outcome)) return creditExhaustionLayout(ctx, ctx.commands).height;
     const detail = outcomeDetail(data.outcome);
     if (!detail || !ctx.expanded(turnOutcomeDetailId(data.turnId))) return outcomeLaneLayout(data, ctx).height;
     return outcomeLaneLayout(data, ctx).height + detailBandHeight(detail);
@@ -354,7 +356,7 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
       return lines * DETAIL_LINE_H + 2 * DETAIL_PAD_Y;
     };
 
-    return (
+    return <Show when={isCreditExhaustion(props.data.outcome)} fallback={(
       <div
         data-slot="turn-outcome"
         data-outcome={props.data.outcome.kind}
@@ -528,6 +530,6 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
           </pre>
         </Show>
       </div>
-    );
+    )}><CreditExhaustionRow outcome={props.data.outcome} ctx={() => props.ctx.measureCtx!()} /></Show>;
   },
 });
