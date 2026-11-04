@@ -38,7 +38,7 @@ export function ServerLoginApproveHost({ active }: { active: boolean }) {
       if (opening) { void opening.catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error')); return }
       log.warn({ url: url.split('?')[0] }, 'opened link not recognised')
       toast(t('devices.approveServer.unrecognised'), 'error')
-    }) : undefined
+    }, (error) => toast(error instanceof Error ? error.message : String(error), 'error')) : undefined
     return () => {
       window.removeEventListener(SERVER_LOGIN_APPROVE_EVENT, take)
       unsubscribe?.()

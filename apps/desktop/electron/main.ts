@@ -102,6 +102,10 @@ import { purgeStaleUpdaterCache, updaterCacheBaseDir } from './updaterCache'
 import { detectLocalSigning, downloadDmg, pickMacDmgFile, shouldUseDmgPath } from './macDmgUpdater'
 import type { LocalSigning } from './macDmgUpdater'
 import { createSelectAccountHandler, webAuthnKeychainGroup } from './macWebAuthn'
+import { isOAuthCallback } from '../shared/oauth-callback'
+import { OAuthCallbackInbox } from './oauth-callback-inbox'
+import { googleAuthorizationUrl } from '../shared/google-authorization-url'
+import { isOAuthAttemptRedirect } from '../shared/oauth-attempt'
 import {
   cleanupRemoteFileDirectory,
   cleanupStaleRemoteFileDirectories,
@@ -2393,6 +2397,17 @@ ipcMain.handle('updates:changelog', async (): Promise<unknown> => {
   }
 })
 ipcMain.handle('app:get-version', () => app.getVersion())
+ipcMain.handle('auth:oauth-redirect', () => `${GUGU_LINK_SCHEME}://auth/callback`)
+ipcMain.handle('auth:take-callbacks', (event) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('OAuth callbacks are only available to the main window')
+  return oauthCallbacks.take()
+})
+ipcMain.handle('auth:open-browser', async (event, raw: unknown) => {
+  if (event.sender !== mainWindow?.webContents || typeof raw !== 'string') throw new Error('Invalid OAuth browser request')
+  const redirectTo = new URL(raw).searchParams.get('redirect_to')
+  if (!redirectTo || !isOAuthAttemptRedirect(redirectTo, `${GUGU_LINK_SCHEME}://auth/callback`)) throw new Error('Invalid OAuth attempt callback')
+  await shell.openExternal(googleAuthorizationUrl(raw, getSupabaseUrl(), redirectTo))
+})
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()
 const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider().getAuth(), tempRoot: remoteFileTempRoot,
@@ -3446,12 +3461,23 @@ app.on('open-url', (event, url) => {
  * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(core 的 linkScheme.mjs)。
  */
 const GUGU_LINK_SCHEME = guguLinkScheme({ tier: process.env.GUGU_TIER, devLaunch: Boolean(process.defaultApp) })
+const oauthCallbacks = new OAuthCallbackInbox(() => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('auth:callback-available')
+})
+// A cold Windows/Linux OAuth callback must reach login even if the session-page host cannot boot.
+const coldOAuthCallback = process.argv.find((arg) => arg.startsWith(`${GUGU_LINK_SCHEME}://`) && isOAuthCallback(arg))
+if (coldOAuthCallback) oauthCallbacks.push(coldOAuthCallback)
 /** 会话页后端还没起来时到的链接,起来后按到达顺序处理。 */
 const pendingGuguLinks: string[] = []
 let guguLinksReady = false
 
 function handleGuguLink(url: string): void {
   if (!url.startsWith(`${GUGU_LINK_SCHEME}://`)) return
+  if (isOAuthCallback(url)) {
+    oauthCallbacks.push(url)
+    focusMainWindow()
+    return
+  }
   if (!guguLinksReady || !emdashBridge) {
     pendingGuguLinks.push(url)
     return
@@ -3486,7 +3512,7 @@ function flushPendingGuguLinks(): void {
   guguLinksReady = true
   // Windows / Linux 冷启动:链接是这一次启动的参数。
   const coldStart = process.argv.find((arg) => arg.startsWith(`${GUGU_LINK_SCHEME}://`))
-  if (coldStart) pendingGuguLinks.push(coldStart)
+  if (coldStart && !isOAuthCallback(coldStart)) pendingGuguLinks.push(coldStart)
   for (const url of pendingGuguLinks.splice(0)) handleGuguLink(url)
 }
 
