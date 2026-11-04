@@ -2090,7 +2090,7 @@ export function ChatRoot(props: ChatRootProps) {
                   >
                     <For each={visible()}>
                       {(unitIndex) => {
-                        const u = () => units().at(unitIndex);
+                        const u = createMemo(() => units().at(unitIndex));
                         const isActiveTurn = () => {
                           const unit = u();
                           return unit ? activeTurnItemIds().has(unit.itemId) : false;

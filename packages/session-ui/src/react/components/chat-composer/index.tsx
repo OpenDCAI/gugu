@@ -210,6 +210,8 @@ export type ComposerQueuedPromptEdit = { id: string; text: string; originalDraft
 export interface ChatComposerProps {
   editorOptions?: Pick<import('../prompt-editor/types').PromptEditorProps, 'inputTestId' | 'inputRef' | 'enterBehavior' | 'clearOnSubmit'>;
   mobile?: boolean;
+  /** Scope phone action behavior separately from a compact desktop preview. */
+  phoneActions?: boolean;
   disabled?: boolean;
   isWorking?: boolean;
   stopDisabled?: boolean;
@@ -273,7 +275,7 @@ export interface ChatComposerProps {
   /** Extra control(s) appended to the toolbar-left row, after the permission selector. */
   toolbarExtra?: React.ReactNode;
 
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string) => void | Promise<void>;
   /** Called whenever the editor serialized plain text changes. */
   onInputChange?: (text: string) => void;
   /** Called after a mention node is inserted. Raw insertText entries do not trigger this. */
@@ -284,7 +286,7 @@ export interface ChatComposerProps {
    * confirm interruption, or otherwise resolve the conflict.
    * When absent, submit attempts while working are silently ignored.
    */
-  onSubmitWhileWorking?: (text: string) => void;
+  onSubmitWhileWorking?: (text: string) => void | Promise<void>;
   onStop?: () => void;
   onAttach?: () => void;
   /** Context-window usage data for the toolbar donut indicator. Hidden when null/undefined. */
@@ -407,6 +409,7 @@ export interface ChatComposerProps {
 export function ChatComposer({
   editorOptions,
   mobile = false,
+  phoneActions = mobile,
   disabled = false,
   isWorking = false,
   stopDisabled = false,
@@ -486,6 +489,9 @@ export function ChatComposer({
   const { translate } = useMessages();
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PromptEditorRef | null>(null);
+  const [hasText, setHasText] = useState(false);
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+  const phoneSubmittingRef = useRef(false);
   // 底排放不下时按档把标签收成图标(渐进披露),见 use-toolbar-disclosure.ts
   const toolbarDisclosure = useToolbarDisclosure();
   const [dragActive, setDragActive] = useState(false);
@@ -549,24 +555,32 @@ export function ChatComposer({
     };
   }, []);
 
-  const canSubmit = hostCanSubmit ?? true;
-  const handleSubmit = (text: string) => {
+  const hasContent = hasText || attachments.length > 0;
+  const canSubmit = (hostCanSubmit ?? true) && (!phoneActions || (hasContent && !phoneSubmitting));
+  const showStop = isWorking && (!phoneActions || (!hasContent && !phoneSubmitting));
+  const handleSubmit = async (text: string) => {
     if (queueEdit) { finishQueueEdit(text); return; }
+    if (phoneActions && (phoneSubmittingRef.current || disabled || !canSubmit)) return;
     // Attachment-only sends are valid for both images and ordinary files.
     if (!text.trim() && attachments.length === 0 && hostCanSubmit !== true) return;
     // While the agent is actively working, route to the host's conflict handler
     // (e.g. queueing or a cancel-and-send confirmation) instead of submitting.
-    if (isWorking) {
-      onSubmitWhileWorking?.(text);
-      return;
+    if (isWorking && !onSubmitWhileWorking) return;
+    if (!isWorking && (disabled || !canSubmit)) return;
+    const submit = isWorking ? onSubmitWhileWorking! : onSubmit;
+    if (!mobile || (!phoneActions && isWorking)) { submit(text); return; }
+    // Keep Send in place until the host has durably accepted this input.
+    // A second tap during that commit must never become a Stop action.
+    if (phoneActions) { phoneSubmittingRef.current = true; setPhoneSubmitting(true); }
+    try {
+      const committed = submit(text);
+      // Settle focus synchronously; a deferred refocus reopens the keyboard.
+      const active = rootRef.current?.ownerDocument.activeElement;
+      if (active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
+      if (phoneActions) await committed;
+    } finally {
+      if (phoneActions) { phoneSubmittingRef.current = false; setPhoneSubmitting(false); }
     }
-    if (disabled || !canSubmit) return;
-    onSubmit(text);
-    // Every phone host (chat, agent thread, new task) submits here. Settle focus
-    // synchronously: a deferred refocus reopens the keyboard and jumps the shell.
-    // Scope the blur to this composer so another input never loses its focus.
-    const active = rootRef.current?.ownerDocument.activeElement;
-    if (mobile && active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
   };
 
   /**
@@ -738,7 +752,7 @@ export function ChatComposer({
       ref={receiveEditor}
       placeholder={resolvedPlaceholder}
       disabled={disabled || !!queueEdit?.pending}
-      onChange={queueEdit ? changeQueueEdit : onInputChange}
+      onChange={(text) => { setHasText(!!text.trim()); (queueEdit ? changeQueueEdit : onInputChange)?.(text); }}
       onPasteText={queueEdit ? undefined : handlePastedText}
       clearOnSubmit={queueEdit ? false : (editorOptions?.clearOnSubmit ?? true)}
       hostDropTypes={onDataDropped ? dataDropTypes : undefined}
@@ -995,7 +1009,7 @@ export function ChatComposer({
                     onClick={() => finishQueueEdit(editorRef.current?.getText() ?? '')}>{translate('common.save')}</Button>
                 </>
               ) : showSubmitButton ? (
-                isWorking ? (
+                showStop ? (
                   <Button
                     variant="primary"
                     tone="destructive"

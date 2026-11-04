@@ -40,10 +40,12 @@ export function usePhoneSessionQuotes(input: {
   const menus = useSessionMessageQuotes(owner, editor)
   const composer = useSessionPromptEditor(owner, editor)
   const source = useSessionSourceMessage(owner, view, () => toast({ title: translateSessionMessage('transcript.originalMessageMissing'), tier: 'error' }))
+  const commands = useMemo(() => ({ onMessageTextMount: menus.onMessageTextMount, onRestorePrompt: menus.restorePrompt,
+    onConversationReply: source.reveal, flashMessageId: source.flashMessageId }),
+  [menus.onMessageTextMount, menus.restorePrompt, source.reveal, source.flashMessageId])
   return {
     composer,
     loadOlder: () => owner.canLoadOlderHistory ? source.loadOlder() : Promise.resolve([]),
-    commands: { onMessageTextMount: menus.onMessageTextMount, onRestorePrompt: menus.restorePrompt,
-      onConversationReply: source.reveal, flashMessageId: source.flashMessageId },
+    commands,
   }
 }

@@ -1508,8 +1508,9 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     await client.close()
   })
   test.each(['dm', 'ai'])('%s direct reply derives its recipient from the same-chat source and unique peer', async (kind) => {
-    const h = harness(['agent-1', 'owner-1'])
-    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
+    // An ordinary agent's owner DM is now native; this test covers an actual IM peer.
+    const h = harness(['agent-1', 'peer-1'])
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'peer-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
     // @@@5856 kind 改从 chat_facts 这条按 actor 的 RPC 读(见 chatFactsOf 的注释)。
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
@@ -1566,7 +1567,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   test.each([
     {
       name: 'source outside the chat',
-      members: ['agent-1', 'owner-1'],
+      members: ['agent-1', 'peer-1'],
       source: [],
       error: 'reply source is unavailable in this chat',
     },

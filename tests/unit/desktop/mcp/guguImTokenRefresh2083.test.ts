@@ -174,7 +174,7 @@ describe('#2051 command message token refresh', () => {
                 { user_id: agentId },
                 { user_id: '77777777-7777-4777-8777-777777777777' },
               ])
-            : path.includes('/chats') ? JSON.stringify([{ kind: 'dm' }]) : '[]')
+            : path.includes('/chats') ? JSON.stringify([{ kind: 'group' }]) : '[]')
           return
         }
         // 发送边界不读取收件箱；其余 RPC 仍返回空以覆盖无关调用。
@@ -186,7 +186,7 @@ describe('#2051 command message token refresh', () => {
           // (MCP 拿的是主人的 JWT,agent 在「主人不在的那条线」上裸读一行都拿不到)。
           // 这个假上游照着原来那两条 GET 的答案答,发送边界的行为一行不变。
           response.end(rpcUrl.includes('/rpc/chat_facts')
-            ? JSON.stringify([{ id: chatId, kind: 'dm', source_chat_id: null, group_prompt: null }])
+            ? JSON.stringify([{ id: chatId, kind: 'group', source_chat_id: null, group_prompt: null }])
             : rpcUrl.includes('/rpc/list_member_ids')
               ? JSON.stringify([
                   { user_id: agentId, role: 'member', listen_mode: 'active' },

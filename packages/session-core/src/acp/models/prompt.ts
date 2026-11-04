@@ -5,6 +5,8 @@ export type { PromptAttachment } from './attachments';
 
 export const promptInputSchema = z.object({
   text: z.string(),
+  /** Durable sender identity, retained beside runtime/provider IDs for custody handoff. */
+  clientMessageId: z.string().min(1).optional(),
   hiddenContext: z.string().optional(),
   attachments: z.array(promptAttachmentSchema).optional(),
   files: z.array(promptFileSchema).optional(),

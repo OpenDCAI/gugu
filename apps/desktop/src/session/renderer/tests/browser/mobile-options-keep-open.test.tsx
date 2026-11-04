@@ -132,7 +132,7 @@ it('create options: picking a model, then a thinking level, then a project keeps
 });
 
 it('session options: a root pick stays on the root, a drill-down pick comes back to it, a re-pick sends nothing, a refused pick stays with the error', async () => {
-  mount(<SessionOptionsPill deviceId="device" sessionId="conversation" busy={false} />);
+  mount(<SessionOptionsPill deviceId="device" sessionId="conversation" agentName="Claude Code" busy={false} />);
   await click('[data-testid="agent-watch-options-open"]');
   const sheet = '[data-testid="agent-watch-options"]';
   const atRoot = () => q(`${sheet} .gg-aw-summary-group`) != null;
@@ -176,7 +176,7 @@ it('session options: a root pick stays on the root, a drill-down pick comes back
 // 判据等事实:胶囊上的文字换成 model-2,说明回话已经提交(setOptions 与 setView 在同一个 .then 里),再看抽屉。
 it('session options: a sheet closed while a pick is in flight stays closed when the machine answers', async () => {
   machine.hold = true;
-  mount(<SessionOptionsPill deviceId="device" sessionId="conversation" busy={false} />);
+  mount(<SessionOptionsPill deviceId="device" sessionId="conversation" agentName="Claude Code" busy={false} />);
   const pill = '[data-testid="agent-watch-options-open"]';
   const sheet = '[data-testid="agent-watch-options"]';
   const choice = `${sheet} [data-testid="agent-watch-option-choice"][data-dimension="model"][data-option-id="model-2"]`;
@@ -188,4 +188,26 @@ it('session options: a sheet closed while a pick is in flight stays closed when 
   machine.release!();
   await until('the machine answered (the pill now reads model-2)', () => q(pill)?.textContent?.includes('model-2') === true);
   expect(q(sheet), 'the sheet the person closed stays closed').toBeNull();
+});
+
+it.each([
+  { locale: 'en-US', model: true }, { locale: 'zh-CN', model: true },
+  { locale: 'en-US', model: false }, { locale: 'zh-CN', model: false },
+] as const)('session permission descriptions use the host name in $locale (model menu: $model)', async ({ locale, model }) => {
+  const { i18n } = await import('@/i18n');
+  await i18n.changeLanguage(locale);
+  try {
+    Object.assign(machine.options, { permissionAgentName: 'Claude Code', modeMap: { 'read-only': { id: 'default' }, plan: { id: 'plan' } } });
+    if (!model) delete machine.options.model;
+    mount(<SessionOptionsPill deviceId="device" sessionId="conversation" agentName="My agent nickname" busy={false} />);
+    await click('[data-testid="agent-watch-options-open"]');
+    if (model) await click('[data-testid="agent-watch-options-drill"][data-dimension="mode"]');
+    await until('the read-only description names the harness', () => q('[data-testid="agent-watch-options"]')?.textContent?.includes('Claude Code') === true);
+    const description = q('[data-testid="agent-watch-option-choice"][data-dimension="mode"][data-option-id="default"]')?.textContent;
+    expect(description).toContain('Claude Code');
+    expect(description).not.toContain('My agent nickname');
+    expect(description).not.toContain('{agent}');
+  } finally {
+    await i18n.changeLanguage('zh-CN');
+  }
 });

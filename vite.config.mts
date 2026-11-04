@@ -164,7 +164,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
       // 找自己的文件,打进主进程包会断;根 dependencies 声明两者,electron-builder 原样带进包。
       external: ['ws', '@playwright/mcp', 'playwright-core', './server-boot.cjs', ...EMDASH_EXTERNAL],
       output: {
-        paths: id => id.endsWith('/server-boot.cjs') || id === './server-boot.cjs' ? './server-boot.cjs' : id,
+        paths: id => id.replaceAll('\\', '/').endsWith('/server-boot.cjs') ? './server-boot.cjs' : id,
         // Electron 28 = Node 18:`globalThis.crypto` 不是全局,会话页 runtime 裸用
         // crypto.randomUUID()。注入到每个产物(主进程、worker、共享 chunk),幂等。
         // 用 intro ❌ banner:banner 排在 rollup 写的 `'use strict';` **前面**,把指令序言变成

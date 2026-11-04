@@ -1,7 +1,7 @@
 /** Live account package identity; never substitute a pin or the installed package for a running process. */
 import fs from 'node:fs'
 import path from 'node:path'
-import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
+import { accountLockHolder, type AccountLockDeps } from './server-account-lock'
 
 /** 从 /proc/<pid>/environ 读 GUGU_TASK_HOST_VERSION(启动器 export 的),读不到退回命令行里的 versions/<版本>/。 */
 export function runningVersionOf(pid: number, read: (file: string) => string | null): string | null {
@@ -20,15 +20,12 @@ const readText = (file: string): string | null => {
   try { return fs.readFileSync(file, 'utf8') } catch { return null }
 }
 
-export function readAccountRuntime(dataDir: string, deps: {
-  read?: (file: string) => string | null
-  alive?: (pid: number) => boolean
+export function readAccountRuntime(dataDir: string, deps: AccountLockDeps & {
   now?: () => number
 } = {}): { pid: number | null; version: string | null } {
   const read = deps.read ?? readText
-  const alive = deps.alive ?? ((pid) => isOwnProcessAlive(pid, SERVER_PROCESS_MARK))
-  const pid = Number(read(path.join(dataDir, 'server.lock'))?.trim())
-  if (!Number.isInteger(pid) || pid <= 0 || !alive(pid)) return { pid: null, version: null }
+  const pid = accountLockHolder(dataDir, deps)
+  if (pid === null) return { pid: null, version: null }
   const version = runningVersionOf(pid, read)
   if (version) return { pid, version }
   // macOS has no /proc. Its heartbeat must belong to this live PID and still be fresh.

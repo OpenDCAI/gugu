@@ -2,6 +2,7 @@ import { nativeConversationUnread } from '../sessions/session-conversation-read'
 import type { SessionTimelineResult } from './service';
 import type { SessionTimeline } from '@gugu/session-core/session-record/contract';
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
+import { ownerNotificationEpoch } from '../sessions/owner-notification-state';
 import { nativeAttachmentDataUrl, type NativeAttachmentRequest } from './native-attachment';
 
 export function createNativeRecordReader(deps: {
@@ -14,21 +15,27 @@ async function nativeRecord(input: { conversationId: string; before?: number; af
   const row = deps.readSession(input.conversationId);
   if (!row || row.runtime !== 'acp') return { ok: false, error: { code: 'unsupported_runtime', message: '这条会话没有原生对话记录' } };
   return deps.withTimeline(input.conversationId, async () => {
-    const { getStoredHistory } = await import('../sessions/session-turn-store');
-    const limit = Math.min(100, Math.max(1, input.limit ?? 60));
-    const prefix = `${input.conversationId}:turn:s`;
-    const first = nativeConversationUnread(input.conversationId)[0];
-    const firstSeq = first?.startsWith(prefix) ? Number(/^(\d+):/.exec(first.slice(prefix.length))?.[1]) : NaN;
-    const before = input.before ?? (input.after !== undefined ? input.after + limit + 1 : !input.tail && Number.isSafeInteger(firstSeq) ? firstSeq + limit : undefined);
-    const page = await getStoredHistory({ sessionId: input.conversationId, before, limit });
-    const latest = await getStoredHistory({ sessionId: input.conversationId, limit: 1 });
-    const selected = page.turns.map((turn, index) => ({ turn, origin: page.originTurnIds[index]! })).filter(({ turn }) => input.after === undefined || turn.seq > input.after);
-    const turns = selected.map(one => one.turn);
-    const latestStoredSeq = latest.turns.at(-1)?.seq ?? -1;
-    const hasNewer = latestStoredSeq > (turns.at(-1)?.seq ?? input.after ?? -1);
-    const { trimTurnsForTransport } = await import('@gugu/session-core/session-record');
-    const active = deps.activeTurn(input.conversationId);
-    return { ...page, turns, originTurnIds: selected.map(one => one.origin), latestStoredSeq, hasNewer, activeTurn: !hasNewer && active && !page.originTurnIds.includes(active.id) ? trimTurnsForTransport([active])[0]! : null };
+    for (;;) {
+      const epoch = ownerNotificationEpoch(input.conversationId);
+      const { getStoredHistory } = await import('../sessions/session-turn-store');
+      const limit = Math.min(100, Math.max(1, input.limit ?? 60));
+      const prefix = `${input.conversationId}:turn:s`;
+      const first = nativeConversationUnread(input.conversationId)[0];
+      const firstSeq = first?.startsWith(prefix) ? Number(/^(\d+):/.exec(first.slice(prefix.length))?.[1]) : NaN;
+      const before = input.before ?? (input.after !== undefined ? input.after + limit + 1 : !input.tail && Number.isSafeInteger(firstSeq) ? firstSeq + limit : undefined);
+      const page = await getStoredHistory({ sessionId: input.conversationId, before, limit });
+      const latest = await getStoredHistory({ sessionId: input.conversationId, limit: 1 });
+      const selected = page.turns.map((turn, index) => ({ turn, origin: page.originTurnIds[index]! })).filter(({ turn }) => input.after === undefined || turn.seq > input.after);
+      const turns = selected.map(one => one.turn);
+      const latestStoredSeq = latest.turns.at(-1)?.seq ?? -1;
+      const hasNewer = latestStoredSeq > (turns.at(-1)?.seq ?? input.after ?? -1);
+      const { trimTurnsForTransport } = await import('@gugu/session-core/session-record');
+      const active = deps.activeTurn(input.conversationId);
+      if (ownerNotificationEpoch(input.conversationId) !== epoch) continue;
+      // Pages carry raw commits. Projection happens after the reader has merged every loaded page.
+      return { ...page, turns, originTurnIds: selected.map(one => one.origin), latestStoredSeq, hasNewer, nativeOwnerNotificationEpoch: epoch,
+        activeTurn: !hasNewer && active && !page.originTurnIds.includes(active.id) ? trimTurnsForTransport([active])[0]! : null };
+    }
   });
 }
 

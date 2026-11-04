@@ -103,6 +103,8 @@ function attachedStore(initial: Record<string, unknown>) {
     activeTurn: replica<unknown>(null),
     plan: replica(null),
     draft: replica(null),
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     terminals: replica([] as unknown[]),
     config: replica({}),
     dispose: () => {},

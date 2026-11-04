@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import { chatService } from '../../lib/chat'
-import { canInviteHumansToGroup, isProjectGroupChat } from '../../lib/groupMemberPermissions'
+import { groupInviteAccess, isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import { groupJoinError } from '../../lib/groupAgentJoinService'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { Sheet } from '../ui/Sheet'
@@ -22,7 +22,7 @@ export function TaskDropGroupInvite({ chatId, agentId, onClose }: {
       const { snapshot } = await chatService.getGroupCollab(chatId)
       const settings = await chatService.getGroupChatSettings(chatId)
       if (!settings.my_role) throw new Error('actor_not_member')
-      if (active) setGroup({ snapshot, canInviteHumans: !projectGroup && canInviteHumansToGroup(settings) })
+      if (active) setGroup({ snapshot, canInviteHumans: groupInviteAccess(chatId, 'group', settings).canInviteHumans })
     })().catch((reason: Error) => { if (active) setError(groupJoinError(reason).message) })
     return () => { active = false }
   }, [chatId, projectGroup, t])

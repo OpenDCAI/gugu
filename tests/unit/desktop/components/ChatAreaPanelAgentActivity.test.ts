@@ -182,15 +182,14 @@ describe('ChatAreaPanel agent activity placement', () => {
   })
 
   it.each([
-    ['pending', {}, 'active', '确认中'],
-    ['offline', { 'agent-1': 'offline' }, 'active', '不在线'],
-    ['removed', { 'agent-1': 'removed' }, 'removed', '已移除'],
-    ['working', { 'agent-1': 'working' }, 'active', '运行中'],
-    // #6448 同一张表:后台在跑、需要你、出错在群头也是那一句。
-    ['parked', { 'agent-1': 'parked' }, 'active', '后台运行中'],
-    ['needs_user', { 'agent-1': 'needs_user' }, 'active', '需要你处理'],
-    ['error', { 'agent-1': 'error' }, 'active', '出错了'],
-  ] as Array<[string, Record<string, string>, string, string]>)('uses the resolved %s group status in the accessible header indicator', async (status, statuses, accountStatus, label) => {
+    ['pending', {}, 'active'],
+    ['offline', { 'agent-1': 'offline' }, 'active'],
+    ['removed', { 'agent-1': 'removed' }, 'removed'],
+    ['working', { 'agent-1': 'working' }, 'active'],
+    ['parked', { 'agent-1': 'parked' }, 'active'],
+    ['needs_user', { 'agent-1': 'needs_user' }, 'active'],
+    ['error', { 'agent-1': 'error' }, 'active'],
+  ] as Array<[string, Record<string, string>, string]>)('[immediate] keeps only the member icon and count for %s group status', async (_status, statuses, accountStatus) => {
     groupMock.agents = [{ id: 'agent-1', display_name: 'Status Bot', type: 'agent', role: 'member', account_status: accountStatus, avatar: null, email: null }]
     groupMock.statuses = statuses
 
@@ -199,11 +198,13 @@ describe('ChatAreaPanel agent activity placement', () => {
       messages: [],
     })
 
-    const indicator = harness.container.querySelector(`[data-agent-display-status="${status}"]`)
-    expect(indicator).not.toBeNull()
-    expect(indicator?.getAttribute('role')).toBe('img')
-    expect(indicator?.getAttribute('aria-hidden')).toBeNull()
-    expect(indicator?.getAttribute('aria-label')).toBe(label)
+    const members = harness.container.querySelector<HTMLButtonElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`)!
+    expect(members).not.toBeNull()
+    expect(members.textContent).toBe('1')
+    expect(members.querySelectorAll('svg')).toHaveLength(1)
+    expect(members.querySelector('[data-agent-display-status]')).toBeNull()
+    expect(members.getAttribute('aria-label')).toBe('成员列表')
+    expect(members.title).toBe('成员列表')
   })
 
   it('reloads group collab when the same chat is reopened on mobile (openNonce bump) (#461)', async () => {

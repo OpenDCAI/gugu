@@ -115,6 +115,7 @@ import { tmuxBackendStartupSweepSettled } from '../../sessionpage/tmux-backend'
 import { sessions, projects as projectsTable, workspaces as workspacesTable } from '@main/db/schema'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer'
+import { reconcileSurvivorsWithPresence } from '@main/core/agent-hooks/presence-interrupt'
 import {
   closeInterruptedRunIntervals,
   installRunIntervalRecorder,
@@ -603,6 +604,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   let ptyRecordResume: string[] = []
   let updateInterrupted: string[] = []
   let lastExit: ReturnType<typeof takeLastExit> = { reason: 'unclean', at: null }
+  let presenceReconciliation = Promise.resolve()
   // 先宣告再收残:占用判定明确排除本进程的 pid,所以宣告不会让自己跳过自己的收残;
   // 而先宣告能把「两个宿主几乎同时开机、都读到『没人占』」的窗口收窄到写文件那一瞬。
   // (❌ 不为此上文件级互斥锁:那一瞬撞上的后果 = 退回今天的行为,不是新的损坏。)
@@ -628,6 +630,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
     lastExit = takeLastExit(dataDir)
     updateInterrupted = await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, lastExit.reason)) ?? []
+    presenceReconciliation = reconcileSurvivorsWithPresence(tmuxSessionNames)
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
     sessionBootTasks.runSync('dispatch-sweep', '', claimInterruptedDispatches)
@@ -745,7 +748,11 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // agent_status 列的对账(补上不经过那条事件的状态写入:出生即 working、restart)。
   installRunIntervalRecorder({ agentStatus: agentStatusWriter, sessionEvents })
   // 附带(defer:推迟到对方下次进入运行中时再送):同一条输出的又一个订阅者 —— 会话进入运行中那一刻,把挂着的附带按普通发送投出去。
-  installDeferredMessageDelivery(agentStatusWriter)
+  // RPC and the first usable host path do not wait for presence I/O. Only deferred delivery
+  // must read the corrected snapshot (or the retained stored reading after the scan's deadline).
+  void presenceReconciliation.then(() => {
+    sessionBootTasks.runSync('deferred-install', '', () => installDeferredMessageDelivery(agentStatusWriter))
+  })
   // spec idle-reclaim:同一条输出的第三个订阅者 —— 空闲满 10 分钟、不在屏上的会话停掉进程,任务放回重启后的样子。
   installIdleReclaim({ agentStatus: agentStatusWriter })
   // @@@4068 — same funnel, second consumer: tell extension surfaces that an agent moved.
@@ -2414,6 +2421,8 @@ export { captureSessionpageProjectionViewer } from './core/extensions/extension-
  */
 export function sessionpageSessionDigest(): Array<{
   nativeInputVersion?: 1 | 2
+  /** Client identity survives host queue admission and provider transcript IDs. */
+  nativeInputIdentity?: true
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
@@ -2438,6 +2447,7 @@ export function sessionpageSessionDigest(): Array<{
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
       nativeInputVersion: session.nativeInputVersion,
+      ...(session.nativeInputIdentity ? { nativeInputIdentity: true as const } : {}),
       runtime: session.runtime,
       conversationId: session.conversationId,
       projectId: session.projectId,

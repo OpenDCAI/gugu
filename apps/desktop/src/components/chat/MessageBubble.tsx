@@ -8,7 +8,7 @@ import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
-import { Avatar } from '../Avatar'; import { platform } from '../../platform'
+import { MessageSenderAvatar } from './MessageSenderAvatar'; import { platform } from '../../platform'
 import { useAuth } from '../../store/auth'; import { useLongPress } from '../../hooks/useLongPress'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -299,7 +299,7 @@ export const MessageBubble = memo(function MessageBubble({
   // @@@msg-avatar (#1102) - 消息头像对齐设计稿 .av.s(28–32px 小号);原 md=40 偏大显「旧/重」。
   // @@@1355 sender avatars are projected only from the canonical sender URL.
   // Display-only naming never changes the sender id or profile actions.
-  const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
+  const avatar = <MessageSenderAvatar senderUserId={msg.sender_user_id} name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} harnessBadge={!compactMobile} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
   if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} onOpenTopic={onOpenTopicAnchor} />

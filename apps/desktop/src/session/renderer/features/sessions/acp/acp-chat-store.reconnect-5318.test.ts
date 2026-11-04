@@ -27,6 +27,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+
+vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
+  attachAcpSessionWhenReady: async (id: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    return (await import('@renderer/lib/acp/acp-live-session')).AcpLiveSession.create(id);
+  },
+}));
+
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 
 type StoreModule = typeof import('./acp-chat-store');

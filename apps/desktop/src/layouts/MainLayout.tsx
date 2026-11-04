@@ -12,7 +12,7 @@ import '@/styles/desktop-shell.css'
 import '@/session/renderer/features/assistant/assistant-today.css'
 import '@/mobile/phone-shell.css'
 import '@/mobile/phone-look.css'
-import { usePhoneViewport } from '@/mobile/usePhoneViewport'
+import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
 import { PhoneTabBar as MobileTabBar } from '@/mobile/PhoneTabBar'
 import { Sidebar } from '../components/Sidebar'
 import { returnToScreen } from '@/session/renderer/app/screen-layout-actions'
@@ -223,7 +223,6 @@ function InnerLayout({
   // index.html 的引导脚本已经落过一次;这里补一次,兜住属性被别处清掉的情况(与主题同办法)。
   useEffect(() => { hydrateSidebarTint() }, [])
   const mobile = useMobileShell()
-  const phoneViewport = usePhoneViewport(mobile)
   const chatOpenNonce = useMobileChatOpenNonce(mobile, mobilePane)
   const [sessionCreateOpen, setSessionCreateOpen] = useState(false)
   useSessionpageAgentInstallNavigation(sessionHostAvailable, setSessionCreateOpen, setActiveTab)
@@ -975,7 +974,7 @@ function InnerLayout({
   }, [setActiveTab, mobile, activeTab, sessionHostAvailable])
 
   return (
-    <div
+    <PhoneViewportShell mobile={mobile}
       ref={shellRootRef}
       data-phone-shell={mobile ? '' : undefined}
       data-gugu-shell-phase={effectsActive ? 'active' : 'committed-inert'}
@@ -985,9 +984,8 @@ function InnerLayout({
       style={{
         display: 'flex',
         width: '100vw',
-        height: mobile ? phoneViewport.viewportHeight ?? '100dvh' : '100vh',
+        height: mobile ? undefined : '100vh',
         position: mobile ? 'fixed' : undefined,
-        top: mobile ? phoneViewport.viewportOffsetTop : undefined,
         left: mobile ? 0 : undefined,
         overflow: 'hidden',
         background: mobile ? 'var(--ta-panel-bg)' : 'var(--shell-bg)',
@@ -1226,7 +1224,6 @@ function InnerLayout({
             pendingContactsCount={pendingRequestCount}
             barRef={tabBarRef}
             tabs={tabs}
-            viewport={phoneViewport}
           />
         )}
 
@@ -1308,7 +1305,7 @@ function InnerLayout({
       )}
       {!mobile && sessionHostAvailable && <OfflineSessionSlotHost />}
 
-    </div>
+    </PhoneViewportShell>
   )
 }
 
