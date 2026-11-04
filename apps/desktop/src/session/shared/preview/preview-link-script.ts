@@ -17,12 +17,14 @@
  * 换算与上下限用 `pinch-zoom.ts` 同一套常量;普通双指滑动不带 ctrlKey,照常滚动。
  */
 
-import { DOCUMENT_MAX_ZOOM, DOCUMENT_MIN_ZOOM, PINCH_ZOOM_SENSITIVITY } from './pinch-zoom';
+import { DOCUMENT_MAX_ZOOM, DOCUMENT_MIN_ZOOM } from './pinch-zoom';
 
 export const PREVIEW_LINK_MESSAGE_TYPE = 'gugu-preview-link';
 export const PREVIEW_SCROLL_MESSAGE_TYPE = 'gugu-preview-scroll';
 export const PREVIEW_RESTORE_MESSAGE_TYPE = 'gugu-preview-restore-scroll';
 export const PREVIEW_RESTORED_MESSAGE_TYPE = 'gugu-preview-restored';
+export const PREVIEW_ZOOM_MESSAGE_TYPE = 'gugu-preview-zoom';
+export const PREVIEW_SET_ZOOM_MESSAGE_TYPE = 'gugu-preview-set-zoom';
 
 const PREVIEW_SCROLL_SCRIPT = `
   var scrollPending = false;
@@ -36,7 +38,12 @@ const PREVIEW_SCROLL_SCRIPT = `
   }, { passive: true });
   window.addEventListener('message', function(e){
     var data = e.data;
-    if (e.source !== parent || !data || data.type !== '${PREVIEW_RESTORE_MESSAGE_TYPE}') return;
+    if (e.source !== parent || !data) return;
+    if (data.type === '${PREVIEW_SET_ZOOM_MESSAGE_TYPE}' && Number.isFinite(data.zoom)) {
+      document.documentElement.style.zoom = String(Math.min(${DOCUMENT_MAX_ZOOM}, Math.max(${DOCUMENT_MIN_ZOOM}, data.zoom)));
+      return;
+    }
+    if (data.type !== '${PREVIEW_RESTORE_MESSAGE_TYPE}') return;
     if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
     window.scrollTo({ left: Math.max(0, data.x), top: Math.max(0, data.y), behavior: 'instant' });
     requestAnimationFrame(function(){
@@ -46,14 +53,19 @@ const PREVIEW_SCROLL_SCRIPT = `
 `;
 
 const PREVIEW_PINCH_ZOOM = `
-  var pinchZoom = 1;
   document.addEventListener('wheel', function(e){
     if (!e.ctrlKey) return;
     e.preventDefault();
-    pinchZoom = Math.min(${DOCUMENT_MAX_ZOOM}, Math.max(${DOCUMENT_MIN_ZOOM},
-      pinchZoom * Math.exp(-e.deltaY * ${PINCH_ZOOM_SENSITIVITY})));
-    document.documentElement.style.zoom = String(pinchZoom);
+    parent.postMessage({ type: '${PREVIEW_ZOOM_MESSAGE_TYPE}', deltaY: e.deltaY }, '*');
   }, { passive: false, capture: true });
+  document.addEventListener('keydown', function(e){
+    if (e.isComposing || !(e.metaKey || e.ctrlKey) || e.altKey) return;
+    var command = e.key === '0' ? 'resetZoom' : (e.key === '+' || e.key === '=') ? 'zoomIn' : e.key === '-' ? 'zoomOut' : null;
+    if (!command) return;
+    e.preventDefault();
+    e.stopPropagation();
+    parent.postMessage({ type: '${PREVIEW_ZOOM_MESSAGE_TYPE}', command: command }, '*');
+  }, true);
 `;
 
 export const PREVIEW_LINK_SCRIPT = `

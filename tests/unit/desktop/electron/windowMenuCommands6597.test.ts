@@ -20,6 +20,7 @@ function fakeTarget(zoomLevel = 0, fullScreen = false) {
     copy: vi.fn(),
     paste: vi.fn(),
     selectAll: vi.fn(),
+    executeJavaScript: vi.fn(async () => false),
     getZoomLevel: vi.fn(() => level),
     setZoomLevel: vi.fn((next: number) => { level = next }),
   }
@@ -50,15 +51,15 @@ describe('window menu commands(#6597)', () => {
     }
   })
 
-  it('缩放:与应用菜单 zoomIn / zoomOut role 同一步长 0.5,实际大小 = 0 级', () => {
+  it('缩放:与应用菜单 zoomIn / zoomOut role 同一步长 0.5,实际大小 = 0 级', async () => {
     expect(WINDOW_ZOOM_STEP).toBe(0.5)
     const f = fakeTarget(1)
-    runWindowMenuCommand('zoomIn', f.target)
+    await runWindowMenuCommand('zoomIn', f.target)
     expect(f.zoom()).toBe(1.5)
-    runWindowMenuCommand('zoomOut', f.target)
-    runWindowMenuCommand('zoomOut', f.target)
+    await runWindowMenuCommand('zoomOut', f.target)
+    await runWindowMenuCommand('zoomOut', f.target)
     expect(f.zoom()).toBe(0.5)
-    runWindowMenuCommand('resetZoom', f.target)
+    await runWindowMenuCommand('resetZoom', f.target)
     expect(f.zoom()).toBe(0)
   })
 

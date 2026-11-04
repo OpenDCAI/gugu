@@ -19,6 +19,7 @@ import { registerHtmlPreview } from '../preview/html-preview-registration'
 import type { HtmlPreviewRegistration } from '../preview/HtmlPreviewFrame'
 import { truncateSheetXml } from './xlsxPreviewLimits'
 import './documentPreview.css'
+import { useFileZoom } from '../preview/file-content-zoom'
 
 interface DocumentPreviewContentProps {
   kind: DocumentPreviewKind
@@ -168,7 +169,7 @@ function PdfPreview({ data }: { data: ArrayBuffer }) {
   const textLayerRef = useRef<HTMLDivElement>(null)
   const [document, setDocument] = useState<PDFDocumentProxy>()
   const [pageNumber, setPageNumber] = useState(1)
-  const [zoom, setZoom] = useState(1)
+  const { zoom, setZoom } = useFileZoom('pdf', viewportRef)
   const [availableWidth, setAvailableWidth] = useState(0)
   const [error, setError] = useState<string>()
 

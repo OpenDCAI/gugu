@@ -17,6 +17,8 @@ import { useSessionViewContext } from '../session-view-context';
 import { activeFileEntry as getActiveFileEntry } from './pane-selectors';
 import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu';
 import { notify } from '@/lib/notices';
+import { bindFileZoom, readFileZoom, writeFileZoom, subscribeFileZoom, zoomForCommand } from '@/components/preview/file-content-zoom';
+import { clampZoom, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM } from '@shared/preview/pinch-zoom';
 import { quoteWorkspaceFile } from '@renderer/lib/editor/quote-workspace-file';
 
 interface EditorContextValue {
@@ -99,7 +101,13 @@ export const EditorProvider = observer(function EditorProvider({
     container.style.height = '100%';
     containerRef.current = container;
 
-    const editor = m.editor.create(container, { ...DEFAULT_EDITOR_OPTIONS, contextmenu: false });
+    const baseFontSize = DEFAULT_EDITOR_OPTIONS.fontSize ?? 13;
+    const editor = m.editor.create(container, { ...DEFAULT_EDITOR_OPTIONS, contextmenu: false, mouseWheelZoom: true, fontSize: baseFontSize * readFileZoom('text-code') });
+    const offZoom = subscribeFileZoom(() => editor.updateOptions({ fontSize: baseFontSize * readFileZoom('text-code') }));
+    const offZoomCommand = bindFileZoom(container, command => writeFileZoom('text-code', clampZoom(zoomForCommand(readFileZoom('text-code'), command), DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)));
+    const fontZoom = editor.onDidChangeConfiguration(event => {
+      if (event.hasChanged(m.editor.EditorOption.fontSize)) writeFileZoom('text-code', clampZoom(editor.getOption(m.editor.EditorOption.fontSize) / baseFontSize, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM));
+    });
     editorRef.current = editor;
     runInAction(() => editorBox.set(editor));
 
@@ -157,6 +165,9 @@ export const EditorProvider = observer(function EditorProvider({
       focusDisposable.dispose();
       cleanupMenu();
       cleanupActive();
+      offZoom();
+      offZoomCommand();
+      fontZoom.dispose();
       editor.dispose();
       container.remove();
       editorRef.current = null;

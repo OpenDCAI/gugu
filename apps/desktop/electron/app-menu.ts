@@ -1,5 +1,8 @@
-import { Menu, type MenuItemConstructorOptions } from 'electron'
+import { Menu, MenuItem, type MenuItemConstructorOptions } from 'electron'
 import { lockedMenuTemplate } from './devtools-lock'
+import { isFileZoomCommand } from '../src/session/shared/preview/file-zoom'
+import { runWindowMenuCommand } from './window-menu-commands'
+import { createLogger } from './lib/logger'
 
 /**
  * 应用菜单 —— 咕咕自己定一份,❌ 交给 Electron 的默认菜单。
@@ -47,5 +50,17 @@ export function applicationMenuTemplate(
 
 /** 装上(或换语言后重装)应用菜单。要在 app ready **之后**调 —— 菜单是原生资源,ready 前设在部分平台无效。 */
 export function applyApplicationMenu(options: Parameters<typeof applicationMenuTemplate>[1]): void {
-  Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(process.platform, options)))
+  const log = createLogger('app-menu')
+  // Expand Electron's roles first so native labels and all unrelated menu items stay intact.
+  const routeZoom = (menu: Menu): Menu => Menu.buildFromTemplate(menu.items.map(item => {
+    if (item.submenu) item.submenu = routeZoom(item.submenu)
+    if (!isFileZoomCommand(item.role)) return item
+    const command = item.role
+    return new MenuItem({ label: item.label, accelerator: command === 'zoomIn' ? 'CmdOrCtrl+Plus' : command === 'zoomOut' ? 'CmdOrCtrl+-' : 'CmdOrCtrl+0',
+      click: (_item, window) => {
+        if (window) void runWindowMenuCommand(command, { contents: window.webContents, window }).catch(error => log.error({ error }, 'File zoom command failed'))
+      },
+    })
+  }))
+  Menu.setApplicationMenu(routeZoom(Menu.buildFromTemplate(applicationMenuTemplate(process.platform, options))))
 }
