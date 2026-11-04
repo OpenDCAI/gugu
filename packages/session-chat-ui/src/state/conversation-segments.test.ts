@@ -79,10 +79,10 @@ describe('replay conversation segment boundaries', () => {
       expect(ids.indexOf('ready')).toBeLessThan(ids.indexOf('steer'));
       expect(ids.indexOf('steer')).toBeLessThan(ids.indexOf('t:process@steer:head'));
       const before = rows.find(row => row.itemId === 't:process:head')!.data as ChatMessage;
-      expect(before.conversationProcess).toMatchObject({ startedAt: 1000, endedAt: 4000 });
+      expect(before.conversationProcess).toMatchObject({ startedAt: 1000, endedAt: 5000 });
       expect(before.conversationProcess?.live).toBeUndefined();
       const after = rows.find(row => row.itemId === 't:process@steer:head')!.data as ChatMessage;
-      expect(after.conversationProcess?.startedAt).toBe(active ? 1000 : 5000);
+      expect(after.conversationProcess?.startedAt).toBe(5000);
     }
   });
 
@@ -90,7 +90,7 @@ describe('replay conversation segment boundaries', () => {
     const record = turn([message('u', 'user', 1000), message('ready', 'assistant', 2000), message('steer', 'user', 5000)]);
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.at(-1)?.itemId).toBe('t:process@steer');
-    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 1000 });
+    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 5000 });
     expect(conversationBackgroundOwner(rows)).toBe('t:process@steer');
     expect(rows.some(row => row.kind === 'background-tasks')).toBe(false);
   });
@@ -117,7 +117,7 @@ describe('replay conversation segment boundaries', () => {
     expect(segments).toHaveLength(2);
     expect(conversationOutput(segments[0].items, true).reply?.id).toBe(sent.id);
     expect(segments[0]).toMatchObject({ live: false, endedAt: 4000 });
-    expect(segments[1], 'the live line keeps the turn origin').toMatchObject({ live: true, startedAt: 1000 });
+    expect(segments[1], 'the live line counts only work after the send').toMatchObject({ live: true, startedAt: 4000 });
   });
 
   it('counts the first process line from the turn origin even if the first message arrived later', () => {
