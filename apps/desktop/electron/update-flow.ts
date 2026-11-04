@@ -26,6 +26,7 @@ export type UpdateStatus =
   | 'not-available'
   | 'downloaded'
   | 'downloaded-manual'
+  | 'installing'
   | 'disabled'
   | 'error'
 

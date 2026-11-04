@@ -44,6 +44,7 @@ interface FakeOptions {
   downloadError?: Error
   /** 下载在这个 promise 落定前一直「正在下」。 */
   downloadHold?: Promise<void>
+  installHold?: Promise<void>
 }
 
 function fakeNative(options: FakeOptions) {
@@ -76,6 +77,7 @@ function fakeNative(options: FakeOptions) {
     },
     install: async (pkg: Stored) => {
       calls.push(`install ${pkg.version}`)
+      await options.installHold
     },
     addListener: async (_event: string, listener: (p: { percent: number }) => void) => {
       progress.push(listener)
@@ -85,7 +87,7 @@ function fakeNative(options: FakeOptions) {
   return { files, calls, progress }
 }
 
-let statusEvents: Array<{ status: string; updateInfo: { version: string } | null; message?: string }>
+let statusEvents: Array<{ revision: number; status: string; updateInfo: { version: string } | null; message?: string }>
 const onStatus = (event: Event) => statusEvents.push((event as CustomEvent).detail)
 
 async function load() {
@@ -100,6 +102,53 @@ beforeEach(() => {
 afterEach(() => {
   window.removeEventListener(UI_EVENTS.updateStatus, onStatus)
   native.impl = null
+})
+
+describe('#1342 system installer state', () => {
+  it('rejects a failed manifest check without replacing a real in-flight download', async () => {
+    let release!: () => void
+    const options: FakeOptions = {
+      version: '0.2.47-beta.10.1',
+      manifest: manifest('0.2.47-beta.11.1'),
+      downloadHold: new Promise<void>((resolve) => { release = resolve }),
+    }
+    const { progress } = fakeNative(options)
+    const update = await load()
+    await update.updateState()
+    await vi.waitFor(() => expect(statusEvents.at(-1)?.status).toBe('downloading'))
+    for (const listener of progress) listener({ percent: 37 })
+    const downloading = await update.updateState()
+    options.manifest = new Error('manifest unavailable')
+    try {
+      await expect(update.checkForUpdates()).rejects.toThrow('manifest unavailable')
+      expect(await update.updateState()).toEqual(downloading)
+      expect(statusEvents.at(-1)).toEqual(downloading)
+    } finally {
+      release()
+      await vi.waitFor(() => expect(statusEvents.at(-1)?.status).toBe('downloaded'))
+    }
+  })
+
+  it('publishes installation handoff and restores the staged package after cancellation with a newer revision', async () => {
+    let cancel!: (error: Error) => void
+    const installHold = new Promise<void>((_resolve, reject) => { cancel = reject })
+    const pkg = { version: '0.2.47-beta.12.1', sha256: SHA('4') }
+    fakeNative({ version: '0.2.47-beta.10.1', downloads: [pkg], installHold })
+    const update = await load()
+    const ready = await update.updateState()
+    const request = update.installUpdate()
+    const failure = expect(request).rejects.toThrow('Update was not installed')
+    const installing = await update.updateState()
+    expect(installing.status).toBe('installing')
+    expect(installing.revision).toBeGreaterThan(ready.revision)
+    cancel(Object.assign(new Error('Update was not installed'), { code: 'INSTALL_NOT_COMPLETED' }))
+    await failure
+    const restored = await update.updateState()
+    expect(restored.status).toBe('downloaded')
+    expect(restored.updateInfo).toEqual({ version: pkg.version })
+    expect(restored.revision).toBeGreaterThan(installing.revision)
+    expect(statusEvents.map((s) => s.revision)).toEqual([...statusEvents.map((s) => s.revision)].sort((a, b) => a - b))
+  })
 })
 
 describe('启动时先对本地的账 —— 「下好了、等你按」重开之后也找得回来', () => {
