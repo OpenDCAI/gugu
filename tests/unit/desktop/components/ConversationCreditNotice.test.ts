@@ -3,9 +3,9 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
+import { publishSelfIdentity } from '@/lib/selfIdentityBridge'
 
 const state = vi.hoisted(() => ({ spendable: 0.999 as number | null, mobile: false }))
-vi.mock('../../../../apps/desktop/src/store/auth', () => ({ useAuth: () => ({ user: { id: 'credit-test' } }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useMobileShell', () => ({ readMobileShell: () => state.mobile }))
 vi.mock('../../../../apps/desktop/src/lib/billing', async original => {
   const actual = await original<typeof import('../../../../apps/desktop/src/lib/billing')>()
@@ -13,8 +13,8 @@ vi.mock('../../../../apps/desktop/src/lib/billing', async original => {
 })
 const { ConversationCreditNotice } = await import('../../../../apps/desktop/src/components/chat/ConversationCreditNotice')
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); state.spendable = 0.999; state.mobile = false })
-afterEach(() => harness.cleanup())
+beforeEach(() => { publishSelfIdentity({ userId: 'credit-test', displayName: null, guguNumber: null }); harness = createReactHarness(); state.spendable = 0.999; state.mobile = false })
+afterEach(() => { harness.cleanup(); publishSelfIdentity(null) })
 const render = (modelOptionId = 'platform:test') => harness.render(createElement(ConversationCreditNotice, { modelOptionId }))
 
 it('shows the live spendable total as one quiet composer line and follows balance changes', async () => {

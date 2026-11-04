@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
-import { useAuth } from '@/store/auth'
+import { useSyncExternalStore } from 'react'
+import { readSelfIdentityBridge } from '@/lib/selfIdentityBridge'
 import { creditCount, formatCredits, isLowBalance, useSpendingPower } from '@/lib/billing'
 import { openCreditSettings } from '@/lib/billing/settingsDestination'
 import { platformModelIdFromOption } from '@/session/shared/platform-model-id'
@@ -11,7 +12,16 @@ export function ConversationCreditNotice({ modelOptionId }: { modelOptionId?: st
 }
 
 function SpendingCreditNotice() {
-  const { user } = useAuth()
+  // The desktop task entry has a separate React root; AuthContext cannot cross it.
+  const identity = useSyncExternalStore(subscribeIdentity, currentIdentity)
+  return identity ? <AccountCreditNotice userId={identity.userId} /> : null
+}
+
+const currentIdentity = () => readSelfIdentityBridge()?.getSnapshot() ?? null
+const subscribeIdentity = (listener: () => void) => readSelfIdentityBridge()?.subscribe(listener) ?? (() => {})
+
+function AccountCreditNotice({ userId }: { userId: string }) {
+  const user = { id: userId }
   const { power } = useSpendingPower(user)
   const { t } = useTranslation('settings')
   const credits = power?.spendable

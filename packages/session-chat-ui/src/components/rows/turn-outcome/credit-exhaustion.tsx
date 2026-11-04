@@ -12,9 +12,9 @@ import { readableLabel, rowTranslator } from '../readable-label';
 export function isCreditExhaustion(outcome: TranscriptTurnOutcome): boolean {
   if (outcome.kind !== 'error' || outcome.signInRequired) return false;
   const text = outcome.said ?? '';
-  if (/^(?:咕咕积分用完了|这个账号还没有咕咕积分)[。！]/.test(text)) return true;
+  if (/^咕咕积分用完了[。！]/.test(text)) return true;
   const detail = outcome.detail ?? '';
-  return /["']code["']\s*:\s*["'](?:credits_exhausted|no_credits)["']/.test(detail)
+  return /["']code["']\s*:\s*["']credits_exhausted["']/.test(detail)
     && /咕咕积分|Gugu credits/i.test(detail);
 }
 

@@ -30,6 +30,7 @@ it('requires an authoritative gateway refusal, rather than the balance or anothe
   expect(isCreditExhaustion({ kind: 'error', reason: 'prompt_failed', said: 'Weekly usage limit reached' })).toBe(false);
   expect(isCreditExhaustion({ kind: 'error', detail: '{"error":{"code":"credits_exhausted","message":"Provider credits exhausted"}}' })).toBe(false);
   expect(isCreditExhaustion({ kind: 'error', signInRequired: true, said })).toBe(false);
+  expect(isCreditExhaustion({ kind: 'error', said: '这个账号还没有咕咕积分。充值或开通会员后再发一次。', detail: '{"error":{"code":"no_credits","message":"这个账号还没有咕咕积分。"}}' })).toBe(false);
 });
 
 it('does not invent a recharge button when the host did not connect that action', async () => {
