@@ -19,7 +19,7 @@ import { useTheme } from '@/store/theme'
 import { useSessionConversationDraft } from './use-session-conversation-draft'
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { usePhoneInputQueue } from './use-phone-input-queue'
-import { phoneWaitingReceipts } from './phone-input-queue'
+import { phoneQueueReady, phoneWaitingReceipts } from './phone-input-queue'
 import { SessionTranscriptView } from '@/components/assistant-ui/session-transcript-view.aui'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
 import { useComposerFileUploads } from '@renderer/features/sessions/acp/use-composer-file-uploads'
@@ -122,7 +122,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     senderInputs, timeline.queuedPrompts, timeline.turns) : []
   localQueue.current = { key: localQueueKey, inputs: localInputs }
   const queue = usePhoneInputQueue({ deviceId, sessionId, local, phoneHost }, senderInputs, timeline.queuedPrompts,
-    timeline.turns, agentWorking, stopping, queueReady && (!life.view || (life.view.hold === null && life.view.kind === 'ready')), options.steers)
+    timeline.turns, agentWorking, stopping, phoneQueueReady(queueReady, phoneHost, life.view), options.steers)
   const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
   const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })
   editorState.current = { text: draftText, edit: quotes.composer.queuedPromptEdit }

@@ -1,6 +1,7 @@
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { SessionInput } from '@/lib/sessionInputOutbox'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import type { LifeView } from '@/session/shared/core/sessions/session-life'
 
 type HostPrompt = { id: string; text: string; clientMessageId?: string; queueEdit?: { draftText: string; originalDraftText: string } }
 
@@ -22,6 +23,10 @@ export function phoneInputQueueIntent(working: boolean, inputs: readonly Session
 }
 
 /** Cached history, a pending approval and a lost connection are not permission to drain a phone's queue. */
+export function phoneQueueReady(ready: boolean, phoneHost: boolean, life: Pick<LifeView, 'kind' | 'hold'> | null): boolean {
+  return ready && (phoneHost || (life?.kind === 'ready' && life.hold === null))
+}
+
 export function canReleasePhoneInput(ready: boolean, working: boolean, stopping: boolean, turns: readonly TranscriptTurn[]): boolean {
   return ready && !working && !stopping && (turns.length === 0 || turns.at(-1)?.outcome?.kind === 'done')
 }

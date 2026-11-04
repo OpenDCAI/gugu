@@ -12,6 +12,11 @@ import type { SessionInputOutbox } from '@/lib/sessionInputOutbox'
 import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
+import type { LifeView } from '@shared/core/sessions/session-life'
+
+const life = vi.hoisted(() => ({ view: null as LifeView | null }))
+const release = vi.hoisted(() => vi.fn(async () => null))
+vi.mock('@/lib/sessionInputOutboxBridge', async original => ({ ...(await original<object>()), releaseQueuedSessionInput: release }))
 
 vi.mock('@gugu/core/cloud/config', async original => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }))
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: { chatView: 'double' } }) }))
@@ -19,13 +24,38 @@ vi.mock('@/mobile/agent-watch/sessionpage-rpc', async original => ({
   ...(await original<object>()), fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   machineRpc: vi.fn(() => ({})), fetchBackgroundTasks: vi.fn(async () => []),
 }))
-vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: null, error: null }) }))
+vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: life.view, error: null }) }))
 
 let harness: ReturnType<typeof createReactHarness>
 afterEach(() => {
   harness?.cleanup()
   const own = state()
   own.accountId = null; own.queue = null; own.rows = EMPTY; own.valid = () => false; changed()
+  life.view = null; release.mockClear()
+})
+
+it('holds an opened queue until the authoritative life view arrives after history, including a late user stop', async () => {
+  await page.viewport(390, 844)
+  const timeline = emptyAgentWatchTimeline()
+  timeline.turns = [{ id: 'completed-history', seq: 1, initiator: 'user', items: [], outcome: { kind: 'done' } }]
+  Object.assign(state(), { accountId: 'owner', valid: () => true, rows: [
+    { id: 'held', accountId: 'owner', deviceId: 'host', sessionId: 'session', text: 'stay held', createdAt: 1, queued: true, sendQueue: { order: 1 } },
+  ] })
+  harness = createReactHarness()
+  harness.container.style.cssText = 'height:800px;width:390px;display:flex;flex-direction:column'
+  const render = () => renderWithAppProviders(harness, <SessionConversation timeline={timeline} deviceId="host" sessionId="session" agentName="Agent" nativeRecord
+    queueReady sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} })
+  await render()
+  await until('held row is rendered while life is loading', () => !!harness.container.querySelector('[data-queued-prompt-id="held"]'))
+  expect(release).not.toHaveBeenCalled()
+  life.view = { sessionId: 'session', version: 1, kind: 'ready', stage: null, hold: 'user-stop', failure: null, lastExit: null, nativeSession: null,
+    pending: { count: 0, items: [] } }
+  await render()
+  expect(release).not.toHaveBeenCalled()
+  life.view = { ...life.view, hold: null }
+  await render()
+  await until('a confirmed ready foreground permits release', () => release.mock.calls.length === 1)
 })
 
 it('shows a running input after durable commit without waiting for a host queue response, then hands off its id', async () => {

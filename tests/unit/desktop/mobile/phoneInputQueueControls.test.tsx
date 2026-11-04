@@ -6,6 +6,7 @@ import { createReactHarness } from '../../../support/testHarness'
 import { SessionInputOutbox, type SessionInput } from '@/lib/sessionInputOutbox'
 import { state, changed, EMPTY, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
 import { usePhoneInputQueue } from '@/mobile/agent-watch/use-phone-input-queue'
+import { phoneQueueReady } from '@/mobile/agent-watch/phone-input-queue'
 
 const { cancel, remote } = vi.hoisted(() => ({ cancel: vi.fn(async () => ({ cancelled: true })), remote: vi.fn(async () => null) }))
 vi.mock('@/components/assistant/assistantTimelineClient', () => ({ assistantTimelineClient: () => ({ cancelSessionTurn: cancel }), changeConversationQueue: remote }))
@@ -20,8 +21,10 @@ let rows: Map<string, SessionInput>
 let outbox: SessionInputOutbox
 let deliver: ReturnType<typeof vi.fn<(input: SessionInput) => Promise<void>>>
 
-function Host({ ready = false, working = true, turns = [] }: { ready?: boolean; working?: boolean; turns?: readonly TranscriptTurn[] }) {
-  queue = usePhoneInputQueue(target, useQueuedSessionInputs('session'), [], turns, working, false, ready, false)
+function Host({ ready = false, working = true, turns = [], life = { kind: 'ready', hold: null } }: {
+  ready?: boolean; working?: boolean; turns?: readonly TranscriptTurn[]; life?: Parameters<typeof phoneQueueReady>[2]
+}) {
+  queue = usePhoneInputQueue(target, useQueuedSessionInputs('session'), [], turns, working, false, phoneQueueReady(ready, false, life), false)
   return createElement('div', null, queue.error)
 }
 const render = (props: Parameters<typeof Host>[0] = {}) => harness.render(createElement(Host, props))
@@ -96,6 +99,17 @@ it('does not drain an input while its main-composer edit is reserved', async () 
   await render({ ready: true, working: false })
   expect(deliver).not.toHaveBeenCalled()
   expect(read('first').sendQueue?.edit?.originalDraftText).toBe('normal draft')
+})
+
+it('waits for life after history and does not restart a late user-stopped session', async () => {
+  const turns: TranscriptTurn[] = [{ id: 'old-completed-history', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [] }]
+  await render({ ready: true, working: false, turns, life: null })
+  expect(deliver).not.toHaveBeenCalled()
+  await render({ ready: true, working: false, turns, life: { kind: 'ready', hold: 'user-stop' } })
+  expect(deliver).not.toHaveBeenCalled()
+  expect(read('first').sendQueue).toBeDefined()
+  await render({ ready: true, working: false, turns, life: { kind: 'ready', hold: null } })
+  await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(1))
 })
 
 it('keeps an immediate-send input held if cancellation fails, then uses the same durable identity on success', async () => {
