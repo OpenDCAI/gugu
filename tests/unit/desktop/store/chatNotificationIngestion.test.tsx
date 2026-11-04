@@ -87,9 +87,9 @@ beforeEach(async () => {
   pending.length = 0
   holdCommit = false; releaseCommit = deferred<void>(); coordinator = null
   const memory = createMemoryLocalSyncDb()
-  repository = await openImRepository(ACCOUNT, { adapter: { ...memory, commit: async (operations, claims) => {
+  repository = await openImRepository(ACCOUNT, { adapter: { ...memory, commit: async (operations) => {
     if (holdCommit) await releaseCommit.promise
-    return memory.commit(operations, claims)
+    return memory.commit(operations)
   } } })
   await repository.transaction(tx => tx.putSyncState('account-revision-cursor', { revision: '0' }))
   native.show.mockReset().mockImplementation(async () => {

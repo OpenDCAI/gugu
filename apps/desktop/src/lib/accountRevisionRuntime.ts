@@ -177,7 +177,7 @@ export function createAccountRevisionRuntime(
           continue
         }
         const afterCommit = handler(operation, transaction, caughtUp)
-        if (typeof afterCommit === 'function') committed.push(() => { afterCommit() })
+        if (typeof afterCommit === 'function') committed.push(afterCommit as () => void)
       }
       if (!active || generation !== runGeneration) return
       if (skippedChanged) transaction.putSyncState(ACCOUNT_REVISION_SKIPPED_KEY, skipped)

@@ -6,7 +6,7 @@ import {
   type AccountRevisionRuntime,
   type AccountRevisionSource,
 } from './accountRevisionRuntime'
-import { CHAT_MEMBERSHIP_REVISION_PREFIX, ingestAccountMessage, imSelectors, type AccountImRepository, type ChatMembershipRevision, type ImRepositoryTransaction } from './imRepository'
+import { ingestAccountMessage, imSelectors, type AccountImRepository, type ImRepositoryTransaction } from './imRepository'
 import { rendererLogger } from './log'
 
 const coordinatorLog = rendererLogger('chat/account-revision')
@@ -209,32 +209,40 @@ export function createAccountRevisionCoordinator(
   let presenceTrailingTimer: ReturnType<typeof setTimeout> | null = null
   const baseline = (imSelectors.syncState('account-revision-cursor')(repository.snapshot()) as { revision: string } | undefined)?.revision ?? '0'
 
-  const notifyCommitted = (message: MessageItem, claim: { won: boolean }, live: boolean) => () => {
-    if (!active || !live || !claim.won || !messages || !repository.snapshot().message.some(row => row.id === message.id)) return
-    // The durable claim is already committed. Do not retry an OS side effect:
-    // a crash after claiming is allowed to lose one alert, never duplicate it.
-    void messages.notify(message).catch(error => coordinatorLog.error({ error, messageId: message.id }, 'message notification failed'))
+  // Inline payloads and recovered bodies share this one commit-then-notify path.
+  const commitArrival = (operation: AccountRevisionOperation, message: MessageItem, transaction: ImRepositoryTransaction, live: boolean) => {
+    const arrival = readMessageCreatedRevision(operation.payload)
+    if (message.id !== arrival.messageId || message.chat_id !== arrival.chatId) throw new Error('message revision crossed chat boundary')
+    const { won } = ingestAccountMessage(repository, transaction, message, operation.revision)
+    return () => {
+      // The claim is committed. Never retry the OS side effect: a crash may lose one alert, never duplicate it.
+      if (!active || !live || !won || !repository.snapshot().message.some(row => row.id === message.id)) return
+      void messages!.notify(message).catch(error => coordinatorLog.error({ error, messageId: message.id }, 'message notification failed'))
+    }
   }
 
-  const ingest = (operation: AccountRevisionOperation, transaction: ImRepositoryTransaction, live: boolean) => {
-    const arrival = readMessageCreatedRevision(operation.payload)
-    const raw = arrival.message as (RawMessageRow & { deleted_at?: unknown; deleted_for_user_ids?: unknown; is_imported_history_root?: unknown }) | null
+  // null = never materialize (deleted / imported root); undefined = incomplete payload, recover the body.
+  const decodeArrival = (operation: AccountRevisionOperation): MessageItem | null | undefined => {
+    const raw = readMessageCreatedRevision(operation.payload).message as (RawMessageRow & { deleted_at?: unknown; deleted_for_user_ids?: unknown; is_imported_history_root?: unknown }) | null
     if (raw?.deleted_at || raw?.is_imported_history_root === true
       || (Array.isArray(raw?.deleted_for_user_ids) && raw.deleted_for_user_ids.includes(accountId))) return null
     if (!raw || typeof raw.created_at !== 'string' || !Object.hasOwn(raw, 'content')
       || !Object.hasOwn(raw, 'to_user_ids') || !Object.hasOwn(raw, 'content_type')) return undefined
     const message = messageItemFromRow(raw, accountId)
-    if (!message || !Number.isSafeInteger(message.seq) || message.seq < 1) return undefined
-    if (message.chat_id !== arrival.chatId) throw new Error('message revision crossed chat boundary')
-    return notifyCommitted(message, ingestAccountMessage(repository, transaction, message, operation.revision), live)
+    return message && Number.isSafeInteger(message.seq) && message.seq >= 1 ? message : undefined
   }
 
   for (const event of ACCOUNT_REVISION_EVENTS) {
     claimCounts.set(event, 0)
     runtime.register(event, (operation, transaction, live) => {
-      let afterCommit: ReturnType<typeof ingest> = undefined
+      let afterCommit: (() => void) | undefined
+      let messageCommitted = false
       if (messages && event === 'message_created') {
-        try { afterCommit = ingest(operation, transaction, live) } catch (error) {
+        try {
+          const message = decodeArrival(operation)
+          if (message) afterCommit = commitArrival(operation, message, transaction, live)
+          messageCommitted = message !== undefined
+        } catch (error) {
           // A bad/legacy payload belongs to the existing inbox consumer's
           // failure isolation. It must not roll back unrelated revision rows.
           coordinatorLog.error({ error, revision: operation.revision }, 'message payload requires inbox recovery')
@@ -246,36 +254,23 @@ export function createAccountRevisionCoordinator(
         transaction.delete('message', [accountId, key.entityId])
         transaction.putView(`message-revision:${key.entityId}`, { revision: operation.revision, deleted: true, chatId: key.chatId })
       }
-      if (messages && event === 'chat_members_changed') {
-        const member = readMemberRosterRevision(operation.payload)
-        if (member.memberId === accountId) {
-          const key = `${CHAT_MEMBERSHIP_REVISION_PREFIX}${member.chatId}`
-          const previous = transaction.readView(key) as ChatMembershipRevision | undefined
-          if (!previous || BigInt(previous.revision) < BigInt(operation.revision)) {
-            transaction.putView(key, { revision: operation.revision, left: member.left,
-              revokedThrough: member.left ? operation.revision : previous?.revokedThrough ?? null } satisfies ChatMembershipRevision)
-          }
-        }
-      }
       transaction.putView(operationKey(operation.revision), messages && event === 'message_created'
-        ? { ...operation, notify: live, messageCommitted: afterCommit !== undefined } : operation)
-      return afterCommit ?? undefined
+        ? { ...operation, notify: live, messageCommitted } : operation)
+      return afterCommit
     })
   }
 
   if (messages) {
     // Account ownership remains mounted even when no conversation is observed.
-    // Legacy/missing payloads use the original inbox consumer and its retry policy.
+    // Incomplete payloads use the original inbox consumer and its retry policy.
     registrations.add({ events: new Set(['message_created']), consumed: new Set(), failures: 0, retryAt: null,
       listener: async operations => {
         for (const operation of operations) {
           if (operation.messageCommitted) continue
-          const arrival = readMessageCreatedRevision(operation.payload)
-          const message = await messages.recover(arrival.messageId)
+          const message = await messages.recover(readMessageCreatedRevision(operation.payload).messageId)
           if (!active || !message) continue // Authoritative RLS/deletion absence; never synthesize a row.
-          if (message.id !== arrival.messageId || message.chat_id !== arrival.chatId) throw new Error('recovered message crossed revision boundary')
-          const claim = await repository.transaction(transaction => ingestAccountMessage(repository, transaction, message, operation.revision))
-          notifyCommitted(message, claim, operation.notify === true && BigInt(operation.revision) > BigInt(baseline))()
+          const live = operation.notify === true && BigInt(operation.revision) > BigInt(baseline)
+          ;(await repository.transaction(transaction => commitArrival(operation, message, transaction, live)))()
         }
       } })
     claimCounts.set('message_created', 1)

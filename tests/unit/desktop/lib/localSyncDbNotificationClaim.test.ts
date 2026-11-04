@@ -5,9 +5,6 @@ import { message } from '../../../support/testHarness'
 import { openLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { openImRepository, ingestAccountMessage, readMessageWindow, replaceMessageWindow,
   type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
-import { createAccountRevisionCoordinator } from '../../../../apps/desktop/src/lib/accountRevisionCoordinator'
-import { ChatWindowCache } from '../../../../apps/desktop/src/store/chatWindowCache'
-import { bindRepositoryMessageCache } from '../../../../apps/desktop/src/store/chatDiskWindow'
 
 const opened: AccountImRepository[] = []
 afterEach(() => { vi.restoreAllMocks(); for (const repository of opened.splice(0)) repository.close() })
@@ -17,21 +14,21 @@ async function open(account: string, factory: IDBFactory) {
   return repository
 }
 
-it('atomically settles competing repositories; both commit bodies but only one wins the account/id claim', async () => {
+// One repository per account (single-instance desktop) serializes every transaction, so the
+// claim is an ordinary view row read and written inside the same transaction.
+it('settles competing transactions in one repository; only one wins the account/id claim, durably', async () => {
   const factory = new IDBFactory()
-  const a = await open('viewer', factory), b = await open('viewer', factory)
+  const a = await open('viewer', factory)
   const row = message({ id: 'arrival', chat_id: 'room', seq: 100 })
-  const results = await Promise.all([a, b].map(repository => repository.transaction(tx => {
-    const claim = ingestAccountMessage(repository, tx, row, '1')
-    tx.putView('account-revision-operation:1', { revision: '1', event: 'message_created', payload: {} })
-    tx.putSyncState('account-revision-cursor', { revision: '1' })
+  const results = await Promise.all(['1', '1'].map(revision => a.transaction(tx => {
+    const claim = ingestAccountMessage(a, tx, row, revision)
+    tx.putView(`account-revision-operation:${revision}`, { revision, event: 'message_created', payload: {} })
+    tx.putSyncState('account-revision-cursor', { revision })
     return claim
   })))
   expect(results.filter(result => result.won)).toHaveLength(1)
-  for (const repository of [a, b]) {
-    expect(repository.snapshot().message.map(row => row.id)).toEqual(['arrival'])
-    expect(readMessageWindow(repository, 'room')).toMatchObject({ sparse: true, maxSeq: 100 })
-  }
+  expect(a.snapshot().message.map(row => row.id)).toEqual(['arrival'])
+  expect(readMessageWindow(a, 'room')).toMatchObject({ sparse: true, maxSeq: 100 })
   const reopened = await open('viewer', factory)
   const replay = await reopened.transaction(tx => ingestAccountMessage(reopened, tx, row, '2'))
   expect(replay.won).toBe(false)
@@ -47,7 +44,7 @@ it('rolls back message, claim, inbox and cursor when IDB aborts after inserting 
   const put = IDBObjectStore.prototype.put
   const interrupt = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
     const request = put.call(this, value, key)
-    if (this.name === 'view' && (value as { key?: string }).key === 'message-notification:retry') {
+    if (this.name === 'view' && (value as { key?: string }).key === 'message-revision:retry') {
       request.addEventListener('success', () => this.transaction.abort())
     }
     return request
@@ -79,33 +76,4 @@ it('keeps an arrival when an older window finishes and does not certify a sparse
   expect(readMessageWindow(repository, 'room')!.sparse).toBe(true)
   await replaceMessageWindow(repository, 'room', painted, false, 1)
   expect(readMessageWindow(repository, 'room')!.sparse).toBe(true)
-})
-
-it('lets two live account runtimes display the same IDB arrival while only the winning window notifies', async () => {
-  const factory = new IDBFactory()
-  const repositories = await Promise.all([open('viewer', factory), open('viewer', factory)])
-  const row = message({ id: 'two-window-message', chat_id: 'room', seq: 1 })
-  const notify = vi.fn(async () => {})
-  let live = false
-  const wakes: Array<(head?: string | null) => void> = []
-  const caches = repositories.map(() => new ChatWindowCache('viewer'))
-  const unbinds = repositories.map((repository, index) => bindRepositoryMessageCache(repository, caches[index]!))
-  for (const repository of repositories) await repository.transaction(tx => tx.putSyncState('account-revision-cursor', { revision: '0' }))
-  const coordinators = repositories.map(repository => createAccountRevisionCoordinator('viewer', repository, {
-    syncSince: async cursor => ({ operations: live && cursor === '0'
-      ? [{ revision: '1', event: 'message_created', payload: { chat_id: 'room', entity_id: row.id, message: row } }] : [], hasMore: false }),
-    subscribeWake: (_id, wake) => { wakes.push(wake); return () => {} },
-  }, { recover: async () => { throw new Error('complete payload must not recover') }, notify }))
-  try {
-    for (const coordinator of coordinators) coordinator.start()
-    await Promise.all(coordinators.map(coordinator => coordinator.whenIdle()))
-    live = true
-    for (const wake of wakes) wake('1')
-    await Promise.all(coordinators.map(coordinator => coordinator.whenIdle()))
-    expect(notify).toHaveBeenCalledTimes(1)
-    for (const cache of caches) expect(cache.rows('room').map(row => row.id)).toEqual([row.id])
-  } finally {
-    for (const coordinator of coordinators) coordinator.stop()
-    for (const unbind of unbinds) unbind()
-  }
 })
