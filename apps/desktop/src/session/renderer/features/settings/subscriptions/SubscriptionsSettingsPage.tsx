@@ -134,7 +134,7 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
     : plan.error
       ? translate('subscriptions.unavailable.error', { message: errorText(plan.error) })
       : translate('subscriptions.checking');
-  const notes = plan.data ? planNotes(plan.data, translate, (at) => formatDate(at, locale)) : [];
+  const notes = plan.data ? planNotes(plan.data, translate, (at) => formatDate(at, locale)).filter(note => !manageable || note !== translate('subscriptions.signInHint')) : [];
   const reading = quotaReading(plan.data, usage.data);
 
   return (
@@ -155,7 +155,10 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
           ? translate('subscriptions.connections.count', { count: connections.data.length })
           : translate('subscriptions.connections.device')
       }
-      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchNotice} /> : undefined}
+      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchNotice}
+        addDirectly={auth?.status.kind === 'unauthenticated'}
+        label={auth?.status.kind === 'unauthenticated' ? translate('subscriptions.connections.add') : undefined}
+      /> : undefined}
       notice={switchNotice ? <SwitchNoticeLine notice={switchNotice} /> : undefined}
     >
       <UsageBlock

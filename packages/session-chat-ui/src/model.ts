@@ -623,7 +623,7 @@ export type SessionConditionItem = {
    * 后者读作「我登好了，接着来」，❌ 不能用「重试」顶替。
    */
   /** `pending`: its call is in flight; the button is disabled until it settles (a second click would repeat it). */
-  actions?: readonly { label: string; run: () => void; pending?: boolean }[];
+  actions?: readonly { label: string; run: (anchor?: HTMLElement) => void; pending?: boolean }[];
   /** 行文案里的占位值(按 code 取到的那句文案里要填的空)。 */
   labelValues?: Readonly<Record<string, string | number>>;
 };

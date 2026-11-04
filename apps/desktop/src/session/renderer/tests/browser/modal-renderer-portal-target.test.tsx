@@ -50,7 +50,7 @@ afterEach(() => {
   for (const el of [host, pageLayer, settingsLayer]) el.remove();
 });
 
-function confirm() {
+function confirm(portalContainer?: HTMLElement) {
   modalStore.setModal('confirmActionModal', {
     title: 'Delete 3 tasks?',
     description: 'Their folders are removed from this machine',
@@ -58,6 +58,7 @@ function confirm() {
     variant: 'default',
     onSuccess: () => undefined,
     onClose: () => modalStore.closeModal('dismissed'),
+    portalContainer,
   });
 }
 
@@ -77,4 +78,19 @@ it('lands in the page layer otherwise', async () => {
   await until('the dialog is open', () => dialogsIn(pageLayer) > 0);
   expect(dialogsIn(pageLayer)).toBe(1);
   expect(dialogsIn(settingsLayer)).toBe(0);
+});
+
+it('a caller-owned nested layer overrides Settings for one modal without changing the next caller', async () => {
+  const detailLayer = document.createElement('div');
+  settingsLayer.append(detailLayer);
+  modalStore.setPortalContainer(settingsLayer);
+  confirm(detailLayer);
+  await until('the nested caller owns its dialog', () => dialogsIn(detailLayer) === 1);
+  expect(dialogsIn(pageLayer)).toBe(0);
+  expect(modalStore.portalContainer).toBe(settingsLayer);
+  modalStore.closeModal();
+  await until('the caller dialog has closed', () => dialogsIn(detailLayer) === 0);
+  confirm();
+  await until('the next dialog uses Settings again', () => dialogsIn(settingsLayer) === 1);
+  expect(dialogsIn(detailLayer)).toBe(0);
 });

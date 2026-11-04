@@ -56,6 +56,7 @@ const control = vi.hoisted(() => ({
   selected: '',
   connections: [] as HarnessConnection[],
   codex: false,
+  signedOut: false,
   rejectSelect: false,
   selectMessage: 'Switch failed',
   selectBusy: null as { providerId: string; count: number } | null,
@@ -82,7 +83,7 @@ vi.mock('@/lib/billing', async importOriginal => ({
   refreshSpendingPower: () => {},
 }));
 vi.mock('@renderer/lib/stores/use-agent-auth-status', () => ({
-  useAgentAuthStatus: () => ({ auth: { status: { kind: 'authenticated', account: 'me@example.test' }, login: null }, refresh: async () => {} }),
+  useAgentAuthStatus: () => ({ auth: { status: control.signedOut ? { kind: 'unauthenticated' } : { kind: 'authenticated', account: 'me@example.test' }, login: null }, refresh: async () => {} }),
   useAgentAuthStatuses: () => ({ auths: [], refresh: async () => {} }),
   useExpiredAgentIds: () => new Set(),
 }));
@@ -112,7 +113,7 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
     },
     readSubscription: async () => {
       if (control.hold) await control.hold;
-      return { success: true, data: { payer: 'subscription', plan: 'Claude Max 20x' } };
+      return { success: true, data: control.signedOut ? { payer: 'not-signed-in' } : { payer: 'subscription', plan: 'Claude Max 20x' } };
     },
     readSubscriptionUsage: async ({ connectionId }: { connectionId?: string }) => ({
       success: true,
@@ -143,6 +144,7 @@ beforeEach(() => {
   control.created = null;
   control.selected = '';
   control.codex = false;
+  control.signedOut = false;
   control.rejectSelect = false;
   control.selectMessage = 'Switch failed';
   control.selectBusy = null;
@@ -170,6 +172,22 @@ afterEach(async () => {
   root.unmount();
   host.remove();
   layer.remove();
+});
+
+it.each(['claude', 'codex'])('an unsigned native %s connection can be added in place without the library sign-in dead end', async provider => {
+  control.codex = true;
+  control.signedOut = true;
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the unconfigured harness has an action', () => !!host.querySelector(`[data-testid="subscription-switch-${provider}"]`));
+  const action = host.querySelector<HTMLButtonElement>(`[data-testid="subscription-switch-${provider}"]`)!;
+  expect(action.textContent).toBe('Add connection');
+  expect(host.textContent).not.toContain('Library');
+  action.click();
+  await until('the existing connection form opens in Settings', () => !!layer.querySelector('.subscription-connection-form'));
+  expect(layer.querySelector('[role="dialog"]')?.textContent).toContain(`Add a ${provider === 'codex' ? 'Codex' : 'Claude Code'} connection`);
+  expect(layer.querySelector('form')?.closest('[aria-hidden="true"], [inert]')).toBeNull();
+  expect(control.created).toBeNull();
+  expect(thrown).toEqual([]);
 });
 
 it('draws a harness row with its plan, both quota windows without an extra query button outside the task page tree', async () => {

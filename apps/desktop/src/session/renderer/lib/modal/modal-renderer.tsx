@@ -125,7 +125,7 @@ export const ModalRenderer = observer(function ModalRenderer() {
 
   return (
     <Dialog open={modalStore.isOpen} onOpenChange={handleOpenChange}>
-      <DialogPortal container={modalStore.portalContainer ?? pageLayer}>
+      <DialogPortal container={(displayArgs?.portalContainer as HTMLElement | undefined) ?? modalStore.portalContainer ?? pageLayer}>
         <DialogOverlay />
         <DialogPrimitive.Popup
           ref={popupRef}

@@ -1,4 +1,6 @@
 import type { ChatComposerProps, PromptEditorRef } from '@gugu/session-ui/react/components';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { SubscriptionConnections } from '@renderer/features/settings/subscriptions/SubscriptionConnections';
 import { observer } from 'mobx-react-lite';
 import { composerDrafts } from '../composer-drafts';
 import { useCreateSessionCallback } from '../create-session-modal/use-create-session-callback';
@@ -113,6 +115,13 @@ vi.mock('@renderer/localization/use-session-messages', () => ({
 // 平台模型目录走 preload 桥的裸 channel(M 侧注册 handler),测试从这里驱动它的成败。
 vi.mock('@renderer/lib/electron-api', () => ({
   electronApi: () => ({ invoke: mocks.invoke, getPathForFile: () => mocks.droppedPath }),
+}));
+
+vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
+  getAgentConfigRuntimeClient: async () => ({
+    listConnections: async () => ({ success: true, data: [{ id: 'native', kind: 'native', name: 'CLI', current: true }] }),
+    refreshAuthStatus: async () => ({ success: true, data: { kind: 'unauthenticated' } }),
+  }),
 }));
 
 vi.mock('@renderer/lib/pty/terminal-image-injection', () => ({
@@ -2202,6 +2211,46 @@ describe('InitialSessionField', () => {
     expect(mocks.navigate).toHaveBeenCalledWith('library', { tab: 'agents', agentId: 'kimi' });
     // 阴控:composer ❌ 不再自己开登录终端。
     expect(modalStore.activeModalId).not.toBe('agentSignInModal');
+  });
+
+  it.each(['claude', 'codex'])('%s opens the shared connection menu over the original task draft', async provider => {
+    await renderField();
+    const previousAgents = agentFixtureRef.current;
+    const template = previousAgents?.find(item => (item as { id: string }).id === 'claude') as { capabilities: object };
+    agentFixtureRef.current = [{ ...template, id: provider, name: provider,
+      capabilities: { ...template.capabilities, auth: { kind: 'supported', methods: [{ kind: 'cli-login', id: `${provider}-login`, name: provider, args: ['login'] }] } },
+    }];
+    harnessCatalog({ kind: 'auth-required', authMethods: [], efforts: [], selectedEffort: null });
+    platformCatalog({ models: [GLM], agentDefault: null });
+    queryClient.clear();
+    mocks.navigate.mockClear(); mocks.hostInstallNavigation.mockClear(); mocks.createSession.mockClear();
+    try {
+      await act(async () => root.render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(FieldProbe, { provider }))));
+      await act(async () => latestState?.setPrompt('Keep the original task draft'));
+      const before = latestState;
+      const trigger = document.createElement('button');
+      trigger.textContent = 'Go sign in'; container.append(trigger);
+      expect(latestState?.harnessSignIn).toBeTypeOf('function');
+      await act(async () => { latestState?.harnessSignIn?.(trigger); });
+      // Base UI portals are browser-only. This node suite checks the real state
+      // request; agent-connection-panel.test.tsx exercises its actual menu/form.
+      const panel = latestState?.connectionPanel;
+      expect(React.isValidElement(panel)).toBe(true);
+      expect((panel as React.ReactElement).type).toBe(SubscriptionConnections);
+      expect((panel as React.ReactElement<{ open: boolean; agent: { id: string }; machine: string | null }>).props)
+        .toMatchObject({ open: true, agent: { id: provider }, machine: null });
+      expect(latestState?.prompt).toBe('Keep the original task draft');
+      expect(latestState?.attachments).toEqual(before?.attachments);
+      expect(latestState?.provider).toBe(provider);
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(mocks.hostInstallNavigation).not.toHaveBeenCalled();
+      expect(modalStore.activeModalId).not.toBe('agentSignInModal');
+      expect(mocks.createSession).not.toHaveBeenCalled();
+    } finally {
+      agentFixtureRef.current = previousAgents;
+      await act(async () => root.render(null));
+      queryClient.clear();
+    }
   });
 
   it('#6264 所选机器不是本机:「登录以使用」在那台机器上登录,❌ 跳本机资源库', async () => {

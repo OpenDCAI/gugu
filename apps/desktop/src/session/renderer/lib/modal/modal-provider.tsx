@@ -11,6 +11,8 @@ type UserArgs<MId extends ModalId> = Omit<ModalArgs<MId>, 'onSuccess' | 'onClose
     result: ModalArgs<MId> extends { onSuccess: (result: infer R) => void } ? R : unknown
   ) => void;
   onClose?: () => void;
+  /** The invoking surface owns the modal layer, including nested connection sign-in. */
+  portalContainer?: HTMLElement;
 };
 
 type ModalId = keyof typeof modalRegistry;
