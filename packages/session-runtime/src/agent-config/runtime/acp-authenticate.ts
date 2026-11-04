@@ -38,7 +38,10 @@ export type AcpAuthenticateOptions = {
    * 进程与回调端口被无限期占着。
    */
   timeoutMs?: number;
-  /** stderr/stdout 里第一次出现的 https 链接 —— 备用的「浏览器没打开就点这里」。 */
+  /**
+   * 登录链接 —— 备用的「浏览器没打开就点这里」:协议通知里的 `authUrl`,或 `authenticate` 在途期间
+   * stderr/stdout 里第一次出现的 https 链接。
+   */
   onUrl?: (url: string) => void;
 };
 
@@ -72,8 +75,13 @@ export async function runAcpAuthenticate(options: AcpAuthenticateOptions): Promi
     proc.stderr.on('error', () => {});
 
     let urlSeen = false;
+    // @@@login-url-window - 只认 `authenticate` 发出之后打出来的链接:那是厂商对「登录」这个请求的回应。
+    // 启动期的提示不是 —— CodeBuddy 在 Windows 上缺 Git Bash 时一起动就往 stderr 打「install Git for
+    // Windows (https://git-scm.com/downloads/win)」(2.169.0 / 2.179.3 原文,只是提示、照常降级到 PowerShell),
+    // 抓了它就把真正的 `authUrl` 通知挡在了 urlSeen 后面。
+    let authenticating = false;
     const scanForUrl = (chunk: string) => {
-      if (urlSeen || !options.onUrl) return;
+      if (urlSeen || !authenticating || !options.onUrl) return;
       const match = URL_PATTERN.exec(chunk);
       if (!match) return;
       urlSeen = true;
@@ -154,6 +162,7 @@ export async function runAcpAuthenticate(options: AcpAuthenticateOptions): Promi
         clientInfo: { name: 'gugu', version: '1' },
       });
       if (init.error) return { kind: 'failed', message: rpcErrorMessage('initialize', init.error) };
+      authenticating = true;
       const auth = await request('authenticate', { methodId: options.methodId });
       if (auth.error) return { kind: 'failed', message: rpcErrorMessage('authenticate', auth.error) };
       return { kind: 'succeeded' };
