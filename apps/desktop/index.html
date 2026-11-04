@@ -10,7 +10,7 @@
     <title>咕咕</title>
     <style>
       html, body { margin: 0; }
-      [data-gugu-boot] { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow: hidden; pointer-events: none; background: #fff; color: #1a1c1f; }
+      [data-gugu-boot] { position: fixed; inset: 0; z-index: 100; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; overflow: hidden; pointer-events: none; background: #fff; color: #1a1c1f; }
       [data-theme="dark"] [data-gugu-boot] { background: #181818; color: #f0f0f2; }
       [data-gugu-boot] > svg { position: absolute; width: min(355.2px, calc(100vw - 48px)); height: auto; }
       [data-gugu-boot] [data-startup-poster-settled] { display: none; }

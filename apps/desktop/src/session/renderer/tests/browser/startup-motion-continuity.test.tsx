@@ -19,7 +19,7 @@ const idle = { phase: 'idle', busy: false }
 const { LoginPage } = await import('@/pages/LoginPage')
 let root: Root | undefined, rootHost: HTMLElement | undefined, style: HTMLStyleElement | undefined
 type FrameTree = { frame: { id: string; name?: string }; childFrames?: FrameTree[] }
-type CanvasSnapshot = { timeOrigin: number; phase: string; canvasCount: number; scriptCount: number; width: number; height: number; hash: number; pixels: number; fontStatus: string }
+type CanvasSnapshot = { timeOrigin: number; phase: string; canvasCount: number; scriptCount: number; left: number; top: number; width: number; height: number; hash: number; pixels: number; fontStatus: string }
 const session = () => cdp() as unknown as { send<T = unknown>(method: string, params?: object): Promise<T> }
 async function media(reduce: boolean) {
   await session().send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduce ? 'reduce' : 'no-preference' }] })
@@ -52,7 +52,7 @@ async function snapshot(frame: HTMLIFrameElement) {
     const canvas = document.querySelector('canvas'), r = canvas.getBoundingClientRect(), data = canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
     let hash=2166136261, pixels=0;
     for(let i=0;i<data.length;i++){hash=Math.imul(hash^data[i],16777619);if(i%4===3&&data[i])pixels++}
-    return {timeOrigin:performance.timeOrigin,phase:canvas.dataset.phase,canvasCount:document.querySelectorAll('canvas').length,scriptCount:document.querySelectorAll('script').length,width:r.width,height:r.height,hash:hash>>>0,pixels,fontStatus:document.fonts.status};
+    return {timeOrigin:performance.timeOrigin,phase:canvas.dataset.phase,canvasCount:document.querySelectorAll('canvas').length,scriptCount:document.querySelectorAll('script').length,left:r.left,top:r.top,width:r.width,height:r.height,hash:hash>>>0,pixels,fontStatus:document.fonts.status};
   })()` })
   expect(result.exceptionDetails).toBeUndefined()
   return result.result.value
@@ -238,3 +238,19 @@ it('restores the ordinary loader after the real sandbox reports a runtime error 
   expect(document.querySelector('[data-gugu-boot]')).toBeNull()
   expect(rootHost!.querySelector('[data-testid=full-screen-loader]')?.getAttribute('aria-busy')).toBe('true')
 })
+
+for (const width of [360, 412, 480, 640, 1280]) for (const theme of ['light', 'dark']) for (const reduce of [false, true])
+  it(`centers the actual startup wordmark in the viewport: ${width}px ${theme} reduced=${reduce}`, async () => {
+    await page.viewport(width, 867); await media(reduce); mountHtml(theme)
+    const handle = startStartupMotion({ hold: true })!
+    await handle.frameReady
+    const canvas = await snapshot(handle.frame)
+    const frame = handle.frame.getBoundingClientRect()
+    const scale = frame.width / handle.frame.clientWidth
+    const centerX = frame.left + (canvas.left + canvas.width / 2) * scale
+    const centerY = frame.top + (canvas.top + canvas.height / 2) * scale
+    expect(canvas.width).toBe(592)
+    expect(canvas.width * scale).toBeCloseTo(Math.min(355.2, width - 48))
+    expect(Math.abs(centerX - innerWidth / 2), `wordmark center ${centerX}, viewport center ${innerWidth / 2}`).toBeLessThan(1)
+    expect(Math.abs(centerY - innerHeight / 2), `wordmark vertical center ${centerY}, viewport center ${innerHeight / 2}`).toBeLessThan(1)
+  })
