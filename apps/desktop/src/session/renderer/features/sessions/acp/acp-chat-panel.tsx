@@ -382,7 +382,7 @@ const ComposerForStore = observer(function ComposerForStore({
       try {
         await sendComposerInput(value, {
           unsettled: () => fileUploads.unsettled(),
-          waitForUploads: () => fileUploads.waitForUploads(),
+          waitForUploads: async () => { await fileUploads.waitForUploads(); },
           hasFailedAttachments: () => attachmentsRef.current.some(att => att.state === 'error'),
           files: () => fileUploads.files(attachmentsRef.current.map(att => att.id)),
           status: setSendHold,
