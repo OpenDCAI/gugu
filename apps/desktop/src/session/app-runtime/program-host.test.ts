@@ -37,7 +37,8 @@ describe('gugu in a program', () => {
   it('page protocol events never inherit another active call; maintenance carries only its resource identity', async () => {
     const { gugu, sent, deliver, nextCall } = await program();
     const { programCall } = await import('./program-call');
-    type Lease = { onMessage(fn: () => void): void; maintain(method: string): Promise<unknown>; send(method: string): Promise<unknown> };
+    type Lease = { onMessage(fn: () => void): void; onPresentation(fn: () => void): void; presentation(): Promise<unknown>;
+      maintain(method: string): Promise<unknown>; send(method: string): Promise<unknown> };
     const api = gugu.pages as { acquire(): Promise<Lease> };
     const opening = programCall.run('acquire-a', () => api.acquire());
     const request = await nextCall(0);
@@ -58,6 +59,15 @@ describe('gugu in a program', () => {
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: maintain.id, ok: true, value: {} });
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: send.id, ok: false, code: 'denied', message: 'A current task call is required' });
     await maintenance; await denied;
+    let geometry: Promise<unknown> | undefined;
+    lease.onPresentation(() => { geometry = lease.presentation(); });
+    const geometryStart = sent.length;
+    programCall.run('unrelated-b', () => deliver({ m: APP_FRAME_MARKER, t: 'event',
+      event: { type: 'taskPage', event: { type: 'presentation', watchId, presentation: null } } }));
+    const measure = await nextCall(geometryStart);
+    expect(measure).toMatchObject({ method: 'taskPagePresentation', args: { id: 'page-a' } });
+    expect(measure).not.toHaveProperty('call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: measure.id, ok: true, value: null }); await geometry;
   });
   it('custom MCP adapters enter their own stamped call without leaking it to another invocation', async () => {
     const { gugu, sent, deliver, nextCall } = await program();

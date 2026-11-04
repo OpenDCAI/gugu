@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountTaskPage, taskPagesApi } from './task-pages';
-import type { TaskPageEvent, TaskPageHost } from '@shared/extensions/task-page-protocol';
+import type { TaskPageEvent, TaskPageHost, TaskPagePresentation } from '@shared/extensions/task-page-protocol';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 it('preserves an early close and forbids further input without losing the close reason', async () => {
@@ -42,4 +42,43 @@ it('reports a later layout error and still releases the native mount', async () 
   mount.mockRejectedValueOnce(new Error('document changed')); notify();
   await vi.waitFor(() => expect(unmount).toHaveBeenCalledWith({ id: 'lease' }));
   expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: 'document changed' }));
+});
+
+it('keeps geometry events separate from protocol messages and clears decoration on close without accepting late events', async () => {
+  let receive: (event: TaskPageEvent) => void = () => {};
+  let watch = '';
+  const host: TaskPageHost = { onTaskPage: fn => { receive = fn; return () => {}; }, pages: {
+    acquire: vi.fn(async ({ watchId }) => { watch = watchId; return { id: 'lease', title: 'Page', url: 'https://example.org' }; }),
+    presentation: vi.fn(async () => null), send: vi.fn(), release: vi.fn(), mount: vi.fn(), unmount: vi.fn(),
+  } };
+  const lease = await taskPagesApi(host).acquire(), geometry = vi.fn(), protocol = vi.fn();
+  lease.onPresentation(geometry); lease.onMessage(protocol);
+  await expect(lease.presentation()).resolves.toBeNull();
+  expect(host.pages!.presentation).toHaveBeenCalledExactlyOnceWith({ id: 'lease' });
+  receive({ watchId: 'other-lease', type: 'presentation', presentation: null }); expect(geometry).not.toHaveBeenCalled();
+  receive({ watchId: watch, type: 'presentation', presentation: null });
+  expect(geometry).toHaveBeenCalledExactlyOnceWith(null); expect(protocol).not.toHaveBeenCalled();
+  await lease.close(); expect(geometry).toHaveBeenCalledTimes(2);
+  receive({ watchId: watch, type: 'presentation', presentation: null }); expect(geometry).toHaveBeenCalledTimes(2);
+  await expect(lease.presentation()).rejects.toThrow('Released');
+});
+
+it('does not let a late geometry reply override a newer hidden state or revive a closed lease', async () => {
+  let receive: (event: TaskPageEvent) => void = () => {}, watch = '';
+  const pending = Promise.withResolvers<TaskPagePresentation | null>();
+  const measure = vi.fn(() => pending.promise);
+  const host: TaskPageHost = { onTaskPage: fn => { receive = fn; return () => {}; }, pages: {
+    acquire: async ({ watchId }) => { watch = watchId; return { id: 'lease', title: 'Page', url: '' }; },
+    presentation: measure, send: vi.fn(), release: vi.fn(), mount: vi.fn(), unmount: vi.fn(),
+  } };
+  const lease = await taskPagesApi(host).acquire();
+  const geometry = { space: 'screen-dip' as const, bounds: { x: 10, y: 20, width: 30, height: 40 },
+    clip: { x: 10, y: 20, width: 30, height: 40 }, zoomFactor: 1, relativeTo: { windowId: '10' } };
+  const late = Promise.withResolvers<typeof geometry>();
+  measure.mockImplementationOnce(() => late.promise);
+  const snapshot = lease.presentation();
+  receive({ watchId: watch, type: 'presentation', presentation: null });
+  late.resolve(geometry); await expect(snapshot).resolves.toBeNull();
+  const afterClose = lease.presentation(), rejected = expect(afterClose).rejects.toThrow('Released');
+  await lease.close(); pending.resolve(null); await rejected;
 });

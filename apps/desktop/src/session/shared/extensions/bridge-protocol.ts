@@ -686,6 +686,7 @@ export const BRIDGE_VERBS = {
   taskPageAcquire: { needs: 'agents:tools', only: 'program' },
   taskPageSend: { needs: 'agents:tools', only: 'program' },
   taskPageMaintain: { needs: 'agents:tools', only: 'program' },
+  taskPagePresentation: { needs: 'agents:tools', only: 'program' },
   taskPageRelease: { needs: 'agents:tools', only: 'program' },
   taskPageMount: { needs: 'agents:tools', only: 'page' },
   taskPageUnmount: { needs: 'agents:tools', only: 'page' },

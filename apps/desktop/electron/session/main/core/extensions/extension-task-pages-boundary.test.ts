@@ -18,11 +18,12 @@ function setup() {
           if (signal?.aborted) abort();
         });
       }) }, setActive: vi.fn(), release: vi.fn() };
-  const pages = new ExtensionTaskPages(() => {}, async () => native); instances.push(pages);
+  const report = vi.fn();
+  const pages = new ExtensionTaskPages(() => {}, async () => native, report); instances.push(pages);
   const a = new AbortController(), b = new AbortController();
   const caller = (controller: AbortController) => ({ kind: 'program', pageId: -811, extensionId: 'shared-app',
     callingSession: 'shared-task', signal: controller.signal, interruption: controller.signal, hear: vi.fn() }) as unknown as BridgeCaller;
-  return { pages, native, a, b, caller, completeA, completeB };
+  return { pages, native, a, b, caller, completeA, completeB, report };
 }
 
 it('denies native file-input attachment before dispatch even with agents:tools and a live task call', async () => {
@@ -68,4 +69,47 @@ it('limits background maintenance to the owning program resource and keeps ordin
   cancelExtensionSessionCalls('shared-task');
   await expect(pages.maintain(background, command)).rejects.toThrow();
   expect(native.protocol.maintain).toHaveBeenCalledTimes(1);
+});
+
+it('measures only the owning program lease, including after acquisition A ends, and rejects foreign targets or a stopped task', async () => {
+  const { pages, native, a, caller } = setup();
+  const geometry = { space: 'screen-dip' as const, bounds: { x: 10, y: 20, width: 300, height: 200 },
+    clip: { x: 10, y: 20, width: 300, height: 200 }, zoomFactor: 1.5, relativeTo: { windowId: '12' } };
+  native.presentation = vi.fn(() => geometry);
+  const lease = await pages.acquire(caller(a), { watchId: 'geometry' }); a.abort();
+  const background = { ...caller(new AbortController()), signal: undefined, callingSession: undefined };
+  expect(pages.presentation(background, { id: lease.id })).toEqual(geometry);
+  for (const wrong of [{ ...background, extensionId: 'other-app' }, { ...background, pageId: -812 },
+    { ...background, kind: 'page' }, { ...background, callingSession: 'other-task' }]) {
+    expect(() => pages.presentation(wrong as BridgeCaller, { id: lease.id })).toThrow();
+  }
+  expect(() => pages.presentation(background, { id: 'guessed-native-id' })).toThrow();
+  expect(() => pages.presentation(background, { id: lease.id, windowId: '13' })).toThrow('only its page lease');
+  cancelExtensionSessionCalls('shared-task');
+  expect(() => pages.presentation(background, { id: lease.id })).toThrow();
+  expect(native.presentation).toHaveBeenCalledTimes(1);
+});
+
+it('tears down native presentation observers and ignores their late callback after the lease closes', async () => {
+  const { pages, native, a, caller } = setup();
+  const off = vi.fn(); let changed: (value: null) => void = () => {};
+  native.onPresentation = vi.fn(listener => { changed = listener; return off; });
+  const from = caller(a), lease = await pages.acquire(from, { watchId: 'geometry-events' });
+  changed(null);
+  expect(from.hear).toHaveBeenLastCalledWith({ type: 'taskPage', event: { watchId: 'geometry-events', type: 'presentation', presentation: null } });
+  await pages.release(from, lease.id); const count = vi.mocked(from.hear).mock.calls.length;
+  changed(null); expect(from.hear).toHaveBeenCalledTimes(count); expect(off).toHaveBeenCalledTimes(1);
+});
+
+it('keeps acquisition and commands working if optional presentation subscription fails', async () => {
+  const { pages, native, a, caller, report } = setup(), offClose = vi.fn();
+  native.protocol.onClose = () => offClose;
+  native.onPresentation = () => { throw new Error('presentation registration failed'); };
+  vi.mocked(native.protocol.send).mockResolvedValue({ ok: true });
+  const from = caller(a), lease = await pages.acquire(from, { watchId: 'failed-observer' });
+  expect(report).toHaveBeenCalledWith(expect.objectContaining({ message: 'presentation registration failed' }));
+  expect(from.hear).toHaveBeenCalledWith({ type: 'taskPage', event: { watchId: 'failed-observer', type: 'presentation', presentation: null } });
+  await expect(pages.send(from, { id: lease.id, method: 'Runtime.enable' })).resolves.toEqual({ ok: true });
+  expect(offClose).not.toHaveBeenCalled(); await pages.release(from, lease.id);
+  expect(offClose).toHaveBeenCalledTimes(1); expect(native.release).toHaveBeenCalledTimes(1);
 });

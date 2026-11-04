@@ -6,7 +6,7 @@ import { leasePageProtocol } from '../browser/leased-page-protocol';
 import { sessionEvents } from '../sessions/session-events';
 import { projectEvents } from '../projects/project-events';
 import { BrowserWindow } from 'electron';
-import { leaseBrowserPagePresentation } from '../browser/browser-page-views';
+import { leaseBrowserPagePresentation, browserPagePresentation, onBrowserPagePresentation } from '../browser/browser-page-views';
 import { extensionPagePresentation } from './extension-bridge';
 import { log } from '@main/lib/logger';
 import type { TaskPageRect } from './extension-task-pages';
@@ -42,6 +42,8 @@ export const extensionTaskPages = new ExtensionTaskPages(extensionId => {
     void page.ready.catch(() => {});
     return { projectId, title: selected.webContents.getTitle(), url: selected.webContents.getURL(), protocol,
       cleanup,
+      presentation: () => browserPagePresentation(browserId),
+      onPresentation: listener => onBrowserPagePresentation(browserId, listener),
       mount(caller, firstRect) {
         const presentation = extensionPagePresentation(caller);
         const host = BrowserWindow.fromWebContents(presentation.embedder);

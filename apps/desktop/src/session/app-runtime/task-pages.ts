@@ -1,7 +1,15 @@
-import type { TaskPageEvent, TaskPageHost } from '@shared/extensions/task-page-protocol';
+import type { TaskPageEvent, TaskPageHost, TaskPagePresentation } from '@shared/extensions/task-page-protocol';
 
 type Message = (method: string, params: Record<string, unknown>, sessionId?: string) => void;
-type Lease = { id?: string; closed?: string; messages: Set<Message>; closures: Set<(reason: string) => void> };
+type Lease = { id?: string; closed?: string; messages: Set<Message>; closures: Set<(reason: string) => void>;
+  presentations: Set<(value: TaskPagePresentation | null) => void>; presentationVersion: number; presentation?: TaskPagePresentation | null };
+
+function tellPresentation(page: Lease, value: TaskPagePresentation | null): void {
+  page.presentation = value; page.presentationVersion++;
+  for (const listener of page.presentations) {
+    try { listener(value); } catch (error) { console.error('App page presentation listener failed', error); }
+  }
+}
 
 /** One opaque host lease, with App-local protocol adaptation left to the caller. */
 export function taskPagesApi(host: TaskPageHost) {
@@ -10,6 +18,7 @@ export function taskPagesApi(host: TaskPageHost) {
     const page = pages.get(watchId);
     if (!page || page.closed) return;
     page.closed = reason;
+    tellPresentation(page, null); page.presentations.clear();
     for (const listener of page.closures) listener(reason);
     page.closures.clear();
     page.messages.clear();
@@ -19,12 +28,13 @@ export function taskPagesApi(host: TaskPageHost) {
     const page = pages.get(event.watchId);
     if (!page || page.closed) return;
     if (event.type === 'closed') { finish(event.watchId, event.reason); return; }
+    if (event.type === 'presentation') { tellPresentation(page, event.presentation); return; }
     for (const listener of page.messages) listener(event.method, event.params, event.sessionId);
   });
   return Object.freeze({
     async acquire(options: { url?: string } = {}) {
       const watchId = crypto.randomUUID();
-      const page: Lease = { messages: new Set(), closures: new Set() };
+      const page: Lease = { messages: new Set(), closures: new Set(), presentations: new Set(), presentationVersion: 0 };
       pages.set(watchId, page);
       try {
         const leased = await host.pages!.acquire({ watchId, ...options });
@@ -40,6 +50,19 @@ export function taskPagesApi(host: TaskPageHost) {
             if (page.closed) return Promise.reject(new Error(page.closed));
             if (!host.pages!.maintain) return Promise.reject(new Error('This host cannot maintain a task page connection'));
             return host.pages!.maintain({ id: leased.id, method, params, sessionId });
+          },
+          async presentation() {
+            if (page.closed) return Promise.reject(new Error(page.closed));
+            if (!host.pages!.presentation) return Promise.reject(new Error('This host cannot measure a task page presentation'));
+            const version = page.presentationVersion;
+            const value = await host.pages!.presentation({ id: leased.id });
+            if (page.closed) throw new Error(page.closed);
+            // An event received while this snapshot was in flight is newer than its reply.
+            return page.presentationVersion !== version ? page.presentation ?? null : value;
+          },
+          onPresentation(listener: (value: TaskPagePresentation | null) => void) {
+            if (!page.closed) page.presentations.add(listener);
+            return () => { page.presentations.delete(listener); };
           },
           onMessage(listener: Message) {
             if (!page.closed) page.messages.add(listener);

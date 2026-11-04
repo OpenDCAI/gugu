@@ -31,6 +31,7 @@ export const HOST_CALLS = {
   'pages.acquire': { verb: 'taskPageAcquire' },
   'pages.send': { verb: 'taskPageSend' },
   'pages.maintain': { verb: 'taskPageMaintain' },
+  'pages.presentation': { verb: 'taskPagePresentation' },
   'pages.release': { verb: 'taskPageRelease' },
   'pages.mount': { verb: 'taskPageMount' },
   'pages.unmount': { verb: 'taskPageUnmount' },

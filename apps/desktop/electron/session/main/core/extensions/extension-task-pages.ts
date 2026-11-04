@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { anySignal } from '@gugu/core/shared/anySignal';
-import type { TaskPageEvent } from '@shared/extensions/task-page-protocol';
+import type { TaskPageEvent, TaskPagePresentation } from '@shared/extensions/task-page-protocol';
 import type { PageProtocol } from '../browser/page-protocol';
 import { isSupportedBrowserNavigationUrl } from '../browser/browser-navigation';
 import { openExtensionProgramAccess } from './extension-program-access';
@@ -20,6 +20,8 @@ export interface TaskPageNative {
   setActive(active: boolean): void;
   release(): void;
   cleanup?(): Promise<void>;
+  presentation?(): TaskPagePresentation | null;
+  onPresentation?(listener: (value: TaskPagePresentation | null) => void): () => void;
   mount?(caller: BridgeCaller, rect: TaskPageRect): { layout(rect: TaskPageRect): void; close(): void };
 }
 type RecordOfPage = {
@@ -120,6 +122,8 @@ export class ExtensionTaskPages {
       admitted = page;
       const stop = () => this.endFromNative(page, 'App page access was revoked');
       let offMessage = () => {};
+      let offClose = () => {}, offPresentation = () => {};
+      page.off = () => { offMessage(); offClose(); offPresentation(); access.signal.removeEventListener('abort', stop); };
       let listening = false;
       page.listen = () => {
         if (listening) return;
@@ -129,9 +133,16 @@ export class ExtensionTaskPages {
             ...(sessionId === undefined ? {} : { sessionId }) });
         });
       };
-      const offClose = native.protocol.onClose(reason => this.endFromNative(page, reason));
+      offClose = native.protocol.onClose(reason => this.endFromNative(page, reason));
+      if (page.closed) { page.off(); throw new Error('Task page closed during acquisition'); }
+      const showPresentation = (presentation: TaskPagePresentation | null) => {
+        if (page.closed || page.access.signal.aborted) return;
+        try { page.hear({ watchId: page.watchId, type: 'presentation', presentation }); }
+        catch (error) { this.report(error); }
+      };
+      try { offPresentation = native.onPresentation?.(showPresentation) ?? (() => {}); }
+      catch (error) { this.report(error); showPresentation(null); }
       access.signal.addEventListener('abort', stop, { once: true });
-      page.off = () => { offMessage(); offClose(); access.signal.removeEventListener('abort', stop); };
       if (page.closed) { page.off(); throw new Error('Task page closed during acquisition'); }
       this.pages.set(page.id, page);
       signal.throwIfAborted();
@@ -193,6 +204,13 @@ export class ExtensionTaskPages {
     page.listen();
     return page.native.protocol.maintain(args.method, args.params as Record<string, unknown> | undefined,
       args.sessionId as string | undefined, page.access.signal);
+  }
+
+  presentation(caller: BridgeCaller, args: Record<string, unknown>): TaskPagePresentation | null {
+    if (Object.keys(args).length !== 1 || !Object.hasOwn(args, 'id')) throw new Error('A presentation query takes only its page lease');
+    const page = this.resource(caller, args.id);
+    if (!page.native.presentation) throw new Error('This host cannot measure a task page presentation');
+    return page.native.presentation();
   }
 
   release(caller: BridgeCaller, id: unknown): Promise<void> {
