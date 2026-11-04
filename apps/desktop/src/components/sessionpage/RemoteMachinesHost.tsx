@@ -27,7 +27,7 @@ export function RemoteMachinesHost({ enabled, openSettingsSection }: {
   const phoneDirectoryRequested = usePhoneTaskDirectoryRequested()
   // Phones publish summaries through their own protocol, never the workspace bridge below.
   // On mobile the existing AgentWatchRoot owns this synchronization instead.
-  usePhoneAgentDirectory(enabled && !mobile && phoneDirectoryRequested ? [...devices, ...phones] : [])
+  usePhoneAgentDirectory(enabled && !mobile && phoneDirectoryRequested ? [...devices, ...phones] : [], { remote: true })
   const [request, setRequest] = useState<{
     deviceId: string
     initialPath: string
