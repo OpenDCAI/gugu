@@ -46,6 +46,8 @@ afterEach(async () => {
 describe('the packaged launcher verifies before loading application code', () => {
   it('counts three syntax failures and rolls back on the fourth launch before parsing server.js', () => {
     pending()
+    const stalePin = JSON.stringify({ version: '0.9.0', previous: null, at: 1 })
+    fs.writeFileSync(data('server-version.json'), stalePin)
     fs.writeFileSync(app(), 'const broken = ;')
     for (const attempt of [1, 2, 3]) {
       const result = run()
@@ -53,6 +55,7 @@ describe('the packaged launcher verifies before loading application code', () =>
       expect(result.stderr).toContain('SyntaxError')
       expect(read('pending-verify.json').attempts).toBe(attempt)
       expect(fs.existsSync(data('server.lock'))).toBe(false)
+      expect(fs.readFileSync(data('server-version.json'), 'utf8')).toBe(stalePin)
     }
     const rolledBack = run()
     expect(rolledBack.status, rolledBack.stderr).toBe(75)
@@ -60,6 +63,7 @@ describe('the packaged launcher verifies before loading application code', () =>
     expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/1.0.0'))
     expect(read('bad-versions.json')['2.0.0']).toBeTypeOf('number')
     expect(read('server-update.json').lastOutcome).toMatchObject({ kind: 'rolledBack', bad: '2.0.0', back: '1.0.0', request: 42 })
+    expect(read('server-version.json')).toEqual({ version: '1.0.0', previous: null, at: read('server-update.json').at })
     expect(fs.existsSync(data('pending-verify.json'))).toBe(false)
   })
 

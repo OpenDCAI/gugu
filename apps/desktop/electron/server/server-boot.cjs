@@ -285,10 +285,14 @@ function readPendingVerify(home) {
   }
 }
 function writePendingVerify(home, value) { writeJson(file(home, 'pending-verify.json'), validatePending(value)) }
+function writeVersionOutcome(home, record) {
+  writeJson(file(home, 'server-update.json'), record)
+  writeJson(file(home, 'server-version.json'), { version: record.version, previous: record.previous ?? null, at: record.at })
+}
 function markServerReady(home, now = Date.now()) {
   const pending = readPendingVerify(home)
   if (!pending || process.env.GUGU_TASK_HOST_VERSION !== pending.to) return
-  writeJson(file(home, 'server-update.json'), { state: 'idle', version: pending.to, previous: pending.from, at: now,
+  writeVersionOutcome(home, { state: 'idle', version: pending.to, previous: pending.from, at: now,
     lastOutcome: { kind: 'switched', target: pending.to, at: now,
       ...(pending.request !== undefined ? { request: pending.request } : {}) } })
   fs.rmSync(file(home, 'pending-verify.json'), { force: true })
@@ -330,7 +334,7 @@ function checkPendingBoot(home) {
   pointCurrent(home, previous)
   const at = Date.now()
   writeJson(badFile, { ...bad, [pending.to]: at })
-  writeJson(file(home, 'server-update.json'), { state: 'idle', version: pending.from, at,
+  writeVersionOutcome(home, { state: 'idle', version: pending.from, at,
     lastOutcome: { kind: 'rolledBack', bad: pending.to, back: pending.from, at,
       ...(pending.request !== undefined ? { request: pending.request } : {}) } })
   fs.rmSync(file(home, 'pending-verify.json'))
