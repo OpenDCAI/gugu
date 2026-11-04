@@ -6,7 +6,8 @@ import type { TranscriptTurn, SessionState } from '@gugu/session-core/acp/client
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => ({ getStoredQueue: async () => [] }),
 }));
-vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
+const toasts = vi.hoisted(() => [] as unknown[]);
+vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: (value: unknown) => toasts.push(value) }));
 const listeners = new Map<string, Set<(data: unknown) => void>>();
 const read = vi.fn();
 Object.defineProperty(document, 'fonts', { configurable: true, value: { load: async () => [] } });
@@ -57,7 +58,7 @@ function attached(id = 'A') {
 function receipt(sessionId = 'A', referenceId = live.referenceId) {
   for (const callback of listeners.get('session:turn-settled') ?? []) callback({ sessionId, referenceId, status: 'persisted' });
 }
-beforeEach(() => { read.mockReset(); read.mockResolvedValue(stored); });
+beforeEach(() => { toasts.length = 0; read.mockReset(); read.mockResolvedValue(stored); });
 afterEach(() => { for (const store of stores.splice(0)) store.dispose(); });
 
 it.each(['closed-first', 'active-null-first'] as const)('consumes the actual terminal history when %s', async order => {
@@ -82,4 +83,62 @@ it('retains the last real frame until a late matching persistence receipt arrive
   await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.at(-1)?.referenceId).toBe(live.referenceId), { timeout: 500 });
   expect(read).toHaveBeenCalledTimes(2);
   expect(store.chatState.transcript.state.activeTurnSnapshot).toBeNull();
+});
+
+it('accepts a persisted receipt that arrived before closed', async () => {
+  const { store, close } = attached(); receipt(); close();
+  await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.at(-1)?.outcome?.kind).toBe('cancelled'));
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it.each(['before', 'after'])('reports actual persistence failure %s closed without inventing Stopped', async order => {
+  read.mockResolvedValue(null);
+  const { store, close } = attached();
+  const fail = () => { for (const cb of listeners.get('session:turn-settled') ?? []) cb({
+    sessionId: 'A', referenceId: live.referenceId, status: 'failed', reason: 'disk write denied',
+  }); };
+  if (order === 'before') fail();
+  close();
+  if (order === 'after') { await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1)); fail(); }
+  await vi.waitFor(() => expect(JSON.stringify(toasts)).toContain('disk write denied'));
+  expect(store.chatState.transcript.state.committedTurns.some(turn => turn.outcome?.kind === 'cancelled')).toBe(false);
+  expect(store.chatState.transcript.state.activeTurnSnapshot?.items).toEqual(live.items);
+});
+
+it('does not let the old handle clear a new turn with the same runtime id', async () => {
+  let finish!: (value: typeof stored) => void;
+  read.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const { store, session, close } = attached(); close();
+  const next = { ...session, activeTurn: replica<TranscriptTurn | null>({ ...live, referenceId: 'source:run-two' }), sessionState: replica(ready) };
+  runInAction(() => { store.session = next as unknown as typeof store.session; (store as unknown as Internal)._subscribeLiveSession(next); });
+  finish(stored); await Promise.resolve(); await Promise.resolve();
+  expect(store.chatState.transcript.state.activeTurnSnapshot?.referenceId).toBe('source:run-two');
+  expect(store.chatState.transcript.state.committedTurns).toHaveLength(0);
+});
+
+it('settles A without clearing or committing the still-running B', async () => {
+  const a = attached(); const b = attached('B'); a.close();
+  await vi.waitFor(() => expect(a.store.chatState.transcript.state.committedTurns).toHaveLength(1));
+  expect(b.store.chatState.transcript.state.activeTurnSnapshot).toEqual(live);
+  expect(b.store.session).not.toBeNull();
+  expect(b.store.chatState.transcript.state.committedTurns).toHaveLength(0);
+});
+
+it('retains a real process failure rather than replacing it with cancellation', async () => {
+  const failed = { ...stored, turn: { ...stored.turn, outcome: { kind: 'error', reason: 'process_closed', detail: 'signal=SIGKILL' } } };
+  read.mockResolvedValue(failed);
+  const { store, session } = attached();
+  session.sessionState.push({ ...ready, lifecycle: 'lost', isGenerating: false, failure: { message: 'adapter exited unexpectedly' } } as unknown as SessionState);
+  await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.at(-1)?.outcome).toEqual(failed.turn.outcome));
+  expect(store.loadError).toMatchObject({ kind: 'adapter_lost' });
+});
+
+it('does not wait for a turn that never existed', () => {
+  const { store, session, close } = attached();
+  session.activeTurn.push(null);
+  // A genuinely idle handle has no last live origin.
+  const idle = { ...session, activeTurn: replica<TranscriptTurn | null>(null) };
+  runInAction(() => { store.session = idle as unknown as typeof store.session; (store as unknown as Internal)._subscribeLiveSession(idle); });
+  close();
+  expect(read).not.toHaveBeenCalled();
 });

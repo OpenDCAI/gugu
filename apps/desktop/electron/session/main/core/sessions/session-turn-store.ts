@@ -12,6 +12,9 @@ import { nativeConversationActivity } from './session-conversation-activity';
 import { publishNativeConversationInbox, queueNativeConversationInbox } from './native-conversation-inbox';
 import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
 import { ownerNotificationEpoch, rewindOwnerNotificationState, publishOwnerNotificationState } from './owner-notification-state';
+import { persistWithTurnSettlement } from './turn-settlement';
+import { events } from '@main/lib/events';
+import { sessionTurnSettledChannel, type StoredSettledTurn } from '@shared/core/sessions/sessionEvents';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -53,7 +56,9 @@ type PersistInput = { sessionId: string; source: CommittedTurnSource; turn: Tran
 
 export function persistCommittedTurn(input: PersistInput): Promise<void> {
   const previous = persistenceTails.get(input.sessionId) ?? Promise.resolve();
-  const next = previous.then(() => persistCommittedTurnNow(input), () => persistCommittedTurnNow(input));
+  const write = () => persistWithTurnSettlement(input, () => persistCommittedTurnNow(input),
+    receipt => events.emit(sessionTurnSettledChannel, receipt));
+  const next = previous.then(write, write);
   persistenceTails.set(input.sessionId, next);
   return next.finally(() => {
     if (persistenceTails.get(input.sessionId) === next) persistenceTails.delete(input.sessionId);
@@ -265,6 +270,18 @@ export async function getStoredToolImage(params: {
   const itemId = row && turn && !('seq' in params)
     ? rewriteTurnId(params.itemId, row.turnId, turn.id) : params.itemId;
   return findToolImage(turn ? [turn] : [], itemId, params.index, Number.POSITIVE_INFINITY);
+}
+
+/** Read one immutable live origin, even after its runtime record was removed. No provider is contacted. */
+export async function getStoredSettledTurn(params: { sessionId: string; referenceId: string }): Promise<StoredSettledTurn | null> {
+  await persistenceTails.get(params.sessionId);
+  const [row] = await db.select({ data: sessionTurns.data, originTurnId: sessionTurns.turnId })
+    .from(sessionTurns).where(and(eq(sessionTurns.sessionId, params.sessionId),
+      sql`json_extract(${sessionTurns.data}, '$.referenceId') = ${params.referenceId}`))
+    .orderBy(desc(sessionTurns.seq)).limit(1);
+  if (!row) return null;
+  const turn = JSON.parse(row.data) as TranscriptTurn;
+  return turn.outcome ? { originTurnId: row.originTurnId, turn: trimTurnsForTransport([turn])[0]! } : null;
 }
 
 export interface StoredTurnPage {

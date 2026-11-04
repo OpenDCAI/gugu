@@ -69,7 +69,9 @@ import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
 import { failureText } from '../gugu-reason';
 import { modelSettingRejection, type ModelSettingRejection } from '../session-config/model-setting-rejection';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, rpcOn, onMachineEvent } from '@renderer/lib/ipc';
+import { sessionTurnSettledChannel, type StoredSettledTurn } from '@shared/core/sessions/sessionEvents';
+import { observeClosedTurnHistory } from './closed-turn-reconciliation';
 import { log } from '@renderer/utils/logger';
 import { sessionHasPriorContext } from '@shared/core/sessions/prior-context';
 import type { Session } from '@shared/core/sessions/sessions';
@@ -214,6 +216,7 @@ export class AcpChatStore {
    * 停着,下一次发消息要把它起起来。只在「停着、还没挂上」这一段为真;任何一次重新开场(`_runBootstrap`)都把它清掉。
    */
   private _closedByHost = false;
+  private _closedHistory: ReturnType<typeof observeClosedTurnHistory> | null = null;
   /**
    * #980 一次「打开」在路上(`_open`):画库里那份 + 问一句它在不在跑。这段**不算在起**(`starting`):
    * 换模型 / 权限档照停着的会话记下,发一句照停着的会话起。
@@ -2456,6 +2459,18 @@ export class AcpChatStore {
 
   private _subscribeLiveSession(session: AcpLiveSession): void {
     this._unsubs.splice(0).forEach((unsub) => unsub());
+    let lastTurn = session.activeTurn.current();
+    const machine = machineRegistry.machineOf(this.runtimeSessionId);
+    const finalHistory = observeClosedTurnHistory({
+      sessionId: this.runtimeSessionId,
+      reference: () => lastTurn?.referenceId,
+      subscribe: accept => onMachineEvent(machine, sessionTurnSettledChannel, accept),
+      read: referenceId => rpcOn(machine).sessions.getStoredSettledTurn({ sessionId: this.runtimeSessionId, referenceId }),
+      apply: row => this._applyClosedSettledTurn(row),
+      failed: error => this._toastError('acpFailure.refreshHistory', error),
+    });
+    this._closedHistory = finalHistory;
+    this._unsubs.push(finalHistory.dispose, session.activeTurn.onChange(turn => { if (turn) lastTurn = turn; }));
     // 挂上了:停着时盯会话表的那一格交还 —— 之后它停没停由这条会话自己的状态说(`_onSessionClosedByHost`)。
     this._setParkWatch(null);
     const initialState = session.sessionState.current();
@@ -2942,8 +2957,12 @@ export class AcpChatStore {
    */
   private _onSessionClosedByHost(closed: AcpLiveSession, loadError: AcpLoadError | null = null): void {
     if (this.session !== closed) return;
-    this._unsubs.splice(0).forEach((unsub) => unsub());
+    const finalHistory = this._closedHistory;
+    this._closedHistory = null;
+    this._unsubs.splice(0).forEach((unsub) => { if (unsub !== finalHistory?.dispose) unsub(); });
     this.session = null;
+    const generation = ++this._historyGeneration;
+    if (finalHistory) this._unsubs.push(finalHistory.dispose);
     this._unsubs.push(
       // 等它起完(重放过往回合)再挂:挂在 starting / replaying 上,读到的引擎历史缺一截,补上来的回合会再画一遍。
       closed.sessionState.onChange((state) => {
@@ -2956,6 +2975,25 @@ export class AcpChatStore {
     this._loadStoredQueue((error) => this._toastError('acpFailure.refreshHistory', error));
     this.historyLoading = false;
     this.loadError = loadError;
+    finalHistory?.close(() => !this._disposed && this._closedByHost && this.session === null
+      && generation === this._historyGeneration && !this._transcriptReleased);
+  }
+
+  private _applyClosedSettledTurn(row: StoredSettledTurn): void {
+    runInAction(() => batch(() => {
+      const active = this.chatState.transcript.state.activeTurnSnapshot;
+      const turns = new Map(this._storedHistoryTurns.map((turn, i) => [turn.id, { turn, origin: this._storedOrigins[i]! }]));
+      turns.set(row.turn.id, { turn: row.turn, origin: row.originTurnId });
+      const stored = [...turns.values()].sort((a, b) => a.turn.seq - b.turn.seq);
+      this._storedHistoryTurns = stored.map(value => value.turn);
+      this._storedOrigins = stored.map(value => value.origin);
+      this._storedBaseSeq = this._storedHistoryTurns[0]?.seq ?? null;
+      this._storedBootstrapMaxSeq = Math.max(this._storedBootstrapMaxSeq, row.turn.seq);
+      this._persistedRuntimeTurnIds.add(row.originTurnId);
+      this.chatState.transcript.history.seed(this._composedHistory());
+      if (active && active.referenceId !== row.turn.referenceId) this.chatState.transcript.activeTurn.set(active);
+      this._syncMessageCount();
+    }));
   }
 
   /** 停着时运行时替它存着的那份队列(只读、锁着显示);下一次起时运行时先发它们。只读存档,❌ 叫醒它。 */
