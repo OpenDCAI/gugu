@@ -56,6 +56,60 @@ describe('each actual pane owns its content', () => {
     layout.dispose();
   });
 
+  it('focuses the new host page when a click navigates from a resident guest outside the pane', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const folder = createTabProvider({ ...provider, kind: 'folder', TabContent: () => <div data-folder-slot="" /> });
+    const file = createTabProvider({ ...provider, kind: 'file', TabContent: () => <div tabIndex={-1} data-browser-page="" /> });
+    const layout = new PaneLayoutStore(createTabRegistry([folder, file]), { viewId: 'resident-click-history' });
+    const tabId = layout.open('folder', { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    const group = layout.groups[0];
+    act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>));
+    const flushFrames = () => { for (const frame of frames.splice(0)) frame(0); };
+    flushFrames();
+    // Electron delivers the file click through the App bridge. Its resident
+    // webview is rooted outside PaneContent, so the pane's DOM-focus guard
+    // cannot transfer focus. Keep that placement and use the real open route.
+    const guest = dom.window.document.createElement('webview');
+    guest.tabIndex = 0;
+    dom.window.document.body.append(guest);
+    guest.addEventListener('click', () => { layout.open('file', { id: 'f02.txt' }, { from: tabId, intent: 'navigate' }); });
+    try {
+      guest.focus();
+      expect(dom.window.document.querySelector('[data-folder-slot]')!.contains(guest)).toBe(false);
+      await act(async () => { guest.click(); });
+      await act(async () => { flushFrames(); });
+      expect(group.pane.entries.get(tabId)?.kind).toBe('file');
+      expect(dom.window.document.activeElement).toBe(dom.window.document.querySelector('[data-browser-page]'));
+      // No intervening click on the file body. Native Cmd+[ / Cmd+] is a
+      // separate Electron acceptance cell; here use its existing commands.
+      commandRegistry.setContext(dom.window.document.activeElement as HTMLElement);
+      await act(async () => { expect(commandRegistry.dispatch('app.navigateBack')).toBe(true); });
+      expect(group.pane.entries.get(tabId)?.kind).toBe('folder');
+      await act(async () => { expect(commandRegistry.dispatch('app.navigateForward')).toBe(true); });
+      expect(group.pane.entries.get(tabId)?.state).toEqual({ id: 'f02.txt' });
+      expect(group.pane.tabOrder).toEqual([tabId]);
+    } finally { guest.remove(); layout.dispose(); }
+  });
+
+  it('leaves host input focus alone for an inactive open', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    const layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'inactive-open-focus' });
+    const tabId = layout.open('page', { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    const group = layout.groups[0];
+    act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>));
+    for (const frame of frames.splice(0)) frame(0);
+    const input = dom.window.document.createElement('input'); dom.window.document.body.append(input); input.focus();
+    try {
+      await act(async () => { layout.open('page', { id: 'background' }, { from: tabId, intent: 'newTab', activate: false }); });
+      for (const frame of frames.splice(0)) frame(0);
+      expect(dom.window.document.activeElement).toBe(input);
+      expect(group.pane.resolvedActiveTabId).toBe(tabId);
+    } finally { input.remove(); layout.dispose(); }
+  });
+
   it('dispatches the existing back/forward commands only into the pane that owns the focused element', async () => {
     const layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'pane-history-keys' });
     const a = layout.open('page', { id: 'folder' }, { from: null, intent: 'newTab' })!;
