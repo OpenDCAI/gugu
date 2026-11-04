@@ -144,10 +144,27 @@ export function reportMachineOutdated(deviceId: string): void {
   if (!entry || entry.tooOld) return;
   entry.tooOld = true;
   notify(entry);
+  // 换版请求失败(没有桥 / 匹配说「不是旧版」/ 请求被拒)时必须把锁放掉:连接稳着的时候
+  // `onMachineReconnected` 永远不来,锁死 = 这条路径再也不问、界面也不恢复(评审 P2)。
+  // 放掉之后沿用既有的失败-重试节奏:下一次真实失败会再走一遍这里。
+  const releaseLock = (): void => {
+    if (entry.tooOld) {
+      entry.tooOld = false;
+      notify(entry);
+    }
+  };
   const match = findRemoteHostsBridge()?.matchServerVersion;
-  if (match) void match(deviceId).catch((error: unknown) =>
-    log.warn(`[machine:${deviceId.slice(0, 8)}] version match request failed`, { error: String(error) })
-  );
+  if (!match) {
+    releaseLock();
+    return;
+  }
+  void match(deviceId).then((matched) => {
+    // true = 换版已排上:等对端重启,由既有的重连 + hello 判版本把锁解开。
+    if (!matched) releaseLock();
+  }).catch((error: unknown) => {
+    log.warn(`[machine:${deviceId.slice(0, 8)}] version match request failed`, { error: String(error) });
+    releaseLock();
+  });
 }
 
 /** 正在换线(旧窗口已关、新窗口在开):这时失败的问是旧窗口上的,等新窗口开好就能重来。 */

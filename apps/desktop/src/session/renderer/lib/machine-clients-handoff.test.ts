@@ -121,3 +121,26 @@ describe('到那台机器的线:计划内换线', () => {
     closeMachineClient('d22');
   });
 });
+
+describe('换版请求失败时 tooOld 放锁', () => {
+  it('match 说不是旧版 / 请求被拒:状态回到 open,这条路径还能再问', async () => {
+    windows.length = 0;
+    try {
+      await machineClient('d22')!.connect();
+      matchServerVersion.mockClear();
+      matchServerVersion.mockResolvedValueOnce(false);
+      reportMachineOutdated('d22');
+      expect(machineLinkState('d22')).toBe('tooOld');
+      await flush();
+      expect(machineLinkState('d22')).toBe('open');
+
+      matchServerVersion.mockRejectedValueOnce(new Error('bridge down'));
+      reportMachineOutdated('d22');
+      expect(machineLinkState('d22')).toBe('tooOld');
+      await flush();
+      expect(machineLinkState('d22')).toBe('open');
+    } finally {
+      closeMachineClient('d22');
+    }
+  });
+})
