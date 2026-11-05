@@ -81,7 +81,8 @@ describe('JSON file data', () => {
   it('hands back the same live object each time, and copies a live object assigned elsewhere', () => {
     const { da } = pair();
     da.a = { n: 1 };
-    expect(da.a).toBe(da.a);
+    const first = da.a;
+    expect(da.a, 'a second read hands back the same live object').toBe(first);
     da.b = da.a;
     (da.b as { n: number }).n = 2;
     expect((da.a as { n: number }).n).toBe(1);
