@@ -760,10 +760,10 @@ test('revoking OS permission after a successful phone read prevents data from re
     await until(() => fx.events.some((event) => event.type === 'turn_failed'), fx.events)
     // Failure is emitted before runJob's finally block reports the settled state.
     // Hold that report until the failure is observed, then wait for the real job
-    // boundary instead of asserting against an unrelated startup report.
+    // report instead of asserting against an unrelated startup/working report.
     assert.ok(pendingActionReports > 0)
     releaseActionReports()
-    await until(() => !fx.host.state().execution, fx.events)
+    await until(() => fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)?.[1].p_agent_status === 'error', fx.events)
     assert.ok(permissionChecks.length > 0)
     for (const check of permissionChecks) assert.deepEqual(check, ['permissions.check', { groups: ['calendar'], requirements: [] }])
     assert.equal(fx.messages.some((message) => message.p_content.includes('private-calendar-fixture-9123')), false)
