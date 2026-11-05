@@ -48,9 +48,10 @@ export function createFileEditor({ dark: initialDark }: { dark: boolean }): File
   let saveState: ((uri: string, state: FileViewState) => void) | null = null;
   let loading = 0;
 
+  // The reading layout goes first: an earlier extension takes precedence, so its padding wins over the code theme.
   const extensions = (): Extension => [
+    readingLayout, highlightActiveLine(),
     model ? codeEditorExtensions({ model, language, dark, editable: model.writable }) : [codeTheme(dark), EditorState.readOnly.of(true)],
-    highlightActiveLine(), readingLayout,
   ];
   const state = (doc: string | TextModel['doc'], selection?: EditorSelection) =>
     EditorState.create({ doc, selection, extensions: config.of(extensions()) });
