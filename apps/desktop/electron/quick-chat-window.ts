@@ -4,6 +4,8 @@ import { app, BrowserWindow, globalShortcut, ipcMain, screen, type BrowserWindow
 import { QUICK_CHAT_CHANNELS, QUICK_CHAT_WINDOW_NAME, quickChatAccelerator, type QuickChatState } from '../src/lib/quickChatIpc'
 import type { SpecialAuxWindow } from './aux-window'
 import { hardenWebPreferences } from './devtools-lock'
+import { createLogger } from './lib/logger'
+import { createQuickChatShortcutOwner, quickChatOwnerPort } from './quick-chat-shortcut-owner'
 
 /**
  * #7199「快速聊天」的主进程这一半:全局快捷键切换一扇置顶小窗的显隐。
@@ -102,6 +104,14 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
   let registered = false
   let win: BrowserWindow | null = null
   let pendingShow = false
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null
+  let quitting = false
+  const log = createLogger('quick-chat')
+  const cancelPending = () => {
+    pendingShow = false
+    if (pendingTimer) clearTimeout(pendingTimer)
+    pendingTimer = null
+  }
   let pinned = false
   let placing = false
 
@@ -167,40 +177,59 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
     win.hide()
   }
   const toggle = () => {
+    // A callback already queued by the OS must not outlive its registration.
+    if (!enabled || !registered || !owner.owns()) return
     if (win && !win.isDestroyed()) {
       if (win.isVisible() && win.isFocused()) hide()
       else show()
       return
     }
-    // 还没开(没登录、主窗刚重载):请主窗开一扇,开好就摆出来;主窗都没有就把主窗叫出来(登录 / 开通在那儿)。
+    // A background instance without a ready auxiliary window must not steal
+    // focus, either now or when its renderer eventually creates that window.
     const main = mainWindow()
-    if (!main || main.isDestroyed()) return
+    if (!main || main.isDestroyed() || !main.isFocused()) return
+    cancelPending()
     pendingShow = true
     tellMain(QUICK_CHAT_CHANNELS.open)
-    setTimeout(() => {
-      if (pendingShow && (!win || win.isDestroyed())) {
-        pendingShow = false
-        focusMain()
-      }
-    }, 1500)
+    // Expire the request; never turn a missing auxiliary window into a delayed
+    // focusMain(). Explicit "open main" IPC below remains a user action.
+    pendingTimer = setTimeout(cancelPending, 1500)
   }
 
-  const register = () => {
+  const register = (owned: boolean) => {
     if (registered) globalShortcut.unregister(accelerator)
     registered = false
-    if (!enabled) return
-    try {
-      registered = globalShortcut.register(accelerator, toggle)
-    } catch {
-      registered = false
+    if (!owned) cancelPending()
+    if (owned && enabled && !quitting) {
+      try { registered = globalShortcut.register(accelerator, toggle) } catch { /* Report actual registration state. */ }
     }
+    tellMain(QUICK_CHAT_CHANNELS.changed)
+  }
+  const owner = createQuickChatShortcutOwner({
+    port: quickChatOwnerPort(accelerator),
+    onChange: register,
+    onError: (error) => log.warn({ err: error }, 'Quick Chat shortcut ownership unavailable'),
+  })
+  const updateEligibility = () => {
+    const main = mainWindow()
+    const mainFocused = !!main && !main.isDestroyed() && main.isFocused()
+    if (!mainFocused) cancelPending()
+    const appFocused = mainFocused || !!win && !win.isDestroyed() && win.isFocused() || BrowserWindow.getFocusedWindow() !== null
+    owner.setForeground(appFocused)
+    owner.setEnabled(!quitting && enabled && (!!win && !win.isDestroyed() || appFocused))
   }
 
   if (supported) {
-    register()
+    updateEligibility()
+    app.on('browser-window-focus', updateEligibility)
+    app.on('browser-window-blur', (_event, window) => {
+      if (window === mainWindow()) cancelPending()
+      updateEligibility()
+    })
     app.on('will-quit', () => {
-      if (registered) globalShortcut.unregister(accelerator)
-      // 退出前把还没写的位置写下去,别把用户最后拖到的位置丢了。
+      quitting = true
+      cancelPending()
+      owner.dispose()
       flushRememberBounds()
     })
   }
@@ -210,8 +239,8 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
     if (!supported) return state()
     enabled = next === true
     write({ enabled })
-    register()
-    if (!enabled) hide()
+    if (!enabled) { cancelPending(); hide() }
+    updateEligibility()
     tellMain(QUICK_CHAT_CHANNELS.changed)
     return state()
   })
@@ -237,6 +266,7 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
       flushRememberBounds()
       if (win === child) {
         win = null
+        updateEligibility()
         tellMain(QUICK_CHAT_CHANNELS.visibility, false)
       }
     })
@@ -256,8 +286,9 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
         hide()
       }
     })
-    if (pendingShow) {
-      pendingShow = false
+    updateEligibility()
+    if (pendingShow && owner.owns() && registered) {
+      cancelPending()
       show()
     } else tellMain(QUICK_CHAT_CHANNELS.visibility, child.isVisible())
   }
