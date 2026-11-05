@@ -15,6 +15,14 @@ export function isRoomChat(kind: ChatKind): boolean {
   return kind === 'group' || kind === 'topic'
 }
 
+/**
+ * 私聊(dm / ai)整条读:点开就读到最新,❌ 按「看到哪条算哪条」(owner 11-05)。群与话题照旧读到看见的那条。
+ * 这里只决定怎么读;聊天列表怎么画不归它管(行照旧出数字)。
+ */
+export function readsWholeChat(kind: ChatKind): boolean {
+  return kind === 'dm' || kind === 'ai'
+}
+
 /** 一行会话的未读读数。三个字段语义不同,❌ 强求相等,❌ 在别处另算(owner 10-28、10-30)。 */
 export type ChatAttention = {
   /** 这一行自己的全部未读:话题页签、行内原始数。 */

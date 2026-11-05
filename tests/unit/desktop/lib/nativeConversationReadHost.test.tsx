@@ -113,17 +113,17 @@ it('acknowledges the captured DM tail when the native page reaches newer work in
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 20))
 })
 
-it('keeps the DM unread while a native page is reading an earlier position', async () => {
+it('reads the DM whole on opening although the native page is at an earlier position (owner 11-05)', async () => {
   const row = chat({ id: 'dm', peer_user_id: 'agent', kind: 'ai', last_read_seq: 0, next_message_seq: 3, unread_count: 2 })
   scope.messages = ['one', 'two'].map((id, i) => message({ id, chat_id: 'dm', seq: i + 1, sender_user_id: 'agent', is_mine: false }))
   release = installOwnedAgentEntry({ owns: id => id === 'agent', open: () => true })
   updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'session', agent: { userId: 'agent' } } as never] })
   publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['earlier-other-chat-reply'], dmIds: new Map(), atTail: false })
   await renderWithConversations(harness, <NativeConversationReadHost />, undefined, { chat: { chats: [row], identitiesById: { agent: displayIdentity('agent', { type: 'agent', owner_user_id: 'user-1' }) } } })
-  expect(scope.mark).not.toHaveBeenCalled()
+  await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 2))
 })
 
-it('does not carry background-only native visibility into the foreground read cursor', async () => {
+it('reads nothing in the background and the whole DM once foregrounded', async () => {
   scope.active = false
   const locator = { message_id: 'one', message_seq: 1, cursor_seq: 0, stream_kind: 'main' as const,
     stream_id: 'main', thread_root_id: null, unread_count: 2, addressed_count: 2, version: 1, is_marked_unread: false }
@@ -139,8 +139,6 @@ it('does not carry background-only native visibility into the foreground read cu
   await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-two'], dmIds, atTail: false }) })
   expect(scope.mark).not.toHaveBeenCalled()
   await act(async () => { scope.listener?.(true) })
-  // The first unread was only measured while inactive and is now offscreen.
-  expect(scope.mark).not.toHaveBeenCalled()
-  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-one'], dmIds, atTail: false }) })
+  // Foreground is the opening: the DM is read to its tail whatever was measured while inactive.
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 2))
 })

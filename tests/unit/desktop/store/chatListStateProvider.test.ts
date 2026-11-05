@@ -372,8 +372,8 @@ it.each(['window', 'visible-row'] as const)('%s read failure stays rolled back t
     await act(async () => { latestStore!.markMessageVisible(row) })
   }
   expect(readMock).toHaveBeenCalledExactlyOnceWith({ kind: 'main', chatId: 'chat-1', seq: 7 })
-  expect(latestStore!.chats[0]).toMatchObject({ last_read_seq: 7, read_state_version: 9,
-    unread_count: mode === 'window' ? 0 : 2 })
+  // chat-1 is a DM: either read reaches its tail and clears the count (readsWholeChat).
+  expect(latestStore!.chats[0]).toMatchObject({ last_read_seq: 7, read_state_version: 9, unread_count: 0 })
   shownBoundary.chatId = null
   await act(async () => { await latestStore!.refreshChats() })
   await act(async () => { read.reject(new Error('offline')); await Promise.resolve() })
