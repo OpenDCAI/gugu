@@ -27,6 +27,12 @@ vi.mock('../../../apps/desktop/src/session/shared/remote-sessions/session-direct
 }))
 vi.mock('@renderer/lib/ipc', () => ({ events: { on: vi.fn() }, rpc: {}, onMachineEvent: () => () => undefined }))
 
+// jsdom has no layout: give the document (the sidebar list's scroller here) a window's height, so the sidebar's
+// virtualized conversation lines (@@@sidebar-chat-window) mount the lines that would fit, as on screen.
+beforeEach(() => {
+  for (const [key, value] of [['offsetHeight', 900], ['offsetWidth', 1024]] as const) Object.defineProperty(document.documentElement, key, { configurable: true, get: () => value })
+})
+
 let h: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   h = createReactHarness(); state.statuses = {}; state.sessions = []; state.canDissolve = true; vi.clearAllMocks()

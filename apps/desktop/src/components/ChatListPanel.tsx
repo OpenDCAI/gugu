@@ -1,6 +1,7 @@
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
-import { memo, useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
+import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStableHandler } from '@/hooks/useStableHandler'
 import { useTranslation } from 'react-i18next'
 import { BellOff, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, Search, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
@@ -118,6 +119,19 @@ const LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, overflowY: 'auto', pad
 const MOBILE_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--spacing-xs) var(--spacing-sm) var(--phone-nav-clearance)' }
 // 侧栏那一份不自己滚:滚的是会话页侧栏那一个滚动容器(置顶 / 项目 / 对话共用)。左右与侧栏的行同一道留白。
 const SIDEBAR_LIST_STYLE: React.CSSProperties = { padding: '0 12px 8px' }
+/** First guess for a sidebar conversation line before it is measured (one row without topics). */
+const SIDEBAR_ENTRY_ESTIMATE = 58
+
+/** A mounted sidebar line, placed by the line window. */
+const lineStyle = (top: number): React.CSSProperties => ({ position: 'absolute', top, left: 0, width: '100%' })
+
+/** The element whose scrolling moves this node: in the shell that is the sidebar's one scroller (@@@sidebar-single-scroller). */
+function scrollingAncestor(node: HTMLElement): HTMLElement {
+  for (let element = node.parentElement; element; element = element.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(element).overflowY)) return element
+  }
+  return document.documentElement
+}
 const NO_JOINED_GROUPS: readonly JoinedGroup[] = []
 
 const LOADING_STATE_STYLE: React.CSSProperties = { padding: '24px', textAlign: 'center', color: COLOR_PLACEHOLDER, fontSize: 'var(--font-body)' }
@@ -713,15 +727,63 @@ export function ChatListPanel({
     )
   }
 
-  const normalRows = normalLines.map(({ row, join }) => renderChatRow(row, join))
+  const normalRows = inSidebar ? [] : normalLines.map(({ row, join }) => renderChatRow(row, join))
 
-  const focusChatRow = (chatId: string | null) => {
+  // @@@sidebar-chat-window - the sidebar's conversation lines mount only around the visible part of the sidebar's one
+  // scroller, the same mechanism as the task list (sidebar-virtual-list.tsx, @@@sidebar-single-scroller). A message moves
+  // its line to the top; with every line mounted React re-inserted every line above it, so a message to the k-th
+  // conversation restyled k whole lines. Now only the mounted window can move. The phone and the conversation page keep
+  // their full lists.
+  const sidebarLines = inSidebar && !loadingChats ? [...pinnedRows, ...normalLines] : []
+  const hasSidebarLines = sidebarLines.length > 0
+  const [sidebarScroller, setSidebarScroller] = useState<HTMLElement | null>(null)
+  const windowRef = useRef<HTMLDivElement>(null)
+  const [windowMargin, setWindowMargin] = useState(0)
+  useLayoutEffect(() => {
+    if (inSidebar && listboxRef.current) setSidebarScroller(scrollingAncestor(listboxRef.current))
+  }, [inSidebar])
+  const lineWindow = useVirtualizer({
+    count: sidebarLines.length,
+    getItemKey: (index) => sidebarLines[index]!.row.id,
+    getScrollElement: () => sidebarScroller,
+    estimateSize: () => SIDEBAR_ENTRY_ESTIMATE,
+    // The first frame already shows the lines that fit, before the scroller's size is observed.
+    initialRect: { width: 0, height: sidebarScroller?.clientHeight || window.innerHeight },
+    overscan: 8,
+    scrollMargin: windowMargin,
+    enabled: inSidebar && sidebarScroller !== null,
+  })
+  // Where the lines start inside the shared scroller moves with everything above them (sections, the lead row), which
+  // re-render on their own: measure on the scroller's and its content's size changes, as sidebar-virtual-list does.
+  useLayoutEffect(() => {
+    const lines = windowRef.current
+    const content = sidebarScroller?.firstElementChild
+    if (!lines || !sidebarScroller) return
+    const measure = () => {
+      const next = lines.getBoundingClientRect().top - sidebarScroller.getBoundingClientRect().top + sidebarScroller.scrollTop
+      setWindowMargin((previous) => (Math.abs(previous - next) < 0.5 ? previous : next))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(sidebarScroller)
+    if (content) observer.observe(content)
+    return () => observer.disconnect()
+  }, [sidebarScroller, hasSidebarLines])
+  const windowStyle: React.CSSProperties = { height: lineWindow.getTotalSize(), position: 'relative' }
+  // Stable: the global shortcut effect calls it and must not re-subscribe on every render.
+  const focusChatRow = useStableHandler((chatId: string | null) => {
     if (!chatId) return
     setFocusedChatId(chatId)
+    // An off-screen line has no node in the sidebar window: bring its line in by index first (a topic rides its source line).
+    if (inSidebar) {
+      const target = visibleChats.find((chat) => chat.id === chatId)
+      const line = sidebarLines.findIndex(({ row }) => row.id === (target?.kind === 'topic' ? target.source_chat_id : chatId))
+      if (line >= 0) lineWindow.scrollToIndex(line, { align: 'auto' })
+    }
     requestAnimationFrame(() => {
       listboxRef.current?.querySelector<HTMLElement>(`[data-chat-row="${CSS.escape(chatId)}"]`)?.focus()
     })
-  }
+  })
 
   const selectChat = useCallback((chat: ChatItem, focusTarget: 'composer' | 'sidebar' = 'composer', beside = false) => {
     if ((chat.kind === 'dm' || chat.kind === 'ai') && openOwnedAgentEntry(chat.id, chat.peer_user_id ?? undefined, drafts[chat.id])) return
@@ -839,7 +901,7 @@ export function ChatListPanel({
 
     window.addEventListener('keydown', handleGlobalShortcut)
     return () => window.removeEventListener('keydown', handleGlobalShortcut)
-  }, [activeChatId, activeTopicChatId, chatsShown, chats, selectChat, visibleChatIds, notificationsOpen])
+  }, [activeChatId, activeTopicChatId, chatsShown, chats, selectChat, visibleChatIds, notificationsOpen, focusChatRow])
 
   const handleChatKeyDown = (event: Parameters<KeyboardEventHandler<HTMLDivElement>>[0], chat: ChatItem) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -902,8 +964,21 @@ export function ChatListPanel({
         </div>
       )}
 
+      {hasSidebarLines && (
+        <div ref={windowRef} style={windowStyle}>
+          {lineWindow.getVirtualItems().map((item) => {
+            const { row, join } = sidebarLines[item.index]!
+            return (
+              <div key={item.key} data-index={item.index} ref={lineWindow.measureElement} style={lineStyle(item.start - windowMargin)}>
+                {renderChatRow(row, join)}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* Pinned section */}
-      {!loadingChats && pinnedChats.length > 0 && (
+      {!inSidebar && !loadingChats && pinnedChats.length > 0 && (
         <>
           {pinnedRows.map(({ row, join }) => renderChatRow(row, join))}
           {/* #1323 模块1 做减法(owner 授权):删除「折叠置顶聊天」分隔/折叠条——SSOT 列表无此元素,
@@ -912,7 +987,7 @@ export function ChatListPanel({
       )}
 
       {/* Normal chats */}
-      {!loadingChats && normalRows}
+      {!inSidebar && !loadingChats && normalRows}
 
       {mobile && hasSearchQuery && (
         <ListRow mobile role="button" tabIndex={0} data-testid="chat-list-search-messages" leading={<Search size={20} color="var(--text-tertiary)" />}
