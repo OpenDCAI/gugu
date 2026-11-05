@@ -74,7 +74,7 @@
     "session:test:db": "vitest run --project session-main-db",
     "session:test:migrations": "vitest run --project session-migrations",
     "test": "vitest run --project gugu-integration",
-    "test:browser": "vitest run --project session-browser --project session-chat-ui-browser",
+    "test:browser": "node scripts/test-infra/vitest-browser-shards.mjs --project session-browser --project session-chat-ui-browser",
     "test:unit": "pnpm preflight:node && vitest run --project gugu --project tooling --project session-packages --project session-main --project session-chat-ui",
     "test:unit:mutation:worker-attribution": "tsx scripts/test-infra/vitest-worker-attribution-mutation.ts",
     "typecheck": "pnpm preflight:node && tsgo --noEmit",
