@@ -12,7 +12,6 @@ All modals use a registry-based system. Only one modal can be active at a time.
   (`useModalContext`, `showModal`, `BaseModalProps`)
 - `apps/desktop/src/session/renderer/lib/modal/modal-renderer.tsx` — renders the currently active modal
 - `apps/desktop/src/session/renderer/lib/modal/modal-store.ts` — modal state store
-- `apps/desktop/src/session/renderer/lib/modal/use-close-guard.ts` — close-guard hook
 
 **Adding a modal:**
 1. Create the component accepting `BaseModalProps<TResult>` (provides `onSuccess` and `onClose` callbacks)

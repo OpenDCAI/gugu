@@ -30,7 +30,6 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
     }
   },
 }))
-vi.mock('../../../apps/desktop/src/components/devices/AssistantDeviceConnectors', () => ({ OtherDeviceConnectors: () => null, ThisDeviceConnectors: () => null }))
 vi.mock('../../../apps/desktop/src/mobile/phone-device/PhoneDeviceActionsPage', () => ({ PhoneDeviceActionsPage: () => null }))
 // 授权的协议那一半由 phoneConnectorFlow7199 用真授权服务跑过;这里只看页面怎么接它。
 vi.mock('../../../apps/desktop/src/session/shared/mcp-oauth-client', () => ({

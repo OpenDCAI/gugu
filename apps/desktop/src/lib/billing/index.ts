@@ -15,8 +15,6 @@
 // 只进不过期积分,不构成第二套周期额度。
 export {
   getCreditsBalance,
-  getReferralStats,
-  type ReferralStats,
 } from './balance'
 export {
   daysUntilExpiry,

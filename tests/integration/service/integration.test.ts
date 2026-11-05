@@ -15,9 +15,11 @@ import { supabase } from '../../../apps/desktop/src/lib/supabase'
 import { publishRendererSession } from '../../../apps/desktop/src/lib/sessionPublication'
 import { chatService } from '../../../apps/desktop/src/lib/chat'
 import { createChatProjection } from '../../../apps/desktop/src/lib/chatProjection'
-import { CHAT_KINDS } from '@gugu/core/shared/enums/chatValueModels'
 import { contactsService } from '../../../apps/desktop/src/lib/contacts'
+import type { ChatKind } from '@gugu/core/shared/types/chat'
 import { activateDbEnv } from '../../../scripts/build/build-env-preflight.mts'
+
+const CHAT_KINDS: ChatKind[] = ['dm', 'group', 'ai']
 
 // @@@1170-P3a 产品登录改 OTP-only(authService.login 已删),但测试账号(admin:create-account 建)仍带
 // 密码,test setup 直接走 supabase.auth.signInWithPassword API(测试基建,非产品面)登入 ALICE/BOB。
