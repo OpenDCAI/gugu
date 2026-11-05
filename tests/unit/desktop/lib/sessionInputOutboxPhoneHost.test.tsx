@@ -29,7 +29,7 @@ vi.mock('@/components/chat/NativeConversationReadHost', () => ({ NativeConversat
 vi.mock('@/store/devicesCache', () => ({ subscribeCachedDevices: () => () => {} }))
 vi.mock('@/lib/sessionSendQueueHost', () => ({ watchSessionSendQueues: (...args: unknown[]) => { fixture.native(...args); return fixture.stopNative } }))
 vi.mock('@/mobile/local-agent/phoneTimelineClient', () => ({ phoneTimelineClient: {
-  fetchSnapshot: async () => { fixture.fetch(); return { turns: fixture.turns, liveReply: fixture.busy ? {} : null, queuedPrompts: [], cursor: null } },
+  fetchSnapshot: async () => { fixture.fetch(); return { turns: fixture.turns, liveReply: fixture.busy ? {} : null, queuedPrompts: [], settlements: [], cursor: null } },
   subscribeSessionEvents: (_device: string, _id: string, cb: typeof fixture.events) => { fixture.events = cb; return () => { fixture.events = undefined } },
   subscribeSessionErrors: () => () => {}, onLinkChange: () => () => {},
   subscribeSession: async () => {}, unsubscribeSession: async () => { fixture.unsubscribe() },
@@ -75,7 +75,7 @@ it.each((['electron', 'web'] as const).flatMap(platform => (['done', 'cancelled'
   fixture.busy = false
   fixture.turns = [{ id: 'turn', seq: 1, initiator: 'user', items: [], outcome: { kind: outcome } }]
   await act(async () => {
-    fixture.events!({ ok: true, batch: { turns: fixture.turns, queuedPrompts: [] } } as never)
+    fixture.events!({ ok: true, batch: { turns: fixture.turns, queuedPrompts: [], settlements: [] } } as never)
     await vi.waitFor(() => expect(fixture.fetch.mock.calls.length).toBeGreaterThan(1))
     await (await state().queue)!.flush()
   })

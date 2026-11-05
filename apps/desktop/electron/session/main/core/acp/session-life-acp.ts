@@ -283,7 +283,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         else settle(fact);
       };
       const gone = (message: string): ExitFact => ({ cause: { name: 'AcpSessionGone', message }, code: null, signal: null });
-      const offWorker = worker.onGone(cause => settle(gone(cause)));
+      const offWorker = worker.onGone(cause => settle({ ...gone(cause), processExited: true }));
       // Only a summary this attempt has seen alive counts: a stale lost/closed of an earlier attempt is not this exit.
       let alive = false;
       const offSummary = acpAgentStatusBridge.watch(sessionId, summary => {
@@ -292,7 +292,8 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         if (!alive) return;
         // Our own stop also ends here; Life ignores it while stopping (state + generation).
         exit(summary.failure
-          ? { cause: { name: summary.failure.kind, message: summary.failure.message },
+          ? { ...(summary.failure.kind === 'adapter-exit' ? { processExited: true as const } : {}),
+            cause: { name: summary.failure.kind, message: summary.failure.message },
             code: 'exitCode' in summary.failure ? summary.failure.exitCode : null,
             signal: 'signal' in summary.failure ? summary.failure.signal ?? null : null }
           : gone(`ACP session ${summary.lifecycle}`));

@@ -124,9 +124,9 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
-  const attention = deriveAttention(timeline)
+  const attention = deriveAttention(conversation)
   const foregroundWorking = attention === 'running' || attention === 'waiting' || recovery.pendingPrompt !== null
-  const queueReady = answering && phase === 'ready' && link === 'ok' && (!native || Boolean(nativeRecord.record && !nativeRecord.record.hasNewer))
+  const queueReady = answering && phase === 'ready' && link === 'ok' && (!native || Boolean(nativeRecord.ready && nativeRecord.record && !nativeRecord.record.hasNewer && !nativeRecord.record.activeTurn))
   const queuedInput = foregroundWorking || queuedInputs.length > 0
   const beforeSend = () => {
     if (mobile && native && queuedInput && session.nativeInputIdentity !== true) {

@@ -46,8 +46,12 @@ export function boringAvatarAppearance(id: string): { seed: number; body: string
 
 /** Near-neutral bodies do not supply a meaningful name hue; retain the existing identity hue. */
 export function boringAvatarNameHue(id: string, identityHue: number): number {
-  const body = hexToOklch(boringAvatarAppearance(id).body)
-  return body.C < 0.04 ? identityHue : body.h
+  return avatarColorNameHue(boringAvatarAppearance(id).body, identityHue)
+}
+
+export function avatarColorNameHue(color: string, identityHue: number): number {
+  const main = hexToOklch(color)
+  return main.C < 0.04 ? identityHue : main.h
 }
 
 /** The circle mask is luminance: opaque white keeps the face, independent of theme. */

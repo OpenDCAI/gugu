@@ -14,23 +14,31 @@ import { isBuiltinAgentAvatarUrl, parseAgentLook } from '../components/agentAvat
 // DiceBear 标准柔和背景色板：让深色线稿头像在明/暗主题下都清晰（自带浅底，不依赖容器背景）。
 const BACKGROUND = ['b6e3f4', 'c0aede', 'd1d4f9', 'ffd5dc', 'ffdfbf']
 
-const cache = new Map<string, string>()
+const cache = new Map<string, { uri: string; mainColor: string }>()
 
 /**
  * 由稳定身份 key 生成确定性 Notionists 头像 data-URI（SVG，几 KB，离线）。
  * @@@2470 空 key 直接抛：以前回落成一个共用的 '?' 脸，会让多个无 key 的身份**静默撞成同一张脸**，
  * 与「缺 key 就 fail loud」的契约相反。调用方必须先自己判空并进空态。
  */
-export function dicebearAvatarDataUri(seed: string): string {
+function dicebearAvatar(seed: string): { uri: string; mainColor: string } {
   const key = (seed || '').trim()
   if (!key) throw new Error('[Avatar] dicebearAvatarDataUri requires a stable identity key')
   const cached = cache.get(key)
   if (cached) return cached
   const { svg, extra } = createAvatar(notionists, { seed: key, backgroundColor: BACKGROUND }).toJson()
+  const mainColor = extra.primaryBackgroundColor
+  if (typeof mainColor !== 'string' || !mainColor) throw new Error('[Avatar] DiceBear supplied no primary background color')
   const uri = `data:image/svg+xml;utf8,${encodeURIComponent(withoutBlend(svg, String(extra.body)))}`
-  cache.set(key, uri)
-  return uri
+  const avatar = { uri, mainColor }
+  cache.set(key, avatar)
+  return avatar
 }
+
+export function dicebearAvatarDataUri(seed: string): string { return dicebearAvatar(seed).uri }
+
+/** The background selected by the same DiceBear generation used for the visible default avatar. */
+export function dicebearAvatarMainColor(seed: string): string { return dicebearAvatar(seed).mainColor }
 
 // @@@2470 头像投影的单一口径，供不走 React `Avatar` 的消费者用（分享海报 canvas 等）。
 // 与 Avatar 组件同源，所以同一身份各 surface 逐字同一张脸。三条分支与组件严格一致：

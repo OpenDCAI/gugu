@@ -68,6 +68,8 @@ export type Destination =
   | Readonly<{ kind: 'deleted' }>
 
 export interface ExitFact {
+  /** Observed adapter/worker process exit; a dispatch error or a missing summary does not prove it. */
+  readonly processExited?: true
   readonly cause: SerializedError
   readonly code: number | null
   readonly signal: string | null

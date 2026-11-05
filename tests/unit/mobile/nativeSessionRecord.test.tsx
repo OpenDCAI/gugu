@@ -4,8 +4,9 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import type { NativeSessionRecord } from '@gugu/session-core/session-record/contract'
 import { createReactHarness } from '../../support/testHarness'
 import { useNativeSessionRecord } from '../../../apps/desktop/src/mobile/agent-watch/useNativeSessionRecord'
-const scope = vi.hoisted(() => ({ read: vi.fn(), online: true }))
-vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ machineRpc: () => ({ sessionTimeline: { sessionNativeRecord: scope.read } }) }))
+const scope = vi.hoisted(() => ({ read: vi.fn(), online: true, link: (_open: boolean) => {} }))
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ machineRpc: () => ({ sessionTimeline: { sessionNativeRecord: scope.read } }),
+  onLinkChange: (_id: string, listener: typeof scope.link) => { scope.link = listener; return () => {} } }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); scope.read.mockReset() })
@@ -75,4 +76,55 @@ it('removes reverted archive turns while serializing a simultaneous poll and pag
     expect(state.record?.turns.map(turn => turn.seq)).toEqual([0, 1])
     expect(scope.read).toHaveBeenLastCalledWith({ conversationId: 's', tail: true })
   } finally { vi.useRealTimers() }
+})
+
+it('shows its cache without authorizing release until the current connection has been read', async () => {
+  scope.read.mockResolvedValueOnce({ ok: true, value: record(0, 1) })
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture({ online }: { online: boolean }) { state = useNativeSessionRecord('queue-ready-host', 'fresh', true, online); return null }
+  await harness.render(<Fixture online />)
+  await vi.waitFor(() => expect(state.ready).toBe(true))
+  await harness.render(<Fixture online={false} />)
+  expect(state.record?.turns).toHaveLength(1)
+  expect(state.ready).toBe(false)
+  const pending = Promise.withResolvers<unknown>()
+  scope.read.mockReturnValueOnce(pending.promise)
+  await harness.render(<Fixture online />)
+  expect(state.ready).toBe(false)
+  await act(async () => { pending.resolve({ ok: true, value: record(0, 1) }) })
+  expect(state.ready).toBe(true)
+})
+
+it('invalidates the connection epoch and ignores an older reply while reconnecting', async () => {
+  scope.read.mockResolvedValueOnce({ ok: true, value: record(0, 1) })
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('queue-epoch-host', 'epoch', true, true); return null }
+  await harness.render(<Fixture />)
+  await vi.waitFor(() => expect(state.ready).toBe(true))
+  const older = Promise.withResolvers<unknown>(), fresh = Promise.withResolvers<unknown>()
+  scope.read.mockReturnValueOnce(older.promise)
+  let oldRead!: Promise<void>
+  await act(async () => { oldRead = state.reload(); await Promise.resolve() })
+  await act(async () => { scope.link(false) })
+  expect(state.ready).toBe(false)
+  scope.read.mockReturnValueOnce(fresh.promise)
+  await act(async () => { scope.link(true) })
+  await act(async () => { older.resolve({ ok: true, value: record(90, 2) }); await oldRead })
+  expect(state.ready).toBe(false)
+  expect(state.record?.turns).toHaveLength(1)
+  await act(async () => { fresh.resolve({ ok: true, value: record(0, 3) }) })
+  expect(state.ready).toBe(true)
+  expect(state.record?.turns).toHaveLength(3)
+})
+
+it('keeps the displayed archive but withdraws release authority after a read failure', async () => {
+  scope.read.mockResolvedValueOnce({ ok: true, value: record(0, 1) })
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('queue-read-failure-host', 'failure', true, true); return null }
+  await harness.render(<Fixture />)
+  await vi.waitFor(() => expect(state.ready).toBe(true))
+  scope.read.mockRejectedValueOnce(new Error('Connection lost'))
+  await act(async () => { await expect(state.reload()).rejects.toThrow('Connection lost') })
+  expect(state.ready).toBe(false)
+  expect(state.record?.turns).toHaveLength(1)
 })

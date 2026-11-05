@@ -1,5 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
@@ -10,7 +10,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import type { AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
 import { useDevicesStore } from '@/store/devicesContext'
 import { useBackLayer } from '@/components/ui/sheetStack'
-import { navigateMobile } from '../navigateMobile'
+import { navigateMobile, skipMobileTransition } from '../navigateMobile'
 import { requestAlertPermissionOnce, useAgentWatchAlerts, useAgentWatchFocus } from './useAgentWatchAlerts'
 import { rowOpens, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { MachinesPage } from './MachinesPage'
@@ -84,13 +84,34 @@ export function AgentWatchPage({
   const devices = useMemo(() => [...new Map([...hosts, ...(phones ?? [])].map((one) => [one.device_id, one])).values()], [hosts, phones])
   const { toast } = useToast()
   // 只记录实际走过的页。外部直达会话时,项目列表没有被访问,不能成为它的父页。
-  const [routes, setRoutes] = useState<AgentWatchRoute[]>([{ name: 'projects' }])
+  const [navigation, setNavigation] = useState(() => ({ routes: [{ name: 'projects' }] as AgentWatchRoute[], request: openRequest }))
+  const { routes, request: seenOpenRequest } = navigation
+  // Consume an external destination before committing the newly visible layer. A passive
+  // navigation would first expose Projects and capture it as the old view-transition page.
+  if (openRequest && openRequest !== seenOpenRequest) {
+    if ('projectId' in openRequest) setNavigation({ request: openRequest, routes: [{ name: 'projects', reveal: openRequest }] })
+    else {
+      const { deviceId, session, tabKind, draft } = openRequest
+      setNavigation({ request: openRequest, routes: [rowOpens(session)
+        ? { name: 'timeline', deviceId, session, ...(tabKind ? { appKind: tabKind } : {}), ...(draft ? { draft } : {}) }
+        : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } }] })
+    }
+  }
   const route = routes[routes.length - 1]!
+  const presentedRequest = useRef(seenOpenRequest)
+  useLayoutEffect(() => {
+    if (presentedRequest.current === seenOpenRequest) return
+    presentedRequest.current = seenOpenRequest
+    skipMobileTransition()
+  }, [seenOpenRequest])
+  useLayoutEffect(() => { onRouteChange?.(route.name) }, [route.name, onRouteChange])
   const navigate = useCallback((next: AgentWatchRoute[], direction: 'push' | 'pop' | 'replace') => {
-    const update = () => { setRoutes(next); onRouteChange?.(next[next.length - 1]!.name) }
+    // Skipping a View Transition still runs its update callback. A newer external
+    // request must reject route writes queued before that destination was accepted.
+    const update = () => setNavigation(current => current.request === seenOpenRequest ? { ...current, routes: next } : current)
     if (active) navigateMobile(update, direction)
     else update()
-  }, [active, onRouteChange])
+  }, [active, seenOpenRequest])
   const setRoute = useCallback((next: AgentWatchRoute) => navigate([...routes, next], 'push'), [navigate, routes])
   const goBack = useCallback(() => {
     if (routes.length > 1) navigate(routes.slice(0, -1), 'pop')
@@ -135,19 +156,6 @@ export function AgentWatchPage({
   useEffect(() => {
     if (route.name === 'projects') setBirthGroup(null)
   }, [route.name])
-
-  const seenOpenRequest = useRef(openRequest)
-  useEffect(() => {
-    if (!openRequest || openRequest === seenOpenRequest.current) return
-    seenOpenRequest.current = openRequest
-    // A row that does not open (an offline machine's, from its heartbeat): the person lands where it is listed, as a tap leaves them.
-    if ('projectId' in openRequest) { navigate([{ name: 'projects', reveal: openRequest }], 'push'); return }
-    const { deviceId, session, tabKind, draft } = openRequest
-    const next: AgentWatchRoute = rowOpens(session)
-      ? { name: 'timeline', deviceId, session, ...(tabKind ? { appKind: tabKind } : {}), ...(draft ? { draft } : {}) }
-      : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } }
-    navigate([next], 'push')
-  }, [openRequest, navigate])
 
   // 机器在名下消失了(被删 / 换账号)⇒ 退回列表。派生而不是在渲染里 setState:
   // 后者会先画出一帧指向不存在机器的页。

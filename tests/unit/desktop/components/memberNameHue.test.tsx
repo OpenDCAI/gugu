@@ -7,6 +7,10 @@ import { BODY_COLORS } from '../../../../apps/desktop/src/components/agentAvatar
 import { resolveAgentLook } from '../../../../apps/desktop/src/components/agentAvatar/look'
 import { boringAvatarAppearance, boringAvatarNameHue } from '../../../../apps/desktop/src/lib/agentAvatarPalette'
 import { hexToOklch } from '../../../../apps/desktop/src/lib/colorOklch'
+import { createAvatar } from '../../../../apps/desktop/node_modules/@dicebear/core'
+import { notionists } from '../../../../apps/desktop/node_modules/@dicebear/collection'
+import * as defaultAvatar from '../../../../apps/desktop/src/lib/dicebearAvatar'
+import { dicebearAvatarDataUri } from '../../../../apps/desktop/src/lib/dicebearAvatar'
 import { memberNameHue } from '../../../../apps/desktop/src/lib/memberNameHue'
 import { installAssistantShellBridge, publishAssistantShell, type AssistantShellSnapshot } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { installIdentityDirectoryBridge, publishIdentityDirectory } from '../../../../apps/desktop/src/lib/identityDirectoryBridge'
@@ -50,6 +54,7 @@ beforeEach(() => {
   publishIdentityDirectory({}, () => {})
 })
 afterEach(() => {
+  vi.restoreAllMocks()
   harness.cleanup()
   publishAssistantShell({ assistant: null } as AssistantShellSnapshot)
   publishIdentityDirectory(null, null)
@@ -78,8 +83,24 @@ describe('sender-name avatar hue', () => {
       await harness.render(sender(agents[0][0], type, upload))
       expect(hue()).toBe(BODY_COLORS[resolveAgentLook(agents[0][0], upload).color].hue)
     }
-    await harness.render(sender(agents[0][0], 'human'))
-    expect(hue()).toBe(BODY_COLORS[resolveAgentLook(agents[0][0], null).color].hue)
+  })
+
+  it.each(['human-ui4-a', 'human-ui4-b', 'human-ui4-c', 'human-ui4-d', 'human-ui4-e', 'abc'])('matches the actual DiceBear default background for human %s', async id => {
+    const colour = createAvatar(notionists, { seed: id, backgroundColor: ['b6e3f4', 'c0aede', 'd1d4f9', 'ffd5dc', 'ffdfbf'] }).toJson().extra.primaryBackgroundColor
+    expect(typeof colour).toBe('string')
+    expect(decodeURIComponent(dicebearAvatarDataUri(id))).toContain(String(colour))
+    await harness.render(sender(id, 'human'))
+    expect(hue()).toBeCloseTo(hexToOklch(String(colour)).h, 8)
+  })
+
+  it('retains identity hue for a near-neutral default background and for a grey uploaded avatar', () => {
+    const id = 'human-neutral-ui4', identity = BODY_COLORS[resolveAgentLook(id, null).color].hue
+    vi.spyOn(defaultAvatar, 'dicebearAvatarMainColor').mockReturnValue('#808080')
+    expect(hexToOklch('#808080').C).toBeLessThan(0.04)
+    expect(memberNameHue({ id, isAgent: false })).toBe(identity)
+    const grey = 'https://images.example/grey.png'
+    expect(memberNameHue({ id, avatar: grey, isAgent: false })).toBe(BODY_COLORS[resolveAgentLook(id, grey).color].hue)
+    expect(defaultAvatar.dicebearAvatarMainColor).toHaveBeenCalledOnce()
   })
 
   it('tracks the assistant saved look through the same directory subscription used by its avatar', async () => {

@@ -180,6 +180,8 @@ describe('宿主按 agent 的流:agent 的状态 = 它绑的那条会话的读�
     expect(feed.get(AGENT_ID)?.life).toEqual({ kind: 'ready', stage: null })
     writer.life(lifeView(SESSION_ID, 3, 'ready'))
     expect(heard, 'same kind and stage is the same entry').toEqual(['starting', 'ready'])
+    writer.life({ ...lifeView(SESSION_ID, 4, 'dormant'), lastExit: 'adapter exited with signal SIGTERM', processExited: true })
+    expect(feed.get(AGENT_ID)?.life).toEqual({ kind: 'dormant', stage: null, processExited: true })
     feed.dispose()
   })
 
