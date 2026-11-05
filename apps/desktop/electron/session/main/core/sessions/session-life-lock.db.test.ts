@@ -212,3 +212,14 @@ it('a fresh explicit resend after the stop is allowed without replaying a second
   await r.owner.retryUnknownRow('s', 'interrupted', async () => null);
   await vi.waitFor(() => expect(r.dispatch).toHaveBeenCalledTimes(1));
 });
+
+
+it('a refused foreign input never creates an entry that a later sign-out can mutate', async () => {
+  const { seq } = interrupted();
+  lifeStore.commit('s', [{ e: 'write-receipt', seq, receipt: { state: 'unknown' } }]);
+  const r = rig(async () => false); await r.owner.signIn('A');
+  await expect(r.owner.retryUnknownRow('s', 'interrupted', async () => null)).rejects.toThrow('account cannot');
+  await r.owner.signOut();
+  expect(lifeStore.read('s').hold).toBeNull();
+  expect(lifeStore.row('s', seq).state).toBe('unknown');
+});

@@ -293,12 +293,13 @@ export class SessionLife {
   private async recoverUnknownRow(sessionId: string, messageId: string,
     findEcho: (input: { id: string; text: string }) => Promise<string | null>, resend: boolean): Promise<void> {
     const account = this.account, epoch = this.epoch;
-    const entry = this.entry(sessionId), recoveryEpoch = entry.recoveryEpoch;
+    const observed = this.entries.get(sessionId), recoveryEpoch = observed?.recoveryEpoch ?? 0;
     if (!account || this.leaving || !await this.ports.ownedBy(sessionId, account)) {
       if (resend) throw new Error('This account cannot resend this input');
       return;
     }
-    const allowed = () => this.account === account && this.epoch === epoch && !this.leaving
+    const entry = this.entry(sessionId);
+    const allowed = () => (!observed || observed === entry) && this.account === account && this.epoch === epoch && !this.leaving
       && this.entries.get(sessionId) === entry && entry.recoveryEpoch === recoveryEpoch && entry.life.kind !== 'archived' && entry.life.kind !== 'stopping'
       && !((entry.life.kind === 'dormant' || entry.life.kind === 'failed') && entry.life.hold?.reason === 'sign-out');
     if (!allowed()) {
