@@ -44,7 +44,9 @@ export function CommandPaletteModal(props: CommandPaletteProps & BaseModalProps)
   return <Palette key={props.initialQuery ?? ''} {...props} />;
 }
 
-function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModalProps) {
+function Palette({ initialQuery = '', onSuccess }: CommandPaletteProps & BaseModalProps) {
+  // Picking a row is the palette doing its job: close it as done (focus goes where the row leads; see @@@modal-focus-return).
+  const done = () => onSuccess(undefined);
   const [query, setQuery] = useState(initialQuery);
   const commandsMode = query.startsWith('>');
   const search = commandsMode ? query.slice(1).trim() : query.trim();
@@ -107,7 +109,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
           <Command.Group heading={translate('palette.commands')} className={GROUP_CLASS}>
             {commands.map(({ command, title, icon: Icon, hotkey }) => (
               <Command.Item key={command.id} value={command.id} className={PALETTE_ITEM_CLASS}
-                onSelect={() => { onClose(); command.execute(); }}>
+                onSelect={() => { done(); command.execute(); }}>
                 {Icon && <Icon size={14} className="shrink-0 text-foreground/40" />}
                 <span className="flex-1 truncate">{title}</span>
                 <Shortcut hotkey={hotkey} variant="keycaps" />
@@ -119,7 +121,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
             {tasks.length > 0 && (
               <Command.Group heading={translate(search ? 'palette.tasks' : 'palette.recentTasks')} className={GROUP_CLASS}>
                 {tasks.map((item) => {
-                  const open = () => { if (item.projectId) { onClose(); followLink({ kind: 'session', sessionId: item.id, projectId: item.projectId }); } };
+                  const open = () => { if (item.projectId) { done(); followLink({ kind: 'session', sessionId: item.id, projectId: item.projectId }); } };
                   const store = !item.deviceId && item.projectId ? getSessionPageStore(item.projectId, item.id) : undefined;
                   return store ? <PaletteSessionItem key={item.id} value={`task:${item.id}`} sessionPageStore={store} onSelect={open} /> : (
                     <Command.Item key={item.id} value={`task:${item.id}`} onSelect={open} className={PALETTE_ITEM_CLASS}>
@@ -134,16 +136,16 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
               <Command.Group heading={translate('palette.projects')} className={GROUP_CLASS}>
                 {projects.map((item) => (
                   <Command.Item key={item.id} value={`project:${item.id}`} className={PALETTE_ITEM_CLASS}
-                    onSelect={() => { onClose(); navigate('project', { projectId: item.id }); }}>
+                    onSelect={() => { done(); navigate('project', { projectId: item.id }); }}>
                     <FolderOpen size={14} /><span className="flex-1 truncate">{item.title}</span>
                   </Command.Item>
                 ))}
               </Command.Group>
-            ) : <PaletteProjectsGroup currentProjectId={undefined} limit={5} onClose={onClose} navigate={navigate} />}
-            <PaletteChatGroups query={search} groupClassName={GROUP_CLASS} onClose={onClose} />
+            ) : <PaletteProjectsGroup currentProjectId={undefined} limit={5} onDone={done} navigate={navigate} />}
+            <PaletteChatGroups query={search} groupClassName={GROUP_CLASS} onDone={done} />
             {/* Switching is by name only; what was said is the search panel's: the last row hands the words over. */}
             {search && (
-              <Command.Item value="search-messages" className={PALETTE_ITEM_CLASS} onSelect={() => { onClose(); openGlobalSearch({ text: search }); }}>
+              <Command.Item value="search-messages" className={PALETTE_ITEM_CLASS} onSelect={() => { done(); openGlobalSearch({ text: search }); }}>
                 <Search size={14} className="shrink-0 text-foreground/40" />
                 <span className="flex-1 truncate">{translate('palette.searchMessages', { query: search })}</span>
               </Command.Item>

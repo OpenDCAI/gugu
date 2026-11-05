@@ -46,7 +46,7 @@ afterEach(async () => {
 
 async function render(query: string) {
   await act(async () => root.render(
-    <Command shouldFilter={false}><Command.List><PaletteChatGroups query={query} groupClassName="" onClose={() => {}} /></Command.List></Command>,
+    <Command shouldFilter={false}><Command.List><PaletteChatGroups query={query} groupClassName="" onDone={() => {}} /></Command.List></Command>,
   ));
 }
 const rows = () => [...host.querySelectorAll('[cmdk-item]')].map((row) => row.textContent);

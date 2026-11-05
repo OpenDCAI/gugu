@@ -21,14 +21,14 @@ interface PaletteProjectsGroupProps {
   /** When set, this project is excluded from the list (project scope). Undefined shows all (app scope). */
   currentProjectId: string | undefined;
   limit?: number;
-  onClose: () => void;
+  onDone: () => void;
   navigate: NavigateFnTyped;
 }
 
 export function PaletteProjectsGroup({
   currentProjectId,
   limit,
-  onClose,
+  onDone,
   navigate,
 }: PaletteProjectsGroupProps) {
   const { translate } = useSessionMessages();
@@ -56,7 +56,7 @@ export function PaletteProjectsGroup({
           value={`project:${p.id}`}
           onSelect={() => {
             navigate('project', { projectId: p.id });
-            onClose();
+            onDone();
           }}
           className={PALETTE_ITEM_CLASS}
         >

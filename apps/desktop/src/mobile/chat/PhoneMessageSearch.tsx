@@ -14,7 +14,7 @@ export function PhoneMessageSearch({ open, onClose }: { open: boolean; onClose: 
   const { theme } = useTheme()
   return (
     <Sheet open={open} onClose={onClose} fullScreenMobile testId="phone-message-search" ariaLabel={t('chatList.searchMessagesTitle')}>
-      {open ? <div className={`${sessionSkinClassName(theme)} h-full`}><GlobalSearch tasks={false} onClose={onClose} /></div> : null}
+      {open ? <div className={`${sessionSkinClassName(theme)} h-full`}><GlobalSearch tasks={false} onClose={onClose} onOpen={onClose} /></div> : null}
     </Sheet>
   )
 }
