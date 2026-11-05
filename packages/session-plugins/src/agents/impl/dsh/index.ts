@@ -53,8 +53,13 @@ export const plugin = definePlugin(
        * `reasoning_effort` 都在应答里读回新值,下一轮请求就是新模型 ⇒ `acp-config-option` + `ack-read-back`。
        * 模型可以热切:平台会话的 `--patch` 把这条会话能切的咕咕模型全列进 dsh 的模型表。
        *
-       * 权限 `unsupported`:dsh 的 ACP 面没有 modes,档位只在**建会话**时由 `DSH_PERMISSION_MODE` 定,
-       * 续接沿用钉下的那一档(实测见 session-bundle 的 units.autonomy)⇒ 重开也换不了,❌ 声明 `reload-session`。
+       * 权限 `unsupported`:dsh 自己的界面能在开着的会话里换档 —— Web 的权限下拉与 TUI 都走 `/permission <档>`
+       * 命令(`dsh-client-ui-permission-presets` 调 `session.command('/permission …')`,命令处理在
+       * `dsh-permission-presets`,当场改这条会话的 sandbox 与 approval)。但 ACP 面不带命令也不带 modes
+       * (`dsh-acp` README「Unsupported surfaces … modes, commands」);实测 0.2.1-rc.5:prompt 里发
+       * `/permission danger-full-access` 原样进了模型,下一条命令仍按 read-only 跑;`session/set_mode` 回
+       * Method not found,`set_config_option permission` 回 unknown option。重起再 resume 也沿用钉下的那一档
+       * ⇒ 咕咕这条腿换不了,❌ 声明 `reload-session`。
        *
        * 忙时一律 `reject`:dsh 一轮开始时钉住所选模型,改动落在下一轮(README),这一层没量过,❌ 先声明更松的。
        */

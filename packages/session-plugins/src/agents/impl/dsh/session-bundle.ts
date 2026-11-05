@@ -23,9 +23,17 @@ const VERSION = '0.2.1-rc.5';
 /** dsh 的 provider id:`llm-deepseek` 那一行注册的路由名(`dsh-llm-deepseek-api-key` 的 `PROVIDER`)。 */
 const DSH_PROVIDER = 'deepseek-official';
 
-const unverifiedExtension: Degradation = {
-  code: 'unverified',
-  reason: `DeepSeek Harness v${VERSION} extension delivery has not been verified.`,
+/**
+ * `extension` / `packages` 这一格指的是咕咕**自己的原生插件包**(claude 的 `.claude-plugin`、codex 的
+ * `.codex-plugin`、opencode 的事件模块:装钩子、原生挂 skill)。dsh 不需要它:装了的 App 照常到达 ——
+ * App 的 MCP server 由宿主并进 `mcpServers`,经 `session/new` 送进去(下面的 `units.mcp`);App 列表与
+ * skill 走平台块里的 `<gugu_apps>`(`mountsExtensionSkillsNatively` 为假时宿主就这么投)。
+ * 所以这里没有缺了什么,只是这一家没有、也不用这条通道。
+ */
+const noNativePackage: Degradation = {
+  code: 'unsupported-channel',
+  reason: 'Gugu ships no native plugin package for DeepSeek Harness and needs none: installed Apps reach it as MCP '
+    + 'servers in session/new and through the <gugu_apps> platform block.',
 };
 
 const PATCH_FILE = 'gugu-session-patch.yml';
@@ -84,13 +92,14 @@ export const dshSessionBundleDescriptor = {
      * 自治级别 → `DSH_PERMISSION_MODE`(`dsh-base` 的 `sandbox-policy` / `approval` 两行读它)。
      * ⚠️ 只在**新建**会话时生效:dsh 把档位钉进会话,续接沿用钉下的那一档(`dsh-permission-presets` README
      *    「A resumed seed … preserves its effective permission」;实测:read-only 建的会话换 danger-full-access
-     *    重起再 resume,命令照旧被 read-only 拦下)。所以活会话里没有改档的通道(见 index.ts 的 liveSettings)。
+     *    重起再 resume,命令照旧被 read-only 拦下)。dsh 自己的界面用 `/permission` 在会话里换档,ACP 面不提供这条
+     *    命令 ⇒ 咕咕这条腿没有改档的通道(见 index.ts 的 liveSettings)。
      */
     autonomy: { kind: 'native', channel: 'process-config' },
     /** 厂商原生 ACP server 不读 `_meta.systemPrompt.append`,身份自述随首轮用户消息走(同 codebuddy)。 */
     promptBlocks: { kind: 'native', channel: 'session-context' },
   },
-  extension: { kind: 'none', degraded: unverifiedExtension },
+  extension: { kind: 'none', degraded: noNativePackage },
   coexistence: {
     pause: { kind: 'native', channel: 'protocol-cancel' },
     observability: { kind: 'native', channel: 'acp-update' },
@@ -192,7 +201,7 @@ export function materializeDshSessionBundle(
         promptBlocks: prompt
           ? loaded
           : { status: 'degraded', reason: { code: 'unverified', reason: 'No prompt blocks were declared.' } },
-        packages: { status: 'degraded', reason: unverifiedExtension },
+        packages: { status: 'degraded', reason: noNativePackage },
       },
       discoveredCommands: [],
     },
