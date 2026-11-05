@@ -23,18 +23,27 @@ type Deps = {
  *
  * 记录这次读不出来(没有、读失败)⇒ 照旧重放:那是 agent 自己那份历史唯一还拿得到的路。
  * 只有 Claude、Codex、Hermes 三家不重放(`recordIdentityFor`);其余几家照旧重放。新开、分叉、还没有 provider 会话的不是「接回」,三格都不带。
+ * 读不了记录的那几家也带上回合序号:适配器只声明了 `session/resume` 时运行时不会有重放,回合从库尾接着数
+ * (用不用由运行时按适配器的能力定,重放的那几家照旧从 0 数)。
  * 三格**无条件写回**(缺席也写成 undefined):它们只由宿主给,渲染进程递来的同名字段不许穿过。
  */
 export async function resumeHistoryFacts(input: AcpRuntimeStartInput, deps: Deps): Promise<ResumeHistoryFacts> {
   const none: ResumeHistoryFacts = { replayHistory: undefined, recordedDeliveryIds: undefined, turnIndexBase: undefined };
   if (!input.providerSessionId || input.forkFromProviderSessionId) return none;
-  if (!recordIdentityFor(sessionRecordHarnessForProvider(input.providerId))) return none;
+  const readTurnIndexBase = deps.turnIndexBase
+    ?? (async (id: string) => (await import('@main/core/sessions/session-turn-store')).storedTurnIndexBase(id));
+  if (!recordIdentityFor(sessionRecordHarnessForProvider(input.providerId))) {
+    try {
+      return { ...none, turnIndexBase: await readTurnIndexBase(input.sessionId) };
+    } catch (error) {
+      log.warn('[acp-start] turn index base unavailable', { sessionId: input.sessionId, error: String(error) });
+      return none;
+    }
+  }
   const readDeliveries = deps.recordedDeliveryIds
     ?? (async (id: string) => (await import('@main/core/session-timeline/service')).recordedDeliveryIds(id));
   const fill = deps.fillFromRecord
     ?? (async (id: string) => (await import('@main/core/sessions/record-backfill')).syncStoredHistoryFromRecord(id));
-  const readTurnIndexBase = deps.turnIndexBase
-    ?? (async (id: string) => (await import('@main/core/sessions/session-turn-store')).storedTurnIndexBase(id));
   try {
     // 补库在前:之后的轮从补完的库尾接着数。补不成只是少几轮历史,❌ 挡住这次启动。
     await fill(input.sessionId).catch(() => undefined);

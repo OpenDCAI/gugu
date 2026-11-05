@@ -124,6 +124,7 @@ export class FakeAcpAgent implements AcpAgentApi {
   });
   newSession: Mock = vi.fn().mockResolvedValue({ sessionId: 'session-1' });
   loadSession: Mock = vi.fn().mockResolvedValue({});
+  resumeSession: Mock = vi.fn().mockResolvedValue({});
   unstable_forkSession: Mock = vi.fn().mockResolvedValue({ sessionId: 'forked-session' });
   closeSession: Mock = vi.fn().mockResolvedValue({});
   cancel: Mock = vi.fn().mockResolvedValue({});

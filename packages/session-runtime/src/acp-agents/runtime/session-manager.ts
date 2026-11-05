@@ -677,7 +677,7 @@ export class SessionManager implements InboundRouter {
     record.cell.setAgent(connection.agent);
     record.cell.setAcceptsImagePrompts(connection.supportsImagePrompt);
     record.cell.setSupportsSteering(connection.supportsSteering);
-    record.cell.setSupportsLoadSession(connection.supportsLoadSession);
+    record.cell.setCanReattach(connection.supportsLoadSession || connection.supportsResumeSession);
     this.deps.onForkHandshake?.(input.providerId, connection.supportsForkSession);
 
     try {
@@ -799,6 +799,17 @@ export class SessionManager implements InboundRouter {
         );
       }
 
+      // 接回原 provider session 的两条 ACP 标准路,按适配器 initialize 声明的能力挑:`session/load` 把历史重放
+      // 回来;`session/resume` 只接上上下文、不重放(会话页的历史本来就在宿主自己的库里)。两样都没声明 ⇒ 下面
+      // 退回 `session/new`。两样都声明时走 load:重放是更强的那一个,行为与只认 load 时一样。
+      const reattach = !loadProviderSessionId
+        ? null
+        : connection.supportsLoadSession && connection.agent.loadSession
+          ? { replays: true, open: connection.agent.loadSession.bind(connection.agent) }
+          : connection.supportsResumeSession && connection.agent.resumeSession
+            ? { replays: false, open: connection.agent.resumeSession.bind(connection.agent) }
+            : null;
+
       if (input.forkFromProviderSessionId && !forkMeta && !resolvedFork && !isPersistentFork) {
         if (!connection.supportsForkSession || !connection.agent.unstable_forkSession) {
           await acquired.release();
@@ -855,7 +866,7 @@ export class SessionManager implements InboundRouter {
         await this.applyConfiguredPermissionMode(record, input);
         record.cell.applySessionReady();
         Object.assign(record, { phase: 'ready' });
-      } else if (loadProviderSessionId && connection.supportsLoadSession && connection.agent.loadSession) {
+      } else if (loadProviderSessionId && reattach) {
         record.cell.setAcpSessionId(loadProviderSessionId);
         this.addLoading(connection.key, input.sessionId);
         this.registerRoute(connection.key, loadProviderSessionId, input.sessionId);
@@ -863,17 +874,18 @@ export class SessionManager implements InboundRouter {
         // ❌ 不去问状态机——`endReplay()` 先切 phase 后发变更,那一刻问 phase 会把最后一回合报错。
         record.replaying = true;
         record.cell.beginReplay();
-        // #980 不重放 ⇒ 补投去重的那份「agent 收到过什么」由宿主从记录里读好带进来;没带 = 读不出来。
-        if (input.replayHistory === false) {
+        // #980 不重放(宿主说不要,或这一家只会 resume)⇒ 补投去重的那份「agent 收到过什么」由宿主从记录里读好
+        // 带进来,没带 = 读不出来;回合序号从宿主给的库尾接着数。
+        if (input.replayHistory === false || !reattach.replays) {
           record.cell.useRecordedDeliveries(input.recordedDeliveryIds ?? null);
           record.cell.continueTurnIndexAt(input.turnIndexBase ?? 0);
         }
 
         try {
           const loadingCell = record.cell;
-          const response = await connection.agent.loadSession(
+          const response = await reattach.open(
             this.buildLoadSessionRequest(input, loadProviderSessionId)
-          ).catch((error: unknown): Awaited<ReturnType<typeof connection.agent.loadSession>> => {
+          ).catch((error: unknown): Awaited<ReturnType<typeof reattach.open>> => {
             const reason = historyUnknownReason(error, loadProviderSessionId);
             if (reason === null) throw error;
             loadingCell.markReplayHistoryUnknown();
@@ -2643,7 +2655,7 @@ export class SessionManager implements InboundRouter {
       recentActions: recent.actions,
       lastActionAt: recent.lastActionAt,
       failure: cell?.sessionState.failure ?? state.failure ?? null,
-      ...(cell ? { canLoadSession: cell.supportsLoadSession } : {}),
+      ...(cell ? { canReattach: cell.canReattach } : {}),
       startProgress: state.lifecycle === 'starting'
         ? this.startProgress.get(input.sessionId) ?? null
         : null,

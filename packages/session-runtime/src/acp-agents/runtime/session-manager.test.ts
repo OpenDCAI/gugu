@@ -166,7 +166,7 @@ describe('AcpRuntime session manager', () => {
     const sessionId = `conv-load-capability-${String(loadSession)}`;
 
     await expect(rt.startSession(makeStartInput({ sessionId }))).resolves.toMatchObject({ success: true });
-    expect(rt.sessionsListLiveModel().states.list.snapshot().data[sessionId]?.canLoadSession).toBe(loadSession);
+    expect(rt.sessionsListLiveModel().states.list.snapshot().data[sessionId]?.canReattach).toBe(loadSession);
   });
 
   it('queuePrompt on a ready idle session starts the turn instead of parking it (#6762)', async () => {

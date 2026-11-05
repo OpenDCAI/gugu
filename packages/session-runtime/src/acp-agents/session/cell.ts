@@ -100,7 +100,7 @@ export class SessionCell {
   private _agent: SessionCellDeps['agent'];
   private acceptsImagePrompts: boolean;
   private supportsSteering: boolean;
-  private _supportsLoadSession = false;
+  private _canReattach = false;
   private lastRunningAgentCount = 0;
   /** #7342 最后一次上下文读数到达那一刻会话自报的模型 —— 读数归它,换了模型就不归了(上限随模型变)。 */
   private usageModelIdAtReport: string | null = null;
@@ -260,13 +260,16 @@ export class SessionCell {
     this.supportsSteering = supportsSteering;
   }
 
-  /** 适配器 initialize 时声明的 `loadSession`:停掉之后能不能按原 provider session 接回来(闲置回收只回收能接回来的)。 */
-  setSupportsLoadSession(supportsLoadSession: boolean): void {
-    this._supportsLoadSession = supportsLoadSession;
+  /**
+   * 适配器 initialize 时声明了 `loadSession` 或 `sessionCapabilities.resume`:停掉之后能不能按原 provider
+   * session 接回来(闲置回收只回收能接回来的)。
+   */
+  setCanReattach(canReattach: boolean): void {
+    this._canReattach = canReattach;
   }
 
-  get supportsLoadSession(): boolean {
-    return this._supportsLoadSession;
+  get canReattach(): boolean {
+    return this._canReattach;
   }
 
   /** A dispatched prompt is owned before a state-reporting provider says running. */
