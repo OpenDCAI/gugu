@@ -18,7 +18,7 @@ import { IconButton } from '@/components/ui/IconButton'
 import { MoreHorizontal } from '@/lib/icons'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
 import { SessionConversation } from './SessionConversation'
-import { enqueueSessionInput, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
+import { enqueueSessionInput, releaseQueuedSessionInput, queuedSessionInputs, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
 import { sessionInputBaseline } from '@/lib/pendingSessionInput'
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue'
 import { SessionAvatar } from './StatusGlyph'
@@ -38,6 +38,10 @@ import { SessionAppFrame } from '@/components/appSlot/SessionAppFrame'
 import { installedExtensionsStore } from '@/session/renderer/features/extensions/installed-extensions-store'
 import { useNetworkOnline } from '@/hooks/useNetworkOnline'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { hostedInputIds } from './local-queued-inputs'
+import { canResumePhoneInput, phoneInputQueueIntent } from './phone-input-queue'
+import { messageForUser } from '@/lib/userFacingError'
 
 /**
  * owner 10-16 The App tabs a session offers on the phone: installed, switched on, opening no file — the session page's 「+」
@@ -76,6 +80,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   onBack: () => void
 }) {
   const { t } = useTranslation('main')
+  const mobile = useMobileShell()
   const { label: machineLabel } = useMachineLabel()
   const phoneHost = isPhoneDevice(device)
   const networkOnline = useNetworkOnline()
@@ -88,6 +93,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
   const [appliedDraft, setAppliedDraft] = useState<typeof draft>(undefined)
   const [menuAnchor, setMenuAnchor] = useState<Element | null>(null)
+  const [inputQueueError, setInputQueueError] = useState<string | null>(null)
   // owner 10-16 The App this page shows instead of the timeline, picked from the mode button; null = the timeline.
   const [appKind, setAppKind] = useState<string | null>(initialAppKind ?? null)
   useEffect(() => showPhoneAppView({
@@ -114,10 +120,19 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const hostSilent = !local && online && ((link === 'lost' && (!error || remoteFailureKind(errorCode) === 'machine-unreachable')) || (native && nativeRecord.unreachable))
   const answering = online && !hostSilent
   const conversation = native ? { ...timeline, turns: [...(nativeRecord.record?.turns ?? []), ...(nativeRecord.record?.activeTurn ? [nativeRecord.record.activeTurn] : [])], hasOlder: nativeRecord.record ? nativeRecord.record.nextCursor !== null : false } : timeline
+  const drawnInputIds = mobile ? [...hostedInputIds(conversation.queuedPrompts, conversation.turns)] : undefined
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
   const attention = deriveAttention(timeline)
+  const foregroundWorking = attention === 'running' || attention === 'waiting' || recovery.pendingPrompt !== null
+  const queueReady = answering && phase === 'ready' && link === 'ok' && (!native || Boolean(nativeRecord.record && !nativeRecord.record.hasNewer))
+  const queuedInput = foregroundWorking || queuedInputs.length > 0
+  const beforeSend = () => {
+    if (mobile && native && queuedInput && session.nativeInputIdentity !== true) {
+      throw new Error(t('settings:devices.notice.serverTooOldHint'))
+    }
+  }
   // Identified agents share the group/avatar reading; transport only governs timeline access.
   const shownStatus = useShownAgentStatus()
   const agentUserId = session.agent?.userId
@@ -153,7 +168,8 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   // Its durable input queue waits for the host's stable acknowledgement contract.
   // 动作失败贴着**动作发生的地方**显示(输入框正上方),❌ 不跑到页顶去冒充「打不开时间线」——
   // 发送失败时时间线好端端在那儿,页顶那个红框还配一个「重新读取」,对发送毫无意义。
-  const actionErrorNotice = actionError ? (
+  const sendError = actionError ?? inputQueueError
+  const actionErrorNotice = sendError ? (
     <div
       className="gg-aw-action-error"
       data-testid="agent-watch-action-error"
@@ -166,12 +182,12 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
       aria-live="assertive"
     >
       <span className="gg-aw-action-error-title">{t('agentWatch.composer.sendFailed')}</span>
-      <span className="gg-aw-action-error-detail">{actionError}</span>
+      <span className="gg-aw-action-error-detail">{sendError}</span>
       <Button
         variant="ghost"
         size="sm"
         data-testid="agent-watch-action-error-dismiss"
-        onClick={dismissActionError}
+        onClick={() => { dismissActionError(); setInputQueueError(null) }}
       >
         {t('agentWatch.composer.dismiss')}
       </Button>
@@ -248,20 +264,35 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           draft={draft === appliedDraft ? undefined : draft}
           onDraftApplied={() => setAppliedDraft(draft)}
           phoneHost={phoneHost} local={local} nativeRecord={native} hostReachable={answering}
+          queueReady={queueReady}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
           onRespond={respond}
-          onSend={async (text, files) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text,
-            queued: attention === 'running' || queuedInputs.some(input => !input.queued), ...sessionInputBaseline(conversation.turns), ...(files?.length ? { files } : {}) }); if (native) nativeRecord.followTail() }}
+          onBeforeSend={beforeSend}
+          onSend={async (text, files) => {
+            beforeSend()
+            setInputQueueError(null)
+            const request = { deviceId: device.device_id, sessionId: session.conversationId, text, composer: true as const,
+              ...phoneInputQueueIntent(foregroundWorking, queuedInputs), ...sessionInputBaseline(conversation.turns), ...(files?.length ? { files } : {}) }
+            await enqueueSessionInput(request)
+            if (canResumePhoneInput(queueReady, foregroundWorking, conversation.turns)) {
+              const head = [...queuedSessionInputs(session.conversationId)].filter(input => input.sendQueue).sort((a, b) => a.sendQueue!.order - b.sendQueue!.order)[0]
+              if (head) {
+                try { await releaseQueuedSessionInput(session.conversationId, conversation.turns, head.id) }
+                catch (error) { setInputQueueError(messageForUser(error)) }
+              }
+            }
+            if (native) nativeRecord.followTail()
+          }}
           pendingSends={pendingSends}
           startupPrompt={recovery.pendingPrompt}
           sending={sending}
-          agentWorking={attention === 'running' || recovery.pendingPrompt !== null}
+          agentWorking={foregroundWorking}
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}
-          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!answering} />{actionErrorNotice}</>}
+          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!answering} inTranscript={drawnInputIds} />{actionErrorNotice}</>}
           onAtBottom={native ? nativeRecord.loadNewer : undefined}
           historyReady={!native || nativeRecord.record !== null} historyCursor={native ? nativeRecord.record?.nextCursor : undefined}
           onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}

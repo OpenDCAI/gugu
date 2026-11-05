@@ -52,7 +52,7 @@ beforeEach(() => {
   harness = createReactHarness()
   state.shell = {
     cloudAvailable: true, canHostHere: true, cloud: cloud('provisioning'), loadError: null,
-    assistant: { id: 'same-agent', display_name: '咕咕', avatar: null, created_at: null },
+    assistant: { agent_type: 'claude-code', id: 'same-agent', display_name: '咕咕', avatar: null, created_at: null },
     assistantState: 'found', ownerName: '主人', chatId: 'same-chat', home: { kind: 'cloud', deviceId: 'cloud' },
     setup: 'connect', member: true, preparing: false,
   }
@@ -100,4 +100,13 @@ it('refreshes managed instructions only for a local assistant home', async () =>
   state.shell = { ...state.shell!,setup: null,home: { kind: 'computer',deviceId: 'local',thisDevice: true,label: 'Local',online: true,known: true } }
   await render()
   expect(refreshLocalAssistantHome).toHaveBeenCalledOnce()
+})
+
+it('refreshes a local Codex home with Codex instructions', async () => {
+  const { refreshLocalAssistantHome } = await import('@/lib/assistantSetup')
+  vi.mocked(refreshLocalAssistantHome).mockClear()
+  state.shell = { ...state.shell!, setup: null, assistant: { ...state.shell!.assistant!, agent_type: 'codex' },
+    home: { kind: 'computer', deviceId: 'local', thisDevice: true, label: 'Local', online: true, known: true } }
+  await render()
+  expect(refreshLocalAssistantHome).toHaveBeenCalledExactlyOnceWith('codex')
 })

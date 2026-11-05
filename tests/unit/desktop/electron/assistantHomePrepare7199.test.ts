@@ -26,6 +26,17 @@ afterEach(async () => {
 
 // #7199 非会员装在自己的电脑上:它的一切在它的工作目录里,人自己的 ~/.claude 不被写进说明 / 设置。
 describe('prepareLocalAssistantHome', () => {
+  it('prepares Codex project instructions and owner memory without changing the human Claude configuration', async () => {
+    const { home, guguHome, paths } = await scratch()
+    const result = await prepareLocalAssistantHome({ engine: 'codex', ownerProfile: '- 称呼：小明' }, { home, guguHome })
+    expect(await readFile(paths(result.workdir).instructions, 'utf8')).toContain('.gugu-assistant-reference.md')
+    // Task agents can share the workspace, so no assistant role is installed in
+    // Codex's automatic project instructions. Its own session gets that role.
+    await expect(lstat(join(result.workdir, 'AGENTS.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(join(paths(result.workdir).memoryDir, 'owner-profile.md'), 'utf8')).toContain('小明')
+    await expect(lstat(join(home, '.claude'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(lstat(paths(result.workdir).settings)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
   it('建工作目录、写说明和设置、写「关于主人」,Claude 认的记忆夹链到工作目录里', async () => {
     const { home, guguHome, paths } = await scratch()
     const result = await prepareLocalAssistantHome({ ownerProfile: '- 称呼：小明' }, { home, guguHome })

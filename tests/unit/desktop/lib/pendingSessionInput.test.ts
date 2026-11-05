@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { projectSessionPendingInput, sessionInputBaseline } from '@/lib/pendingSessionInput'
+import { projectRejectedSessionInputs, projectSessionPendingInput, sessionInputBaseline } from '@/lib/pendingSessionInput'
 import { activeTurnWithPending } from '@session-chat/state/pending-prompt'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { HostPendingRow, SessionInput, SessionInputFailure } from '@/lib/sessionInputOutbox'
@@ -17,8 +17,8 @@ describe('ordinary input transcript custody', () => {
     const sending = projectSessionPendingInput(null, [input()], [], [old])!
     expect(sending).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
     const accepted = projectSessionPendingInput(sending, [], [], [old])!
-    expect(accepted).toMatchObject({ id: 'send', text: 'hello', held: true, delivery: { state: 'accepted' } })
-    expect(projectSessionPendingInput(accepted, [], [host('queued')], [old])?.delivery?.state).toBe('accepted')
+    expect(accepted).toMatchObject({ id: 'send', text: 'hello', held: true, delivery: { state: 'receiving' } })
+    expect(projectSessionPendingInput(accepted, [], [host('queued')], [old])?.delivery?.state).toBe('receiving')
     expect(projectSessionPendingInput(accepted, [], [], [old, turn('native', 'hello', 25)])).toBeNull()
   })
 
@@ -61,7 +61,7 @@ describe('ordinary input transcript custody', () => {
     const sending = projectSessionPendingInput(null, [input()], [], [old])!
     const active: TranscriptTurn = { id: 'new-turn', seq: 2, initiator: 'user', startedAt: 25, items: [] }
     expect(activeTurnWithPending(active, sending)?.items).toMatchObject([{ id: 'send', text: 'hello' }])
-    expect(activeTurnWithPending(turn('native', 'hello', 25), sending)?.items).toHaveLength(1)
+    expect(activeTurnWithPending(turn('native', 'hello', 25), sending, [old])?.items).toHaveLength(1)
   })
 
   it('keeps automatic recovery on the same input identity', () => {
@@ -83,6 +83,12 @@ describe('ordinary input transcript custody', () => {
     expect(projectSessionPendingInput(null, [{ ...input(), queued: true }], [], [old])).toBeNull()
   })
 
+  it('does not let an older terminal receipt hide a newly sent input', () => {
+    const failed = { ...input(), id: 'failed-old' }
+    const previous = { id: failed.id, text: failed.text, delivery: { state: 'failed' as const } }
+    expect(projectSessionPendingInput(previous, [input()], [], [old])).toMatchObject({ id: 'send', delivery: { state: 'sending' } })
+  })
+
   it('keeps an unknown host outcome visible without offering an unsafe resend', () => {
     const sending = projectSessionPendingInput(null, [input()], [], [old])!
     expect(projectSessionPendingInput(sending, [], [host('unknown')], [old])).toMatchObject({
@@ -94,4 +100,19 @@ describe('ordinary input transcript custody', () => {
 it('keeps the offline input waiting in its transcript without a Retry action', () => {
   const failed = projectSessionPendingInput(null, [{ ...input(), failure: { code: 'host-offline' } }], [], [old])
   expect(failed).toMatchObject({ id: 'send', text: 'hello', delivery: { state: 'waiting', retryable: false, reason: expect.any(String), error: expect.any(String) } })
+})
+
+it('projects every definitive refusal once, separately from automatic sender custody', () => {
+  const a = { ...input(), admission: 'rejected' as const, failure: { code: 'send-failed' as const, message: 'No access to this task' } }
+  const b = { ...a, id: 'second', text: 'another input', createdAt: 21 }
+  const automatic = { ...input(), id: 'automatic', admission: 'uncertain' as const }
+  expect(projectRejectedSessionInputs([a, b, automatic], [old])).toMatchObject([
+    { id: a.id, text: a.text, senderRejected: true, delivery: { state: 'failed', retryable: true, reason: 'No access to this task' } },
+    { id: b.id, text: b.text, senderRejected: true, delivery: { state: 'failed', retryable: true } },
+  ])
+  expect(projectSessionPendingInput(null, [a, b, automatic], [], [old])).toMatchObject({ id: automatic.id, delivery: { state: 'sending' } })
+  expect(projectSessionPendingInput(projectSessionPendingInput(null, [input()], [], [old]), [a], [], [old])).toBeNull()
+  expect(projectSessionPendingInput(projectSessionPendingInput(null, [input()], [], [old]), [a, { ...automatic, failure: { code: 'host-offline' } }], [], [old]))
+    .toMatchObject({ id: automatic.id, delivery: { state: 'waiting', retryable: false } })
+  expect(projectRejectedSessionInputs([], [old])).toEqual([])
 })

@@ -1,3 +1,5 @@
+import type { CreditAmount } from '../../billing/creditAmount'
+
 /**
  * 用量页(product spec)的数据契约 —— 本机汇总、云端汇总表、用量页三方共用这一份形状。
  *
@@ -88,7 +90,7 @@ export type CreditUsageDay = {
   day: string
   /** 扣费记录上没有模型时为 null。 */
   model: string | null
-  credits: number
+  credits: CreditAmount
   inputTokens: number
   outputTokens: number
   requests: number

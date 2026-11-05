@@ -8,7 +8,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { AcpMcpServer } from './acp-engine-utils'
-import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
+import { errorFields, GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
 import { createLogger } from './lib/logger'
 import { anySignal } from '@gugu/core/shared/anySignal'
 
@@ -92,8 +92,9 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
       server.server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
         const signal = anySignal([grantSignal, extra.signal])
         return trackRequest(
-          listConnectedTools(await getContext().entries(), signal).then((tools) => ({ tools })),
+          (async () => ({ tools: await listConnectedTools(await getContext().entries(), signal, extra) }))(),
           'tools/list',
+          extra.requestId,
         )
       })
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -108,6 +109,7 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
             ? upstream.tools.call(params.name, params.arguments ?? {}, signal)
             : withUpstream(upstream, signal, (client) => client.callTool(params)),
           request.params.name,
+          extra.requestId,
         )
       })
       return server
@@ -126,7 +128,8 @@ export interface IntegrationBridgeEntry {
   upstream: IntegrationUpstream
 }
 
-async function listConnectedTools(entries: readonly IntegrationBridgeEntry[], signal: AbortSignal): Promise<Tool[]> {
+async function listConnectedTools(entries: readonly IntegrationBridgeEntry[], signal: AbortSignal,
+  request: { sessionId?: string; requestId: string | number }): Promise<Tool[]> {
   const tools: Tool[] = []
   const unavailable: string[] = []
   for (const { integrationId, upstream } of entries) {
@@ -149,7 +152,8 @@ async function listConnectedTools(entries: readonly IntegrationBridgeEntry[], si
     } catch (error) {
       signal.throwIfAborted()
       unavailable.push(integrationId)
-      log.warn({ integrationId, errorType: error instanceof Error ? error.name : 'unknown' }, 'connected app tools unavailable')
+      log.warn({ integrationId, ...errorFields(error),
+        mcpSessionId: request.sessionId, requestId: request.requestId }, 'connected app tools unavailable')
     }
   }
   if (unavailable.length && tools.length === 0) throw new Error(`Connected app tools are unavailable: ${unavailable.join(', ')}. Check their connections.`)

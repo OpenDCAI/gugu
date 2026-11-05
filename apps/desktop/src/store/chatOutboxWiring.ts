@@ -28,7 +28,7 @@ import {
   type OutboxRecord,
   type OutboxOperation,
 } from '../lib/imRepository'
-import { advanceReadWatermark, applyThreadSnapshot } from './chatRealtimeMutations'
+import { advanceReadWatermark, applyThreadSnapshot, type PatchChat } from './chatRealtimeMutations'
 import { createChatOutbox, type ChatOutbox } from './chatOutbox'
 import { i18n } from '@/i18n'
 import { rendererLogger } from '@/lib/log'
@@ -44,7 +44,7 @@ export interface OutboxWiringIo {
   activeThreadRootId(chatId?: string): string | null
   setMessagesAndCache(updater: (prev: MessageItem[]) => MessageItem[], chatId: string): void
   setThreadMessages: (updater: SetStateAction<MessageItem[]>, chatId: string) => void
-  patchChat(chatId: string, partial: Partial<ChatItem>): void
+  patchChat: PatchChat
   toast(message: string, type?: ToastType): void
   /** @@@4439 — store 的权威单行摄入 chokepoint(store/chat.tsx appendMessage):按 id 归并主线窗口,
    *  并在权威 seq 越过窗口旧尾时异步重验证被跳过的区间(交错入站行不得沉到增量游标下方)。 */

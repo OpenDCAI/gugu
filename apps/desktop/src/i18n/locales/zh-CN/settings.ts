@@ -109,6 +109,13 @@ export default {
     }
   },
   "credits": {
+    "v2": {
+      "not-active": "当前环境尚未启用新版积分计价。",
+      "unknown": "暂时无法确认当前积分版本或账户余额。",
+      "account-changed": "登录账户已变化，请刷新后读取当前账户的积分。",
+      "not-installed": "当前环境尚未安装新版积分读取接口。",
+      "inconsistent": "积分版本信息缺失或不一致，请刷新后重试。"
+    },
     "activity": "动态",
     "activityEmpty": "还没有用量记录。",
     "activityError": "用量记录暂时取不到：{{error}}",
@@ -556,6 +563,8 @@ export default {
         "serverTooOld": "那台机器上的咕咕 server 版本太旧，不支持从桌面登录。",
         "versionCheckFailed": "读不出那台机器上咕咕 server 的版本，已停止。请查看详情。",
         "loginFailed": "登录未完成，请重试。",
+        "accountMismatch": "这台机器登录的是账号 {{server}}，和你当前的账号 {{current}} 不一致。要添加它，先在那台机器上退出咕咕，或换一个系统用户。",
+        "accountMismatchUnknownCurrent": "这台机器登录的是另一个账号 {{server}}。要添加它，先在那台机器上退出咕咕，或换一个系统用户。",
         "cloudUnreachable": "那台机器连不上咕咕。请放行外网 HTTPS 或配置代理后重试。",
         "machineLimit": "已达机器上限。",
         "agentsRunning": "那台机器上有 agent 正在运行，会等它们空闲后自动更新。",
@@ -905,6 +914,9 @@ export default {
     "unknownStatus": "兑换状态未知：{{status}}"
   },
   "lowBalance": {
+    "remaining_one": "剩 {{credits}} 积分",
+    "remaining_other": "剩 {{credits}} 积分",
+    "topUp": "充值",
     "description": "建议充值，以免云端 agent 对话被中断。",
     "later": "稍后",
     "recharge": "去充值",

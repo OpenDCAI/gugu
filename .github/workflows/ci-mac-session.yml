@@ -1,0 +1,113 @@
+# Reusable only: callers remain unchanged until a reviewed immutable revision is admitted.
+name: Reusable macOS session checks
+on:
+  workflow_call:
+    inputs:
+      tests-required:
+        description: Original changes decision; never grants runner access.
+        required: false
+        default: 'true'
+        type: string
+permissions:
+  contents: read
+env:
+  CI: true
+  GUGU_SUPABASE_URL: http://127.0.0.1:54321
+  VITE_SUPABASE_URL: http://127.0.0.1:54321
+  GUGU_SUPABASE_ANON_KEY: community-build-placeholder
+  VITE_SUPABASE_ANON_KEY: community-build-placeholder
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
+  TZ: UTC
+jobs:
+  route:
+    name: Route
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.select.outputs.runner }}
+    steps:
+      - id: select
+        name: Select execution environment from the original event
+        shell: bash
+        env:
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REPOSITORY_ID: ${{ github.repository_id }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |-
+          node <<'NODE'
+          const fs = require('node:fs');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const canonical = 'GUYI-AI/gugu';
+          const canonicalId = 1428236928;
+          const pr = event.pull_request;
+          const number = pr?.number;
+          const mergeRef = 'refs/pull/' + number + '/merge';
+          const sameRepository = repo => repo?.full_name === canonical && repo?.id === canonicalId && repo?.fork === false;
+          const trusted = process.env.CALLER_EVENT_NAME === 'pull_request'
+            && process.env.CALLER_REPOSITORY === canonical
+            && process.env.CALLER_REPOSITORY_ID === String(canonicalId)
+            && ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(event.action)
+            && Number.isSafeInteger(number) && number > 0 && event.number === number
+            && sameRepository(event.repository)
+            && sameRepository(pr?.head?.repo) && sameRepository(pr?.base?.repo)
+            && typeof pr?.head?.ref === 'string' && pr.head.ref.length > 0
+            && ['dev', 'main'].includes(pr?.base?.ref)
+            && process.env.CALLER_REF === mergeRef
+            && process.env.CALLER_WORKFLOW_REF === canonical + '/.github/workflows/ci.yml@' + mergeRef;
+          const runner = trusted ? ['self-hosted', 'macOS', 'gugu-public-ci'] : ['macos-15'];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'runner=' + JSON.stringify(runner) + '\n');
+          NODE
+  session:
+    if: ${{ inputs.tests-required == 'true' }}
+    name: Session database, chat UI browser and tooling
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 30
+    steps:
+      - name: Bind isolated application paths
+        shell: bash
+        run: |
+          profile="$RUNNER_TEMP/gugu-session-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$profile/home" "$profile/user-data"
+          chmod 700 "$profile" "$profile/home" "$profile/user-data"
+          printf '%s\n' "GUGU_HOME=$profile/home" "GUGU_USER_DATA_DIR=$profile/user-data" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-community
+        with:
+          save-cache: 'true'
+      - run: pnpm exec vitest run --project session-main-db --project session-migrations --project tooling
+      - run: pnpm exec vitest run --project gugu --project session-main --project session-packages tests/unit/desktop/electron/deviceActions tests/unit/desktop/electron/loginShellProbe apps/desktop/electron/session/main/core/browser/browser-cookie-import packages/session-plugins/src/agents/impl/copilot/subscription packages/session-core/src/services/fs-watch/
+      - name: Native browser handoff and page protocol in real Electron
+        env:
+          GUGU_BROWSER_REAL_ELECTRON: ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
+        run: pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/browser/browser-user-agent.real-electron.test.ts apps/desktop/electron/session/main/core/browser/page-protocol.real-electron.test.ts apps/desktop/electron/session/main/core/extensions/projection.real-electron.test.ts apps/desktop/electron/session/main/core/extensions/projection-image.real-electron.test.ts
+      - uses: ./.github/actions/setup-playwright
+        with:
+          save-cache: 'true'
+      - run: pnpm exec vitest run --project session-chat-ui-browser
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.0
+          cache-dependency-path: apps/desktop/native/projection-media/go.sum
+      - name: Prepare native projection factory tools
+        shell: bash
+        run: |
+          if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
+          go -C apps/desktop/native/projection-media build -race -buildvcs=false -o "$RUNNER_TEMP/projection-media-factory" ./cmd/projection-media
+          projection_ffmpeg=$(command -v ffmpeg)
+          projection_chromium=$(node -p 'require("playwright").chromium.executablePath()')
+          test -x "$RUNNER_TEMP/projection-media-factory"
+          test -x "$projection_ffmpeg"
+          test -x "$projection_chromium"
+          printf '%s\n' "GUGU_TEST_MEDIA_HELPER=$RUNNER_TEMP/projection-media-factory" "GUGU_PROJECTION_FFMPEG=$projection_ffmpeg" "GUGU_TEST_CHROMIUM=$projection_chromium" >> "$GITHUB_ENV"
+      - name: Native image factory through H264 and actual Chromium
+        env:
+          GUGU_BROWSER_REAL_ELECTRON: ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
+        run: pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/extensions/projection-media.real-electron.test.ts

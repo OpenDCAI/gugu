@@ -16,6 +16,7 @@ type Handlers = Parameters<SessionHostPipeOpener>[0];
 const windows = vi.hoisted(() => [] as Array<{ onFrame(frame: string | Uint8Array): void; onClose(reason: string, options?: { handoff?: boolean }): void }>);
 const sent = vi.hoisted(() => [] as string[]);
 const peerProtocol = vi.hoisted(() => ({ value: null as number | null }));
+const matchServerVersion = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock('@shared/remote-hosts', async (importOriginal) => {
   const opener = Object.assign(
@@ -30,6 +31,7 @@ vi.mock('@shared/remote-hosts', async (importOriginal) => {
     openSessionHost: () => opener,
     listDevices: () => [{ id: 'd22', label: 'd22', isOnline: true }],
     subscribeDevices: () => () => undefined,
+    matchServerVersion,
   };
   return {
     ...(await importOriginal<typeof import('@shared/remote-hosts')>()),
@@ -42,7 +44,7 @@ Object.defineProperty(window, 'electronAPI', {
   configurable: true,
   value: { invoke: () => Promise.resolve([]), eventSend: () => {}, eventOn: () => () => {}, getPathForFile: () => '' },
 });
-const { closeMachineClient, machineClient, machineLinkHandingOff, machineLinkState, onMachineReconnected, subscribeMachineLink } = await import('./machine-clients');
+const { closeMachineClient, machineClient, machineLinkHandingOff, machineLinkState, onMachineReconnected, reportMachineOutdated, subscribeMachineLink } = await import('./machine-clients');
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -104,4 +106,104 @@ describe('到那台机器的线:计划内换线', () => {
     expect(machineLinkHandingOff('d22')).toBe(false);
     closeMachineClient('d22');
   });
+
+  it('marks a connected machine outdated and requests version matching when a required RPC is missing', async () => {
+    windows.length = 0;
+    matchServerVersion.mockClear();
+    await machineClient('d22')!.connect();
+
+    reportMachineOutdated('d22');
+    reportMachineOutdated('d22');
+
+    expect(machineLinkState('d22')).toBe('tooOld');
+    expect(matchServerVersion).toHaveBeenCalledOnce();
+    expect(matchServerVersion).toHaveBeenCalledWith('d22');
+    closeMachineClient('d22');
+  });
 });
+
+describe('换版请求失败时 tooOld 放锁', () => {
+  it.each(['false', 'reject'] as const)('a late %s from the previous connection cannot release the current match', async (outcome) => {
+    windows.length = 0;
+    const first = Promise.withResolvers<boolean>();
+    const second = Promise.withResolvers<boolean>();
+    matchServerVersion.mockReset();
+    matchServerVersion.mockResolvedValue(true).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    try {
+      await machineClient('d22')!.connect();
+      reportMachineOutdated('d22');
+      windows[0].onClose('channel switching transport', { handoff: true });
+      await flush();
+      expect(windows).toHaveLength(2);
+      expect(machineLinkState('d22')).toBe('open');
+      reportMachineOutdated('d22');
+      expect(matchServerVersion).toHaveBeenCalledTimes(2);
+      expect(machineLinkState('d22')).toBe('tooOld');
+
+      if (outcome === 'false') first.resolve(false);
+      else first.reject(new Error('old version request failed'));
+      await flush();
+      const stateAfterOldResult = machineLinkState('d22');
+      reportMachineOutdated('d22');
+      expect({ stateAfterOldResult, matchRequests: matchServerVersion.mock.calls.length })
+        .toEqual({ stateAfterOldResult: 'tooOld', matchRequests: 2 });
+    } finally {
+      first.resolve(false);
+      second.resolve(false);
+      await flush();
+      closeMachineClient('d22');
+    }
+  });
+
+  it.each(['false', 'reject'] as const)('a late %s cannot clear an outdated hello from the replacement connection', async (outcome) => {
+    windows.length = 0;
+    const first = Promise.withResolvers<boolean>();
+    matchServerVersion.mockReset();
+    matchServerVersion.mockReturnValueOnce(first.promise);
+    try {
+      await machineClient('d22')!.connect();
+      reportMachineOutdated('d22');
+      peerProtocol.value = 3;
+      windows[0].onClose('channel switching transport', { handoff: true });
+      await flush();
+      expect(windows).toHaveLength(2);
+      expect(machineLinkState('d22')).toBe('tooOld');
+
+      if (outcome === 'false') first.resolve(false);
+      else first.reject(new Error('old version request failed'));
+      await flush();
+      expect(machineLinkState('d22')).toBe('tooOld');
+      expect(matchServerVersion).toHaveBeenCalledOnce();
+    } finally {
+      first.resolve(false);
+      await flush();
+      closeMachineClient('d22');
+      peerProtocol.value = null;
+    }
+  });
+
+  it('match 说不是旧版 / 请求被拒:状态回到 open,这条路径还能再问', async () => {
+    windows.length = 0;
+    try {
+      await machineClient('d22')!.connect();
+      const reconnected = vi.fn();
+      const off = onMachineReconnected('d22', reconnected);
+      matchServerVersion.mockClear();
+      matchServerVersion.mockResolvedValueOnce(false);
+      reportMachineOutdated('d22');
+      expect(machineLinkState('d22')).toBe('tooOld');
+      await flush();
+      expect(machineLinkState('d22')).toBe('open');
+
+      matchServerVersion.mockRejectedValueOnce(new Error('bridge down'));
+      reportMachineOutdated('d22');
+      expect(machineLinkState('d22')).toBe('tooOld');
+      await flush();
+      expect(machineLinkState('d22')).toBe('open');
+      expect(reconnected, '放锁不是重连').not.toHaveBeenCalled();
+      off();
+    } finally {
+      closeMachineClient('d22');
+    }
+  });
+})

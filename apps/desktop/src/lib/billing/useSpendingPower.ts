@@ -13,12 +13,18 @@ import {
   unsubscribePrivateUserEventBus,
   type PrivateUserEventBusHandle,
 } from '../realtimeChannel'
-import { getCreditsBalance } from './balance'
-import { getQuotaWindows, type QuotaWindows } from './quota'
+import type { CreditAmount } from '@gugu/core/billing/creditAmount'
+import type { QuotaWindows } from './quota'
+import { membershipProjection, type Membership } from './membership'
+import { readCreditV2Account } from './v2/runtime'
+import { failedCreditConfirmation, type CreditConfirmation } from './v2/confirmation'
 
 export interface SpendingSnapshot {
+  membership: Membership | null
+  creditVersion: string | null
+  creditConfirmation: CreditConfirmation
   /** null = 还没取到或取不到,**不是** 0。 */
-  balance: number | null
+  balance: CreditAmount | null
   balanceError: string | null
   /** 非 null 即已通过领域校验(政策自洽),下游可以直接推导,不必再防一手。 */
   windows: QuotaWindows | null
@@ -31,6 +37,9 @@ export interface SpendingSnapshot {
 }
 
 const EMPTY: SpendingSnapshot = {
+  membership: null,
+  creditVersion: null,
+  creditConfirmation: { state: 'unconfirmed', revision: 0 },
   balance: null,
   balanceError: null,
   windows: null,
@@ -46,16 +55,9 @@ let snapshot: SpendingSnapshot = EMPTY
 let activeUserId: string | null = null
 let domListenersAttached = false
 let billingEventHandle: PrivateUserEventBusHandle | null = null
-// 四个订阅者同一帧挂载时不该打四遍同一个请求 —— 在途就跳过,拿同一份结果。
-// 记的是「在途的那一发是谁的」而不是一个布尔:换人那一下,旧请求还没回来,新用户的请求
-// 不能被这道去重挡掉 —— 挡掉的话旧回包因身份对不上被丢弃、新请求又没发出去,新用户要
-// 干等到下一次外部事件才看得到余额。
-let balanceInFlightFor: string | null = null
-let windowsInFlightFor: string | null = null
-// 每次刷新意图都推进版本。在途请求若跨过了一个新意图,它的回包已经可能落后于数据库广播,
-// 必须丢掉并在 finally 补发一轮；否则去重会把事件吞掉,旧值能一直挂到下次外部事件。
-let balanceRequestedRevision = 0
-let windowsRequestedRevision = 0
+// A refresh publishes one account/version tuple; it never exposes a new balance with old quota.
+let accountInFlight: { userId: string } | null = null
+let accountRequestedRevision = 0
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -63,7 +65,6 @@ function message(error: unknown): string {
 
 function publish(patch: Partial<SpendingSnapshot>): void {
   const next = { ...snapshot, ...patch }
-  // 派生只在这里做一次,四个订阅者不可能各推各的。窗口在入库时已过领域校验,这里只差余额。
   next.power = next.balance === null || next.windows === null
     ? null
     : deriveSpendingPower(next.balance, next.windows)
@@ -71,59 +72,40 @@ function publish(patch: Partial<SpendingSnapshot>): void {
   for (const listener of listeners) listener(snapshot)
 }
 
-async function refreshBalance(): Promise<void> {
+async function refreshAccount(): Promise<void> {
   const userId = activeUserId
-  if (!userId || balanceInFlightFor === userId) return
-  const requestRevision = balanceRequestedRevision
-  balanceInFlightFor = userId
+  if (!userId || accountInFlight?.userId === userId) return
+  const requestRevision = accountRequestedRevision
+  const request = { userId }
+  accountInFlight = request
   try {
-    const balance = await getCreditsBalance()
-    if (activeUserId !== userId || balanceRequestedRevision !== requestRevision) return
-    publish({ balance, balanceError: null })
+    const account = await readCreditV2Account()
+    if (activeUserId !== userId || accountRequestedRevision !== requestRevision) return
+    if (account.windows) quotaSpendWindows(account.windows)
+    const membership = account.plan ? membershipProjection(account.plan) : null
+    publish({ balance: account.balance, windows: account.windows, membership,
+      creditVersion: JSON.stringify(account.meta),
+      creditConfirmation: { state: 'active2', revision: snapshot.creditConfirmation.revision + 1 },
+      balanceError: account.balanceError === null ? null : message(account.balanceError),
+      windowsError: account.windowsError === null ? null : message(account.windowsError) })
   } catch (error) {
-    if (activeUserId !== userId || balanceRequestedRevision !== requestRevision) return
-    // #2187 登出边界把在途请求取消掉,那不是「余额加载失败」,不该报错也不该清掉已有值。
+    if (activeUserId !== userId || accountRequestedRevision !== requestRevision) return
     if (isLifecycleCancellation(error)) return
-    publish({ balance: null, balanceError: message(error) })
+    publish({ balance: null, windows: null, membership: null, creditVersion: null,
+      creditConfirmation: failedCreditConfirmation(error, snapshot.creditConfirmation.revision + 1),
+      balanceError: message(error), windowsError: message(error) })
   } finally {
-    // 只清自己那一发:换人后新请求已经把标记改成新身份了,旧请求收尾时不能把它抹掉。
-    if (balanceInFlightFor === userId) {
-      balanceInFlightFor = null
-      if (activeUserId === userId && balanceRequestedRevision !== requestRevision) void refreshBalance()
-    }
-  }
-}
-
-async function refreshWindows(): Promise<void> {
-  const userId = activeUserId
-  if (!userId || windowsInFlightFor === userId) return
-  const requestRevision = windowsRequestedRevision
-  windowsInFlightFor = userId
-  try {
-    const windows = await getQuotaWindows()
-    if (activeUserId !== userId || windowsRequestedRevision !== requestRevision) return
-    // 入库前先过一遍领域校验:政策自相矛盾(短窗上限与 周期额度 × 占比 对不上)的回包在这里
-    // 就被挡住,免得下游每处各自防一手 —— 那正是「一处一坨」的来路。
-    quotaSpendWindows(windows)
-    publish({ windows, windowsError: null })
-  } catch (error) {
-    if (activeUserId !== userId || windowsRequestedRevision !== requestRevision) return
-    if (isLifecycleCancellation(error)) return
-    publish({ windows: null, windowsError: message(error) })
-  } finally {
-    if (windowsInFlightFor === userId) {
-      windowsInFlightFor = null
-      if (activeUserId === userId && windowsRequestedRevision !== requestRevision) void refreshWindows()
+    if (accountInFlight === request) {
+      accountInFlight = null
+      if (activeUserId === userId && accountRequestedRevision !== requestRevision) void refreshAccount()
     }
   }
 }
 
 function refreshAll(): void {
   if (!officialServicesEnabled()) return
-  balanceRequestedRevision += 1
-  windowsRequestedRevision += 1
-  void refreshBalance()
-  void refreshWindows()
+  accountRequestedRevision += 1
+  void refreshAccount()
 }
 
 function refreshWhenVisible(): void {
@@ -177,6 +159,8 @@ function startBillingEvents(userId: string): void {
 function setActiveUser(userId: string | null): void {
   if (activeUserId === userId) return
   stopBillingEvents()
+  accountInFlight = null
+  accountRequestedRevision += 1
   activeUserId = userId
   snapshot = EMPTY
   publish({})
@@ -206,6 +190,8 @@ export function useSpendingPower(user: { id: string } | null): SpendingSnapshot 
       if (listeners.size === 0) {
         detachDomListeners()
         stopBillingEvents()
+        accountInFlight = null
+        accountRequestedRevision += 1
         activeUserId = null
         snapshot = EMPTY
       }

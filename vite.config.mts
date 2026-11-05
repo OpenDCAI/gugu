@@ -18,6 +18,7 @@ import {
 import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/build/obfuscate-own-chunks.mjs'
 import { monacoWorkerSingleBundlePlugin } from './scripts/build/monaco-worker-bundle.mjs'
 import { deterministicModuleSideEffects } from './scripts/build/deterministic-module-side-effects.mjs'
+import { devNodeExternals, type DependencyManifest } from './scripts/build/dev-node-externals.mjs'
 import { activateDbEnv, serverChannelForDb } from './scripts/build/build-env-preflight.mts'
 import { serverPackageIdentity } from './scripts/build/server-package-identity.mts'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
@@ -39,6 +40,7 @@ import {
 } from './apps/desktop/electron/sessionpage/sessionpage-main-build.mjs'
 import { LAZY_LANG_MODULES } from './packages/session-chat-ui/src/core/highlight/lazy-langs'
 import { appPaletteCss } from './apps/desktop/src/session/app-runtime/ui/app-palette.mjs'
+import { startupFirstFrame } from './scripts/build/startup-first-frame.mts'
 
 const require = createRequire(import.meta.url)
 
@@ -53,9 +55,10 @@ const SESSION_CHAT_UI_GLOB = '**/packages/session-chat-ui/**'
 // GUGU_BUILD_VERSION (#4703) is the dogfood build's stamped prerelease version — the same variable
 // electron-builder.cjs bakes into the app bundle — so About shows exactly what the dmg name says
 // without anyone editing package.json in the checkout.
-const appVersion =
-  process.env.GUGU_BUILD_VERSION ??
-  (JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf-8')).version as string)
+const packageManifest = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf-8'),
+) as DependencyManifest & { version: string }
+const appVersion = process.env.GUGU_BUILD_VERSION ?? packageManifest.version
 const buildTag = process.env.GUGU_BUILD_TAG ?? ''
 // @@@obfuscate-own-chunks (#7195) — 默认关。只作用于本次渲染层 rollup 构建,不碰主进程 / preload / worker 那些单独的构建。
 const obfuscateRenderer = parseObfuscateFlag(process.env.GUGU_OBFUSCATE_RENDERER)
@@ -182,6 +185,9 @@ const sessionMainVite: ElectronOptions['vite'] = {
           fileURLToPath(new URL('./apps/desktop/electron/server/server-boot.cjs', import.meta.url)), 'utf8') })
       },
     },
+    // 开发态由 Node 直接加载已安装的依赖，避免 Rollup watch 常驻它们的语法树。
+    // 只对 watch 生效；生产打包、workspace 源码与原有 external 规则保持原路径。
+    devNodeExternals(packageManifest),
     // @@@deterministic-mse (#7066) — 渲染层、主进程、两个 preload 共用这一个插件:同一个 sha 打几次产物逐字节相同。
     deterministicModuleSideEffects(),
     serverPackageIdentity(bakedSupabaseUrl, serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),
@@ -666,6 +672,7 @@ export default defineConfig(({ command }) => ({
     ),
   },
   plugins: [
+    startupFirstFrame(isElectronTarget),
     deterministicModuleSideEffects(),
     guguEntryReachabilityPlugin(reachability, isGuguEntry),
     monacoWorkerSingleBundlePlugin(),

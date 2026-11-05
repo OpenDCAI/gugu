@@ -231,6 +231,37 @@ describe('没连着的机器照账号上记着的那份', () => {
     ...overrides,
   });
 
+  it('projects a legacy assistant host as Tasks by identity, including late identity and detached projects', async () => {
+    const { appState, sidebarStore } = await import('@renderer/lib/stores/app-state');
+    const { isWorkspaceProject } = await import('@renderer/features/sessions/session-home-project-constants');
+    const store = new RemoteHostsStore();
+    store.start();
+    const legacy = record({ localProjectId: 'legacy-assistant-project', name: 'renamed', folders: [] });
+    const ordinary = record({ localProjectId: 'ordinary-project', name: '助理' });
+    const summary = { conversationId: 'legacy-conversation', projectId: legacy.localProjectId, projectName: 'renamed', title: 'existing history', harness: 'codex', runtime: 'acp' as const, agentStatus: null, lastInteractedAt: null, supported: true };
+    let listed = [device({ id: 'legacy-cloud', isOnline: false, directTerminal: false, projects: [legacy], sessionDigest: [summary] }),
+      device({ id: 'ordinary-machine', isOnline: false, directTerminal: false, projects: [ordinary] })];
+    const listeners = new Set<() => void>();
+    const off = installRemoteHostsBridge({ listDevices: () => listed,
+      subscribeDevices: (listener: () => void) => (listeners.add(listener), () => listeners.delete(listener)),
+      pickFolder: async () => null } as never);
+    try {
+      const original = appState.projects.projects.get(legacy.localProjectId)!;
+      expect(isWorkspaceProject(original)).toBe(false);
+      listed = listed.map(row => row.id === 'legacy-cloud' ? { ...row, assistantHome: true as const } : row);
+      listeners.forEach(listener => listener());
+      expect(isWorkspaceProject(original)).toBe(true);
+      expect(appState.projects.projects.get(legacy.localProjectId)).toBe(original);
+      expect(original.data).toMatchObject({ id: legacy.localProjectId, path: '/srv/repo', rootFolderDetached: true });
+      expect(sidebarStore.orderedProjects.map(project => project.id)).not.toContain(legacy.localProjectId);
+      expect(sidebarStore.projectGroups.rowOf.has(legacy.localProjectId)).toBe(false);
+      expect(sidebarStore.standaloneSessionEntries.map(row => [row.projectId, row.sessionId])).toContainEqual([legacy.localProjectId, summary.conversationId]);
+      expect(store.listedProject(summary.conversationId)).toBe(legacy.localProjectId);
+      expect(isWorkspaceProject(appState.projects.projects.get(ordinary.localProjectId)!)).toBe(false);
+      expect(sidebarStore.orderedProjects.map(project => project.id)).toContain(ordinary.localProjectId);
+    } finally { off(); }
+  });
+
   it('列出它的项目、并上它的群、认得它的主目录,这台桌面从没连上过它也一样', async () => {
     const { appState } = await import('@renderer/lib/stores/app-state');
     const { projectGroupsStore } = await import('@renderer/features/projects/stores/project-groups-store');

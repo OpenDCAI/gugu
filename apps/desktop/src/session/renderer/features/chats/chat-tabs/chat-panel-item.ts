@@ -26,6 +26,8 @@ export interface PanelItem {
   file?: ChatPeekFile;
   /** The message it was opened from: the preview forwards it. */
   message?: MessageItem;
+  /** The topic it was opened from when no message says so: a group file's link clicked in that topic. */
+  topicChatId?: string;
 }
 
 export const folderItem = (): PanelItem => ({ kind: WORKSPACE_APP_KIND, title: '' });

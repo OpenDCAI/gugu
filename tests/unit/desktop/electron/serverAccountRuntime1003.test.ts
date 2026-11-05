@@ -15,7 +15,7 @@ afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: 
 describe('actual account package identity', () => {
   it('reads the live process version rather than the installation or saved pin', () => {
     const read = files({ '/data/server.lock': '42', '/proc/42/environ': 'GUGU_TASK_HOST_VERSION=old-live\0', '/data/server-version.json': '{"version":"new-pin"}' })
-    expect(readAccountRuntime('/data', { read, alive: () => true })).toEqual({ pid: 42, version: 'old-live' })
+    expect(readAccountRuntime('/data', { read, alive: () => true, ownsLock: () => true })).toEqual({ pid: 42, version: 'old-live' })
   })
   it('does not trust heartbeat or process metadata after that PID exited', () => {
     const read = files({ '/data/server.lock': '42', '/proc/42/environ': 'GUGU_TASK_HOST_VERSION=new\0' })
@@ -24,11 +24,11 @@ describe('actual account package identity', () => {
   it('only uses a fresh heartbeat bound to the same PID when /proc is unavailable', () => {
     for (const [pid, at, version] of [[42, NOW, 'actual'], [43, NOW, null], [42, NOW - 60_001, null]] as const) {
       const read = files({ '/data/server.lock': '42', '/data/activity.json': JSON.stringify({ pid, at, version: 'actual' }) })
-      expect(readAccountRuntime('/data', { read, alive: () => true, now: () => NOW })).toEqual({ pid: 42, version })
+      expect(readAccountRuntime('/data', { read, alive: () => true, ownsLock: () => true, now: () => NOW })).toEqual({ pid: 42, version })
     }
   })
   it('an active process with no verified version stays unknown', () => {
-    expect(readAccountRuntime('/data', { read: files({ '/data/server.lock': '42' }), alive: () => true })).toEqual({ pid: 42, version: null })
+    expect(readAccountRuntime('/data', { read: files({ '/data/server.lock': '42' }), alive: () => true, ownsLock: () => true })).toEqual({ pid: 42, version: null })
   })
   it('records installed, supervisor, and account versions separately in status JSON', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-status-1003-'))

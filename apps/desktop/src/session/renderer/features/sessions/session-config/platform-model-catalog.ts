@@ -28,6 +28,8 @@ export type PlatformModelCatalog = {
 };
 
 export type PlatformModelCatalogState = PlatformModelCatalog & {
+  /** The initial auth retry has settled successfully; an interim empty list proves no retirement. */
+  settled: boolean;
   retry: () => void;
   /**
    * 重取一次,**不先清空**:会话记录刚被改过(热切后记录跟上,#6182)时用它 ——
@@ -192,6 +194,7 @@ export function usePlatformModelCatalog(
 ): PlatformModelCatalogState {
   const [catalog, setCatalog] = useState<PlatformModelCatalog>(NO_PLATFORM_CATALOG);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [settled, setSettled] = useState(false);
   const keepCurrent = useRef(false);
   const retry = () => setRetryNonce((value) => value + 1);
   // #6264 会话 / 新建框在别的机器上:平台模型也问那台机器(它用自己的登录态与额度)。
@@ -250,12 +253,17 @@ export function usePlatformModelCatalog(
     // 列着的是哪一份(提供方 + 界面 + 机器)与连没连上无关:换了就清,❌ 离线时把上一台 / 上一家的模型留在下拉里。
     const sameCatalog = lastCatalogOf.current === catalogOf;
     lastCatalogOf.current = catalogOf;
-    if (!sameCatalog) setCatalog(NO_PLATFORM_CATALOG);
-    else if (!keepCurrent.current) setCatalog((prev) => ({ ...prev, agentDefault: null, sessionSelection: undefined }));
+    if (!sameCatalog) {
+      setCatalog(NO_PLATFORM_CATALOG);
+      setSettled(false);
+    } else if (!keepCurrent.current) {
+      setCatalog((prev) => ({ ...prev, agentDefault: null, sessionSelection: undefined }));
+      setSettled(false);
+    }
     keepCurrent.current = false;
     // 机器没连上就不问:问不到只会落一个「模型列表尚未就绪」,而原因是机器离线(那由机器的提示说)。
     // 连上时 online 变回 true、这里重跑 —— 机器回来,列表自己续上,❌ 停在「尚未就绪」等人点重试。
-    if (!online || !providerId) return;
+    if (!online || !providerId) { setSettled(false); return; }
     let live = true;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const load = (retry: boolean) => {
@@ -267,10 +275,12 @@ export function usePlatformModelCatalog(
           // transport failures remain single-shot and the second response is authoritative.
           if (retry && next.models.length === 0) {
             setCatalog(next);
+            setSettled(false);
             retryTimer = setTimeout(() => load(false), CATALOG_AUTH_RETRY_DELAY_MS);
             return;
           }
           setCatalog(next);
+          setSettled(next.catalogError === null);
         })
         .catch(() => {
           if (retry) {
@@ -278,6 +288,7 @@ export function usePlatformModelCatalog(
             return;
           }
           setCatalog({ ...NO_PLATFORM_CATALOG, catalogError: PLATFORM_CATALOG_RETRY_ERROR });
+          setSettled(false);
         });
     };
     load(true);
@@ -287,5 +298,5 @@ export function usePlatformModelCatalog(
     };
   }, [providerId, surface, sessionId, retryNonce, machine, online]);
 
-  return { ...catalog, retry, refresh };
+  return { ...catalog, settled, retry, refresh };
 }

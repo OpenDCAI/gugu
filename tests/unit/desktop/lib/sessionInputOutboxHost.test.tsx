@@ -4,10 +4,12 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { SessionInputOutboxHost } from '../../../../apps/desktop/src/hooks/useSessionInputOutbox'
+import { SessionInputOutbox } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 import { enqueueSessionInput, state } from '../../../../apps/desktop/src/lib/sessionInputOutboxBridge'
 import { SessionInputQueue } from '../../../../apps/desktop/src/components/chat/SessionInputQueue'
 import { updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
+import { SessionInputAdmissionError, sessionInputAdmission } from '@gugu/core/shared/sessionInputAdmission'
 import { TASK_ATTACHMENT_PROTOCOL } from '@gugu/session-core/session-record/contract'
 import type { LifeView } from '../../../../apps/desktop/src/session/shared/core/sessions/session-life'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
@@ -21,7 +23,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { get kind()
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: (machine: string | null) => ({ sessionTimeline: { sessionSend: (request: unknown) => { scope.machines.push(machine); return scope.send(request) } } }) }))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ sendSessionText: async (_device: string, sessionId: string, text: string, clientMessageId: string, files?: unknown[]) => {
   const reply = await scope.send({ conversationId: sessionId, text, clientMessageId, ...(files?.length ? { files } : {}) })
-  if (!reply.ok) throw new Error(reply.error.message)
+  if (!reply.ok) throw new SessionInputAdmissionError(reply.error.message, sessionInputAdmission(reply.error), reply.error.code)
   return reply.value
 } }))
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc', () => ({ invokePhoneHost: async (_device: string, _channel: string, [request]: [{ conversationId: string; text: string; clientRequestId: string; files?: unknown[] }]) => {
@@ -30,12 +32,93 @@ vi.mock('../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc', () => ({
 } }))
 // This computer's own session list sync is another subject; these cases read only what the outbox sends.
 vi.mock('../../../../apps/desktop/src/hooks/useLocalSessionDirectory', () => ({ useLocalSessionDirectory: () => undefined }))
+vi.mock('../../../../apps/desktop/src/lib/sessionSendQueueHost', () => ({ watchSessionSendQueues: () => () => {} }))
 vi.mock('../../../../apps/desktop/src/session/renderer/localization/locale-store', () => ({ translateSessionMessage: (key: string, values?: { count: number }) => key === 'composer.attachmentHostUpdateRequired' ? 'Update the task host to send attachments' : key === 'composer.attachmentsNotSent' ? `(${values!.count} attachments could not be included after the upgrade. Please send them again.)` : 'Waiting for host; sends automatically' }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { toast.mockClear(); harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.platform = 'electron'; scope.phones = []; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
 
 describe('native input shell lifecycle', () => {
+  it('publishes the durable queue before enqueue resolves and rejects a late older refresh', async () => {
+    scope.owner = 'durable-first-frame-owner'
+    let finishOldRead!: (rows: []) => void
+    const oldRead = new Promise<[]>(resolve => { finishOldRead = resolve })
+    const read = vi.spyOn(SessionInputOutbox.prototype, 'list').mockImplementationOnce(() => oldRead)
+    try {
+      await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+      await act(async () => {
+        const input = await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'held-task', text: 'keep visible', queued: true, sendQueue: { order: 0 } })
+        expect(state().rows).toMatchObject([{ id: input.id, text: input.text, sendQueue: expect.any(Object) }])
+        finishOldRead([])
+        await oldRead
+        expect(state().rows).toMatchObject([{ id: input.id }])
+        expect(await (await state().queue)!.list()).toMatchObject([{ id: input.id }])
+      })
+      expect(scope.send).not.toHaveBeenCalled()
+    } finally { finishOldRead([]); read.mockRestore() }
+  })
+  it('keeps a released insertion intact when a reconnecting host no longer advertises steering', async () => {
+    scope.owner = 'steer-reconnect-owner'
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
+    updateDeviceSessions('host-a', { cached: false, connected: true, error: null, sessions: [{ conversationId: 'steer-reconnect-task', nativeInputVersion: 2, nativeInputSteering: true } as never] })
+    scope.send.mockImplementation(async (request: { clientMessageId: string }) => ({ ok: true, value: { clientMessageId: request.clientMessageId } }))
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    let inputId!: string
+    await act(async () => {
+      const held = await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'steer-reconnect-task', text: 'insert once', queued: true, sendQueue: { order: 0 } })
+      inputId = held.id
+      const queue = await state().queue!
+      await queue.releaseQueued(held.sessionId, {}, new Set(), held.id, true)
+      updateDeviceSessions('host-a', { connected: false })
+      await queue.flush()
+      updateDeviceSessions('host-a', { cached: false, connected: true, sessions: [{ conversationId: held.sessionId, nativeInputVersion: 2 } as never] })
+      await queue.flush(); await queue.flush()
+      expect(await queue.list()).toMatchObject([{ id: held.id, steerIfBusy: true, failure: { code: 'host-not-ready' } }])
+    })
+    expect(scope.send).not.toHaveBeenCalled()
+    await act(async () => {
+      updateDeviceSessions('host-a', { cached: false, connected: true, sessions: [{ conversationId: 'steer-reconnect-task', nativeInputVersion: 2, nativeInputSteering: true } as never] })
+      await (await state().queue)!.flush()
+    })
+    expect(scope.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ clientMessageId: inputId, steerIfBusy: true }))
+  })
+  it.each(['electron', 'web'])('keeps a previous host without an admission decision in automatic recovery (%s)', async platform => {
+    scope.platform = platform
+    scope.owner = `legacy-refusal-${platform}`
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: { remote_protocol: REMOTE_PROTOCOL_VERSION - 1 } }]
+    updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'legacy-task', nativeInputVersion: 2 } as never] })
+    scope.send.mockResolvedValue({ ok: false, error: { code: 'session_not_found', message: 'same negative reply, no admission conclusion' } })
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    let id: string | undefined
+    await act(async () => {
+      id = (await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'legacy-task', text: 'keep recovering' })).id
+      await vi.waitFor(async () => expect((await (await state().queue)!.list())[0]?.failure).toBeDefined())
+    })
+    await act(async () => { await (await state().queue)!.flush() })
+    expect(scope.send).toHaveBeenCalledTimes(2)
+    expect(scope.send.mock.calls.map(([request]) => request.clientMessageId)).toEqual([id, id])
+    expect(await (await state().queue)!.list()).toMatchObject([{ id, admission: 'uncertain', text: 'keep recovering' }])
+  })
+
+  it.each([null, 'host-a'])('does not automatically resend a definitive host refusal (%s)', async deviceId => {
+    scope.owner = `rejected-input-${deviceId ?? 'local'}`
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
+    updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'deleted-task', nativeInputVersion: 2 } as never] })
+    // The admission boundary now explicitly refuses the send; a legacy negative reply has no such decision.
+    scope.send.mockResolvedValue({ ok: false, error: { code: 'session_not_found', message: '这台机器上没有会话 deleted-task', admission: 'rejected' } })
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    let inputId: string | undefined
+    await act(async () => {
+      const input = await enqueueSessionInput({ deviceId, sessionId: 'deleted-task', text: 'keep this text for me' })
+      inputId = input.id
+      await vi.waitFor(async () => expect((await (await state().queue)!.list())[0]?.failure).toBeDefined())
+    })
+    expect(scope.send).toHaveBeenCalledTimes(1)
+    await act(async () => { await (await state().queue)!.flush() })
+    expect(scope.send).toHaveBeenCalledTimes(1)
+    expect(await (await state().queue)!.list()).toMatchObject([{ id: inputId, text: 'keep this text for me' }])
+  })
+
   it('leaves every transcript-owned failed input out of the tray while preserving ordinary host failures', async () => {
     const item = (seq: number, messageId: string, state: 'queued' | 'failed'): LifeView['pending']['items'][number] =>
       ({ seq, messageId, state, preview: messageId, text: messageId, kind: 'ordinary', failure: state === 'failed' ? 'host refusal' : null });

@@ -14,6 +14,9 @@ import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { resolveWorkspaceResourcePath } from './workspace-resource-path';
 import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
+import { useFileZoom } from '@/components/preview/file-content-zoom';
+import { usePinchZoom } from '@/hooks/usePinchZoom';
+import { pinchZoom, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM } from '@shared/preview/pinch-zoom';
 
 interface MarkdownEditorRendererProps {
   tab: FileTabResource;
@@ -76,6 +79,8 @@ export const MarkdownEditorRenderer = observer(function MarkdownEditorRenderer({
 
   // A link that opened this file asked for an anchor: land on it once the text is in the DOM, then forget it.
   const containerRef = useRef<HTMLDivElement>(null);
+  const { zoom, setZoom } = useFileZoom('markdown', containerRef);
+  usePinchZoom(containerRef, delta => setZoom(value => pinchZoom(value, delta, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)));
   const reveal = tab.revealRequest;
   useEffect(() => {
     if (!reveal || !content) return;
@@ -99,14 +104,14 @@ export const MarkdownEditorRenderer = observer(function MarkdownEditorRenderer({
           Could not load file: {tab.externalError}
         </div>
       ) : (
-        <MarkdownRenderer
+        <div style={{ zoom }}><MarkdownRenderer
           content={content}
           density="comfortable"
           frontmatter
           className="mx-auto w-full max-w-3xl px-6 pt-1 pb-6"
           resolveImage={resolveImage}
           onOpenLink={openWorkspaceLink}
-        />
+        /></div>
       )}
     </div>
   );

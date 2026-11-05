@@ -32,6 +32,8 @@ const SIGNALS_KEY = '__GUGU_SIDEBAR_CHAT_SIGNALS__'
 const SIGNALS_EVENT = 'gugu:sidebar-chat-signals'
 const VIEW_KEY = '__GUGU_SIDEBAR_CHAT_VIEW__'
 const VIEW_EVENT = 'gugu:sidebar-chat-view'
+const NOTIFICATIONS_KEY = '__GUGU_SIDEBAR_NOTIFICATIONS_OPEN__'
+const NOTIFICATIONS_EVENT = 'gugu:sidebar-notifications-open'
 
 /**
  * 壳:从聊天列表那一份算出两枚页签和项目行上的数。项目群(及从它开出来的话题)的未读记在那个群名下,其余记进「对话」;免打扰的不算(gugu-dev#181:
@@ -70,6 +72,17 @@ const subscribeTo = (event: string) => (listener: () => void) => {
 }
 const subscribeSignals = subscribeTo(SIGNALS_EVENT)
 const subscribeView = subscribeTo(VIEW_EVENT)
+const subscribeNotifications = subscribeTo(NOTIFICATIONS_EVENT)
+
+/** One ephemeral list-view choice across the shell and workspace roots; layout settings stay separate. */
+export function setSidebarNotificationsOpen(open: boolean): void {
+  if ((read<boolean>(NOTIFICATIONS_KEY) ?? false) === open) return
+  write(NOTIFICATIONS_KEY, NOTIFICATIONS_EVENT, open)
+}
+
+export function useSidebarNotificationsOpen(): boolean {
+  return useSyncExternalStore(subscribeNotifications, () => read<boolean>(NOTIFICATIONS_KEY) ?? false, () => false)
+}
 
 /** 壳:整份替换;没变不通知。 */
 export function publishSidebarChatSignals(next: SidebarChatSignals): void {

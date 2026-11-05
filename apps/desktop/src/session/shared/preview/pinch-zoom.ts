@@ -33,9 +33,12 @@ export function clampZoom(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** 一个事件最多缩一步(和 Cmd± 同一个 1.2×):Windows 鼠标滚轮一格 deltaY 约 100~120,不封顶就是 3×。触控板捏合每个事件只有几,不受影响。 */
+const MAX_PINCH_DELTA = Math.log(1.2) / PINCH_ZOOM_SENSITIVITY;
+
 /** 一步捏合之后的缩放:按手势等比放大或缩小,落在 [min, max] 里。 */
 export function pinchZoom(current: number, deltaY: number, min: number, max: number): number {
-  return clampZoom(current * Math.exp(-deltaY * PINCH_ZOOM_SENSITIVITY), min, max);
+  return clampZoom(current * Math.exp(-clampZoom(deltaY, -MAX_PINCH_DELTA, MAX_PINCH_DELTA) * PINCH_ZOOM_SENSITIVITY), min, max);
 }
 
 /**

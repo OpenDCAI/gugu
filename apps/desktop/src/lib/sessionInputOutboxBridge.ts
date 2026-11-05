@@ -1,6 +1,11 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import type { SessionInputOutbox, SessionInput } from './sessionInputOutbox'
 import { rendererLogger } from './log'
+import type { TranscriptTurn } from '@gugu/session-core/acp/client'
+import { sessionInputBaseline } from './pendingSessionInput'
+import { nativeMessageKey } from '@gugu/session-core/session-record/native-read'
+import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 
 type State = { accountId: string | null; queue: Promise<SessionInputOutbox> | null; rows: readonly SessionInput[]; listeners: Set<() => void>; valid: () => boolean }
 const KEY = '__GUGU_NATIVE_INPUT_OUTBOX__'
@@ -14,7 +19,7 @@ export const state = (): State => {
 export const changed = () => { for (const listener of state().listeners) listener() }
 export const sessionInputOutboxAvailable = (): boolean => Boolean(state().queue && state().valid())
 
-export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId'>): Promise<SessionInput> {
+export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId' | 'sendQueue'> & { composer?: true }): Promise<SessionInput> {
   const own = state()
   if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
   const queue = await own.queue
@@ -28,6 +33,54 @@ export async function retrySessionInputs(): Promise<void> {
   const own = state()
   if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
   await (await own.queue).flush(true)
+}
+
+export async function changeRejectedSessionInput(id: string, action: { kind: 'retry' } | { kind: 'edit'; text: string } | { kind: 'discard' }): Promise<void> {
+  const own = state()
+  if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
+  const queue = await own.queue
+  if (action.kind === 'edit') await queue.edit(id, action.text)
+  else if (action.kind === 'retry') await queue.retry(id)
+  else await queue.discard(id)
+}
+
+async function currentQueue(): Promise<SessionInputOutbox> {
+  const own = state()
+  if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
+  return own.queue
+}
+
+export async function editQueuedSessionInput(id: string, text: string, edit?: { draftText: string; originalDraftText: string } | null): Promise<boolean> {
+  return (await currentQueue()).changeQueued(id, { text, ...(edit === undefined ? {} : { edit }) })
+}
+
+export async function deleteQueuedSessionInput(id: string): Promise<boolean> {
+  return (await currentQueue()).changeQueued(id, 'delete')
+}
+
+export async function reorderQueuedSessionInputs(sessionId: string, ids: readonly string[]): Promise<void> {
+  return (await currentQueue()).reorderQueued(sessionId, ids)
+}
+
+/** Call only with an authoritative foreground-idle snapshot, or the person's explicit send-now action. */
+export async function releaseQueuedSessionInput(sessionId: string, turns: readonly TranscriptTurn[], nowId?: string, steers = false, canRelease: () => boolean = () => true): Promise<SessionInput | null> {
+  if (steers && !sessionInputSteeringAvailable(sessionId)) {
+    throw new Error(translateSessionMessage('composer.steeringHostUpdateRequired'))
+  }
+  const completed = new Set<string>()
+  for (const turn of turns) if (turn.outcome) for (const item of turn.items) if (item.kind === 'message' && item.role === 'user') {
+    completed.add(nativeMessageKey(item.id))
+    if (typeof item._meta?.guguClientMessageId === 'string') completed.add(item._meta.guguClientMessageId)
+  }
+  const queue = await currentQueue()
+  const input = await queue.releaseQueued(sessionId, sessionInputBaseline(turns), completed, nowId, steers, canRelease)
+  if (input) void queue.flush().catch(error => rendererLogger('session/input-outbox').warn({ error: String(error) }, 'Could not flush released input'))
+  return input
+}
+
+export function sessionInputSteeringAvailable(sessionId: string): boolean {
+  return Object.values(liveDeviceSessions()).some(host => !host.cached && host.connected === true && !host.error
+    && host.sessions.some(session => session.conversationId === sessionId && session.nativeInputSteering === true))
 }
 
 export function useQueuedSessionInputs(sessionId: string): readonly SessionInput[] {

@@ -15,7 +15,7 @@ import { Button } from '../ui/Button'
 import { useTranslation } from 'react-i18next'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/cn'
-import { MessageCircle, Pencil, Settings, Share, Trash, UserPlus, Zap } from '@/lib/icons'
+import { MessageCircle, Pencil, Settings, Share, Trash, UserPlus } from '@/lib/icons'
 import { useContactsStore } from '../../store/contactsContext'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import type { AgentRequestState } from './agentContactRequest'
@@ -32,7 +32,6 @@ const styles = {
   avatarRound: 'rounded-full',
   name:
     'gg-c-cpane-name mt-5 flex items-center gap-2 text-xl font-semibold text-[var(--fg)]',
-  bolt: 'gg-c-bolt flex shrink-0 text-[var(--agent-bolt)]',
   statusBase:
     'gg-c-cpane-status mt-2 flex items-center gap-2 text-sm text-[var(--muted-fg)]',
   statusStandby: 'standby',
@@ -131,7 +130,6 @@ export function AgentContactProfileCard({
       </div>
       <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={styles.name}>
         {shownName}
-        <span className={styles.bolt}><Zap size={13} /></span>
       </OwnedAgentNameEditor>
       {tone ? (
         <div className={statusClass(tone)}>

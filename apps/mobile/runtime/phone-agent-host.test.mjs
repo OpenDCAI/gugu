@@ -161,6 +161,26 @@ const untilNetworkQueued = (fx) => until(async () => {
   return !fx.host.state().execution && Object.values(journal.jobs).some(job => job.status === 'queued' && job.networkWait)
 }, fx.events)
 
+test('a read phone failure stays an error and the next real failed turn becomes unseen again', async () => {
+  const fx = await fixture(async () => ({ status: 'failed', text: '', error: 'controlled turn failure' }))
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: 'first failure' }], randomUUID())
+    await until(() => !fx.host.state().execution && fx.host.state().sessions[0]?.lastJobStatus === 'failed', fx.events)
+    const summary = async () => (await fx.host.invoke('sessionTimeline.sessionsList', [])).sessions[0]
+    assert.equal((await summary()).unseen, true)
+    await fx.host.invoke('sessions.markSessionSeen', [created.conversationId])
+    assert.equal((await summary()).unseen, false)
+    assert.equal((await summary()).status.status, 'error')
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'second failure', clientRequestId: randomUUID() }], randomUUID())
+    await until(async () => {
+      const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+      return !fx.host.state().execution && Object.values(journal.jobs).length === 2 && Object.values(journal.jobs).every(job => job.status === 'failed')
+    }, fx.events)
+    assert.equal((await summary()).unseen, true)
+    assert.equal((await summary()).status.status, 'error')
+  } finally { await fx.close() }
+})
+
 test('a first preparation request failure recovers in the same task and returns exactly one result to the assistant', async () => {
   let issues = 0, turns = 0
   const caller = { sessionId: 'edb18513-6477-4c4d-8766-049227046427', deviceId: 'acceptance-computer', name: '个人助理', harness: 'pi', platformModel: 'platform:free', transport: 'acp' }

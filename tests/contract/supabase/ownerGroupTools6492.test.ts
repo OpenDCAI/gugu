@@ -6,8 +6,10 @@
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 // @ts-expect-error — 注入式 MCP server 是无类型 .mjs;运行时 import 可用。
-import { callTool, RpcHttpError } from '../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
+import { callTool, createGuguImServer, RpcHttpError, serveToolsList } from '../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
 import { createGroupWithInvitations } from '../../../packages/core/src/cloud/groupChat'
 
 interface DatabaseClient {
@@ -172,7 +174,26 @@ function tools(w: World) {
     }),
     restPatchReturning: async () => { throw new Error('group writes must use the common RPC') },
   }
-  return async (name: string, args: Record<string, unknown>) => JSON.parse(String(await callTool(context, name, args, deps)))
+  const call = async (name: string, args: Record<string, unknown>) => JSON.parse(String(await callTool(context, name, args, deps)))
+  call.connect = async () => {
+    const rpcCalls: Array<{ name: string; body: Record<string, unknown> }> = []
+    const server = createGuguImServer(() => context, {
+      ...deps,
+      fetch: async () => { throw new Error('The contract must use the authenticated loopback SQL adapter, not HTTP') },
+      trackRequest: <T,>(work: Promise<T>) => work,
+      restRpc: async (name: string, body: Record<string, unknown>) => {
+        rpcCalls.push({ name, body })
+        return deps.restRpc(name, body)
+      },
+    })
+    serveToolsList(server, () => context)
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    const client = new McpClient({ name: 'group-listen-real-sql', version: '1' })
+    await server.connect(serverTransport)
+    await client.connect(clientTransport)
+    return { client, rpcCalls, close: async () => { await client.close(); await server.close() } }
+  }
+  return call
 }
 
 describe('#6492 group_list against the migrated database', () => {
@@ -315,5 +336,95 @@ describe('actor management through the real MCP handler and migrated database', 
     const post = await call('group_announcement_post', { chat_id: target, text: '开会' })
     expect(await call('group_announcement_update', { announcement_id: post.id, changes: { pinned: true } })).toMatchObject({ author_id: `user:${w.self}`, pinned: true })
     expect(await call('group_announcement_delete', { announcement_id: post.id })).toMatchObject({ status: 'deleted' })
+  })
+})
+
+describe('listen_mode through the existing group tool and persisted authorization', () => {
+  async function mode(chatId: string, agentId: string) {
+    await db.query('RESET role')
+    return (await db.query<{ listen_mode: string; last_read_seq: number }>('SELECT listen_mode,last_read_seq FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [chatId, agentId])).rows[0]
+  }
+
+  it('the existing RPC allows an ordinary live Agent to change itself', async () => {
+    const w = await world()
+    const room = await group(w.owner, 'Self listen', [[w.self, 'member']])
+    expect(await ownerRpc(w.owner)('set_agent_listen_mode_as', { p_chat_id: room, p_agent_user_id: w.self, p_mode: 'passive', p_as_user_id: w.self }))
+      .toMatchObject({ chat_id: room, user_id: w.self, listen_mode: 'passive' })
+    expect((await mode(room, w.self))?.listen_mode).toBe('passive')
+  })
+
+  it('the real MCP handler toggles only its own membership without changing the read cursor', async () => {
+    const w = await world()
+    const room = await group(w.owner, 'Self listen', [[w.self, 'member'], [w.sibling, 'member']])
+    const before = await mode(room, w.self)
+    const call = tools(w)
+    for (const listen_mode of ['passive', 'active']) {
+      expect(await call('group_set_role', { chat_id: room, listen_mode })).toMatchObject({ user_id: `user:${w.self}`, listen_mode })
+      expect(await mode(room, w.self)).toEqual({ ...before, listen_mode })
+      expect((await mode(room, w.sibling))?.listen_mode).toBe('active')
+    }
+  })
+
+  it('registered SDK reaches authenticated SQL for self success and another Agent refusal', async () => {
+    const w = await world()
+    const room = await group(w.owner, 'Registered SQL listen', [[w.self, 'member'], [w.sibling, 'member']])
+    const before = await mode(room, w.self)
+    const h = await tools(w).connect()
+    const text = (response: Record<string, unknown>) => (response.content as Array<{ text?: string }>).map(item => item.text ?? '').join('\n')
+    try {
+      const result = await h.client.callTool({ name: 'group_set_role', arguments: { chat_id: room, listen_mode: 'passive' } })
+      expect(result.isError, text(result)).not.toBe(true)
+      expect(JSON.parse(text(result))).toMatchObject({ chat_id: room, user_id: `user:${w.self}`, listen_mode: 'passive' })
+      expect(await mode(room, w.self)).toEqual({ ...before, listen_mode: 'passive' })
+      const denied = await h.client.callTool({ name: 'group_set_role', arguments: { chat_id: room, member: `user:${w.sibling}`, listen_mode: 'passive' } })
+      expect(denied.isError).toBe(true)
+      expect(text(denied)).toContain('agent_owner_or_group_manager_required')
+      expect((await mode(room, w.sibling))?.listen_mode).toBe('active')
+      expect(h.rpcCalls.filter(row => row.name === 'set_agent_listen_mode_as').map(row => row.body))
+        .toEqual([
+          { p_chat_id: room, p_agent_user_id: w.self, p_mode: 'passive', p_as_user_id: w.self },
+          { p_chat_id: room, p_agent_user_id: w.sibling, p_mode: 'passive', p_as_user_id: w.self },
+        ])
+    } finally { await h.close() }
+  })
+
+  it('an Agent admin changes a live in-group Agent belonging to another account', async () => {
+    const w = await world()
+    const room = await group(w.stranger, 'Admin listen', [[w.owner, 'member'], [w.self, 'admin'], [w.strangerAgent, 'member']])
+    expect(await tools(w)('group_set_role', { chat_id: room, member: `user:${w.strangerAgent}`, listen_mode: 'passive' }))
+      .toMatchObject({ user_id: `user:${w.strangerAgent}`, listen_mode: 'passive' })
+    expect((await mode(room, w.strangerAgent))?.listen_mode).toBe('passive')
+  })
+
+  it('an ordinary Agent cannot borrow its owner authority to change another Agent', async () => {
+    const w = await world()
+    const room = await group(w.owner, 'No borrowed role', [[w.self, 'member'], [w.sibling, 'member']])
+    await expect(tools(w)('group_set_role', { chat_id: room, member: `user:${w.sibling}`, listen_mode: 'passive' }))
+      .rejects.toThrow('agent_owner_or_group_manager_required')
+    expect((await mode(room, w.sibling))?.listen_mode).toBe('active')
+  })
+
+  it('administration does not cross groups and cannot target a human', async () => {
+    const w = await world()
+    const own = await group(w.owner, 'Managed', [[w.self, 'admin'], [w.stranger, 'member']])
+    const other = await group(w.stranger, 'Other', [[w.owner, 'member'], [w.strangerAgent, 'member']])
+    const call = tools(w)
+    for (const [chat_id, target] of [[own, w.stranger], [other, w.strangerAgent]]) {
+      await expect(call('group_set_role', { chat_id, member: `user:${target}`, listen_mode: 'passive' }))
+        .rejects.toThrow('agent_owner_or_group_manager_required')
+      expect((await mode(chat_id, target))?.listen_mode).toBe('active')
+    }
+  })
+
+  it('absent changes and mixed role/listen changes leave both persisted fields unchanged', async () => {
+    const w = await world()
+    const room = await group(w.owner, 'No partial write', [[w.self, 'admin'], [w.sibling, 'member']])
+    const call = tools(w)
+    for (const changes of [{}, { member: `user:${w.sibling}` }, { member: `user:${w.sibling}`, role: 'admin', listen_mode: 'passive' }]) {
+      await expect(call('group_set_role', { chat_id: room, ...changes })).rejects.toThrow()
+      await db.query('RESET role')
+      expect((await db.query('SELECT role,listen_mode FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [room, w.sibling])).rows)
+        .toEqual([{ role: 'member', listen_mode: 'active' }])
+    }
   })
 })

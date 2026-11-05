@@ -107,8 +107,6 @@
   --hover: var(--ta-glass);
   --press: var(--ta-glass);
 }
-/* Keep the glass surface stable while focusing search; only the glyph responds to a press. */
-[data-phone-shell] .gg-phone-nav-search:active > svg { opacity: 0.7; }
 [data-phone-shell] .gg-phone-nav-search > svg { width: var(--icon-rail); height: var(--icon-rail); }
 [data-phone-shell] .gg-phone-nav-badge {
   position: absolute;

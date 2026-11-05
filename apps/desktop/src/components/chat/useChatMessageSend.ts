@@ -2,7 +2,8 @@ import { useCallback, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
-import { resolveMentionUserIds, type MentionCandidate } from '@/lib/mention'
+import { firstMentionedUserId, resolveMentionUserIds, type MentionCandidate } from '@/lib/mention'
+import { rememberGroupMention } from '@/lib/groupMentionRecall'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { rendererLogger } from '@/lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
@@ -14,7 +15,7 @@ import { useChatStore } from '../../store/chatContext'
 
 /** Chat delivery owns recipients and rollback; the shared editor only submits its document. */
 export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatDraft, members: MentionCandidate[], activeMentionTargets: MentionTarget[], inputRef: RefObject<HTMLElement | null>, mobile = false) {
-  const { onSend, beforeSend, onSendAttachments, quoteContent, onQuoteConsumed, chatId, isGroupChat, disabled, disabledReason, whisperTarget, onExitWhisper } = props
+  const { onSend, beforeSend, onSendAttachments, quoteContent, onQuoteConsumed, chatId, currentUserId, isGroupChat, disabled, disabledReason, whisperTarget, onExitWhisper } = props
   const { text, attachments, clear, flush, setMentionTargets, setAttachments, persistTo } = draft
   const { writeDraft } = useChatStore('writeDraft')
   const { t } = useTranslation('messaging')
@@ -90,6 +91,10 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       }
       // Successful send → object URLs are no longer needed
       revokeAttachmentPreviewUrls(snapshotAttachments)
+      if (!mobile && isGroupChat && currentUserId && chatId && !whisperTarget) {
+        const first = firstMentionedUserId(typed, explicitRecipientIds, members)
+        if (first !== undefined) rememberGroupMention(currentUserId, chatId, first)
+      }
       // @@@whisper (#820) — clear whisper mode after a successful send.
       if (whisperTarget) onExitWhisper?.()
     } catch (err) {
@@ -122,7 +127,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       sendingRef.current = false
       setSending(false)
     }
-  }, [beforeSend, chatId, text, attachments, activeMentionTargets, members, rosterNameIndex, isGroupChat, onSend, onSendAttachments, quoteContent, onQuoteConsumed, t, toast, disabled, disabledReason, whisperTarget, onExitWhisper, writeDraft, setMentionTargets, setAttachments, clear, persistTo, flush, inputRef, mobile])
+  }, [beforeSend, chatId, currentUserId, text, attachments, activeMentionTargets, members, rosterNameIndex, isGroupChat, onSend, onSendAttachments, quoteContent, onQuoteConsumed, t, toast, disabled, disabledReason, whisperTarget, onExitWhisper, writeDraft, setMentionTargets, setAttachments, clear, persistTo, flush, inputRef, mobile])
 
   return { sending, handleSend }
 }

@@ -25,7 +25,7 @@ vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 import { nativeConversationUnread } from './session-conversation-read';
 import { startNativeConversationInboxHost } from './native-conversation-inbox';
 import { events } from '@main/lib/events';
-import { appendRecordTurnNow, getStoredToolImage, persistCommittedTurn, readStoredTailNow, readStoredTurns, storedRevertBoundary, storedTurnIndexBase, truncateStoredHistory, withStoredTurns } from './session-turn-store';
+import { appendRecordTurnNow, getStoredToolImage, getStoredSettledTurn, persistCommittedTurn, readStoredTailNow, readStoredTurns, storedRevertBoundary, storedTurnIndexBase, truncateStoredHistory, withStoredTurns } from './session-turn-store';
 
 type Fixture = Awaited<ReturnType<typeof openFixture>>;
 
@@ -63,6 +63,47 @@ describe('conversation-turn-store', () => {
   });
 
   afterEach(() => { fixture.close(); vi.clearAllMocks(); });
+
+  it('#1679 reads the exact immutable origin across repeated runtime turn ids', async () => {
+    const first: TranscriptTurn = { ...turn('runtime:turn:0', 'first run'), referenceId: 'source:first', outcome: { kind: 'cancelled', reason: 'cancelled' } };
+    const second: TranscriptTurn = { ...turn('runtime:turn:0', 'second run'), referenceId: 'source:second', outcome: { kind: 'done' } };
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: first });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: second });
+    expect((await getStoredSettledTurn({ sessionId: 'c1', referenceId: 'source:first', originTurnId: first.id }))?.turn).toMatchObject({ referenceId: 'source:first', outcome: first.outcome });
+    expect((await getStoredSettledTurn({ sessionId: 'c1', referenceId: 'source:second', originTurnId: second.id }))?.turn).toMatchObject({ referenceId: 'source:second', outcome: second.outcome });
+    expect(await getStoredSettledTurn({ sessionId: 'another-session', referenceId: 'source:first', originTurnId: first.id })).toBeNull();
+  });
+
+  it('#1679 waits behind a late durable write before reading its terminal outcome', async () => {
+    let release!: () => void;
+    const prior = withStoredTurns('c1', () => new Promise<void>(resolve => { release = resolve; }));
+    // Let the queued operation enter its controlled disk boundary.
+    await Promise.resolve();
+    const terminal: TranscriptTurn = { ...turn('runtime:turn:0', 'keep'), referenceId: 'source:late', outcome: { kind: 'cancelled', reason: 'cancelled' } };
+    const write = persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: terminal });
+    let completed = false;
+    const read = getStoredSettledTurn({ sessionId: 'c1', referenceId: terminal.referenceId!, originTurnId: terminal.id }).then(row => { completed = true; return row; });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(vi.mocked(events.emit).mock.calls.some(([channel]) => channel.name === 'session:turn-settled')).toBe(false);
+    release(); await prior; await write;
+    expect((await read)?.turn.outcome).toEqual(terminal.outcome);
+    expect(vi.mocked(events.emit).mock.calls.some(([channel, data]) => channel.name === 'session:turn-settled' && (data as { referenceId?: string }).referenceId === terminal.referenceId)).toBe(true);
+  });
+
+  it('reserves the source identity of an interrupted notified turn without treating notifications as provider replay history', async () => {
+    const notification: TranscriptTurn = { id: 'c1:turn:s0', seq: 0, initiator: 'agent', items: [
+      { kind: 'message', id: 'notice', seq: 0, role: 'assistant', text: 'Review', ownerNotification: {
+        requestId: '11111111-1111-4111-8111-111111111111', requestHash: 'hash', sourceTurnId: 'c1:turn:7',
+      } },
+    ] };
+    fixture.sqlite.prepare('INSERT INTO session_turns(id,session_id,seq,turn_id,data) VALUES(?,?,?,?,?)')
+      .run('c1:0', 'c1', 0, 'owner-notify:11111111-1111-4111-8111-111111111111', JSON.stringify(notification));
+    expect(await storedTurnIndexBase('c1')).toBe(8);
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('provider-history:0', 'first replay', 0) });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('provider-history:1', 'second replay', 1) });
+    expect(storedTexts(fixture).map(item => item?.kind === 'message' ? item.text : '')).toEqual(['Review', 'first replay', 'second replay']);
+  });
 
   it('requests the inbox address when a new task records its first real owner exchange', async () => {
     const open = vi.fn(async () => 'canonical-dm');

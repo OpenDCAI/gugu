@@ -1,3 +1,5 @@
+import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
+import { useConnectionPanel } from '@renderer/features/settings/subscriptions/use-connection-panel';
 import { DEFAULT_FREE_PLATFORM_MODEL, DEFAULT_PLATFORM_MODEL_BY_PROVIDER } from '@shared/core/sessions/new-session-defaults';
 import {
   autoApproveFromPermissionMode,
@@ -74,7 +76,6 @@ import { platformEffortFacts, resolveCreateEfforts } from '@shared/core/agents/c
 import { HARNESS_MODEL_CATALOG_QUERY_KEY, useHarnessModelCatalog } from '@renderer/lib/stores/use-harness-model-catalog';
 import { queryClient } from '@renderer/lib/query-client';
 import { useLibraryHost } from '@renderer/features/library/library-host';
-import { useComposerTrayBand } from '../composer-tray';
 import { useHarnessModelCredential } from '@renderer/lib/stores/use-harness-model-credential';
 import { resolveSignInTarget } from '@renderer/features/settings/agents-page/agent-account';
 import { useAgentAuthStatus } from '@renderer/lib/stores/use-agent-auth-status';
@@ -210,10 +211,10 @@ export type InitialSessionState = {
    * 没了、按钮还在,变成一个没有上下文的「去登录」贴在一个不需要登录的模型旁边(owner 2026-09-05
    * 截图报的正是这一格)。⇒ 登录入口只在用户**正在挑模型**时出现。
    *
-   * ⚠️ 它现在**跳抽屉的「账号」行**(#6100),不再自己弹登录终端。文案不变(「登录以使用 X 模型」),
-   *    换的是落点 —— 登录终端只有一个主人,在资源库那一页。
+   * ⚠️ Claude/Codex 就地打开订阅的连接面板，完成或取消仍保留草稿；其他家沿用原有登录入口。
    */
-  harnessSignIn: (() => void) | null;
+  harnessSignIn: ((anchor?: HTMLElement) => void) | null;
+  connectionPanel: ReactNode;
   /**
    * 模型清单里那一组「你的〈厂商〉模型 / 去登录」,与 `harnessSignIn` 同生共死。
    *
@@ -874,24 +875,17 @@ export function useInitialSessionState(
    *    于是解锁组、登录终端、弹窗的「去登录」对它们一概不出现。
    */
   const cliLoginMethod = signInTarget?.method ?? null;
-  /**
-   * 「去登录」= **跳资源库 → 智能体 → 这一家的抽屉**,那里有「账号」一行(#6100)。
-   *
-   * ❌ 不再在这里自己弹登录终端。三处入口(这里、会话末行、强制登录弹窗)各弹一个终端的时候,
-   * 「装」和「登」分居两页,而设置页对登录零表达 —— 用户装完回设置页一切正常,到会话里才被
-   * 「要登录才能接着聊」拦住(#4900 / #5705 / #5605 一族)。现在终端只有一个主人:抽屉那一行。
-   *
-   * ⚠️ 登完不必由这里重读:抽屉那一行刷的是**同一把** react-query key
-   * (`['agents','modelCatalog',providerId]` / `['agents','modelCredential',providerId]`),
-   * composer 手上这份因此当场跟着翻 —— 这正是 #6100 验收要的「三处同时翻成已登录」。
-   *
-   * 两半动作缺一不可,与「去装」那一下同形(见 `onAgentAction`):外壳管顶层 tab,
-   * 会话页管自己的资源库路由。
-   */
+  /** Claude/Codex 复用连接面板，留在当前草稿；其他家保留资源库/远端登录入口。 */
+  const connections = useConnectionPanel();
   const showAgentSignIn = useShowModal('agentSignInModal');
   const remoteAgentCommand = agents?.find((agent) => agent.id === providerId)?.command ?? null;
-  const openAgentAccount = useCallback(() => {
+  const openAgentAccount = useCallback((anchor?: HTMLElement) => {
     if (!providerId || !cliLoginMethod) return;
+    const selectedAgent = agents?.find(item => item.id === providerId);
+    if (selectedAgent && agentSupportsConnectionManagement(selectedAgent)) {
+      connections.show(selectedAgent, machine, anchor);
+      return;
+    }
     /**
      * #6264 所选机器不是本机:在**那台机器上**登录,❌ 跳本机的资源库 —— 那一页画的是这台电脑的安装与登录
      * (/opt/homebrew/bin/codex、「已登录」),当成那台机器的就是张冠李戴。窗口还是那一个登录窗口,
@@ -927,6 +921,8 @@ export function useInitialSessionState(
   }, [
     providerId,
     cliLoginMethod,
+    connections.show,
+    agents,
     navigate,
     machine,
     machineDevice,
@@ -1215,6 +1211,7 @@ export function useInitialSessionState(
     harnessNotice,
     harnessNoticeDetail,
     harnessSignIn,
+    connectionPanel: connections.panel,
     harnessModelUnlock,
     setPlatformModel: (nextModel) => {
       if (!providerId) return;
@@ -1346,7 +1343,6 @@ export function InitialSessionField({
   onSubmit,
   canSubmit = false,
 }: InitialSessionFieldProps) {
-  const bandAbove = useComposerTrayBand();
   const { translate } = useSessionMessages();
   const { navigate } = useNavigate();
   const editorApiRef = useRef<PromptEditorRef | null>(null);
@@ -1772,6 +1768,7 @@ export function InitialSessionField({
 
   return (
     <Field>
+      {state.connectionPanel}
       <input
         ref={attachInputRef}
         type="file"
@@ -1793,7 +1790,6 @@ export function InitialSessionField({
         {...dropHandlers}
       >
         <ChatComposer
-          bandAbove={bandAbove}
           editorOptions={{ clearOnSubmit: false }}
           canSubmit={canSubmit}
           showSubmitButton={!!onSubmit}

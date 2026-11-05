@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@shared/core/sessions/sessions';
 import { projectCreatedChannel, projectDeletedChannel, projectVisibilityChangedChannel } from '@shared/core/projects/projectEvents';
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   createGithubRepository: vi.fn(),
   createProject: vi.fn(),
   deleteGithubRepository: vi.fn(),
+  deleteProject: vi.fn(),
   initializeRepository: vi.fn(),
   inspectProjectPath: vi.fn(),
   getProjects: vi.fn(),
@@ -46,6 +48,7 @@ vi.mock('@renderer/lib/ipc', () => {
     },
     projects: {
       createProject: mocks.createProject,
+      deleteProject: mocks.deleteProject,
       getProjects: mocks.getProjects,
       attachProjectFolder: mocks.attachProjectFolder,
       inspectProjectPath: mocks.inspectProjectPath,
@@ -85,6 +88,7 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: {
     navigation: {
       currentViewId: 'home',
+      navigate: vi.fn(),
       revalidate: vi.fn(),
       updateViewParams: vi.fn(),
       viewParamsStore: {},
@@ -1009,5 +1013,32 @@ describe('ensureMounted:挂载的唯一入口(别的机器上的项目列出不�
     const mount = vi.spyOn(store, 'mountProject').mockResolvedValue(undefined);
     await store.ensureMounted('local-p');
     expect(mount).toHaveBeenCalledWith('local-p');
+  });
+});
+
+
+describe('explicit project deletion on a resting cloud host', () => {
+  it('waits for wake readiness before removing the row or issuing exactly one delete', async () => {
+    const { installRemoteHostsBridge } = await import('@/session/shared/remote-hosts');
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const manager = new ProjectManagerStore();
+    const project = localProject({ id: 'cloud-delete-project' });
+    manager.syncMachineProjects('cloud-delete-device', [project]);
+    let awake = false;
+    let complete!: () => void;
+    const wake = vi.fn(() => new Promise<void>(resolve => { complete = () => { awake = true; resolve(); }; }));
+    const off = installRemoteHostsBridge({ listDevices: () => [{ id: 'cloud-delete-device', label: 'Assistant', cloudComputer: awake ? 'awake' : 'asleep', isOnline: true }],
+      subscribeDevices: () => () => {}, wakeCloudComputer: wake, pickFolder: async () => null } as never);
+    mocks.deleteProject.mockResolvedValue(undefined);
+    try {
+      const removal = manager.deleteProject(project.id);
+      expect(wake).toHaveBeenCalledOnce();
+      expect(manager.projects.has(project.id)).toBe(true);
+      expect(mocks.deleteProject).not.toHaveBeenCalled();
+      complete();
+      await removal;
+      expect(mocks.deleteProject).toHaveBeenCalledExactlyOnceWith(project.id);
+      expect(manager.projects.has(project.id)).toBe(false);
+    } finally { off(); manager.dispose(); machineRegistry.forgetMachine('cloud-delete-device'); }
   });
 });

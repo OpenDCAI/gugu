@@ -27,13 +27,14 @@ test('a process crash never silently replays a running turn and owners remain is
   try {
     const store = await openPhoneAgentStore(root, owner)
     const id = stableId('message', 2)
-    store.state.agents[agent] = { agentUserId: agent, status: 'working' }
+    store.state.agents[agent] = { agentUserId: agent, status: 'working', agentStatusSeen: 1 }
     await admitPhoneJob(store, { id, agentUserId: agent, prompt: 'could have changed the phone' })
     store.state.jobs[id].status = 'running'
     await store.save()
     const cold = await openPhoneAgentStore(root, owner)
     assert.equal(cold.state.jobs[id].status, 'interrupted')
     assert.equal(cold.state.agents[agent].status, 'error')
+    assert.equal(cold.state.agents[agent].agentStatusSeen, 0)
     const other = await openPhoneAgentStore(root, 'fba789f0-53e9-4b5b-a289-c3cce6151234')
     assert.deepEqual(other.state.jobs, {})
     assert.equal(JSON.parse(await readFile(join(cold.directory, 'host.json'), 'utf8')).jobs[id].status, 'interrupted')

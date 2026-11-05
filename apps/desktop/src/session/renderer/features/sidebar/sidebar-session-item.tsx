@@ -39,6 +39,7 @@ import { clearDraggedScreenContent, setDraggedScreenContent } from '@renderer/li
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SessionRowShell } from './sidebar-session-row';
+import type { SessionBranchSummary } from './sidebar-session-branch';
 import { useSessionDropTarget } from './use-session-drop-target';
 import { ProjectBadge } from './remote-host-chip';
 import { machineRegistry } from '@renderer/lib/machine-routing';
@@ -53,6 +54,7 @@ import { useSessionSchedules } from '@renderer/features/automations/use-session-
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
 import { sessionScheduleDigest } from '@shared/core/automations/session-schedule';
 import { agentForksOn } from '@shared/core/agents/agent-payload';
+import { useConversationSessionSummary } from '@/hooks/useConversationSessionSummary';
 
 // @@@sessionpage otty-state — sidebar CONVERSATION row, hanging directly under its project (spec
 // session-page: conversations ARE the sessions; tasks are an invisible workspace container). A
@@ -75,6 +77,7 @@ export type SidebarSessionItemProps = {
   hasChildren?: boolean;
   expanded?: boolean;
   needsAttention?: boolean;
+  treeSummary?: SessionBranchSummary;
   onToggle?: () => void;
   /** 拼在一屏的一组里:这一行是框的哪一段。 */
   join?: SidebarJoin;
@@ -90,6 +93,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   hasChildren = false,
   expanded = false,
   needsAttention = false,
+  treeSummary,
   onToggle,
   join,
 }: SidebarSessionItemProps) {
@@ -115,6 +119,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const session = sessionRegistry.get(sessionId)?.sessions.get(sessionId);
   const listed = sidebarStore.remoteSession(projectId, sessionId);
   const machine = machineRegistry.machineOf(projectId);
+  const notificationCount = useConversationSessionSummary(sessionId, machine)?.nativeOwnerNotificationUnreadCount ?? 0;
   // 它给自己排的定时,一台机器一个来源:本机的问本机(automation:* 事件驱动);别的机器上的(挂没挂着都一样)读那台机器
   // 推来的会话目录里那一格 —— 与置顶、未读同一条腿,❌ 再为挂着的那几条各开一条跨网问答。
   const localSchedules = useSessionSchedules(null, sessionId, machine === null);
@@ -155,8 +160,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   // spec session-fork-share: fork 自谁 = 父会话此刻的名字,从父会话自己的 store 读(❌ 存一份副本);
   // 父会话没挂上就不写名字。名字可能很长 → tooltip 里截断,否则在窄侧栏竖成一条。
   const forkedFromLabel =
-    forkedFromTitle && forkedFromTitle.length > 20
-      ? `${forkedFromTitle.slice(0, 20)}…`
+    forkedFromTitle && [...forkedFromTitle].length > 20
+      ? `${[...forkedFromTitle].slice(0, 20).join('')}…`
       : forkedFromTitle;
 
   const launchedByAssistant = sidebarStore.launchedByAssistant(projectId, sessionId);
@@ -353,6 +358,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       hasChildren={hasChildren}
       expanded={expanded}
       needsAttention={needsAttention}
+      treeSummary={treeSummary}
       onToggle={onToggle}
       title={title}
       harness={harness ? { id: providerId, name: harness.name } : null}
@@ -362,6 +368,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       lastInteractedAt={row.lastInteractedAt}
       schedule={row.schedule ?? null}
       doneUnread={doneUnread}
+      notificationCount={notificationCount}
       isActive={isActive}
       isCursor={isCursor}
       isPendingArchive={isPendingArchive}

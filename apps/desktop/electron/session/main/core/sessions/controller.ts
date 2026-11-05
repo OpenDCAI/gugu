@@ -7,7 +7,7 @@ import { getSessionsForProject } from './getSessionsForProject';
 import { getUnarchivedSession } from './getUnarchivedSession';
 import { convertAutomationSession } from './convert-automation-session';
 import { forkSession } from './fork-session';
-import { getStoredHistory, getStoredToolImage } from './session-turn-store';
+import { getStoredHistory, getStoredToolImage, getStoredSettledTurn } from './session-turn-store';
 import { syncStoredHistoryFromRecord } from './record-backfill';
 import { hydrateSession } from './hydrateSession';
 import { markSessionSeen } from './markSessionSeen';
@@ -37,6 +37,7 @@ import { setSessionsOnScreen } from './sessions-on-screen';
 export const sessionController = createRPCController({
   getSessions,
   getStoredHistory,
+  getStoredSettledTurn,
   getStoredToolImage,
   // #980 打开一条没在跑的会话时:把 agent 自己的记录里有、库里还没有的那几轮补进库,回补进了几轮。
   syncStoredHistoryFromRecord: (sessionId: string) => syncStoredHistoryFromRecord(sessionId),

@@ -1,7 +1,7 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { DOCUMENT_MAX_ZOOM } from './pinch-zoom';
-import { DOCUMENT_PREVIEW_CSP, PREVIEW_LINK_SCRIPT, PREVIEW_RESTORE_MESSAGE_TYPE, PREVIEW_RESTORED_MESSAGE_TYPE, previewDocumentHtml } from './preview-link-script';
+import { DOCUMENT_PREVIEW_CSP, PREVIEW_LINK_SCRIPT, PREVIEW_RESTORE_MESSAGE_TYPE, PREVIEW_RESTORED_MESSAGE_TYPE, PREVIEW_SET_ZOOM_MESSAGE_TYPE, PREVIEW_ZOOM_MESSAGE_TYPE, previewDocumentHtml } from './preview-link-script';
 
 type Listener = (event: unknown) => void;
 
@@ -67,12 +67,12 @@ describe('shared preview anchors', () => {
 
 describe('shared preview pinch zoom', () => {
   const script = PREVIEW_LINK_SCRIPT;
-  it('zooms the document on a pinch and keeps the page from handling it', () => {
-    const { document, wheel } = runInFakeDocument(script);
+  it('hands a pinch to the owning host and keeps the page from handling it', () => {
+    const { wheel, postMessage } = runInFakeDocument(script);
     const preventDefault = wheel({ ctrlKey: true, deltaY: -100 });
 
     expect(preventDefault).toHaveBeenCalled();
-    expect(Number(document.documentElement.style.zoom)).toBeGreaterThan(1);
+    expect(postMessage).toHaveBeenCalledWith({ type: PREVIEW_ZOOM_MESSAGE_TYPE, deltaY: -100 }, '*');
   });
 
   it('leaves plain scrolling alone', () => {
@@ -84,8 +84,10 @@ describe('shared preview pinch zoom', () => {
   });
 
   it('stops at the same upper limit as the PDF viewer', () => {
-    const { document, wheel } = runInFakeDocument(script);
-    for (let i = 0; i < 50; i += 1) wheel({ ctrlKey: true, deltaY: -100 });
+    const { document, listeners, parent } = runInFakeDocument(script);
+    listeners.get('window:message')!({ source: {}, data: { type: PREVIEW_SET_ZOOM_MESSAGE_TYPE, zoom: 500 } });
+    expect(document.documentElement.style.zoom).toBe('');
+    listeners.get('window:message')!({ source: parent, data: { type: PREVIEW_SET_ZOOM_MESSAGE_TYPE, zoom: 500 } });
 
     expect(Number(document.documentElement.style.zoom)).toBe(DOCUMENT_MAX_ZOOM);
   });

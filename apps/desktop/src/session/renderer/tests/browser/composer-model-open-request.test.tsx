@@ -1,5 +1,5 @@
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { ChatComposer } from '@gugu/session-ui/react/components'
@@ -21,6 +21,7 @@ const MODELS = {
   'platform:deepseek-v4-flash': { name: 'DeepSeek V4 Flash', groupLabel: '咕咕提供的模型 · 按积分计费' },
 }
 
+const refresh = vi.fn()
 let root: Root | null = null
 let container: HTMLDivElement | null = null
 
@@ -33,6 +34,7 @@ function render(openRequest: number) {
         modelOptions={MODELS}
         selectedModel="platform:glm-5.3"
         modelMenuOpenRequest={openRequest}
+        onModelMenuOpen={refresh}
         onSubmit={() => {}}
         onStop={() => {}}
       />
@@ -48,6 +50,7 @@ describe('宿主要求打开模型面板', () => {
     document.body.classList.add('emlight', 'gugu-skin')
     document.body.appendChild(container)
     root = createRoot(container)
+    refresh.mockClear()
     render(0)
     await until(
       'composer model trigger mounted',
@@ -69,5 +72,9 @@ describe('宿主要求打开模型面板', () => {
     render(1)
     await until('model panel lists options', () => (panel()?.querySelectorAll('[role="option"]').length ?? 0) > 0)
     expect(panel()!.textContent).toContain('DeepSeek V4 Flash')
+    expect(refresh).toHaveBeenCalledOnce()
+
+    render(2)
+    await until('another host open refreshes the already open catalog', () => refresh.mock.calls.length === 2)
   })
 })

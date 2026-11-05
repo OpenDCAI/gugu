@@ -20,6 +20,7 @@ function fakeTarget(zoomLevel = 0, fullScreen = false) {
     copy: vi.fn(),
     paste: vi.fn(),
     selectAll: vi.fn(),
+    executeJavaScript: vi.fn(async () => false),
     getZoomLevel: vi.fn(() => level),
     setZoomLevel: vi.fn((next: number) => { level = next }),
   }
@@ -50,15 +51,15 @@ describe('window menu commands(#6597)', () => {
     }
   })
 
-  it('缩放:与应用菜单 zoomIn / zoomOut role 同一步长 0.5,实际大小 = 0 级', () => {
+  it('缩放:与应用菜单 zoomIn / zoomOut role 同一步长 0.5,实际大小 = 0 级', async () => {
     expect(WINDOW_ZOOM_STEP).toBe(0.5)
     const f = fakeTarget(1)
-    runWindowMenuCommand('zoomIn', f.target)
+    await runWindowMenuCommand('zoomIn', f.target)
     expect(f.zoom()).toBe(1.5)
-    runWindowMenuCommand('zoomOut', f.target)
-    runWindowMenuCommand('zoomOut', f.target)
+    await runWindowMenuCommand('zoomOut', f.target)
+    await runWindowMenuCommand('zoomOut', f.target)
     expect(f.zoom()).toBe(0.5)
-    runWindowMenuCommand('resetZoom', f.target)
+    await runWindowMenuCommand('resetZoom', f.target)
     expect(f.zoom()).toBe(0)
   })
 
@@ -68,5 +69,21 @@ describe('window menu commands(#6597)', () => {
     expect(f.fullScreen()).toBe(true)
     runWindowMenuCommand('toggleFullScreen', f.target)
     expect(f.fullScreen()).toBe(false)
+  })
+})
+
+describe('file content zoom before window zoom (#1625)', () => {
+  it('a focused file viewer that takes the command keeps the window zoom', async () => {
+    const f = fakeTarget(1)
+    f.contents.executeJavaScript.mockResolvedValue(true)
+    await runWindowMenuCommand('zoomIn', f.target)
+    expect(f.zoom()).toBe(1)
+  })
+
+  it('a renderer that cannot run the probe (navigating, crashed) still zooms the window', async () => {
+    const f = fakeTarget(1)
+    f.contents.executeJavaScript.mockRejectedValue(new Error('Script failed to execute'))
+    await runWindowMenuCommand('zoomOut', f.target)
+    expect(f.zoom()).toBe(0.5)
   })
 })

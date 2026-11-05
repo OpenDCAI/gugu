@@ -6,7 +6,7 @@
 // agent 的上下文只付窗口那一段,这正是要省的那一笔。
 import { z } from 'zod'
 import { AGENT_STATUSES, AGENT_STATUS_DETAILS } from '../../../../packages/core/src/shared/agentStatus'
-import { isNeedsYou, presentAgentStatus, presentationAttention } from '../../../../packages/core/src/shared/agentStatusPresentation'
+import { presentAgentStatus, presentationAttention } from '../../../../packages/core/src/shared/agentStatusPresentation'
 
 export const LIST_DEFAULT_ROWS = 20
 
@@ -111,7 +111,7 @@ export function matchesAgentStatus(row, word) {
   if (AGENT_STATUSES.includes(row?.status)) {
     const hostOnline = row.host_online !== false
     const presentation = presentAgentStatus({ reading: row, hostOnline })
-    if (!presentation || (presentationAttention(presentation) !== null && !isNeedsYou(presentation, hostOnline))) return false
+    if (!presentation || (presentationAttention(presentation) !== null && !hostOnline)) return false
   }
   return row?.status === word || row?.detail === word
 }

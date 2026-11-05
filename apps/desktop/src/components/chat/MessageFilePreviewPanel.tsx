@@ -8,12 +8,15 @@ import { Markdown } from '../markdown/Markdown'
 import { DocumentPreviewContent } from './DocumentPreviewContent'
 import type { DocumentPreviewKind } from './documentPreview'
 import type { MessageActionItem } from './messageActionItems'
-import { useContext, type Ref } from 'react'
+import { useContext, useRef, type Ref } from 'react'
 import { PaneContext } from '@renderer/features/tabs/pane-context'
 import { FileToolbar } from '@renderer/features/sessions/editor/file-toolbar'
 import { Button as ToolbarButton } from '@renderer/lib/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
+import { useFileZoom } from '../preview/file-content-zoom'
+import { usePinchZoom } from '@/hooks/usePinchZoom'
+import { pinchZoom, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM } from '@/session/shared/preview/pinch-zoom'
 import type { HtmlPreviewRegistration } from '../preview/HtmlPreviewFrame'
 
 export interface MessageFilePreviewPanelProps {
@@ -60,6 +63,9 @@ export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoErro
         {onOpenExternal && <DropdownMenuItem onClick={onOpenExternal}><ExternalLink />{t('chatArea.filePreview.openExternal')}</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>} /> : null
+  const textRef = useRef<HTMLDivElement>(null)
+  const { zoom, setZoom } = useFileZoom(kind === 'markdown' ? 'markdown' : 'text-code', textRef)
+  usePinchZoom(textRef, delta => setZoom(value => pinchZoom(value, delta, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)))
   // 手机页头第二行:扩展名 + 大小(「HTML · 791 B」);大小还不知道就只写扩展名。❌ MIME 原文。
   const extension = /\.([A-Za-z0-9]{1,8})$/.exec(file.fileName)?.[1]?.toUpperCase() ?? null
   const meta = [extension, file.sizeBytes > 0 ? formatAttachmentSize(file.sizeBytes) : null].filter(Boolean).join(' · ')
@@ -95,8 +101,8 @@ export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoErro
       {/* 大小还不知道(手机附件卡正从那台电脑读,或没读到)就不写,❌ 写一个「0 B」。手机上这一行进了页头。 */}
       {fileToolbar || mobile || ((loading || error) && file.sizeBytes === 0) ? null : <div style={{ padding: '0 18px 10px', color: 'var(--text-tertiary)', fontSize: 'var(--font-caption)', flexShrink: 0 }}>{formatAttachmentSize(file.sizeBytes)}{file.mimeType ? ` · ${file.mimeType}` : ''}</div>}
       {notice ? <div role="status" data-testid="message-file-preview-notice" className="gg-file-preview-notice">{notice}</div> : null}
-      <div data-file-selection style={{ flex: 1, minHeight: 0, overflow: 'auto', color: 'var(--text-primary)' }}>
-        {loading ? <div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}{loadingFraction !== undefined ? <progress className="gg-progress" value={loadingFraction} max={1} /> : null}</div> : error ? <div style={{ ...statusStyle, color: 'var(--danger-fg)' }}>{error}</div> : kind === 'video' ? <video data-testid="message-file-preview-video" src={videoUrl} onError={event => onVideoError?.(event.currentTarget)} controls autoPlay playsInline className="block max-h-full w-full" /> : kind === 'unsupported' ? <div style={statusStyle}>{t('chatArea.filePreview.unsupported')}</div> : typeof content === 'string' && (kind === 'text' || kind === 'markdown') ? <div style={{ padding: fileToolbar ? '4px 18px 16px' : '16px 18px' }}>{kind === 'markdown' ? <Markdown trust="chat" density="comfortable" content={content} hardBreaks /> : <pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', fontSize: 'var(--font-body)', lineHeight: 1.65 }}>{content}</pre>}</div> : <DocumentPreviewContent kind={kind} content={content} title={file.fileName} onOpenExternally={onOpenExternal} registerHtml={registerHtml} />}
+      <div ref={kind === 'text' || kind === 'markdown' ? textRef : undefined} data-file-selection style={{ flex: 1, minHeight: 0, overflow: 'auto', color: 'var(--text-primary)' }}>
+        {loading ? <div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}{loadingFraction !== undefined ? <progress className="gg-progress" value={loadingFraction} max={1} /> : null}</div> : error ? <div style={{ ...statusStyle, color: 'var(--danger-fg)' }}>{error}</div> : kind === 'video' ? <video data-testid="message-file-preview-video" src={videoUrl} onError={event => onVideoError?.(event.currentTarget)} controls autoPlay playsInline className="block max-h-full w-full" /> : kind === 'unsupported' ? <div style={statusStyle}>{t('chatArea.filePreview.unsupported')}</div> : typeof content === 'string' && (kind === 'text' || kind === 'markdown') ? <div style={{ padding: fileToolbar ? '4px 18px 16px' : '16px 18px', zoom }}>{kind === 'markdown' ? <Markdown trust="chat" density="comfortable" content={content} hardBreaks /> : <pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', fontSize: 'var(--font-body)', lineHeight: 1.65 }}>{content}</pre>}</div> : <DocumentPreviewContent kind={kind} content={content} title={file.fileName} onOpenExternally={onOpenExternal} registerHtml={registerHtml} />}
       </div>
     </aside>
   )

@@ -112,6 +112,13 @@ export default {
     "unavailable": "Gugu isn't available here yet."
   },
   "setup": {
+    "engineTitle": "Choose an assistant engine",
+    "engineChecking": "Checking…",
+    "engineRetry": "Check again",
+    "engineConfigure": "Configure {{name}}",
+    "engineUnusable": "Not ready",
+    "engineReadFailed": "Can’t tell",
+
     "identityTitle": "Choose a name and look",
     "customizeLook": "Customize appearance",
     "nameTitle": "Give your assistant a name",

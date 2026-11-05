@@ -11,9 +11,8 @@ import { cn } from '@renderer/utils/utils';
  *    箭头原来是行内第一个 flex 子元素、只有有子项的行才长出来,于是那一行比左右邻居往右缩
  *    20px(owner 2026-09-07 实机:「放那里成缩进了」)。
  *
- * ② **静止时不显形。** 只在行悬停 / 键盘光标停在这一行 / 它自己拿到焦点时淡入(照 owner
- *    给的参考件:飞书文档侧栏)。一整列常驻箭头会跟标题抢注意力;「这一行底下还有东西」
- *    由展开出来的子行自己说。
+ * ② 项目树明确显示折叠入口(alwaysVisible)；其余列表继续在行悬停 / 键盘光标 /
+ *    箭头自身焦点时显形。常显是项目树调用方的选择，不改其他列表的反馈。
  *
  * 项目行原先是另一套写法 —— 在图标位上让 folder 与 chevron 交叉淡入淡出。那套不位移,但与
  * 会话行不同形,同一条侧栏里两种折叠惯用法(owner 2026-09-07:「项目行的折叠要统一」)。
@@ -25,18 +24,21 @@ export function SidebarTwistyLane({
   expanded,
   onToggle,
   label,
+  alwaysVisible = false,
 }: {
   expanded: boolean;
   /** 省略 = 这一行没有可展开的东西:车道照占,不渲染按钮。 */
   onToggle?: () => void;
   label: string;
+  /** Project trees explicitly expose disclosure affordances; other lists retain their current behavior. */
+  alwaysVisible?: boolean;
 }) {
   return (
     <span className="flex size-4 shrink-0 items-center justify-center">
       {onToggle ? (
         <button
           type="button"
-          className="flex size-4 items-center justify-center rounded-sm text-foreground-tertiary-passive opacity-0 transition-opacity duration-[var(--dur-fast,120ms)] ease-out group-hover/row:opacity-100 group-data-[nav-cursor=true]/row:opacity-100 focus:opacity-100 hover:bg-row-hover hover:text-foreground active:bg-row-press"
+          className={cn("flex size-4 items-center justify-center rounded-sm text-foreground-tertiary-passive transition-opacity duration-[var(--dur-fast,120ms)] ease-out group-hover/row:opacity-100 group-data-[nav-cursor=true]/row:opacity-100 focus:opacity-100 hover:bg-row-hover hover:text-foreground active:bg-row-press", alwaysVisible ? 'opacity-100' : 'opacity-0')}
           aria-label={label}
           aria-expanded={expanded}
           onMouseDown={(event) => event.stopPropagation()}

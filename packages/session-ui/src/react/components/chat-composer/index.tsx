@@ -208,8 +208,10 @@ import { ComposerAgentLoading, ComposerAgentSelector } from './composer-agent-se
 export type ComposerQueuedPromptEdit = { id: string; text: string; originalDraftText: string; pending?: boolean };
 
 export interface ChatComposerProps {
-  editorOptions?: Pick<import('../prompt-editor/types').PromptEditorProps, 'inputTestId' | 'inputRef' | 'enterBehavior' | 'clearOnSubmit'>;
+  editorOptions?: Pick<import('../prompt-editor/types').PromptEditorProps, 'inputTestId' | 'inputRef' | 'enterBehavior' | 'clearOnSubmit' | 'emptyHint'>;
   mobile?: boolean;
+  /** Scope phone action behavior separately from a compact desktop preview. */
+  phoneActions?: boolean;
   disabled?: boolean;
   isWorking?: boolean;
   stopDisabled?: boolean;
@@ -245,13 +247,16 @@ export interface ChatComposerProps {
   onModelChange?: (modelId: string) => void;
   /** 宿主要把模型面板打开:每变一次开一次(见 `ComposerModelMenu.openRequest`)。 */
   modelMenuOpenRequest?: number;
+  /** Failure/recovery copy stays inside the model setting; other settings remain usable. */
+  modelSettingNotice?: string | null;
+  onModelMenuOpen?: () => void;
   /**
    * 拿不到模型时「模型」那一行放什么。设了它,面板即使一个模型都没有也照常打开 ——
    * 否则触发器整颗消失,用户连「为什么没有模型」都无处可问。
    */
   modelUnlock?: ComposerModelUnlock | null;
   /** 点了那枚标签。宿主决定这一步做什么;composer 只知道「这一行的点击不是选中」。 */
-  onModelUnlock?: () => void;
+  onModelUnlock?: (anchor?: HTMLElement) => void;
   /** 模型面板底部「管理模型」—— 宿主打开设置里的「模型」那一页(#7056)。不给 = 不画。 */
   onManageModels?: () => void;
   /** 模型面板底部「升级解锁更多模型」(免费档才有,见 `ComposerModelUpgrade`)。 */
@@ -273,7 +278,7 @@ export interface ChatComposerProps {
   /** Extra control(s) appended to the toolbar-left row, after the permission selector. */
   toolbarExtra?: React.ReactNode;
 
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string) => void | Promise<void>;
   /** Called whenever the editor serialized plain text changes. */
   onInputChange?: (text: string) => void;
   /** Called after a mention node is inserted. Raw insertText entries do not trigger this. */
@@ -284,7 +289,7 @@ export interface ChatComposerProps {
    * confirm interruption, or otherwise resolve the conflict.
    * When absent, submit attempts while working are silently ignored.
    */
-  onSubmitWhileWorking?: (text: string) => void;
+  onSubmitWhileWorking?: (text: string) => void | Promise<void>;
   onStop?: () => void;
   onAttach?: () => void;
   /** Context-window usage data for the toolbar donut indicator. Hidden when null/undefined. */
@@ -367,8 +372,6 @@ export interface ChatComposerProps {
   onCommand?: (item: CommandItem) => void;
   /** Session-state notice shown flush above the input (e.g. ACP stop reasons). */
   notice?: ComposerNotice | null;
-  /** Host band connected to this composer, below queued prompts and above permission/notice. */
-  bandAbove?: React.ReactNode;
   /**
    * Pending ACP permission request to show in the band above the input.
    * When present, the notice band is replaced by the permission band.
@@ -407,6 +410,7 @@ export interface ChatComposerProps {
 export function ChatComposer({
   editorOptions,
   mobile = false,
+  phoneActions = mobile,
   disabled = false,
   isWorking = false,
   stopDisabled = false,
@@ -425,6 +429,8 @@ export function ChatComposer({
   selectedModel,
   onModelChange,
   modelMenuOpenRequest,
+  modelSettingNotice,
+  onModelMenuOpen,
   modelUnlock,
   onModelUnlock,
   onManageModels,
@@ -464,7 +470,6 @@ export function ChatComposer({
   onViewAttachment,
   onRetryAttachment,
   notice,
-  bandAbove,
   permissionRequest,
   permissionQueueCount = 1,
   onResolvePermission,
@@ -486,6 +491,9 @@ export function ChatComposer({
   const { translate } = useMessages();
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PromptEditorRef | null>(null);
+  const [hasText, setHasText] = useState(false);
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+  const phoneSubmittingRef = useRef(false);
   // 底排放不下时按档把标签收成图标(渐进披露),见 use-toolbar-disclosure.ts
   const toolbarDisclosure = useToolbarDisclosure();
   const [dragActive, setDragActive] = useState(false);
@@ -549,24 +557,32 @@ export function ChatComposer({
     };
   }, []);
 
-  const canSubmit = hostCanSubmit ?? true;
-  const handleSubmit = (text: string) => {
+  const hasContent = hasText || attachments.length > 0;
+  const canSubmit = (hostCanSubmit ?? true) && (!phoneActions || (hasContent && !phoneSubmitting));
+  const showStop = isWorking && (!phoneActions || (!hasContent && !phoneSubmitting));
+  const handleSubmit = async (text: string) => {
     if (queueEdit) { finishQueueEdit(text); return; }
+    if (phoneActions && (phoneSubmittingRef.current || disabled || !canSubmit)) return;
     // Attachment-only sends are valid for both images and ordinary files.
     if (!text.trim() && attachments.length === 0 && hostCanSubmit !== true) return;
     // While the agent is actively working, route to the host's conflict handler
     // (e.g. queueing or a cancel-and-send confirmation) instead of submitting.
-    if (isWorking) {
-      onSubmitWhileWorking?.(text);
-      return;
+    if (isWorking && !onSubmitWhileWorking) return;
+    if (!isWorking && (disabled || !canSubmit)) return;
+    const submit = isWorking ? onSubmitWhileWorking! : onSubmit;
+    if (!mobile || (!phoneActions && isWorking)) { submit(text); return; }
+    // Keep Send in place until the host has durably accepted this input.
+    // A second tap during that commit must never become a Stop action.
+    if (phoneActions) { phoneSubmittingRef.current = true; setPhoneSubmitting(true); }
+    try {
+      const committed = submit(text);
+      // Settle focus synchronously; a deferred refocus reopens the keyboard.
+      const active = rootRef.current?.ownerDocument.activeElement;
+      if (active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
+      if (phoneActions) await committed;
+    } finally {
+      if (phoneActions) { phoneSubmittingRef.current = false; setPhoneSubmitting(false); }
     }
-    if (disabled || !canSubmit) return;
-    onSubmit(text);
-    // Every phone host (chat, agent thread, new task) submits here. Settle focus
-    // synchronously: a deferred refocus reopens the keyboard and jumps the shell.
-    // Scope the blur to this composer so another input never loses its focus.
-    const active = rootRef.current?.ownerDocument.activeElement;
-    if (mobile && active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
   };
 
   /**
@@ -718,7 +734,7 @@ export function ChatComposer({
     !!onReorderQueuedPrompts &&
     !!onSendQueuedPromptNow;
   // The permission band takes priority over the notice band.
-  const hasBand = !!bandAbove || !!(permissionRequest ?? notice);
+  const hasBand = !!(permissionRequest ?? notice);
   const receiveEditor = React.useCallback((handle: PromptEditorRef | null) => {
     editorRef.current = handle;
     if (typeof editorApiRef === 'function') editorApiRef(handle);
@@ -738,7 +754,7 @@ export function ChatComposer({
       ref={receiveEditor}
       placeholder={resolvedPlaceholder}
       disabled={disabled || !!queueEdit?.pending}
-      onChange={queueEdit ? changeQueueEdit : onInputChange}
+      onChange={(text) => { setHasText(!!text.trim()); (queueEdit ? changeQueueEdit : onInputChange)?.(text); }}
       onPasteText={queueEdit ? undefined : handlePastedText}
       clearOnSubmit={queueEdit ? false : (editorOptions?.clearOnSubmit ?? true)}
       hostDropTypes={onDataDropped ? dataDropTypes : undefined}
@@ -754,7 +770,7 @@ export function ChatComposer({
   );
 
   return (
-    <div ref={rootRef} data-slot="composer" data-band-above={!!bandAbove || undefined} data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
+    <div ref={rootRef} data-slot="composer" data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault(); finishQueueEdit(null);
       }
@@ -771,8 +787,6 @@ export function ChatComposer({
         />
       )}
 
-      <div data-composer-stack="" className={styles.composerStack({ tone })}>
-        {bandAbove}
         {/* Permission band — shown when the agent is awaiting user approval. */}
         {permissionRequest && onResolvePermission && (
           <PermissionBand
@@ -802,7 +816,7 @@ export function ChatComposer({
         <div
           data-slot="composer-bar"
           data-drag-active={dragActive || undefined}
-          className={styles.composerShell({ hasBand: !!hasBand, dragActive })}
+        className={styles.composerShell({ hasBand: !!hasBand, dragActive, tone })}
           onPaste={queueEdit ? undefined : handlePaste}
           onDragOver={queueEdit ? undefined : handleDragOver}
           onDragLeave={handleDragLeave}
@@ -976,6 +990,8 @@ export function ChatComposer({
                 selectedModel={selectedModel}
                 onModelChange={onModelChange}
                 openRequest={modelMenuOpenRequest}
+                settingNotice={modelSettingNotice}
+                onOpen={onModelMenuOpen}
                 modelUnlock={modelUnlock}
                 onModelUnlock={onModelUnlock}
                 onManageModels={onManageModels}
@@ -995,7 +1011,7 @@ export function ChatComposer({
                     onClick={() => finishQueueEdit(editorRef.current?.getText() ?? '')}>{translate('common.save')}</Button>
                 </>
               ) : showSubmitButton ? (
-                isWorking ? (
+                showStop ? (
                   <Button
                     variant="primary"
                     tone="destructive"
@@ -1030,6 +1046,5 @@ export function ChatComposer({
           </div>
         </div>
       </div>
-    </div>
   );
 }

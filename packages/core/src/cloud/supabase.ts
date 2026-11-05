@@ -16,6 +16,7 @@ export interface GuguSupabaseClientOptions {
   accessToken?: () => Promise<string | null>
   anonKey?: string
   autoRefreshToken?: boolean
+  flowType?: 'implicit' | 'pkce'
   fetch?: typeof fetch
   headers?: Record<string, string>
   persistSession?: boolean
@@ -65,6 +66,7 @@ export function createGuguSupabaseClient(options: GuguSupabaseClientOptions = {}
       storageKey: options.storageKey,
       persistSession,
       autoRefreshToken,
+      flowType: options.flowType,
       detectSessionInUrl: false,
       // @@@electron-lock — gotrue defaults to the browser navigatorLock (Web Locks API) to serialize
       // getSession/refresh across TABS. Gugu's renderer is a single Electron context (no sibling tabs),

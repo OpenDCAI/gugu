@@ -94,8 +94,22 @@ function decode(entry: TreeNode): RecordEntry[] {
     if (event) out.push({ key: key(index), ...stamp, event });
   });
   const boundary = boundaryOf(message.stopReason, blocks.some((block) => asRecord(block)?.type === 'toolCall'));
-  if (boundary) out.push(boundaryEntry(`pi:${entry.id}`, at, boundary));
+  if (boundary) {
+    // Keep only the gateway's typed refusal, never Pi's raw provider error text.
+    if (boundary.kind === 'turn_failed' && guguCreditExhausted(message.errorMessage)) boundary.creditExhausted = true;
+    out.push(boundaryEntry(`pi:${entry.id}`, at, boundary));
+  }
   return out;
+}
+
+function guguCreditExhausted(error: unknown): boolean {
+  if (typeof error !== 'string') return false;
+  try {
+    const payload = asRecord(JSON.parse(error.slice(error.indexOf('{'))));
+    const refusal = asRecord(payload?.error) ?? payload;
+    return refusal?.code === 'credits_exhausted'
+      && typeof refusal.message === 'string' && /咕咕积分|Gugu credits/i.test(refusal.message);
+  } catch { return false; }
 }
 
 function assistantBlock(block: Record<string, unknown> | null, messageId: string): NormalizedEvent | null {

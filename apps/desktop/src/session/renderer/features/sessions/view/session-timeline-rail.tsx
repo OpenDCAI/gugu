@@ -105,8 +105,8 @@ export function SessionTimelineRail({
             ? 'bg-foreground/70 group-hover:bg-foreground group-focus-visible:bg-foreground'
             : 'bg-foreground-muted/40 group-hover:bg-foreground-muted group-focus-visible:bg-foreground-muted';
         const jumpLabel = tick.delivered
-          ? translate('task.jumpToDelivery', { sender: label, prompt: turn.prompt.slice(0, 50) })
-          : translate('task.jumpToTurn', { prompt: turn.prompt.slice(0, 50) });
+          ? translate('task.jumpToDelivery', { sender: label, prompt: [...turn.prompt].slice(0, 50).join('') })
+          : translate('task.jumpToTurn', { prompt: [...turn.prompt].slice(0, 50).join('') });
         return (
           <PreviewCard key={turn.id}>
             <PreviewCardTrigger

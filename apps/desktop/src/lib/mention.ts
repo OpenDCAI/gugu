@@ -15,6 +15,8 @@ import { i18n } from '@/i18n'
 export interface MentionCandidate {
   id: string
   name: string
+  /** Display-only disambiguation must not be serialized into the mention label. */
+  rawName?: string
   type: 'all' | 'human' | 'agent'
   avatar?: string | null
   ownerDisplayName?: string
@@ -42,6 +44,7 @@ function rosterExtras(type: MentionCandidate['type'], identity: RosterIdentity, 
 export function buildGroupRosterCandidates(
   snapshot: Pick<GroupCollabSnapshot, 'humans' | 'agents'>,
   identities: Readonly<Record<string, RosterIdentity>>,
+  displayNames?: ReadonlyMap<string, string>,
 ): GroupRosterCandidate[] {
   // 名册 = 「可以按名字点名的人」。身份没解析出来的成员没有名字,就不在这个集合里 —— 这不是容错,是定义。
   // 从前这里用 `?? ''` 冒充名字,而空名字会让提及判据的正则退化成「匹配任何裸 @」:一条
@@ -49,8 +52,8 @@ export function buildGroupRosterCandidates(
   // 占位值冒充,而这里的值比显示更严重 —— 它是投递依据。身份的来源见 replaceGroupRoster(名册与身份同事务发布)。
   const members = [...snapshot.humans, ...snapshot.agents.filter((agent) => agent.account_status !== 'removed')]
   return members.flatMap((member) => {
-    const name = identities[member.id]?.display_name
-    return name && name.trim() !== '' ? [{ id: member.id, name, type: member.type, ...rosterExtras(member.type, identities[member.id], identities) }] : []
+    const name = displayNames?.get(member.id) ?? identities[member.id]?.display_name
+    return name && name.trim() !== '' ? [{ id: member.id, name, ...(displayNames?.has(member.id) ? { rawName: identities[member.id].display_name } : {}), type: member.type, ...rosterExtras(member.type, identities[member.id], identities) }] : []
   })
 }
 
@@ -97,6 +100,22 @@ function mentionParts(text: string) {
   let plain = text
   for (const ref of [...references].reverse()) plain = plain.slice(0, ref.start) + ' '.repeat(ref.end - ref.start) + plain.slice(ref.end)
   return { references, plain }
+}
+
+/** First explicit mention in document order, using the same tokens and resolved recipients as delivery. */
+export function firstMentionedUserId(text: string, recipientIds: readonly string[], members: MentionCandidate[]): string | null | undefined {
+  const { references, plain } = mentionParts(text)
+  const recipients = new Set(recipientIds)
+  const mentions = [
+    ...references.filter((ref) => ref.target.startsWith('aid:')).map((ref) => ({ start: ref.start, ids: [ref.target.slice(4)] })),
+    ...findMentionSpans(plain, members.map((member) => member.name)).map((span) => ({ start: span.start,
+      ids: members.filter((member) => member.name === span.name).map((member) => member.type === 'all' ? MENTION_ALL_USER_ID : member.id) })),
+  ].sort((a, b) => a.start - b.start)
+  for (const mention of mentions) {
+    const ids = mention.ids.filter((id) => recipients.has(id))
+    if (ids.length) return ids.length === 1 ? ids[0] : null
+  }
+  return undefined
 }
 
 /**

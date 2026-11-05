@@ -12,7 +12,8 @@ import { REMOTE_TUNNEL_OPEN } from '@gugu/core/cloud/remoteTunnel'
 import fs from 'node:fs'
 import Module from 'node:module'
 import path from 'node:path'
-import { isOwnProcessAlive, isProcessAlive, SERVER_PROCESS_MARK } from './server/process-alive'
+import { isProcessAlive } from './server/process-alive'
+import { accountLockDataDirs, accountLockHolder } from './server/server-account-lock'
 import { ensureCaBundleForChildren } from './server/server-ca-bundle'
 import {
   applyAccountEnv,
@@ -108,15 +109,42 @@ function fail(error: unknown): never {
 
 const out = (line: string): void => void process.stdout.write(`${line}\n`)
 
-/** 读某个目录下单实例锁里的进程号(锁在但进程已死、或进程号已被别的程序复用 = 没在跑)。 */
+/** Account ownership failures must reach the CLI instead of becoming a stale PID. */
 function lockHolder(dataDir: string): number | null {
-  try {
-    if (dataDir === supervisorDataDir()) return homeLockHolder(serverHome)
-    const pid = Number(fs.readFileSync(path.join(dataDir, 'server.lock'), 'utf8').trim())
-    return isOwnProcessAlive(pid, SERVER_PROCESS_MARK) ? pid : null
-  } catch {
-    return null
+  return dataDir === supervisorDataDir() ? homeLockHolder(serverHome) : accountLockHolder(dataDir)
+}
+
+/**
+ * #6264 守护进程之外还在跑的账号进程(守护进程被 kill -9 / OOM 后留下的孤儿,或刚才没来得及收的):
+ * 按各账号锁里的进程号收掉。先 SIGTERM 等它正常退出(收会话、放锁),30 秒不走再 SIGKILL。
+ */
+async function stopAccountProcesses(): Promise<number[]> {
+  const holders = accountLockDataDirs(serverHome).flatMap((dataDir) => {
+    const pid = accountLockHolder(dataDir)
+    return pid !== null && pid !== process.pid ? [{ pid, dataDir }] : []
+  })
+  const stillOwnsLock = (holder: { pid: number; dataDir: string }) => accountLockHolder(holder.dataDir) === holder.pid
+  for (const holder of holders) {
+    if (!stillOwnsLock(holder)) continue
+    try {
+      process.kill(holder.pid, 'SIGTERM')
+    } catch {
+      // 已经退出了
+    }
   }
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline && holders.some(stillOwnsLock)) {
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  for (const holder of holders) {
+    if (!stillOwnsLock(holder)) continue
+    try {
+      process.kill(holder.pid, 'SIGKILL')
+    } catch {
+      // 已经退出了
+    }
+  }
+  return holders.map(({ pid }) => pid)
 }
 
 async function stopServerProcess(pid: number, graceMs: number): Promise<void> {
@@ -325,7 +353,8 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       }
       const pid = lockHolder(supervisorDataDir())
       if (pid) await stopServerProcess(pid, 45_000)
-      if (!pid) { out('server 没在运行。'); return process.exit(0) }
+      const strays = await stopAccountProcesses()
+      if (!pid && strays.length === 0) { out('server 没在运行。'); return process.exit(0) }
       out('已停止。')
       out('再次启动请执行 gugu-server start;移除开机自启请执行 gugu-server service uninstall。')
       return process.exit(0)
@@ -381,7 +410,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       return process.exit(await runMatchVersion(args, out, stderr, {
         home: serverHome,
         runningVersion: (account) => {
-          const pid = lockHolder(account.dataDir)
+          const pid = accountLockHolder(account.dataDir)
           if (pid === null) return null
           // /proc 只有 Linux 有;macOS 上读账号进程自己每 10 秒写的忙闲(带着版本与进程号)。
           const activity = (() => {

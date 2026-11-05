@@ -20,7 +20,7 @@ import type { DisplayIdentity } from '../../../../apps/desktop/src/lib/displayId
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
 function identity(id: string, over: Partial<DisplayIdentity> = {}): DisplayIdentity {
   return {
-    id, type: 'human', display_name: id, avatar: null, gugu_number: null, bio: null,
+    id, type: 'human', display_name: id, nameSerial: null, avatar: null, gugu_number: null, bio: null,
     owner_user_id: null, agent_public: null, desired_status: null, device_id: null,
     category: null, is_official: null, local_path: null,
     created_at: null, updated_at: '2026-08-09T00:00:00.000Z', ...over,
@@ -335,7 +335,8 @@ describe('account-scoped normalized IM repository', () => {
       { type: 'put', store: 'message', value: expect.objectContaining({ id: 'main', value: edited }) },
       { type: 'put', store: 'stream', value: expect.objectContaining({ id: 'thread:chat-1:root-b', rootMessageId: 'root-b' }) },
       { type: 'put', store: 'message', value: expect.objectContaining({ id: 'reply', streamId: 'thread:chat-1:root-b', seq: 3 }) },
-      { type: 'put', store: 'view', value: expect.objectContaining({ value: { oldestSeq: 1, maxSeq: 3, hasMoreOlder: true } }) },
+      // The main window's coverage does not include a thread's independent seq.
+      { type: 'put', store: 'view', value: expect.objectContaining({ value: { oldestSeq: 1, maxSeq: 1, hasMoreOlder: true } }) },
     ])
     const reopened = await openImRepository('account-a', { adapter, storage: window.localStorage })
     expect(imSelectors.messagesForStream('thread:chat-1:root-a')(reopened.snapshot())).toEqual([])

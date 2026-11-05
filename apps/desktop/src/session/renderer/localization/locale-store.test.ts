@@ -268,6 +268,13 @@ describe('task locale resources', () => {
     expect(translateSessionMessage(pluralLookupKey, { count: 3 })).toBe('3 个文件');
   });
 
+  it.each(['en-US', 'zh-CN'] as const)('interpolates cloud update versions without leaving braces in %s', async locale => {
+    await i18n.changeLanguage(locale);
+    const message = translateSessionMessage('integrations.cloudUpdating', { version: '9.8.7' });
+    expect(message).toContain('9.8.7');
+    expect(message).not.toMatch(/[{}]/);
+  });
+
   it('fails loudly for a missing task key', () => {
     expect(() => translateSessionMessage('task.missing')).toThrow('Missing session translation');
   });

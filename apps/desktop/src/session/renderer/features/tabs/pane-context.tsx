@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { TabLayerShownContext } from './retained-tab-content';
@@ -30,7 +30,7 @@ export function usePaneContext(): PaneContextValue {
 interface PaneProviderProps {
   group: Pane;
   isFocusedPane: boolean;
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 /**
@@ -53,9 +53,14 @@ export function PaneProvider({
   const focused = isFocusedPane && shown && blockFocused;
   useTabShortcuts(group.pane, { focused });
 
-  return (
-    <PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: focused }}>
-      {children}
-    </PaneContext.Provider>
+  // The value must keep its identity across re-renders: every consumer of this context re-renders
+  // when the value changes, and this provider sits above a pane whose contents change constantly
+  // (a streaming turn, a tab opening). A fresh object per render re-rendered all of them for
+  // nothing — most only read `paneId`, which never changes. The three inputs are the whole value.
+  const value = useMemo<PaneContextValue>(
+    () => ({ paneId: group.paneId, pane: group.pane, isFocusedPane: focused }),
+    [group.paneId, group.pane, focused],
   );
+
+  return <PaneContext.Provider value={value}>{children}</PaneContext.Provider>;
 }

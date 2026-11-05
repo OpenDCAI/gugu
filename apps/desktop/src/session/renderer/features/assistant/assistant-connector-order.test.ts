@@ -11,6 +11,15 @@ describe('connectorOrder', () => {
       'github', 'linear', 'jira', 'notion',
     ]);
   });
+  it('keeps Baidu Netdisk after Tencent Docs and before overseas apps without losing catalog entries', () => {
+    const items = [...catalog, { id: 'baidu-pan' }, { id: 'tencent-meeting' }, { id: 'custom-app' }];
+    const orderedIds = connectorOrder(items, 'zh-CN').map((item) => item.id);
+
+    expect(orderedIds.indexOf('baidu-pan')).toBe(orderedIds.indexOf('tencent-docs') + 1);
+    expect(orderedIds.indexOf('baidu-pan')).toBeLessThan(orderedIds.indexOf('tencent-meeting'));
+    expect(orderedIds.indexOf('baidu-pan')).toBeLessThan(orderedIds.indexOf('github'));
+    expect([...orderedIds].sort()).toEqual(items.map((item) => item.id).sort());
+  });
   it('别的语言照目录原来的先后', () => {
     expect(connectorOrder(catalog, 'en-US').map((i) => i.id)).toEqual(catalog.map((i) => i.id));
   });

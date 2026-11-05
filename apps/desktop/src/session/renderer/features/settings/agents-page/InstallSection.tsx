@@ -28,6 +28,7 @@ import { resolveManagedUpdate, resolveUpdateAction } from './update-action';
 
 export type InstallSectionProps = {
   agentId: string;
+  advancedOnly?: boolean;
   /** Full agent payload used to hydrate the hook before the first probe. */
   agentPayload: AgentPayload | undefined;
   /** Platform-specific install options from the agent payload. */
@@ -57,6 +58,7 @@ export const InstallSection = observer(function InstallSection({
   installOptions,
   installDocs,
   accountSlot,
+  advancedOnly = false,
 }: InstallSectionProps) {
   const vm = useAgentInstallationStatus(agentId, agentPayload);
   const hasRegistryOptions = installOptions.some((option) => option.registry !== undefined);
@@ -284,9 +286,8 @@ export const InstallSection = observer(function InstallSection({
         ? () => void vm.update(managedInstall.method, selectedSource.registry)
         : undefined;
 
-  return (
-    <>
-      <AgentSourceList
+  const sources = (
+    <AgentSourceList
         vm={vm}
         agentPayload={agentPayload}
         inUse={inUse}
@@ -302,13 +303,16 @@ export const InstallSection = observer(function InstallSection({
         onOpenCustom={openManual}
         customEditor={manualSlot}
       />
+  );
+  return advancedOnly ? (
+    <AgentAdvancedSection compact agentId={agentId} registries={registries} registry={selectedSource.registry} onRegistryChange={onRegistryChange}>
+      {sources}
+    </AgentAdvancedSection>
+  ) : (
+    <>
+      {sources}
       {accountSlot}
-      <AgentAdvancedSection
-        agentId={agentId}
-        registries={registries}
-        registry={selectedSource.registry}
-        onRegistryChange={onRegistryChange}
-      />
+      <AgentAdvancedSection agentId={agentId} registries={registries} registry={selectedSource.registry} onRegistryChange={onRegistryChange} />
     </>
   );
 });

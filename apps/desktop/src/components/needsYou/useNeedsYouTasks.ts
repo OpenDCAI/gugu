@@ -11,6 +11,8 @@ import { usePhoneAgentDirectory } from '@/mobile/local-agent/usePhoneAgentDirect
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import { mostUrgentAttention, type AgentAttention } from '@gugu/core/shared/agentStatus'
 import { isNeedsYou, presentationAttention } from '@gugu/core/shared/agentStatusPresentation'
+import { machineRpc } from '@/mobile/agent-watch/sessionpage-rpc'
+import { invokePhoneHost } from '@/mobile/local-agent/phoneHostRpc'
 
 export type NeedsYouTask = {
   deviceId: string
@@ -18,6 +20,12 @@ export type NeedsYouTask = {
   local: boolean
   phoneHost: boolean
   session: SessionpageSessionSummary
+}
+
+/** Acknowledge through the task host's existing read bit; never clear its error or settle an ask. */
+export async function markNeedsYouTaskSeen(task: NeedsYouTask): Promise<void> {
+  if (task.phoneHost) return invokePhoneHost(task.deviceId, 'sessions.markSessionSeen', [task.session.conversationId])
+  await machineRpc(task.deviceId, task.local).sessions.markSessionSeen(task.session.conversationId)
 }
 
 /** The existing sidebar state and machine directory, including a desktop's own host. No per-task polling. */
@@ -53,10 +61,11 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAtt
     for (const session of sessions) {
       // 列出的只有连得上的宿主;有身份的 agent 读共享 presence,与侧栏同一个判据。
       const presentation = sessionPresentation(session, true)
+      if (!isNeedsYou(presentation, session.unseen === true)) continue
       statuses.push(presentationAttention(presentation))
-      if (!isNeedsYou(presentation)) continue
       tasks.push({ deviceId: device.device_id, machine: device.label, local: here, phoneHost: isPhoneDevice(device), session })
     }
   }
+  tasks.sort((a, b) => (Date.parse(b.session.lastInteractedAt ?? '') || 0) - (Date.parse(a.session.lastInteractedAt ?? '') || 0))
   return { tasks, attention: mostUrgentAttention(statuses), error: localId ? error : null }
 }

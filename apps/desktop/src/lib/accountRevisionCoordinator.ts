@@ -1,11 +1,12 @@
-import type { RawMessageRow } from '@gugu/core/cloud/messageItem'
+import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/messageItem'
+import type { MessageItem } from '@gugu/core/shared/types/chat'
 import {
   createAccountRevisionRuntime,
   type AccountRevisionOperation,
   type AccountRevisionRuntime,
   type AccountRevisionSource,
 } from './accountRevisionRuntime'
-import type { AccountImRepository } from './imRepository'
+import { ingestAccountMessage, imSelectors, type AccountImRepository, type ImRepositoryTransaction } from './imRepository'
 import { rendererLogger } from './log'
 
 const coordinatorLog = rendererLogger('chat/account-revision')
@@ -36,7 +37,8 @@ export const ACCOUNT_REVISION_EVENTS = [
 ] as const
 
 export type AccountRevisionEvent = typeof ACCOUNT_REVISION_EVENTS[number]
-export type AccountRevisionListener = (operations: readonly AccountRevisionOperation[]) => void | Promise<void>
+type InboxOperation = AccountRevisionOperation & { notify?: boolean; messageCommitted?: boolean }
+export type AccountRevisionListener = (operations: readonly InboxOperation[]) => void | Promise<void>
 
 export function readRevisionResourceKey(
   payload: unknown,
@@ -170,13 +172,17 @@ export type AccountRevisionCoordinator = {
 
 type PendingOperation = {
   key: string
-  operation: AccountRevisionOperation
+  operation: InboxOperation
 }
 
 export function createAccountRevisionCoordinator(
   accountId: string,
   repository: AccountImRepository,
   source: AccountRevisionSource,
+  messages?: {
+    recover: (messageId: string) => Promise<MessageItem | null>
+    notify: (message: MessageItem) => Promise<void>
+  },
 ): AccountRevisionCoordinator {
   const runtime: AccountRevisionRuntime = createAccountRevisionRuntime(accountId, repository, source)
   // 一个 registration = 一个 consumer 认领的 event 集合。barrier 只问「这个 event 有人认领吗」,
@@ -201,12 +207,73 @@ export function createAccountRevisionCoordinator(
   let unsubscribeRepository: (() => void) | null = null
   let retryTimer: ReturnType<typeof setTimeout> | null = null
   let presenceTrailingTimer: ReturnType<typeof setTimeout> | null = null
+  const baseline = (imSelectors.syncState('account-revision-cursor')(repository.snapshot()) as { revision: string } | undefined)?.revision ?? '0'
+
+  // Inline payloads and recovered bodies share this one commit-then-notify path.
+  const commitArrival = (operation: AccountRevisionOperation, message: MessageItem, transaction: ImRepositoryTransaction, live: boolean) => {
+    const arrival = readMessageCreatedRevision(operation.payload)
+    if (message.id !== arrival.messageId || message.chat_id !== arrival.chatId) throw new Error('message revision crossed chat boundary')
+    const { won } = ingestAccountMessage(repository, transaction, message, operation.revision)
+    return () => {
+      // The claim is committed. Never retry the OS side effect: a crash may lose one alert, never duplicate it.
+      if (!active || !live || !won || !repository.snapshot().message.some(row => row.id === message.id)) return
+      void messages!.notify(message).catch(error => coordinatorLog.error({ error, messageId: message.id }, 'message notification failed'))
+    }
+  }
+
+  // null = never materialize (deleted / imported root); undefined = incomplete payload, recover the body.
+  const decodeArrival = (operation: AccountRevisionOperation): MessageItem | null | undefined => {
+    const raw = readMessageCreatedRevision(operation.payload).message as (RawMessageRow & { deleted_at?: unknown; deleted_for_user_ids?: unknown; is_imported_history_root?: unknown }) | null
+    if (raw?.deleted_at || raw?.is_imported_history_root === true
+      || (Array.isArray(raw?.deleted_for_user_ids) && raw.deleted_for_user_ids.includes(accountId))) return null
+    if (!raw || typeof raw.created_at !== 'string' || !Object.hasOwn(raw, 'content')
+      || !Object.hasOwn(raw, 'to_user_ids') || !Object.hasOwn(raw, 'content_type')) return undefined
+    const message = messageItemFromRow(raw, accountId)
+    return message && Number.isSafeInteger(message.seq) && message.seq >= 1 ? message : undefined
+  }
 
   for (const event of ACCOUNT_REVISION_EVENTS) {
     claimCounts.set(event, 0)
-    runtime.register(event, (operation, transaction) => {
-      transaction.putView(operationKey(operation.revision), operation)
+    runtime.register(event, (operation, transaction, live) => {
+      let afterCommit: (() => void) | undefined
+      let messageCommitted = false
+      if (messages && event === 'message_created') {
+        try {
+          const message = decodeArrival(operation)
+          if (message) afterCommit = commitArrival(operation, message, transaction, live)
+          messageCommitted = message !== undefined
+        } catch (error) {
+          // A bad/legacy payload belongs to the existing inbox consumer's
+          // failure isolation. It must not roll back unrelated revision rows.
+          coordinatorLog.error({ error, revision: operation.revision }, 'message payload requires inbox recovery')
+        }
+      }
+      if (messages && event === 'message_deleted') {
+        const key = readRevisionResourceKey(operation.payload, event)
+        if (!key.entityId) throw new Error('message_deleted revision requires entity_id')
+        transaction.delete('message', [accountId, key.entityId])
+        transaction.putView(`message-revision:${key.entityId}`, { revision: operation.revision, deleted: true, chatId: key.chatId })
+      }
+      transaction.putView(operationKey(operation.revision), messages && event === 'message_created'
+        ? { ...operation, notify: live, messageCommitted } : operation)
+      return afterCommit
     })
+  }
+
+  if (messages) {
+    // Account ownership remains mounted even when no conversation is observed.
+    // Incomplete payloads use the original inbox consumer and its retry policy.
+    registrations.add({ events: new Set(['message_created']), consumed: new Set(), failures: 0, retryAt: null,
+      listener: async operations => {
+        for (const operation of operations) {
+          if (operation.messageCommitted) continue
+          const message = await messages.recover(readMessageCreatedRevision(operation.payload).messageId)
+          if (!active || !message) continue // Authoritative RLS/deletion absence; never synthesize a row.
+          const live = operation.notify === true && BigInt(operation.revision) > BigInt(baseline)
+          ;(await repository.transaction(transaction => commitArrival(operation, message, transaction, live)))()
+        }
+      } })
+    claimCounts.set('message_created', 1)
   }
 
   const isClaimed = (event: AccountRevisionEvent): boolean => (claimCounts.get(event) ?? 0) > 0
@@ -394,16 +461,18 @@ function operationKey(revision: string): string {
   return `${OPERATION_VIEW_PREFIX}${revision}`
 }
 
-function parsePendingOperation(value: unknown): AccountRevisionOperation {
+function parsePendingOperation(value: unknown): InboxOperation {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('account revision operation inbox is malformed')
   }
-  const operation = value as Partial<AccountRevisionOperation>
+  const operation = value as Partial<InboxOperation>
   if (typeof operation.revision !== 'string' || !/^[1-9]\d*$/.test(operation.revision)
     || typeof operation.event !== 'string' || !operation.event) {
     throw new Error('account revision operation inbox is malformed')
   }
-  return { revision: operation.revision, event: operation.event, payload: operation.payload }
+  return { revision: operation.revision, event: operation.event, payload: operation.payload,
+    ...(operation.notify !== undefined ? { notify: operation.notify === true } : {}),
+    ...(operation.messageCommitted !== undefined ? { messageCommitted: operation.messageCommitted === true } : {}) }
 }
 
 function compareRevision(left: string, right: string): number {

@@ -24,6 +24,24 @@ function fixture() {
 }
 
 describe('ordinary queued inputs wait for foreground completion, not acceptance', () => {
+  it('retains the original client identity when a queued input receives a different provider message id', async () => {
+    const p = fixture();
+    try {
+      p.cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
+      const queued = p.cell.promptDetached({ text: 'queued input', origin: 'manual', clientMessageId: 'client-triple' });
+      expect(await queued.admission).toMatchObject({ success: true, data: { queued: true } });
+      expect(p.cell.sessionState.queuedPrompts).toMatchObject([{ clientMessageId: 'client-triple' }]);
+      p.cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
+      await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
+      p.accept(0, 'provider-native-id', 'queued input');
+      await p.drain();
+      p.cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
+      const messages = p.cell.history().committed.flatMap(turn => turn.items.filter(item => item.kind === 'message' && item.role === 'user'));
+      expect(messages).toMatchObject([{ id: 'queued:turn:0:message:provider-native-id', _meta: { guguClientMessageId: 'client-triple' } }]);
+      expect(messages).toHaveLength(1);
+    } finally { p.cell.dispose(); }
+  });
+
   it('releases a queued input after a command reports idle directly without a running event', async () => {
     const p = fixture();
     try {

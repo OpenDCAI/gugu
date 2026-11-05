@@ -6,5 +6,6 @@ export function isVisibleQueuedPrompt(
   if (!prompt.origin) {
     throw new Error(`Queued prompt ${prompt.id} has no explicit origin`);
   }
-  return prompt.origin !== 'communication';
+  // Client-identified inputs already left their sender; runtime retention is receiver waiting, not a composer queue.
+  return prompt.origin !== 'communication' && !prompt.clientMessageId;
 }

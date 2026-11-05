@@ -57,7 +57,10 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
     return [deviceId, deviceId ? describeMachine(deviceId) : thisComputer] as const;
   })).values()];
   const scope = useProjectDeviceScope(projectGroupsStore.chatIdOf(rowId) ?? rowId, rowId, projectMachines);
-  const scopedFolders = foldersInScope(folders, scope.selected, (id) => machineRegistry.machineOf(id) ?? null);
+  const scopedFolders = foldersInScope(folders, scope.selected, (id) => machineRegistry.machineOf(id) ?? null, (deviceId) => {
+    const state = remoteHostsStore.connectionState(deviceId);
+    return state === 'asleep' || state === 'waking';
+  });
   // 新会话开在哪:卡片 / 托盘上选中的那个文件夹所属的本地项目(可能在别的机器上);没选 = 这一页的项目。
   const targetProjectId = scopedFolders.chosen?.projectId ?? projectId;
   // 这一页画的项目和新会话要建进去的项目(选了别的机器上的文件夹时是那台上的本地项目)都要挂上:

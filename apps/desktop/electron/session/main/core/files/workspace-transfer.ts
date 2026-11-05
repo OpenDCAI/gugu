@@ -58,7 +58,7 @@ function fsError(error: unknown, target: string): WorkspaceTransferError {
 export function isInside(base: string, candidate: string): boolean {
   if (!path.isAbsolute(candidate)) return false;
   const rel = path.relative(path.resolve(base), path.resolve(candidate));
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
 /** 这一版的标记:纳秒级修改时间 + 大小(同一秒里被 agent 改两次也分得出来)。 */

@@ -276,13 +276,14 @@ export function isWireMessage(value: unknown): value is WireMessage {
         typeof message.message === 'string'
       );
     case 'update':
-      return typeof message.topic === 'string' && typeof message.update === 'object';
+      return typeof message.topic === 'string' && typeof message.update === 'object' && message.update !== null;
     case 'topic-gap':
       return typeof message.topic === 'string';
     case 'topic-error':
       return (
         typeof message.topic === 'string' &&
         typeof message.error === 'object' &&
+        message.error !== null &&
         typeof message.retrying === 'boolean'
       );
     case 'blob-pull':
@@ -297,7 +298,7 @@ export function isWireMessage(value: unknown): value is WireMessage {
     case 'blob-close':
       return typeof message.channel === 'string';
     case 'blob-error':
-      return typeof message.channel === 'string' && typeof message.error === 'object';
+      return typeof message.channel === 'string' && typeof message.error === 'object' && message.error !== null;
     default:
       return false;
   }

@@ -1,3 +1,4 @@
+import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
@@ -9,6 +10,7 @@ import { forceRefreshHarnessModelCatalog } from '@renderer/lib/stores/use-harnes
 import { harnessModelCredentialKey } from '@renderer/lib/stores/use-harness-model-credential';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
+import { AgentConnectionDetails } from './AgentConnectionDetails';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { AgentPayload } from '@shared/core/agents/agent-payload';
 import { sessionViewOfLeg, type SessionpageLeg } from '@shared/core/sessions/sessions';
@@ -93,6 +95,10 @@ function hintText(translate: Translate, row: MergedAccountRow): string | null {
  * ⚠️ 这一格是**内容**:容器形态(右侧抽屉 / 居中模态)由 #6088 定,❌ 别在这里动容器。
  */
 export function AgentAccountSection({ agent }: { agent: AgentPayload }) {
+  const host = useLibraryHost();
+  if (agentSupportsConnectionManagement(agent)) {
+    return <AgentConnectionDetails agent={agent} machine={host.remote?.deviceId ?? null} />;
+  }
   const targets = resolveAccountTargets(agent);
   if (targets.length === 0) return null;
   return <AgentAccountRow agent={agent} targets={targets} />;

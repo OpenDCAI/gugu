@@ -37,6 +37,47 @@ function makeCell() {
 }
 
 describe('setting recovery preserves the permission boundary and prompt delivery', () => {
+  it('saves permission independently without clearing a rejected model barrier', async () => {
+    const { cell, agent } = makeCell();
+    cell.applySessionMeta({ configOptions: [...modes('bypassPermissions'), ...modelOptions] });
+    agent.setSessionConfigOption.mockImplementation(async ({ configId, value }: { configId: string; value: string }) => {
+      if (configId === 'model' && value === 'retired-model') throw new Error('Model is no longer available');
+      return { configOptions: [...modes('default'), ...modelOptions] };
+    });
+    try {
+      expect((await cell.setConfigOption('model', 'retired-model')).success).toBe(false);
+      expect((await cell.setMode('default')).success).toBe(true);
+      expect(cell.config.modeOptions?.selected).toBe('default');
+      expect(cell.liveSettingBlock).toContain('Model is no longer available');
+      await cell.prompt({ text: 'continue after choosing a model', origin: 'typed' });
+      expect(agent.prompt).not.toHaveBeenCalled();
+      expect((await cell.setConfigOption('model', 'model-a')).success).toBe(true);
+      await agent.called('prompt');
+      expect(agent.prompt).toHaveBeenCalledOnce();
+      expect(cell.liveSettingBlock).toBeNull();
+    } finally { cell.dispose(); }
+  });
+
+  it('keeps every failed dimension until that same dimension is confirmed', async () => {
+    const { cell, agent } = makeCell();
+    cell.applySessionMeta({ configOptions: [...modes('bypassPermissions'), ...modelOptions] });
+    agent.setSessionConfigOption.mockImplementation(async ({ configId }: { configId: string }) => {
+      throw new Error(configId === 'model' ? 'Model rejected' : 'Permission rejected');
+    });
+    try {
+      expect((await cell.setMode('default')).success).toBe(false);
+      expect((await cell.setConfigOption('model', 'model-b')).success).toBe(false);
+      expect(cell.liveSettingBlock).toContain('Model rejected');
+      expect(cell.liveSettingBlock).toContain('Permission rejected');
+      agent.setSessionConfigOption.mockResolvedValue({ configOptions: [...modes('default'), ...modelOptions] });
+      expect((await cell.setConfigOption('model', 'model-a')).success).toBe(true);
+      expect(cell.liveSettingBlock).toContain('Permission rejected');
+      expect(cell.liveSettingBlock).not.toContain('Model rejected');
+      expect((await cell.setMode('default')).success).toBe(true);
+      expect(cell.liveSettingBlock).toBeNull();
+    } finally { cell.dispose(); }
+  });
+
   it.each([null, 'existing-session'])('does not start a read-only session with full access (resume=%s)', async (providerSessionId) => {
     const h = makeAcpHarness({ autoApproveModes: {
       'read-only': { id: 'default' }, 'full-access': { id: 'bypassPermissions' },

@@ -4,13 +4,15 @@ import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import type { SegmentCtx } from '@session-chat/core/units';
 import type { ChatState } from './chat-state';
 import { BACKGROUND_TASKS_TOGGLE, turnDiscardedId } from './flatten';
+import { latestVisibleTurnId } from './pending-prompt';
 
 /**
  * The one SegmentCtx the transcript is flattened with. The engine renders with it and find searches with it,
  * so what find reaches and what the transcript paints cannot drift apart.
  */
 export function segmentCtxFor(context: ChatContext, state: ChatState, caches: ChatCaches, active: boolean,
-  latestTurnId = state.transcript.state.activeTurnSnapshot?.id ?? state.transcript.state.committedTurns.at(-1)?.id): SegmentCtx {
+  latestTurnId = latestVisibleTurnId(state.transcript.state.activeTurnSnapshot, state.transcript.state.committedTurns,
+    state.session.state.pendingPrompt, state.session.state.pendingMessages)): SegmentCtx {
   return {
     caches,
     deliveredMessage: (id) => state.session.state.deliveredMessages?.get(id),

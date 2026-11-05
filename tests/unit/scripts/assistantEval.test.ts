@@ -1,4 +1,6 @@
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { insideRoot } from '../../../scripts/assistant-eval/paths'
 import { assistantCases } from '../../../scripts/assistant-eval/cases'
 import { assessAssistantRun, delegationSource, successfulModelResult, type RunEvidence } from '../../../scripts/assistant-eval/evidence'
 import { assistantBrief, assistantRecoveryContext } from '../../../packages/core/src/shared/assistantPolicy'
@@ -107,4 +109,14 @@ it('recovery carries exact pointers and instructions, never a stale copy of task
   expect(text).toContain('已知任务引用可直接核对原任务')
   expect(text).not.toMatch(/session:[0-9a-f]{8}-[0-9a-f-]{27}/i)
   expect(text.length).toBeLessThan(500)
+})
+
+describe('fixture root containment', () => {
+  it('keeps workspace files inside the root on every platform separator', () => {
+    const root = resolve('/tmp/gugu-assistant-x')
+    expect(insideRoot(root, resolve(root, 'launch/file.txt'))).toBe(true)
+    expect(insideRoot(root, resolve(root, '..notes.md'))).toBe(true)
+    expect(insideRoot(root, root)).toBe(true)
+    expect(insideRoot(root, resolve(root, '../outside.txt'))).toBe(false)
+  })
 })

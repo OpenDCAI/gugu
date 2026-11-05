@@ -9,6 +9,8 @@ import {
 import type { AgentStatusReading } from '@gugu/core/shared/agentStatus';
 import { translateAgentEvent } from '../agent-status/status-event-translator';
 import { deriveAcpAgentStatusActions } from './agent-status-transition';
+import { isNeedsYou, presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation';
+import { SessionMachine } from '../../../../../../../packages/session-runtime/src/acp-agents/machine/machine';
 
 /**
  * spec status-event-log(#6448)—— ACP 腿:SessionSummary 的一串变化 → 投影出的动作 → 翻译 → 日志 reduce,
@@ -72,6 +74,69 @@ function replay(steps: readonly SessionSummary[]): { readings: Reading[]; doneEd
 }
 
 describe('ACP status projection: park (#6448)', () => {
+  it('projects actual machine completion and process-close facts without inventing a task failure', () => {
+    const machine = new SessionMachine('c1');
+    const snapshots: SessionSummary[] = [];
+    const capture = () => {
+      const state = machine.sessionState(null);
+      snapshots.push(summary({ ...state, pendingPermissionCount: state.pendingPermissions.length,
+        pendingPermissionWaits: [], queuedPromptCount: state.queuedPrompts.length }));
+    };
+    machine.apply({ type: 'SessionReady' }, { type: 'WorkStarted' }); capture();
+    machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } }); capture();
+    machine.apply({ type: 'ProcessClosed', exit: { exitCode: 0, signal: null, stderrTail: '' } }); capture();
+    expect(snapshots.at(-1)).toMatchObject({ lifecycle: 'lost', lastTurnOutcome: 'stopped', lastStopReason: 'end_turn',
+      failure: { kind: 'adapter-exit', exitCode: 0 } });
+    const final = replay(snapshots).readings.at(-1)!;
+    expect(final).toMatchObject({ status: 'idle', detail: 'done' });
+    expect(isNeedsYou(presentAgentStatus({ reading: final, unseen: true }), true)).toBe(false);
+  });
+
+  it.each([0, 1, null])('does not turn completed idle work into Needs you when its adapter exits (%s)', exitCode => {
+    const done = summary({ lastTurnOutcome: 'stopped', lastStopReason: 'end_turn' });
+    const gone = { ...done, lifecycle: 'lost' as const, failure: { kind: 'adapter-exit' as const, exitCode, signal: null, message: 'Adapter process exited' } };
+    const result = replay([working(), done, gone]);
+    expect(result.readings.at(-1)).toMatchObject({ status: 'idle', detail: 'done' });
+    expect(result.doneEdges).toBe(1);
+    expect(isNeedsYou(presentAgentStatus({ reading: result.readings.at(-1)!, unseen: true }), true)).toBe(false);
+    expect(gone.failure).toMatchObject({ kind: 'adapter-exit', exitCode });
+  });
+
+  it.each(['approval', 'question', 'plan'] as const)('keeps a real %s request in Needs you', waitKind => {
+    const reading = replay([working(waits(['request', waitKind]))]).readings.at(-1)!;
+    // A wait needs you whatever its read bit says: it is not over until someone answers.
+    for (const unseen of [true, false]) expect(isNeedsYou(presentAgentStatus({ reading, unseen }), unseen)).toBe(true);
+  });
+
+  // The status writer stores every error reading as unread (agent-status-writer: 「出错写成未读」), so a fresh
+  // failure needs you; once someone has looked at it, it stays red on its row but leaves Needs you.
+  it('keeps genuine turn failures and failed startups in Needs you until they are read', () => {
+    const failed = summary({ lifecycle: 'lost', lastTurnOutcome: 'errored', failure: { kind: 'adapter-exit', exitCode: 1, message: 'Work failed' } });
+    const startFailed = summary({ lifecycle: 'lost', lastTurnOutcome: 'stopped', lastStopReason: 'end_turn',
+      failure: { kind: 'start-failed', message: 'Could not start', error: {} as never } });
+    expect(deriveAcpAgentStatusActions(undefined, startFailed)).toMatchObject([{ kind: 'event', event: { type: 'error' } }]);
+    for (const steps of [[working(), failed], [startFailed]]) {
+      const reading = replay(steps).readings.at(-1)!;
+      expect(reading.status).toBe('error');
+      expect(isNeedsYou(presentAgentStatus({ reading, unseen: true }), true)).toBe(true);
+      expect(presentAgentStatus({ reading, unseen: false }).tone).toBe('error');
+      expect(isNeedsYou(presentAgentStatus({ reading, unseen: false }), false)).toBe(false);
+    }
+  });
+
+  it.each([
+    { queuedPromptCount: 1 }, { backgroundAgentCount: 1 }, { backgroundCommandCount: 1 },
+  ])('does not hide unfinished work at adapter exit (%j)', outstanding => {
+    const done = summary({ lastTurnOutcome: 'stopped', lastStopReason: 'end_turn', ...outstanding });
+    expect(deriveAcpAgentStatusActions(done, { ...done, lifecycle: 'lost', failure: { kind: 'adapter-exit', exitCode: 0, message: 'Adapter exited' } }))
+      .toMatchObject([{ kind: 'event', event: { type: 'error' } }]);
+  });
+
+  it('does not treat an exit while a permission request was outstanding as normal cleanup', () => {
+    const waiting = summary({ lastTurnOutcome: 'stopped', lastStopReason: 'end_turn', ...waits(['permission', 'approval']) });
+    const gone = { ...waiting, ...waits(), lifecycle: 'lost' as const, failure: { kind: 'adapter-exit' as const, exitCode: 0, message: 'Adapter exited' } };
+    expect(deriveAcpAgentStatusActions(waiting, gone)).toMatchObject([{ kind: 'event', event: { type: 'error' } }]);
+  });
   it('a turn that ends while background agents still run is parked, not done', () => {
     const { readings, doneEdges, anomalies } = replay([
       working(),

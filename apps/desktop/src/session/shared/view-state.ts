@@ -179,6 +179,7 @@ export type SidebarSessionSortBy = 'created-at' | 'updated-at';
 export type SidebarSnapshot = {
   expandedProjectIds?: string[];
   expandedSessionIds?: string[];
+  idleExpandedProjectIds?: string[];
   projectOrder?: string[];
   sessionOrderByProject?: Record<string, string[]>;
   sessionSortBy?: SidebarSessionSortBy;

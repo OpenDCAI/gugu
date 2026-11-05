@@ -35,8 +35,9 @@ export async function publishMessageWindow(
   chatId: string,
   messages: MessageItem[],
   hasMoreOlder = false,
+  verifiedTailSeq: number | null = null,
 ): Promise<void> {
-  await replaceMessageWindow(repository, chatId, messages, hasMoreOlder)
+  await replaceMessageWindow(repository, chatId, messages, hasMoreOlder, verifiedTailSeq)
   const ids: string[] = []
   for (const message of messages) {
     for (const id of [message.sender_user_id, message.reply_to_sender_user_id]) if (id) ids.push(id)

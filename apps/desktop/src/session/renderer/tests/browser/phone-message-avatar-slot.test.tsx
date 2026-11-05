@@ -18,6 +18,13 @@ vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [d
   projects: [{ localProjectId: 'project', chatId: 'project-chat', name: 'task-project', rootPath: '/project', createdAt: '2026-11-02T00:00:00Z', folders: [] }],
 })] }) }))
 vi.mock('@/hooks/useAgentDisplayStatus', () => ({ useAgentDisplayStatuses: () => ({ codex: 'error' }) }))
+// The folder badge reads the project's tasks (the desktop project dot's count): one waits for approval.
+vi.mock('@/session/shared/remote-sessions/session-directory', async original => ({
+  ...await original<typeof import('@/session/shared/remote-sessions/session-directory')>(),
+  useLiveDeviceSessions: () => ({ host: { projects: [], cached: false, loading: false, error: null, sessions: [
+    { conversationId: 'waiting', projectId: 'project', title: 'Codex 1', status: { status: 'needs_user', detail: 'approval' }, runtime: 'acp', supported: true, unseen: true },
+  ] } }),
+}))
 vi.mock('@/lib/agentPresenceMobx', async () => {
   const { presentAgentStatus } = await import('@gugu/core/shared/agentStatusPresentation')
   return { observedAgentPresence: () => ({ presentation: presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' } }) }) }

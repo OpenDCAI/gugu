@@ -190,11 +190,6 @@ class SessionKeyboardNavStore {
   move(delta: 1 | -1): boolean {
     const returnToComposer = this.focusLayer === 'composer';
     const from = this.cursor;
-    if (delta === 1 && from) {
-      // A "Show more" row is only a length cap, not a "don't show me this" — walk through it.
-      const overflowProjectId = sidebarStore.idleOverflowProjectAfter(from);
-      if (overflowProjectId) sidebarStore.ensureIdleExpanded(overflowProjectId);
-    }
     // Session switching walks the visible conversation rows only. The shared navigation chain
     // also contains the New task entry and project homes for their own shortcuts; those are not
     // sessions and must not become Cmd+Arrow destinations.
@@ -273,12 +268,18 @@ class SessionKeyboardNavStore {
    * the terminal. ❌ Remembering "the panel you left from": once ↑↓ walk to another session that
    * panel belongs to a different conversation and the key has no defined target.
    */
-  handOffToComposer(): boolean {
+  expandProjectOrFocusComposer(): boolean {
     const node = this.cursor;
     if (node?.kind === 'project' && !sidebarStore.expandedProjectIds.has(node.projectId)) {
       sidebarStore.ensureProjectExpanded(node.projectId);
       return true;
     }
+    return this.handOffToComposer();
+  }
+
+  /** Focus after navigation without changing the user's disclosure choices. */
+  handOffToComposer(): boolean {
+    const node = this.cursor;
     // 'composer' here names the layer that accepts characters, terminal included.
     this.setFocusLayer('composer');
     // Re-classified on every retry frame, not captured once: the retry loop exists because the
@@ -442,7 +443,6 @@ class SessionKeyboardNavStore {
       return;
     }
     if (node.kind === 'project') {
-      sidebarStore.ensureProjectExpanded(node.projectId);
       // 代位的任务工作区那一行(那台机器还没有主目录项目):它的「主页」是预选那台机器的新建页。
       const standIn = sidebarStore.homeLayout.standIns.get(node.projectId);
       if (standIn) {

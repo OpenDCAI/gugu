@@ -1,4 +1,9 @@
 import { state } from './sessionInputOutboxBridge'
+const listeners = new Set<() => void>()
+export function subscribeNativeOfflineDraft(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
 const key = (deviceId: string | null, sessionId: string) => {
   const own = state()
   return own.valid() && own.accountId ? `gugu.native-offline-draft:${own.accountId}/${deviceId ?? 'local'}/${sessionId}` : null
@@ -12,4 +17,5 @@ export function writeNativeOfflineDraft(deviceId: string | null, sessionId: stri
   if (!id) throw new Error('当前账号的会话输入尚未就绪')
   if (text) localStorage.setItem(id, text)
   else localStorage.removeItem(id)
+  for (const listener of [...listeners]) listener()
 }

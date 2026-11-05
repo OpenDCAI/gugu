@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
+import { deferStartupMotion, discardStartupMotion, startStartupMotion, hasStartupMotion } from '../../../../apps/desktop/src/lib/startup-motion'
 /**
  * ⚠️ 这一条文件**要真播放器**。
  *
@@ -48,7 +50,7 @@ import { FullScreenLoader } from '../../../../apps/desktop/src/components/FullSc
 import { awaitPending } from '../../../support/awaitFact'
 import { createReactHarness } from '../../../support/testHarness'
 describe('FullScreenLoader', () => {
-  it('冷启动那一屏用的是全产品统一的加载态，不是自己另画的', async () => {
+  it('非首启的整屏等待继续使用全产品统一的加载态', async () => {
     const harness = createReactHarness()
     await harness.render(<FullScreenLoader />)
     expect(harness.container.querySelector('[data-testid="full-screen-loader"]')).not.toBeNull()
@@ -62,5 +64,48 @@ describe('FullScreenLoader', () => {
     // 没记到那条轮询(播放器换了写法)就当场红,❌ 在下面那句上无限等。
     expect(readiness.found()).toBe(true)
     await awaitPending('真 lottie 播放器的 checkReady 轮询自己撤掉', readiness.cleared)
+  })
+
+  it('在启动宿主持有期间只显示字标，OFF时立即恢复原播放器', async () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-gugu-boot', '')
+    document.body.append(host)
+    deferStartupMotion()
+    const harness = createReactHarness()
+    try {
+      await harness.render(<FullScreenLoader />)
+      expect(harness.container.querySelector('[data-testid="loading-indicator"]')).toBeNull()
+      expect(harness.container.querySelector('[data-testid="full-screen-loader"]')?.getAttribute('aria-busy')).toBe('true')
+      await act(async () => { discardStartupMotion() })
+      // No business state change or explicit rerender is supplied here.
+      const indicator = harness.container.querySelector('[data-testid="loading-indicator"]')
+      expect(indicator).not.toBeNull()
+      expect(indicator?.getAttribute('data-gg-loading')).toBe('page')
+      expect(harness.container.querySelector('[data-testid="loading-indicator-canvas"] svg')).not.toBeNull()
+      expect(document.querySelector('[data-gugu-boot]')).toBeNull()
+    } finally { harness.cleanup(); discardStartupMotion() }
+  })
+
+  it('字标当前帧出错时保留拒绝原因并立即恢复原播放器', async () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-gugu-boot', '')
+    host.style.color = 'rgb(26, 28, 31)'; host.style.backgroundColor = 'white'
+    document.body.append(host)
+    const handle = startStartupMotion()!
+    const failed = expect(handle.frameReady).rejects.toThrow('brand renderer failed')
+    const harness = createReactHarness()
+    try {
+      await harness.render(<FullScreenLoader />)
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent('message', {
+          source: handle.frame.contentWindow,
+          data: { type: 'gugu-startup-error', attemptId: handle.frame.name.slice('gugu-startup-'.length), message: 'brand renderer failed' },
+        }))
+      })
+      await failed
+      expect(hasStartupMotion()).toBe(false)
+      expect(document.querySelector('[data-gugu-boot]')).toBeNull()
+      expect(harness.container.querySelector('[data-testid="loading-indicator-canvas"] svg')).not.toBeNull()
+    } finally { harness.cleanup(); discardStartupMotion() }
   })
 })

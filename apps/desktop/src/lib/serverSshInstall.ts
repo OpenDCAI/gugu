@@ -68,6 +68,8 @@ export type ServerSshInstallFailureReason =
   /** 装着一份咕咕 server,却问不出它说哪一版协议(那条命令崩溃 / 超时 / 没权限;❌ 当太旧去重装)。 */
   | 'versionCheckFailed'
   | 'loginFailed'
+  /** #1682 那个系统用户登着另一个咕咕账号(是谁在 failure.accountMismatch);重试不会变,❌ 给「重试」。 */
+  | 'accountMismatch'
   | 'cloudUnreachable'
   /** #6264 这个账号的咕咕 server 数到上限了(哪条上限、用了几台在 failure.machineLimit)。 */
   | 'machineLimit'
@@ -164,6 +166,8 @@ export type ServerSshInstallFailure = {
   hostKey?: { host: string; fingerprint: string | null }
   /** machineLimit:哪条上限(总数 / 远程隧道)、除这台外已经连着几台、上限几台。 */
   machineLimit?: MachineLimitRefusal
+  /** accountMismatch:那台机器上登着的账号,只到最小可识别形态(邮箱首字 + id 前缀),❌ 完整邮箱或凭据。 */
+  accountMismatch?: { server: string }
   leftover?: ServerSshInstallLeftover
 }
 

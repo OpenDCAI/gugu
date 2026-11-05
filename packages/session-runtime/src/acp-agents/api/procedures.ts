@@ -31,7 +31,7 @@ import type {
 } from '@gugu/session-core/acp';
 import { errorDetail, ok, type Result } from '@gugu/session-shared';
 import { randomUUID } from 'node:crypto';
-import { blobSourceFromBytes, type WireFile } from '@gugu/session-wire';
+import { blobSourceFromBytes, WireError, type WireFile } from '@gugu/session-wire';
 import type { AcpRuntime } from '../runtime/runtime';
 import type { LiveSettingApplyResult } from '../session/cell-deps';
 
@@ -46,6 +46,8 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     if ('cause' in error && error.cause) return errorDetail(error.cause) ?? error.cause.message;
     return `ACP prompt failed (${error.type})`;
   };
+  const promptError = (error: AcpSendPromptError): Error => 'cause' in error && error.cause?.name === 'AcpPromptCancelled' && error.cause.code === 'CANCELLED'
+    ? new WireError('CANCELLED', errorMessage(error), { cause: error.cause }) : new Error(errorMessage(error));
   return {
     startSession(input: {
       input: StartSessionInput;
@@ -81,7 +83,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
         if (started.error.type === 'session_busy' || started.error.type === 'conversation_not_found') {
           return { requestId: '', queued: false, declined: true };
         }
-        throw new Error(started.error.message);
+        throw promptError(started.error);
       }
       const completion = started.data.completion.then(async result => {
         if (!result.success && 'cause' in result.error && result.error.cause?.code === 'prompt_admission_timeout') {
@@ -105,7 +107,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
         if (admission.error.type === 'session_busy') {
           return { requestId: '', queued: false, declined: true };
         }
-        throw new Error(errorMessage(admission.error));
+        throw promptError(admission.error);
       }
       const requestId = randomUUID();
       // The completion has been observed since creation; wait is a separate RPC that can arrive
@@ -123,7 +125,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
       if (!completion) throw new Error(`detached prompt ${input.requestId} was not found`);
       detachedPrompts.delete(input.requestId);
       const result = await completion;
-      if (!result.success) throw new Error(errorMessage(result.error));
+      if (!result.success) throw promptError(result.error);
       return result.data;
     },
     async queuePrompt(input: {

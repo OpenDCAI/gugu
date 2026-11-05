@@ -66,8 +66,6 @@ const activationProbe = vi.hoisted(() => ({
   calls: [] as Array<{ owner: string; accountId: string | null }>,
   prewarm: vi.fn(),
 }))
-// 横幅「去充值」的入口:替身不画任何节点(壳的子节点序号有测试在数),只把回调交出来。
-const rechargeProbe = vi.hoisted(() => ({ onRecharge: null as null | (() => void) }))
 function useActivationProbe(owner: string, active: boolean, accountId: string | null) {
   useEffect(() => {
     if (active) activationProbe.calls.push({ owner, accountId })
@@ -87,16 +85,6 @@ vi.mock('../../../../apps/desktop/src/components/Sidebar', async () => {
         React.createElement('button', { type: 'button', 'data-testid': 'mock-open-contacts', onClick: () => onTabChange('contacts') }, 'open contacts')
       )
     }
-  }
-})
-vi.mock('../../../../apps/desktop/src/components/LowBalanceBanner', async () => {
-  const React = await vi.importActual<typeof import('react')>('react')
-  return {
-    LowBalanceBanner: ({ user, onRecharge }: { user: { id: string } | null; onRecharge: () => void }) => {
-      useActivationProbe('low-balance-billing', user !== null, user?.id ?? null)
-      rechargeProbe.onRecharge = onRecharge
-      return React.createElement(React.Fragment)
-    },
   }
 })
 vi.mock('../../../../apps/desktop/src/store/chat', async () => {
@@ -432,7 +420,7 @@ describe('MainLayout', () => {
     await harness.render(createNode(MainLayout, { user, effectsActive: true, onShellCommitted }))
     expect(shell?.getAttribute('data-gugu-shell-phase')).toBe('active')
     expect(activationProbe.calls.map((call) => call.owner).sort()).toEqual([
-      'contacts', 'devices', 'low-balance-billing',
+      'contacts', 'devices',
     ])
     expect(activationProbe.prewarm).toHaveBeenCalledTimes(1)
   })
@@ -818,14 +806,14 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')).toBeNull()
   })
-  it.each(['error', 'needs_user', null] as const)('keeps the attention list slot with no assistant (attention=%s, #1165)', async attention => {
+  it.each(['error', 'needs_user', null] as const)('keeps global notifications independent of the assistant without prepending attention rows (attention=%s)', async attention => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     const read = vi.spyOn(needsYouTasks, 'useNeedsYouTasks').mockReturnValue({ tasks: [], attention, error: null })
     try {
       await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
-      const slot = harness.container.querySelector('[data-mobile-tab-page="chats"] [data-needs-you-list-slot]')
-      expect(slot !== null).toBe(attention !== null)
+      expect(read).toHaveBeenCalled()
+      expect(harness.container.querySelector('[data-mobile-tab-page="chats"] [data-needs-you-list-slot]')).toBeNull()
       expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     } finally { read.mockRestore() }
   })
@@ -930,7 +918,7 @@ describe('MainLayout', () => {
     platformMock.capabilities.sessionHost = false
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
     const settings = () => harness.container.querySelector('[data-testid="mobile-settings-layer"] [data-testid="mock-settings-panel"]') as HTMLElement
-    const recharge = () => act(async () => { rechargeProbe.onRecharge?.() })
+    const recharge = () => act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: platformMock.kind === 'capacitor' ? 'account' : 'subscriptions' } })) })
     await recharge()
     expect(settings().getAttribute('data-section')).toBe('account')
     await clickElement(harness.container.querySelector('[data-testid="mock-settings-pick-about"]') as HTMLElement)
@@ -945,7 +933,7 @@ describe('MainLayout', () => {
   })
   it('opens desktop subscriptions from the low-balance recharge action (#986)', async () => {
     await renderMainLayoutWithToast()
-    await act(async () => { rechargeProbe.onRecharge?.() })
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: platformMock.kind === 'capacitor' ? 'account' : 'subscriptions' } })) })
     expect(document.querySelector('[data-testid="mock-settings-panel"]')?.getAttribute('data-section')).toBe('subscriptions')
   })
   // 桌面壳不分页:两层包裹都是 display:contents,聊天面照旧直接参与主区 flex 布局。

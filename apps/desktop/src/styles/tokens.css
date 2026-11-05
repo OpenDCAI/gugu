@@ -7,7 +7,7 @@
    either stack emits rules; otherwise session-ui's reset layer is discovered after utilities and
    its heading reset wins over typography utilities. */
 @layer reset, tokens, theme, base, components, recipes, utilities;
-@import 'tailwindcss';
+@import './tailwind.css';
 /* 动效层:官方 assistant-ui 的入场/退场(animate-in / fade-in / slide-in-from-*)靠这组工具类,
    它们不在 Tailwind 内置里。相对路径是因为 pnpm 严格布局下 apps/desktop 里没有这个包的软链;
    位置必须紧跟 tailwindcss —— @import 排在其它语句之后会被 PostCSS 直接判错。 */
@@ -575,13 +575,6 @@
      ⚠️ 别把 needs_user 与 removed 这两个**状态**并掉 —— 它们靠形状/字号分,不只靠色相分
      (agentContactRowDotClass:needs_user 是 8px 黄色字形、removed 是 5px 色点)。 */
   --color-danger: var(--danger);
-  /* agent 标识 ⚡bolt 的琥珀。设计稿定的「明暗一致」——所以它只在 :root 出现一次，
-     不随主题变。原先这个字面值在 ChatListPanel / ChatAreaPanel / ContactsPanel /
-     ContactProfileCard 四处各抄了一遍，改一次要找齐四处。 */
-  /* @@@chrome-is-ink (Refs #6104) — agent 身份标识属 chrome ⇒ 墨色。
-     原值是琥珀 #e0a13a(H=75.6),design.md:「Emphasis comes from weight, size, and the fill
-     percentage of the foreground, not from hue」。 */
-  --agent-bolt: var(--fg);
   --color-draft: #FA8C16;
   /* 搜索命中的底色:mark 的字跟着正文(color: inherit),深色上用琥珀的淡染,❌ 一块亮黄压着浅色字(深色巡检 10-27)。 */
   --color-warning-highlight: color-mix(in oklab, var(--warn) 38%, transparent);
@@ -1197,8 +1190,17 @@ input::placeholder {
   to { transform: rotate(360deg); }
 }
 .gg-ring-march { transform-origin: center; animation: gg-ring-march 1.4s linear infinite; }
+@keyframes gg-receive-wave {
+  0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+  30% { transform: translateY(-2px); opacity: 1; }
+}
+.gg-receive-dot { animation: gg-receive-wave 1.05s ease-in-out infinite; }
+.gg-message-receiving { flex-shrink: 0; display: block; opacity: .56; }
+.gg-receive-dot:nth-of-type(2) { animation-delay: 140ms; }
+.gg-receive-dot:nth-of-type(3) { animation-delay: 280ms; }
 @media (prefers-reduced-motion: reduce) {
   .gg-ring-march { animation: none; }
+  .gg-receive-dot { animation: none; }
 }
 
 @keyframes msgEnter {
@@ -1984,7 +1986,7 @@ body.barcode-scanner-active #root {
 .gg-list-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .gg-list-row-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .gg-list-row-title {
-  flex: 0 1 auto;   /* 贴合内容:附件(⚡ / chip)紧跟名字,时间靠 meta 的 margin-inline-start:auto 推到右端 */
+  flex: 0 1 auto;   /* 贴合内容:附件(chip)紧跟名字,时间靠 meta 的 margin-inline-start:auto 推到右端 */
   min-width: 0;
   font-size: var(--font-body);
   line-height: var(--lh-body);

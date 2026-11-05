@@ -31,3 +31,16 @@ describe('applyFetchedChatList 结构共享', () => {
     expect(next).toBe(current)
   })
 })
+
+it('keeps a remote personal deletion out of active and optimistic rows while preserving unrelated local intent', async () => {
+  const removed = chat({id:'dm'}), optimistic = chat({id:'new'}), surviving = chat({id:'other'});
+  const ledger = createChatListProjectionLedger();
+  ledger.seedFromCache([removed,surviving]); ledger.rememberOptimistic(removed); ledger.rememberOptimistic(optimistic);
+  const next = await applyFetchedChatList(ledger,repository,{fetched:[surviving],identities:[]},
+    {currentChats:[removed,surviving],activeChatId:'dm',revokeMissingActive:true,isConversationDeleted:id => id === 'dm'});
+  expect(next.map(row => row.id)).toEqual(['new','other']);
+  expect(ledger.missingFrom([]).map(row => row.id)).toEqual(['new']);
+  const refreshed = await applyFetchedChatList(ledger,repository,{fetched:[surviving],identities:[]},
+    {currentChats:next,activeChatId:null,revokeMissingActive:false,isConversationDeleted:id => id === 'dm'});
+  expect(refreshed.map(row => row.id)).toEqual(['new','other']);
+});

@@ -322,14 +322,14 @@ export function createExtensionGatewayHost(
         { name: extensionServerName(program.extensionId, program.server), version: '0.1.0' },
         { capabilities: { tools: {} } },
       )
-      server.server.setRequestHandler(ListToolsRequestSchema, () => {
+      server.server.setRequestHandler(ListToolsRequestSchema, (_request, extra) => {
         const { program: entry, session } = getContext()
         // A refused App's program is not started just to be listed; nor one not given to this agent (D-30).
         const tools = appAccess(programs(), session, entry.extensionId).then((access) => {
           const current = access.ok ? installed(entry) : undefined
           return current ? programs().tools(current) : []
         })
-        return trackRequest(tools.then((list) => ({ tools: list.filter((tool) => toolVisibleTo(tool, 'model')) })), 'tools/list')
+        return trackRequest(tools.then((list) => ({ tools: list.filter((tool) => toolVisibleTo(tool, 'model')) })), 'tools/list', extra.requestId)
       })
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
         const { program: entry, agentId, subjectId, session } = getContext()
@@ -338,7 +338,7 @@ export function createExtensionGatewayHost(
         if (!access.ok) return refused(access.next)
         const current = installed(entry)
         if (!current) return refused(`App ${entry.extensionId} no longer ships program ${entry.server}`)
-        return trackRequest(callProgram(programs(), current, { agentId, agentUserId: subjectId }, name, args, extra, anySignal([grantSignal, extra.signal]), readers), name)
+        return trackRequest(callProgram(programs(), current, { agentId, agentUserId: subjectId }, name, args, extra, anySignal([grantSignal, extra.signal]), readers), name, extra.requestId)
       })
       return server
     },

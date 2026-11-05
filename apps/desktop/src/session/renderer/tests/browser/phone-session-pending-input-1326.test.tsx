@@ -14,7 +14,7 @@ import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 const { retry } = vi.hoisted(() => ({ retry: vi.fn(async () => {}) }));
 const hostLife = vi.hoisted(() => ({ view: null as LifeView | null }));
 const hostHistory = vi.hoisted(() => ({ read: vi.fn() }));
-vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: hostLife.view, error: null }) }));
+vi.mock('@/mobile/agent-watch/useSessionLifeView', () => ({ useSessionLifeView: () => ({ view: hostLife.view, error: null, current: () => hostLife.view }) }));
 vi.mock('@/lib/sessionInputOutboxBridge', async original => ({ ...(await original<object>()), retrySessionInputs: retry }));
 vi.mock('@gugu/core/cloud/config', async original => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: { chatView: 'double' } }) }));
@@ -58,11 +58,19 @@ it('uses the ordinary pending projection on the phone, keeping acceptance and au
     sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
     onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
   await until('phone pending input appears in the transcript', () => !!harness.container.querySelector('[data-user-card="phone-send"]') && !!harness.container.querySelector('[data-send-state="sending"]'));
-  const top = harness.container.querySelector('[data-user-card]')!.getBoundingClientRect().top;
+  const bounds = harness.container.querySelector('[data-user-card]')!.getBoundingClientRect();
+  expect(bounds.width).toBeGreaterThan(100);
+  expect(bounds.height).toBeGreaterThan(10);
   await act(async () => { state().rows = []; changed(); });
-  await until('acknowledgement removes only its spinner', () => !harness.container.querySelector('[data-send-state="sending"]'));
+  await until('host acknowledgement changes the spinner to receiving dots', () => !!harness.container.querySelector('[data-send-state="receiving"]'));
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
-  expect(harness.container.querySelector('[data-user-card]')!.getBoundingClientRect().top).toBe(top);
+  const received = harness.container.querySelector('[data-user-card]')!.getBoundingClientRect();
+  expect([received.top, received.height]).toEqual([bounds.top, bounds.height]);
+  const status = harness.container.querySelector('[data-send-state="receiving"]')!;
+  expect(status.textContent).toBe('');
+  expect(status.querySelectorAll('circle')).toHaveLength(3);
+  expect(getComputedStyle(status).position).toBe('absolute');
+  await page.screenshot({ path: '__screenshots__/1344-phone-receiving.png' });
   await act(async () => { state().rows = [{ ...input, failure: { code: 'host-offline' } }]; changed(); });
   await until('offline input waits for automatic delivery', () => !!harness.container.querySelector('[data-send-state="waiting"]'));
   expect(harness.container.querySelector('[data-send-state="waiting"] button')).toBeNull();
@@ -120,4 +128,31 @@ it('retains the phone recovery label on the same ordinary sending input', async 
     onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
   await until('the sending bubble retains its restoration process', () => !!harness.container.querySelector('[data-send-state="sending"]') && /Restoring|恢复中/.test(harness.container.textContent ?? ''));
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
+});
+
+
+it('uses the shared failed-message disclosure on touch and the existing inline editor', async () => {
+  await page.viewport(390, 844);
+  const input = { id: 'phone-refused', sessionId: 'phone-task', accountId: 'owner', deviceId: 'device', text: 'keep this refused message',
+    createdAt: Date.now(), queued: false, admission: 'rejected' as const, failure: { code: 'send-failed' as const, message: 'You no longer have permission to send to this task' } };
+  Object.assign(state(), { accountId: 'owner', rows: [input], valid: () => true });
+  harness = createReactHarness();
+  harness.container.style.cssText = 'height:700px;width:390px;display:flex;flex-direction:column';
+  await renderWithAppProviders(harness, <SessionConversation timeline={emptyAgentWatchTimeline()} deviceId="device" sessionId="phone-task" agentName="Agent" nativeRecord
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
+  await until('the shared failure trigger is mounted', () => !!harness.container.querySelector('[data-testid="message-send-failed"]'));
+  expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
+  expect(harness.container.querySelector('[data-send-state="waiting"]')).toBeNull();
+  await act(async () => { (harness.container.querySelector('[data-testid="message-send-failed"]') as HTMLButtonElement).click(); });
+  await until('touch disclosure shows the reason and existing actions', () => !!document.querySelector('[data-testid="message-send-failed-menu"]'));
+  expect(document.querySelector('[data-testid="message-send-failed-menu"]')?.textContent).toContain(input.failure.message);
+  expect(document.querySelector('[data-testid="message-send-retry"]')).not.toBeNull();
+  expect(document.querySelector('[data-testid="message-send-discard"]')).not.toBeNull();
+  await act(async () => { (harness.container.querySelector('[data-testid="message-send-failed"]') as HTMLButtonElement).click(); });
+  await until('the failure disclosure closes', () => !document.querySelector('[data-testid="message-send-failed-menu"]'));
+  await act(async () => { (harness.container.querySelector('[data-slot="message-edit"]') as HTMLButtonElement).click(); });
+  await until('the existing message editor opens for the refused row', () => !!harness.container.querySelector('[data-user-message-editor="phone-refused"]'));
+  expect((harness.container.querySelector('textarea') as HTMLTextAreaElement).value).toBe(input.text);
+  expect(retry).not.toHaveBeenCalled();
 });

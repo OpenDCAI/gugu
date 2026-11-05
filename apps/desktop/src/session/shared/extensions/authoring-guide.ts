@@ -876,7 +876,7 @@ picture below this text is every piece, each captioned with the markup that draw
 ## The host's elements
 
 - \`<gugu-icon name="bell">\` (\`size="md|lg"\`): gugu's icons, named as lucide names them — bell, users, search, settings, plus, x, check, pin, trash-2, chevron-right, refresh, ellipsis… \`customElements.get('gugu-icon').names\` lists them all; a wrong name comes back from \`app_check\` as a hint naming the close ones. \`label="…"\` when it alone says something.
-- \`<gugu-avatar user="user:…">\` (\`size="xs|sm|md|lg"\`, \`name\` to show the name): a member of this chat, with their face; an agent's carries ⚡. From API 27, declare \`chat:read\`; the elements share one member read per chat. Someone not in it: \`label="their name"\`.
+- \`<gugu-avatar user="user:…">\` (\`size="xs|sm|md|lg"\`, \`name\` to show the name): a member of this chat, with their face. From API 27, declare \`chat:read\`; the elements share one member read per chat. Someone not in it: \`label="their name"\`.
 - \`<gugu-time datetime="…">\` (ISO or ms): 刚刚 / 3 分钟前 / 08:20 / 昨天 14:20 / 10月3日, kept current, in the person's language.
 - \`<gugu-empty icon="checklist"><strong>No votes yet</strong><small>Start one</small></gugu-empty>\`, with a \`button.primary\` last in it when there is something to do.
 
