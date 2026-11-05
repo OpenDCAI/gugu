@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { ConfirmationDialog } from '@gugu/session-ui/react/components';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
@@ -68,14 +69,16 @@ const ACTION_KEYS = {
 export function SessionReloadConfirm({
   open,
   onOpenChange,
-  reason,
-  target,
-  isReloading = false,
-  agentName = '',
   onConfirm,
   onCancel,
+  ...shown
 }: SessionReloadConfirmProps) {
   const { translate } = useSessionMessages();
+  // 关的那一下还有一段退场动画,而调用方关的方式就是把目标清掉 —— 不留住的话,退场那几帧画的是「换成 ?」。
+  // ⇒ 开着时记下来,关着时画最后开着那一刻的内容。
+  const lastOpen = useRef(shown);
+  if (open) lastOpen.current = shown;
+  const { reason, target, isReloading = false, agentName = '' } = open ? shown : lastOpen.current;
   // `manual` 的标题**就是那个动作自己的名字**(「重启本会话」),不看 target:菜单上写什么,确认框抬头就是什么。
   // 另外两种是「把 X 换成 Y」的半句,宾语才是 target。
   // 换权限:那一维忙时根本不收(`busy: 'reject'`),所以这里没有「打断正在进行的回复」这回事 ——

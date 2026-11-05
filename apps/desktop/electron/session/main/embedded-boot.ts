@@ -383,7 +383,7 @@ import { sessionLifeSources } from '@main/core/sessions/session-life-host'
 import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
 import { forkStore, runtimeFork, runtimeForks, runtimeForksOf } from '@main/core/sessions/session-life-forks'
 import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
-import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
+import { sessionChangedChannel, sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
 import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
 import { createStageLedger, type StageLedger } from '@main/lib/stage-ledger'
@@ -1445,6 +1445,10 @@ export async function reloadEmdashSession(input: {
     await db.update(sessions)
       .set({ config: nextConfig })
       .where(eq(sessions.id, sessionId))
+    // 权限档是渲染层从会话记录读的(这一维没有活会话报档),记录改了就得播出去,与 `recordLiveSessionSetting` 同一条广播。
+    if (input.permissionMode !== undefined) {
+      events.emit(sessionChangedChannel, { sessionId, projectId: session.projectId, changes: { permissionMode: input.permissionMode } })
+    }
   } else if (input.resetModel) {
     configBeforePatch = await dropRecordedModel(sessionId, reason)
   }
@@ -1502,6 +1506,11 @@ export async function reloadEmdashSession(input: {
       await db.update(sessions)
         .set({ config: restoredConfig })
         .where(eq(sessions.id, sessionId))
+      if (input.permissionMode !== undefined) {
+        // 回滚也播:否则界面停在没生效的那一档。播的是 spawn 按回滚后的记录会用的那一档(缺键 = 默认档)。
+        const before = resolveSessionPermissionMode(configBeforePatch as { permissionMode?: GuguPermissionMode })
+        events.emit(sessionChangedChannel, { sessionId, projectId: session.projectId, changes: { permissionMode: before } })
+      }
       // provider 会话 id 的回滚也经 `setSessionId` —— 它会广播(#5869)。
       // ⚠️ 这一步**不能省**:换计费路那一支上面已经 `clearSessionId` 过一次,渲染端此刻以为
       // 这条会话没有可续的 provider 会话;回滚只改库不说话的话,它就一直停在那句作废的话上。
