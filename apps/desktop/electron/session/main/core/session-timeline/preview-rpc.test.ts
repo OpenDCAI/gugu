@@ -91,7 +91,7 @@ describe('MessagePreview 宿主', () => {
 
   it('native previews keep the active turn after stored turns even when their sequence spaces differ', async () => {
     state.runtime = 'acp';
-    const committed = { ...turns('207974', 'Earlier reply')[0]!, seq: 41 };
+    const committed = { ...turns('207974', 'Earlier reply')[0]!, seq: 41, outcome: { kind: 'error', reason: 'prompt_failed' } };
     const activeTurn = { id: 'active', seq: 1, initiator: 'user', items: [
       { kind: 'message', id: 'active:input', seq: 0, role: 'user', text: envelope('207974').replace('msg:1', 'msg:2') },
       { kind: 'thinking', id: 'active:thinking', seq: 1, segmentId: 's', text: 'private', status: 'thinking', startedAt: 1 },
