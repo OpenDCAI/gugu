@@ -1,9 +1,6 @@
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useAvatarIdentity } from '@/lib/avatarIdentity'
-import { useMessageTextSelection } from '../../hooks/useMessageTextSelection'
 import { MESSAGE_BUBBLE_LAYOUT as layout } from '@gugu/core/shared/ui/messageBubbleLayout'
-import { MessageSelectionToolbar } from './MessageSelectionToolbar'
-import { messageSelectionActionItems } from './messageActionItems'
 import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
@@ -222,12 +219,12 @@ export const MessageBubble = memo(function MessageBubble({
       document.removeEventListener(UI_EVENTS.closeContextMenus, closeFromSharedEvent as EventListener)
     }
   }, [showMenu, showMoreMenu, showEmojiPicker])
-  const messageActions = (close: () => void, selectedText = menuSelection) => ({
-    isRetracted: !!msg.retracted_at, content: copyText, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
+  const messageActions = (close: () => void) => ({
+    isRetracted: !!msg.retracted_at, content: copyText, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!menuSelection, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
-    onQuoteSelection: selectedText && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: selectedText }, { originalContent: msg.content }); close() } : undefined,
-    onCopy: (content = selectedText || undefined) => { void handleCopyText(content); close() },
+    onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }, { originalContent: msg.content }); close() } : undefined,
+    onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() }, onKeep: keepAction({ id: msg.id, mine: msg.is_mine, live: !!mediaAttachment && mediaAttachment.source.kind !== 'gone' }, close, toast, t),
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
@@ -262,15 +259,6 @@ export const MessageBubble = memo(function MessageBubble({
 
   // @@@mobile-message-menu - Android users need the same message menu without a desktop right-click.
   const longPress = useLongPress(({ x, y }) => openMenuAt(x, y))
-  const textSelection = useMessageTextSelection({
-    enabled: compactMobile && msg.content_type === 'text' && !msg.retracted_at,
-    onQuote: (content, selectionId) => onQuote({ ...msg, content }, { originalContent: msg.content, selectionId }),
-    onClearQuote: selectionId => onQuote(msg, { originalContent: msg.content, selectionId, clear: true }),
-    actions: text => messageSelectionActionItems({ ...messageActions(() => {}, text), onShowReactions: openEmojiPickerFromButton }, t),
-  })
-  const nativeTextTarget = (target: EventTarget | null) => compactMobile && target instanceof Node
-    && !!textSelection.root?.contains(target)
-    && !(target instanceof Element ? target : target.parentElement)?.closest('a[href]')
 
   const isRetracted = !!msg.retracted_at
 
@@ -426,10 +414,8 @@ export const MessageBubble = memo(function MessageBubble({
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
             style={bubbleStyle} data-message-reply-footer={!showSender && !!replyQuote && showReplyQuote || undefined} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
             {...longPress}
-            onPointerDown={e => { if (!nativeTextTarget(e.target)) longPress.onPointerDown(e) }}
             onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
             onContextMenu={(e) => {
-              if (nativeTextTarget(e.target)) return
               e.preventDefault()
               e.stopPropagation()
               openMenuAt(e.clientX, e.clientY)
@@ -461,7 +447,7 @@ export const MessageBubble = memo(function MessageBubble({
                   ) : (
                     <span style={{ color: 'var(--text-link)' }}>{t('message.attachment')}</span>
                   )
-                ) : <div ref={textSelection.ref} data-message-text-selection={compactMobile ? msg.id : undefined} style={compactMobile ? { alignSelf: 'stretch', minWidth: 0, maxWidth: '100%', userSelect: 'text', WebkitUserSelect: 'text', WebkitTouchCallout: 'default' } : { display: 'contents' }}>{(() => {
+                ) : <div style={compactMobile ? { alignSelf: 'stretch', minWidth: 0, maxWidth: '100%' } : { display: 'contents' }}>{(() => {
                   const partial = partialQuotedContent(msg)
                   const raw = partial?.replyText ?? msg.content ?? ''
                   const quoted = partial ? null : parseQuotedContent(raw)
@@ -505,7 +491,6 @@ export const MessageBubble = memo(function MessageBubble({
             {!card && (showTime || (!showSender && replyQuote)) && <BubbleTime iso={msg.created_at} isMine={msg.is_mine} inline={timeInline} replyMark={!showSender ? replyQuote : undefined} hideTime={!showTime} />}
           </div>
         </MessageHoverTrigger>
-        {textSelection.selection && textSelection.root && <MessageSelectionToolbar root={textSelection.root} actions={textSelection.actions} />}
 
         {/* 表情回应与气泡同侧(#6428):这一层是整列宽,我方气泡行靠 marginLeft:auto 贴右,回应条不跟着贴右就留在整列最左。 */}
         {msg.reactions.length > 0 && (
