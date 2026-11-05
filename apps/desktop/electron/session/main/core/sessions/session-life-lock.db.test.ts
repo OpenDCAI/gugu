@@ -188,3 +188,27 @@ it('rejects a foreign account and never clears an archived session hold', async 
   await expect(r.owner.retryUnknownRow('s', 'interrupted', async () => null)).rejects.toThrow('cannot resend');
   expect(lifeStore.row('s', seq).state).toBe('unknown'); expect(r.dispatch).not.toHaveBeenCalled();
 });
+
+
+it('a stop completed during recovery wins over the older resend intent', async () => {
+  const { seq } = interrupted(); const r = rig(); await r.owner.signIn('A');
+  let finish!: (value: string | null) => void, entered!: () => void;
+  const lookup = new Promise<string | null>(resolve => { finish = resolve; });
+  const began = new Promise<void>(resolve => { entered = resolve; });
+  const retry = r.owner.retryUnknownRow('s', 'interrupted', () => { entered(); return lookup; });
+  await began;
+  await r.owner.interrupt('s', { k: 'interrupt', reason: 'user-stop' });
+  expect(r.owner.read('s')).toMatchObject({ kind: 'dormant', hold: 'user-stop' });
+  finish(null);
+  await expect(retry).rejects.toThrow('session changed');
+  expect(lifeStore.row('s', seq).state).toBe('unknown');
+  expect(r.owner.read('s')).toMatchObject({ kind: 'dormant', hold: 'user-stop' });
+  expect(r.run).not.toHaveBeenCalled(); expect(r.dispatch).not.toHaveBeenCalled();
+});
+
+it('a fresh explicit resend after the stop is allowed without replaying a second copy', async () => {
+  interrupted(); const r = rig(); await r.owner.signIn('A');
+  await r.owner.interrupt('s', { k: 'interrupt', reason: 'user-stop' });
+  await r.owner.retryUnknownRow('s', 'interrupted', async () => null);
+  await vi.waitFor(() => expect(r.dispatch).toHaveBeenCalledTimes(1));
+});

@@ -65,6 +65,8 @@ interface Entry {
   reconfigured: boolean;
   attempt: number;
   version: number;
+  /** Invalidates in-flight recovery intents even when an interrupt returns to the same state. */
+  recoveryEpoch: number;
   since: number;
   run: Run | null;
   /** IO ownership only. Life, not this promise, answers whether a session can accept a message. */
@@ -104,7 +106,7 @@ export class SessionLife {
     const entry: Entry = { events: new LifeEvents(event => this.apply(sessionId, entry, event),
       () => this.entries.get(sessionId) === entry, error => this.ports.failed(sessionId, error)),
       life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
-      version: 0, since: this.ports.now(), run: null, effects: this.draining.get(sessionId) ?? Promise.resolve() };
+      version: 0, recoveryEpoch: 0, since: this.ports.now(), run: null, effects: this.draining.get(sessionId) ?? Promise.resolve() };
     this.entries.set(sessionId, entry);
     return entry;
   }
@@ -291,13 +293,13 @@ export class SessionLife {
   private async recoverUnknownRow(sessionId: string, messageId: string,
     findEcho: (input: { id: string; text: string }) => Promise<string | null>, resend: boolean): Promise<void> {
     const account = this.account, epoch = this.epoch;
+    const entry = this.entry(sessionId), recoveryEpoch = entry.recoveryEpoch;
     if (!account || this.leaving || !await this.ports.ownedBy(sessionId, account)) {
       if (resend) throw new Error('This account cannot resend this input');
       return;
     }
-    const entry = this.entry(sessionId);
     const allowed = () => this.account === account && this.epoch === epoch && !this.leaving
-      && this.entries.get(sessionId) === entry && entry.life.kind !== 'archived' && entry.life.kind !== 'stopping'
+      && this.entries.get(sessionId) === entry && entry.recoveryEpoch === recoveryEpoch && entry.life.kind !== 'archived' && entry.life.kind !== 'stopping'
       && !((entry.life.kind === 'dormant' || entry.life.kind === 'failed') && entry.life.hold?.reason === 'sign-out');
     if (!allowed()) {
       if (resend) throw new Error('This session cannot resend an input now');
@@ -340,7 +342,7 @@ export class SessionLife {
 
   private known(sessionId: string): Omit<Entry, 'events'> {
     return this.entries.get(sessionId) ?? { life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
-      version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() };
+      version: 0, recoveryEpoch: 0, since: this.ports.now(), run: null, effects: Promise.resolve() };
   }
 
   /** Entries whose run holds a process or is building one (starting, ready, stopping); a side chat names its parent. */
@@ -366,6 +368,7 @@ export class SessionLife {
   private send(sessionId: string, event: Event): void {
     if ('gen' in event && !this.entries.has(sessionId)) return;
     const entry = this.entry(sessionId);
+    if (event.k === 'interrupt') entry.recoveryEpoch++;
     entry.events.send(event);
   }
 
