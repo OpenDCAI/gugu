@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@shared/core/sessions/sessions';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 const records = vi.hoisted(() => new Map<string, Partial<Session>>());
 
@@ -39,25 +40,13 @@ vi.mock('@renderer/lib/acp/acp-live-session', async (original) => ({
 type StoredPage = { turns: TranscriptTurn[]; originTurnIds: string[]; nextCursor: number | null };
 let storedPage: StoredPage | null = null;
 
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    // 与库的读法同一套语义:带 `fromSeq` 的是开场后补读的尾巴,只回那之后的几轮。
-    invoke: (channel: string, args?: { fromSeq?: number }) => {
-      if (channel !== 'sessions.getStoredHistory' || !storedPage) return Promise.resolve(channel === 'sessions.getStoredHistory' ? storedPage : []);
-      const fromSeq = args?.fromSeq;
-      if (fromSeq === undefined) return Promise.resolve(storedPage);
-      const turns = storedPage.turns.filter((t) => t.seq >= fromSeq);
-      return Promise.resolve({ turns, originTurnIds: [], nextCursor: null });
-    },
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
+// 与库的读法同一套语义:带 `fromSeq` 的是开场后补读的尾巴,只回那之后的几轮。
+installAcpChatStoreHost((channel: string, args?: { fromSeq?: number }) => {
+  if (channel !== 'sessions.getStoredHistory' || !storedPage) return Promise.resolve(channel === 'sessions.getStoredHistory' ? storedPage : []);
+  const fromSeq = args?.fromSeq;
+  if (fromSeq === undefined) return Promise.resolve(storedPage);
+  const turns = storedPage.turns.filter((t) => t.seq >= fromSeq);
+  return Promise.resolve({ turns, originTurnIds: [], nextCursor: null });
 });
 const { AcpChatStore } = await import('./acp-chat-store');
 
@@ -66,7 +55,6 @@ const turn = (id: string, seq: number): TranscriptTurn =>
 
 /** 接上之后的引擎:ready、空闲、没有排队,历史一轮都没有(`resume-unspecified` 不重放)。 */
 function resumedEmptyEngine() {
-  const replica = <T>(value: T) => ({ current: () => value, onChange: () => () => {}, onGone: () => () => {}, ready: Promise.resolve() });
   return {
     agents: replica([]), config: replica({}), plan: replica(null), terminals: replica([]), draft: replica(null),
     canSyncDraft: () => true,

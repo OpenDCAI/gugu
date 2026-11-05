@@ -2954,7 +2954,7 @@ export class AcpChatStore {
    * (而指令其实送达了,是引擎死了)。运行时那边是对的,缺的只是这一侧再问一次。
    *
    * ⇒ 「会话刚死」是一个**明确的事件**,不是轮询:它恰好就是最后一轮可能被改口的那一刻。
-   * ❌ 不用定时器、❌ 不做无条件轮询。判据见 `acp-chat-store.superseded-outcome-5858.test.ts`
+   * ❌ 不用定时器、❌ 不做无条件轮询。判据见 `acp-chat-store.superseded-outcome.test.ts`
    * (把下面那次 `_refreshHistory` 删掉,它会红)。
    */
   /**
