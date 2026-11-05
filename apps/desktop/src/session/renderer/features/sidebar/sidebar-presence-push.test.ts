@@ -52,4 +52,37 @@ describe('a presence push re-derives only the rows of the agent it is about', ()
       setLocalAgentStatus('agent-7', null);
     }
   });
+
+  it('keeps a derived row only while someone shows it: rows leave with their sessions and with the last viewer', () => {
+    const projectId = 'remote-project';
+    let sessions = Array.from({ length: 5 }, (_, i) => ({
+      conversationId: `s-${i}`, projectId, title: `s-${i}`, runtime: 'acp', harness: 'codex', supported: true, unseen: false,
+      lastInteractedAt: null, agent: { userId: `agent-${i}` }, agentStatus: 'idle', status: { status: 'idle', detail: null },
+    }) as unknown as SessionpageSessionSummary);
+    const store = new SidebarStore({
+      projects: new Map([[projectId, { id: projectId, name: 'Remote', createdAt: '2026-01-01T00:00:00.000Z' }]]),
+    } as unknown as ConstructorParameters<typeof SidebarStore>[0]);
+    const machinesFor = (listed: readonly SessionpageSessionSummary[]) => ({
+      machineOf: () => 'machine', label: () => 'machine', homeDir: () => '/work', connected: () => true,
+      sessionsOf: () => ({ live: true, sessions: listed }),
+      session: (_deviceId: string, id: string) => listed.find((session) => session.conversationId === id) ?? null,
+    });
+    store.machines = machinesFor(sessions);
+    const derived = (store as unknown as { remoteEntryById: Map<string, unknown> }).remoteEntryById;
+    // An imperative read derives the rows but keeps none of them.
+    expect(store.placement.entries.get(projectId)).toHaveLength(5);
+    expect(derived.size).toBe(0);
+
+    let shown: readonly { id: string }[] = [];
+    const stop = autorun(() => { shown = store.placement.entries.get(projectId) ?? []; });
+    expect(derived.size).toBe(5);
+    // Two sessions leave the directory: their rows leave the table.
+    sessions = sessions.slice(2);
+    store.machines = machinesFor(sessions);
+    expect(shown).toHaveLength(3);
+    expect(derived.size).toBe(3);
+    // Nobody shows the sidebar any more: nothing is kept.
+    stop();
+    expect(derived.size).toBe(0);
+  });
 });

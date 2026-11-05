@@ -1,5 +1,5 @@
 import { isAssistantHostProject } from '@renderer/features/projects/assistant-project-presentation';
-import { computed, makeAutoObservable, observable, type IComputedValue } from 'mobx';
+import { computed, makeAutoObservable, observable, onBecomeObserved, onBecomeUnobserved, type IComputedValue } from 'mobx';
 import { projectSessionTreeRows, summarizeSessionBranches, type ProjectSessionTreeRow } from './sidebar-session-branch';
 import {
   buildSessionTree,
@@ -769,6 +769,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
 
   // @@@entry-by-id — 一条远程会话的条目只由它自己的目录行、它那个 agent 的 presence 与那台机器的连接派生,
   // 按 id 各一个 computed:一次 presence 推送只重算那个 agent 的那几条,别的条目原样(同一个对象)交回列表。
+  // 表里只放此刻有人在看的那几个:被观察时放进来,没人看了(会话从目录里没了、机器换了、侧栏不在了)就拿掉 ——
+  // ❌ 只加不删:用得越久表越大。只被命令式读一次的那个从不进表,读完即弃。
   private readonly remoteEntryById = new Map<string, IComputedValue<SidebarSessionEntry | null>>();
 
   private remoteEntry(machine: string, projectId: string, conversationId: string): SidebarSessionEntry | null {
@@ -796,7 +798,11 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
           title: session.title,
         };
       });
-      this.remoteEntryById.set(key, derived);
+      const own = derived;
+      onBecomeObserved(own, () => this.remoteEntryById.set(key, own));
+      onBecomeUnobserved(own, () => {
+        if (this.remoteEntryById.get(key) === own) this.remoteEntryById.delete(key);
+      });
     }
     return derived.get();
   }
