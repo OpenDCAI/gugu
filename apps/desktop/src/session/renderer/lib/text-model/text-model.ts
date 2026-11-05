@@ -10,13 +10,6 @@ export interface TextModelChange {
   origin?: unknown;
 }
 
-/**
- * One file's text with its undo history — the document every editor view of that file mirrors.
- *
- * A file can be shown in several views at once (the file editor and the review diff), and undo belongs to the file, not
- * to whichever view happened to type: so the text and the history live here, in a CodeMirror state no view owns, and
- * views only forward their edits in and apply the changes that come out (see `bindModel`).
- */
 /** The file's line ending, by majority: lines are kept apart in the document and written back with it. */
 function lineEnding(text: string): '\n' | '\r\n' {
   const crlf = text.split('\r\n').length - 1;
@@ -28,6 +21,13 @@ export function documentText(text: string): string {
   return text.replace(/\r\n?/g, '\n');
 }
 
+/**
+ * One file's text with its undo history — the document every editor view of that file mirrors.
+ *
+ * A file can be shown in several views at once (the file editor and the review diff), and undo belongs to the file, not
+ * to whichever view happened to type: so the text and the history live here, in a CodeMirror state no view owns, and
+ * views only forward their edits in and apply the changes that come out (see `bindModel`).
+ */
 export class TextModel {
   private state: EditorState;
   private eol: '\n' | '\r\n';
