@@ -1,5 +1,4 @@
 import { sha256 } from '@noble/hashes/sha2.js'
-export { sha256 as fileSha256 } from '@noble/hashes/sha2.js'
 import type { StateAddress } from 'libsodium-wrappers'
 import { FILE_CHUNK_BYTES, requireFileRevision, type FileBytes, type FileRevision } from './fileResolver'
 
@@ -13,6 +12,18 @@ export interface FileSink {
   write(bytes: Uint8Array): Promise<void>
   commit(): Promise<FileBytes>
   abort(): Promise<void>
+}
+type NodeCrypto = { createHash(algorithm: 'sha256'): { update(data: Uint8Array): unknown; digest(): Uint8Array } }
+// @@@native-file-sha256 - every whole-file digest goes through here. Where Node's crypto is present (Electron main,
+// the server) it hashes natively: a 24.6 MB file took ~550 ms in noble under Electron main, ~20 ms in node:crypto.
+// Browsers have no incremental native digest, so they keep noble.
+const nodeCrypto = (globalThis as { process?: { getBuiltinModule?(id: 'node:crypto'): NodeCrypto | undefined } }).process?.getBuiltinModule?.('node:crypto')
+export const fileSha256 = {
+  create(): { update(bytes: Uint8Array): unknown; digest(): Uint8Array; destroy(): void } {
+    if (!nodeCrypto) return sha256.create()
+    const hash = nodeCrypto.createHash('sha256')
+    return { update: bytes => hash.update(bytes), digest: () => new Uint8Array(hash.digest()), destroy: () => {} }
+  },
 }
 const hex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
 const loadSodium = async () => {
@@ -42,7 +53,7 @@ async function exact(source: FileBytes, offset: number, length: number): Promise
 
 /** Historical objects keep exact length and private staging; committed digests are always checked. */
 export async function copyVerifiedFile(revision: FileRevision, source: FileBytes, sink: FileSink, signal?: AbortSignal): Promise<FileBytes> {
-  const hash = sha256.create()
+  const hash = fileSha256.create()
   try {
     requireFileRevision(revision)
     if (source.size !== revision.size_bytes) throw new Error('File stream size mismatch')
@@ -65,7 +76,7 @@ export async function transformFile(input: {
   key: Uint8Array; ciphertextSha256?: string; signal?: AbortSignal
 }): Promise<{ file: FileBytes; ciphertextSha256: string }> {
   const { revision, source, sink, signal } = input
-  const plainHash = sha256.create(), cipherHash = sha256.create()
+  const plainHash = fileSha256.create(), cipherHash = fileSha256.create()
   let sodium: Awaited<ReturnType<typeof loadSodium>> | undefined
   let state: StateAddress | undefined
   try {

@@ -4,8 +4,9 @@ import { isSqliteBusy } from '@gugu/core/shared/sqliteBusy';
 import { toSerializedError } from '@gugu/session-shared/result';
 import type {
   Attempt, AuthEpoch, Effect, Event, Gen, Hold, InterruptEvent, Life,
-  PendingView, RunStageEffect, Seq, SerializedError, StageResult,
+  PendingView, Receipt, RunStageEffect, Seq, SerializedError, StageResult,
 } from '@gugu/core/local/session-life/types';
+import type { Logger } from '@gugu/session-shared/logger';
 import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life';
 import type { LegAdapter, PendingRow } from './session-life-adapter';
 import type { EnqueuePending } from './session-pending';
@@ -45,6 +46,8 @@ export interface SessionLifePorts {
   publish(view: LifeView): void;
   removed(sessionId: string): void;
   failed(sessionId: string, error: unknown): void;
+  /** Row receipts and lifecycle transitions, one line each, so a message's fate can be read from the host log. */
+  logger: Pick<Logger, 'info'>;
   now(): number;
 }
 
@@ -181,6 +184,7 @@ export class SessionLife {
       // v3.1 #8: only boot hydrate filters by owner; old rows of unknown or foreign bindings stay put.
       if (!await this.ports.ownedBy(sessionId, userId)) continue;
       const unknown = this.ports.store(sessionId).claim(sessionId);
+      for (const seq of unknown) this.logReceipt(sessionId, seq, { state: 'unknown' });
       // Rows an earlier run left mid-dispatch: unknown outcome, reported to their sources once (like an exit's).
       if (unknown.length) void this.ports.reportFailure(unknown.map(seq => this.ports.store(sessionId).row(sessionId, seq)), OUTCOME_UNKNOWN)
         .catch(error => this.ports.failed(sessionId, error));
@@ -200,7 +204,7 @@ export class SessionLife {
    * one re-delivers only into ready{free}, the one state where a head must be pumped (invariant 3).
    */
   enqueue(input: EnqueuePending): { seq: Seq; state: PendingRow['state'] } {
-    const result = this.ports.store(input.sessionId).enqueue(input);
+    const result = this.insert(input);
     const sessionId = input.sessionId;
     if (result.inserted) {
       const before = this.entries.get(sessionId)?.version;
@@ -220,8 +224,22 @@ export class SessionLife {
 
   /** A reader-rejected item stays visible as failed and never enters provider admission. */
   rejectInbox(input: Extract<EnqueuePending, { kind: 'inbox-batch' }>, cause: unknown): void {
-    this.ports.store(input.sessionId).enqueue({ ...input, failure: toSerializedError(cause) });
+    this.insert({ ...input, failure: toSerializedError(cause) });
     this.publish(input.sessionId, this.entry(input.sessionId));
+  }
+
+  private insert(input: Parameters<LifeStore['enqueue']>[0]): ReturnType<LifeStore['enqueue']> {
+    const result = this.ports.store(input.sessionId).enqueue(input);
+    if (result.inserted) {
+      const row = this.ports.store(input.sessionId).row(input.sessionId, result.seq);
+      this.logReceipt(input.sessionId, result.seq, row.failure ? { state: 'failed', cause: row.failure } : { state: 'queued' });
+    }
+    return result;
+  }
+
+  private logReceipt(sessionId: string, seq: Seq, receipt: Receipt): void {
+    const row = this.ports.store(sessionId).row(sessionId, seq);
+    this.ports.logger.info('session-life: receipt', { sessionId, seq, messageId: row.message.id, sourceMessageIds: row.sources.map(source => source.row.id), receipt });
   }
 
   private deliver(sessionId: string, seq: Seq): void {
@@ -264,10 +282,10 @@ export class SessionLife {
 
   read(sessionId: string): LifeView { return this.view(sessionId, this.known(sessionId)); }
 
-  /** Kind and stage only (status feed, session_get): no pending rows read. */
+  /** Lifecycle facts only (status feed, session_get): no pending rows read. */
   status(sessionId: string): LifeStatus {
     const entry = this.known(sessionId);
-    return { kind: entry.life.kind, stage: stageOf(entry) };
+    return { kind: entry.life.kind, stage: stageOf(entry), processExited: entry.life.kind === 'dormant' && entry.life.lastExit?.processExited === true };
   }
 
   private known(sessionId: string): Omit<Entry, 'events'> {
@@ -306,14 +324,19 @@ export class SessionLife {
     const oldRun = entry.run;
     const next: Gen = { auth: this.epoch as AuthEpoch, attempt: (entry.attempt + 1) as Attempt };
     const [life, effects] = step(previous, event, this.ports.store(sessionId).pending(sessionId), { next });
+    const committed = [...effects, ...effects.flatMap((effect): Effect[] => effect.e === 'dispatch'
+      ? [{ e: 'write-receipt', seq: effect.seq, receipt: { state: 'dispatching', attempt: effect.gen.attempt } }] : [])];
     try {
-      this.ports.store(sessionId).commit(sessionId, [...effects, ...effects.flatMap((effect): Effect[] => effect.e === 'dispatch'
-        ? [{ e: 'write-receipt', seq: effect.seq, receipt: { state: 'dispatching', attempt: effect.gen.attempt } }] : [])]);
+      this.ports.store(sessionId).commit(sessionId, committed);
     } catch (error) {
       if (isSqliteBusy(error)) throw new UncommittedLifeEvent(error);
       throw error;
     }
     entry.life = life;
+    // Logged only after the commit accepted them: a stale event's effects never reach the log.
+    for (const effect of committed) if (effect.e === 'write-receipt') this.logReceipt(sessionId, effect.seq, effect.receipt);
+    if (life.kind !== previous.kind) this.ports.logger.info('session-life: transition', { sessionId, event: event.k, before: previous.kind, after: life.kind,
+      ...(event.k === 'exit' ? { exit: event.exit } : {}), ...(life.kind === 'failed' ? { cause: life.hold.cause } : {}) });
     if (life.kind === 'starting' && (!oldRun || !same(life.gen, oldRun.gen))) {
       entry.reconfigured = event.k === 'start' && event.origin === 'reconfigure';
       entry.attempt += 1;
@@ -456,6 +479,7 @@ export class SessionLife {
       hold: hold?.reason ?? null,
       failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message, cause: life.hold.cause } : null,
       lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null,
+      processExited: life.kind === 'dormant' && life.lastExit?.processExited === true,
       nativeSession: life.kind === 'ready' && entry.reconfigured ? life.have.channel.nativeSession : null };
   }
 

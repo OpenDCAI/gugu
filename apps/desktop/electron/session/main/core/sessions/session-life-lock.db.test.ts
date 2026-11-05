@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { noopLogger } from '@gugu/session-shared/logger';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { openFixture } from '@tooling/utils/db';
 import type { AppDb } from '@main/db/client';
@@ -28,7 +29,7 @@ function rig() {
   const teardown = vi.fn<LegAdapter['teardown']>(async () => {});
   const failed = vi.fn();
   const store = { ...lifeStore, commit: vi.fn(lifeStore.commit) };
-  const owner = new SessionLife({ sessions: () => ['s'], store: () => store,
+  const owner = new SessionLife({ logger: noopLogger, sessions: () => ['s'], store: () => store,
     adapter: () => ({ leg: 'acp', timing: 'next-tool-call',
       async run<K extends StageName>(at: K, _have: unknown, ctx: { gen: Gen }): Promise<StageOut[K]> {
         run(at);

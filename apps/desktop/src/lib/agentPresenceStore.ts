@@ -417,10 +417,10 @@ function presentationOf(
 }
 
 /** A session-life session's lifecycle answers first (`displayStatus`); otherwise the writer's reading. */
-function composeLocal(local: LocalAgentStatus, reading: AgentStatusView | null): { reading: AgentStatusView | null; lifecycle: 'starting' | 'archived' | null } {
+function composeLocal(local: LocalAgentStatus, reading: AgentStatusView | null): { reading: AgentStatusView | null; lifecycle: 'starting' | 'archived' | 'offline' | null } {
   if (!local.life) return { reading, lifecycle: null }
   const shown = displayStatus(local.life, reading?.status ?? null)
-  if (shown === 'starting' || shown === 'archived') return { reading: null, lifecycle: shown }
+  if (shown === 'starting' || shown === 'archived' || shown === 'offline') return { reading: null, lifecycle: shown }
   return { reading: shown === reading?.status ? reading : shown && { status: shown, detail: null }, lifecycle: null }
 }
 

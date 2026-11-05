@@ -241,7 +241,7 @@ export type SessionSnapshot = {
    * core 词表的基础态(spec agent-status-vocabulary:idle / working / needs_user / error),`null` = 这条会话还没有状态源;
    * 运行时这一轴压在上面:还在起动是 `starting`,ACP 报 lost 是 `error`。已归档压过一切,是 `archived`。
    */
-  status: AgentStatus | 'starting' | 'archived' | null;
+  status: AgentStatus | 'starting' | 'archived' | 'offline' | null;
   /** #4366 派 agent 的一方不必再做第二次发现步骤就能说出 child 跑在哪个模型上。见 `SessionModel`。 */
   model: SessionModel;
   /** 附属态(spec agent-status-vocabulary):在跑是一轮在飞还是只剩后台,在等你是等批准 / 回答 / 计划 / 对话框。 */
