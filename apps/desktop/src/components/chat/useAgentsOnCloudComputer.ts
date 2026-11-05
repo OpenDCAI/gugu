@@ -1,36 +1,47 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { CloudComputerPresence } from '@gugu/core/shared/types/deviceHost'
 import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation'
 import type { AgentDisplayStatus, Device } from '@gugu/core/shared/types/chat'
-import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { displayStatusOf } from '@gugu/core/shared/ui/agentConversationStatusModels'
 import type { AgentCloudState } from '@/lib/agentReplyPending'
 import { refreshCloudComputer } from '@/lib/cloudComputerStore'
 import { useContactsStore } from '@/store/contactsContext'
 import { useDevicesStore } from '@/store/devicesContext'
+import { readIdentityDirectoryBridge, type IdentityDirectorySnapshot } from '@/lib/identityDirectoryBridge'
+import { directoryDevices, subscribeDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 
 type ReclaimedAgents = ReadonlyMap<string, Exclude<CloudComputerPresence, 'awake'>>
 
-// 逐行调用(通讯录两张列表、@ 候选、成员列表都一行一次,且都没有虚拟化):按两张表的引用共享派生,
-// 一次更新整张列表只扫一遍 —— ❌ 每行各自 useMemo,那样 N 行 × 扫 N 个联系人。
-const reclaimedCache = new WeakMap<readonly ContactUser[], WeakMap<readonly Device[], ReclaimedAgents>>()
+// 逐行调用(通讯录两张列表、@ 候选、成员列表都一行一次):读的是外部 store(身份目录给「agent 住哪台」、设备目录给
+// 「那台睡没睡」),❌ 通讯录 / 设备 context —— 那两份每次心跳、每次改名都换,读它们的每一行就跟着全列重画。
+// 派生只在内容变了时才换引用:心跳翻了 last_seen、别的 agent 改了名,收回着的那几位没变,就还是上一份,一行也不叫醒。
+const noReclaimed: ReclaimedAgents = new Map()
+let reclaimedInputs: [IdentityDirectorySnapshot | null, readonly Device[]] | null = null
+let reclaimed: ReclaimedAgents = noReclaimed
 
-function reclaimedAgentsOf(contacts: readonly ContactUser[], devices: readonly Device[]): ReclaimedAgents {
-  let byContacts = reclaimedCache.get(contacts)
-  if (!byContacts) reclaimedCache.set(contacts, (byContacts = new WeakMap()))
-  const cached = byContacts.get(devices)
-  if (cached) return cached
+function reclaimedAgents(): ReclaimedAgents {
+  const identities = readIdentityDirectoryBridge()?.getSnapshot() ?? null
+  const devices = directoryDevices()
+  if (reclaimedInputs && reclaimedInputs[0] === identities && reclaimedInputs[1] === devices) return reclaimed
+  reclaimedInputs = [identities, devices]
   const byDevice = new Map<string, Exclude<CloudComputerPresence, 'awake'>>()
   for (const device of devices) {
     if (device.cloud_computer === 'asleep' || device.cloud_computer === 'waking') byDevice.set(device.device_id, device.cloud_computer)
   }
   const out = new Map<string, Exclude<CloudComputerPresence, 'awake'>>()
-  for (const contact of byDevice.size === 0 ? [] : contacts) {
-    const presence = contact.type === 'agent' && contact.device_id ? byDevice.get(contact.device_id) : undefined
-    if (presence) out.set(contact.id, presence)
+  for (const identity of byDevice.size === 0 || !identities ? [] : Object.values(identities)) {
+    const presence = identity.type === 'agent' && identity.device_id ? byDevice.get(identity.device_id) : undefined
+    if (presence) out.set(identity.id, presence)
   }
-  byContacts.set(devices, out)
-  return out
+  const same = out.size === reclaimed.size && [...out].every(([id, presence]) => reclaimed.get(id) === presence)
+  if (!same) reclaimed = out.size === 0 ? noReclaimed : out
+  return reclaimed
+}
+
+function subscribeReclaimed(listener: () => void): () => void {
+  const offIdentities = readIdentityDirectoryBridge()?.subscribe(listener)
+  const offDevices = subscribeDeviceSessions(listener)
+  return () => { offIdentities?.(); offDevices() }
 }
 
 /**
@@ -38,9 +49,7 @@ function reclaimedAgentsOf(contacts: readonly ContactUser[], devices: readonly D
  * 也 ❌ 说「在休息」(owner 10-17:Agent 没有休息这回事)—— 消息照收,宿主有事自己醒。群里 @ 它时据此不出离线提示。
  */
 export function useAgentsOnCloudComputer(): ReclaimedAgents {
-  const { contacts } = useContactsStore()
-  const { devices } = useDevicesStore()
-  return reclaimedAgentsOf(contacts, devices)
+  return useSyncExternalStore(subscribeReclaimed, reclaimedAgents, () => noReclaimed)
 }
 
 /**

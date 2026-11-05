@@ -11,6 +11,7 @@ import { ContactsContext, type ContactsLoadStatus } from './contactsContext'
 import type { ContactGroup, ContactUser, FriendRequest } from '@gugu/core/shared/types/contacts'
 import { platform } from '../platform'
 import { readRequiredDisplayIdentities } from '../lib/identityReadAdapter'
+import type { DisplayIdentity } from '../lib/displayIdentity'
 import { listManagedGroupJoinRequests, managedGroupChats, type ManagedGroupJoinRequest } from '../lib/groupJoinRequests'
 import { joinRequestIdentityIds } from '../lib/groupAgentJoin'
 import { useIdentityLifecycle } from '../hooks/useIdentityLifecycle'
@@ -23,6 +24,21 @@ import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
 
 type ContactRelation = Pick<ContactUser, 'id' | 'alias' | 'agent_type' | 'project_path'>
 type RevisionRefreshOptions = { throwOnError?: boolean }
+
+// 投影逐行沿用:这一行的内容(身份各格 + 关系四格)与上一次投影出的那个对象一样,就还是那个对象 —— 重拉整张通讯录时
+// 每个身份都会被重新 put 成新对象,按引用沿用不住。行组件(memo)凭引用知道「我这一行没变」:改一个 agent 的名字只重画那一行,❌ 整列。
+const lastProjected = new Map<string, ContactUser>()
+function projectContact(identity: DisplayIdentity, relation: ContactRelation): ContactUser {
+  const next: ContactUser = { ...identity, ...relation }
+  const previous = lastProjected.get(next.id)
+  if (previous && sameFields(previous, next)) return previous
+  lastProjected.set(next.id, next)
+  return next
+}
+function sameFields(a: ContactUser, b: ContactUser): boolean {
+  const keys = Object.keys(b) as (keyof ContactUser)[]
+  return keys.length === Object.keys(a).length && keys.every((key) => Object.is(a[key], b[key]))
+}
 
 export function ContactsProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
   const { user: authenticatedUser } = useAuth()
@@ -465,7 +481,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
   const value = useMemo(() => {
     recordContactsRender()
     const requireIdentity = (id: string) => { const identity = identitiesById[id]; if (!identity) throw new Error(`Missing committed identity ${id}`); return identity }
-    const project = (rows: ContactRelation[]) => rows.map((relation) => ({ ...requireIdentity(relation.id), ...relation }))
+    const project = (rows: ContactRelation[]) => rows.map((relation) => projectContact(requireIdentity(relation.id), relation))
     const withPeers = (rows: FriendRequest[]) => rows.map((request) => ({ ...request, sender: identitiesById[request.sender_id], receiver: identitiesById[request.receiver_id] }))
     return {
       contacts: project(contacts),
