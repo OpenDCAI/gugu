@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentPresenceState } from '@/lib/agentPresenceStore'
 import type { AgentStatusDetail } from '@gugu/core/shared/agentStatus'
+import { awaitPending } from '../../../support/awaitFact'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
 vi.mock('@/lib/supabase', () => ({
@@ -61,7 +62,7 @@ const local = (
   life,
 })
 async function settle(): Promise<void> {
-  await vi.dynamicImportSettled()
+  await awaitPending('presence dynamic imports', vi.dynamicImportSettled())
 }
 // #3839 presence 缓存按**账号**划界,并且刻意地跨视图卸载存活 —— 所以每条判据必须自建它自己的
 // 账号边界。沿用同一个身份会让上一条判据留下的 entry 变成下一条的隐式前置(实测:留下的 removed
@@ -72,6 +73,45 @@ beforeEach(() => {
   setPresenceBusContext({ currentUserId: `owner-${++testAccountSeq}` })
 })
 describe('agent presence revision routing', () => {
+  it.each([true, false])('applies a supplied presence without a snapshot (observed=%s)', async (observed) => {
+    rpcMock.mockImplementation(answerAll)
+    const off = subscribeAgentPresence('agent-1', () => undefined)
+    let offAgain: (() => void) | undefined
+    try {
+      await settle()
+      if (!observed) off()
+      rpcMock.mockClear()
+      const presence = payload('active', '2026-08-15T00:00:02Z', { activity_status: 'running' }).results['agent-1'].presence
+      await refreshObservedAgentPresenceFromRevision([{ agent_user_id: 'agent-1', presence }])
+      expect(rpcMock).not.toHaveBeenCalled()
+      expect(getAgentPresenceSnapshot('agent-1')?.payload?.activityStatus).toBe('running')
+      expect(getAgentPresenceSnapshot('agent-1')?.source).toBe('event')
+      offAgain = observed ? undefined : subscribeAgentPresence('agent-1', () => undefined)
+      await settle()
+      expect(rpcMock).not.toHaveBeenCalled()
+    } finally { off(); offAgain?.() }
+  })
+
+  it('retains a supplied presence after an older in-flight snapshot settles', async () => {
+    let finish!: (value: { data: ReturnType<typeof payload>; error: null }) => void
+    rpcMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve })).mockImplementation(answerAll)
+    const off = subscribeAgentPresence('agent-1', () => undefined)
+    await settle()
+    const presence = payload('active', '2026-08-15T00:00:02Z', { activity_status: 'running' }).results['agent-1'].presence
+    const applying = refreshObservedAgentPresenceFromRevision([{ agent_user_id: 'agent-1', presence }])
+    finish({ data: payload('active', '2026-08-15T00:00:01Z'), error: null })
+    try {
+      await applying
+      expect(rpcMock).toHaveBeenCalledTimes(1)
+      expect(getAgentPresenceSnapshot('agent-1')?.payload?.activityStatus).toBe('running')
+    } finally { off() }
+  })
+
+  it.each([null, {}, { agent_user_id: 'another-agent' }])('rejects a malformed supplied presence %j', async (presence) => {
+    await expect(refreshObservedAgentPresenceFromRevision([{ agent_user_id: 'agent-1', presence }])).rejects.toThrow('presence')
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+
   it('fetches only changed observed agents, once per id, without creating unknown entries', async () => {
     rpcMock.mockImplementation(answerAll)
     const offOne = subscribeAgentPresence('agent-1', () => undefined)

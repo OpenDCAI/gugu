@@ -140,25 +140,40 @@ export function setPresenceBusContext(ctx: { currentUserId: string | null }): vo
 }
 
 // The durable journal retains every changed agent id; only its realtime wake is throttled.
-// Reconcile this batch's changed agents through the existing snapshot batching path.
+// Apply carried facts through the same projection as snapshots. Old journal rows
+// and identity lifecycle notifications still use the existing batched read.
 export async function refreshObservedAgentPresenceFromRevision(payloads: readonly unknown[]): Promise<void> {
-  const ids = new Set<string>()
+  const owner = accountContext.currentUserId
+  const latest = new Map<string, AgentPresencePayload | null>()
   for (const payload of payloads) {
-    const id = payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as { agent_user_id?: unknown }).agent_user_id : null
+    const raw = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload as { agent_user_id?: unknown; presence?: unknown } : null
+    const id = raw?.agent_user_id
     if (typeof id !== 'string' || !id.trim()) throw new Error('presence_changed revision requires agent_user_id')
-    ids.add(id)
+    const supplied = Object.prototype.hasOwnProperty.call(raw, 'presence')
+    const presence = supplied ? parseAgentPresencePayload({ presence: raw?.presence }) : null
+    if (supplied && (!presence || presence.agentUserId !== id)) throw new Error('presence_changed revision has malformed presence')
+    latest.set(id, presence)
   }
-  await Promise.all([...ids].map(async (id) => {
+  const carried: Array<{ entry: Entry; payload: AgentPresencePayload }> = []
+  await Promise.all([...latest].map(async ([id, payload]) => {
     const entry = entries.get(id)
     if (!entry) return
     // A snapshot already in flight may predate this revision. Let it finish before
     // fetching again or marking a cooled entry dirty, so it cannot consume this change.
     if (entry.snapshotPromise) await entry.snapshotPromise
-    if (entries.get(id) !== entry) return
-    if (entry.listeners.size === 0) entry.dirty = true
+    if (accountContext.currentUserId !== owner || entries.get(id) !== entry) return
+    if (payload) carried.push({ entry, payload })
+    else if (entry.listeners.size === 0) entry.dirty = true
     else await fetchSnapshot(entry, true)
   }))
+  const holdings = await readAgentHoldings(carried.map(({ payload }) => payload))
+  if (accountContext.currentUserId !== owner) return
+  for (const { entry, payload } of carried) {
+    if (entries.get(payload.agentUserId) !== entry || !shouldApplyAgentPresencePayload(entry.state.payload, payload)) continue
+    entry.holding = holdings[payload.agentUserId] ?? null
+    applyPayload(entry, payload, 'event')
+  }
 }
 
 /**
@@ -540,17 +555,7 @@ async function runSnapshotBatch(waiters: BatchWaiter[]): Promise<void> {
       }
       ready.push({ waiter, payload })
     }
-    const api = desktopIpc()
-    let holdings: Record<string, DeviceCommandHolding> = {}
-    if (api && ready.length) {
-      try {
-        const observed = await api.invoke('agent-status-feed:holding', ready.map(({ payload }) => ({ agentUserId: payload.agentUserId, deviceId: payload.deviceId }))) as Record<string, DeviceCommandHolding>
-        if (!observed || typeof observed !== 'object' || Array.isArray(observed) || Object.values(observed).some(value => value !== 'held' && value !== 'held-elsewhere' && value !== 'unheld')) throw new Error('Invalid local agent holding response')
-        holdings = observed
-      } catch (err) {
-        rendererLogger('agent-presence').error({ err }, 'Read local agent holding failed')
-      }
-    }
+    const holdings = await readAgentHoldings(ready.map(({ payload }) => payload))
     for (const { waiter, payload } of ready) {
       if (entries.get(payload.agentUserId) === waiter.entry && shouldApplyAgentPresencePayload(waiter.entry.state.payload, payload)) {
         waiter.entry.holding = holdings[payload.agentUserId] ?? null
@@ -560,6 +565,20 @@ async function runSnapshotBatch(waiters: BatchWaiter[]): Promise<void> {
     }
   } catch (err) {
     for (const waiter of waiters) settleWaiter(waiter, errorMessage(err))
+  }
+}
+
+async function readAgentHoldings(payloads: readonly AgentPresencePayload[]): Promise<Record<string, DeviceCommandHolding>> {
+  if (payloads.length === 0) return {}
+  const api = desktopIpc()
+  if (!api) return {}
+  try {
+    const observed = await api.invoke('agent-status-feed:holding', payloads.map(payload => ({ agentUserId: payload.agentUserId, deviceId: payload.deviceId }))) as Record<string, DeviceCommandHolding>
+    if (!observed || typeof observed !== 'object' || Array.isArray(observed) || Object.values(observed).some(value => value !== 'held' && value !== 'held-elsewhere' && value !== 'unheld')) throw new Error('Invalid local agent holding response')
+    return observed
+  } catch (err) {
+    rendererLogger('agent-presence').error({ err }, 'Read local agent holding failed')
+    return {}
   }
 }
 
