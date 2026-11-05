@@ -35,7 +35,8 @@
  *  · `session-meta`(claude):settings 文档写进探针自己的临时目录(0600),路径进 `session/new` 的 `_meta`;
  *  · `adapter-spawn`(codex):一份 `AcpPlatformInjection` 交给插件的 `buildSpawn`。
  * 文档只落在调用方给的临时目录里,探完由调用方整目录删掉;❌ 碰用户自己的任何配置。
- * 送不到(没有 Chat UI 契约、契约未接通、分派不出信封)⇒ **抛**,写明是哪一家、为什么 —— ❌ 返回空了事。
+ * 声明支持平台模型却送不到(没有 Chat UI 契约、契约未接通、分派不出信封)⇒ **抛**。
+ * 插件明确声明不支持平台模型时给出有类型的跳过原因;那条腿只保留厂商登录读数。
  *
  * ## 它为什么住在宿主侧
  *
@@ -62,6 +63,7 @@ import {
   codexPlatformProviderBlock,
   CODEX_PLATFORM_PROVIDER_ID,
   materializePiModelConfig,
+  pluginRegistry,
 } from '@gugu/session-plugins/agents'
 import { platformEnvelopeKind } from './platform-envelope'
 import { claudeAcpAdapterEnv } from './sessionpage/sessionpage-platform-hooks'
@@ -87,6 +89,9 @@ export async function buildProbePlatformCredentials(
   pluginId: string,
   scratchDir: string,
 ): Promise<ProbePlatformCredentials> {
+  if (pluginRegistry.get(pluginId)?.capabilities.sessionBundle.platform.kind === 'unsupported') {
+    return { env: {}, skipReason: 'platform-unsupported' }
+  }
   const contract = findInjectionContract(pluginId, 'cui')
   if (!contract) throw probeCredentialsFault(pluginId, 'no Chat UI injection contract')
   if (!contract.wired) throw probeCredentialsFault(pluginId, `Chat UI injection (${contract.dialect}) is not wired`)
