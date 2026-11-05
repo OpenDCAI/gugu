@@ -57,6 +57,7 @@ const probeModelDialects: readonly ModelConfigDialect[] = [
   'hermes-serve-env',
   'zcode-provider-table',
   'codebuddy-settings-env',
+  'dsh-patch-document',
 ];
 const probeAuthorizationEnv = 'GUGU_SESSION_MCP_AUTH_GUGU';
 
@@ -116,6 +117,15 @@ function channelProbeBundle(
                   platformSettingsEnv: {
                     GOOGLE_GEMINI_BASE_URL: 'http://127.0.0.1:44100/native-channel-relay',
                     GEMINI_API_KEY: 'native-channel-relay-token',
+                  },
+                }
+              : {}),
+            // dsh 同理:中转根与令牌只认协议表(anthropic-messages)的原话,裸根,dsh 自己拼 /v1/messages。
+            ...(modelDialect === 'dsh-patch-document'
+              ? {
+                  platformSettingsEnv: {
+                    ANTHROPIC_BASE_URL: 'http://127.0.0.1:44100/native-channel-relay',
+                    ANTHROPIC_AUTH_TOKEN: 'native-channel-relay-token',
                   },
                 }
               : {}),
@@ -242,7 +252,7 @@ describe('pluginRegistry', () => {
     expect(checked).toContain('opencode:plan');
   });
 
-  it('keeps the exact 30-entry registry order', () => {
+  it('keeps the exact 31-entry registry order', () => {
     expect(pluginRegistry.ids()).toEqual([
       'codex',
       'claude',
@@ -274,6 +284,7 @@ describe('pluginRegistry', () => {
       'zero',
       'zcode',
       'codebuddy',
+      'dsh',
     ]);
   });
 
@@ -322,6 +333,8 @@ describe('pluginRegistry', () => {
       zero: ['tui'],
       zcode: ['acp'],
       codebuddy: ['acp', 'tui'],
+      // dsh 2026-11-05:只接它的 ACP profile(owner「先只接 ACP」)。
+      dsh: ['acp'],
     });
   });
 
@@ -415,7 +428,7 @@ describe('pluginRegistry', () => {
     // 见 impl/antigravity/session-bundle.ts 抬头。
     // zcode 自 2026-10-17 起在列(#7385):桥 @gugu-acp/zcode-acp 把 `session/new.mcpServers` 原样交给 ZCode app-server,
     // 注入的 stdio 工具被模型调到(mcp__<server>__<tool>);身份自述走 session-context。见 impl/zcode/session-bundle.ts 抬头。
-    expect(sessionAcpProviders).toEqual(['codex', 'claude', 'grok', 'qwen', 'droid', 'antigravity', 'cursor', 'copilot', 'gemini', 'opencode', 'hermes', 'kimi', 'pi', 'mimocode', 'zcode', 'codebuddy']);
+    expect(sessionAcpProviders).toEqual(['codex', 'claude', 'grok', 'qwen', 'droid', 'antigravity', 'cursor', 'copilot', 'gemini', 'opencode', 'hermes', 'kimi', 'pi', 'mimocode', 'zcode', 'codebuddy', 'dsh']);
 
     const localSessionTransportProviders = pluginRegistry.getAll()
       .filter((provider) => provider.capabilities.sessionBundle.sessionpage['tui']?.messageTransport === 'local-session')
@@ -753,7 +766,10 @@ describe('pluginRegistry', () => {
     // codebuddy 2026-10-19 接入(#7525):mcp 按腿 2 格('acp-session' + 终端 'config-file-argv')、env 扁平 1 格、
     //   model 扁平 1 格('config-file')、promptBlocks 按腿 2 格('session-context' + 'argv-append');autonomy 走档位表
     //   不进 checks ⇒ **+6**,81 → **87**(Windows 79 → 85)。
-    expect(checks).toHaveLength(ANTIGRAVITY_SESSION_TUI_ENABLED ? 87 : 85);
+    // dsh 2026-11-05 接入:只有 acp 腿,mcp('acp-session')、env('child-process')、model('config-file')、
+    //   autonomy('config-file',`--patch` 里的权限插件行)、promptBlocks('session-context')五格 native
+    //   ⇒ **+5**,87 → **92**(Windows 85 → 90)。
+    expect(checks).toHaveLength(ANTIGRAVITY_SESSION_TUI_ENABLED ? 92 : 90);
     for (const check of checks) {
       expect(check.populated, check.label + ': ' + JSON.stringify(check.surfaces)).toBe(true);
     }
@@ -852,7 +868,9 @@ describe('pluginRegistry', () => {
         // #7385:zcode 只开 ACP 腿,五维逐格实测声明(impl/zcode/session-bundle.ts 抬头)。
         provider.metadata.id === 'zcode' ||
         // #7525:codebuddy 两条腿五维逐格实测声明(impl/codebuddy/session-bundle.ts 抬头)。
-        provider.metadata.id === 'codebuddy'
+        provider.metadata.id === 'codebuddy' ||
+        // dsh:只开 ACP 腿,五维逐格实测声明(impl/dsh/session-bundle.ts 抬头)。
+        provider.metadata.id === 'dsh'
       ) continue;
       remaining += 1;
       const { units, extension } = provider.capabilities.sessionBundle;
@@ -991,11 +1009,14 @@ describe('pluginRegistry', () => {
   // The renderer wires `reload-session` only for the model dimension (planModelSwitch); any other dimension
   // declaring it would reach reportUnwiredRestart and fail loud at the user.
   it('declares reload-session only on the model dimension', () => {
+    // 唯一的例外:dsh 的权限维。它的 ACP 面不带 modes / 命令,续接又沿用钉下的那一档,换档只能带新档重起再
+    // resume(咕咕插进 `--patch` 的权限插件在续接时改档,见 impl/dsh/permission-plugin.ts;实测 0.2.1-rc.5)。
+    const declaredReloads = new Set(['dsh:permission']);
     for (const plugin of pluginRegistry.getAll()) {
       const live = plugin.capabilities.acp.liveSettings;
       if (!live) continue;
       for (const [dimension, setting] of Object.entries(live)) {
-        if (dimension === 'model') continue;
+        if (dimension === 'model' || declaredReloads.has(`${plugin.metadata.id}:${dimension}`)) continue;
         expect({ plugin: plugin.metadata.id, dimension, channel: (setting as { channel?: string } | undefined)?.channel })
           .not.toMatchObject({ channel: 'reload-session' });
       }
@@ -1443,6 +1464,8 @@ describe('pluginRegistry', () => {
       'zcode',
       // CLI 有 `--fork-session`,但咕咕两条腿的 fork 都没量过(#7525)。
       'codebuddy',
+      // dsh-acp README:fork 不支持(「deletion, forks, transcript replay … are unsupported」)。
+      'dsh',
     ] as const;
     const verifiedForkAdapters = [
       // agy_acp_server 的 `session/fork` 是空桩;分叉由宿主在它的存档上做(./antigravity/fork.ts,#6335)。

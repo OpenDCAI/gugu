@@ -1,3 +1,4 @@
+import type { GuguPermissionMode } from '@gugu/session-core/acp';
 import { invokeOnMachine } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import {
@@ -29,6 +30,8 @@ export async function requestSessionReload(input: {
   modelSource?: 'platform' | 'own';
   /** 思考档位:字符串换档 / `null` 回默认 / 省略不碰(见契约)。 */
   effort?: string | null;
+  /** 换成这一档权限(咕咕四档);只给权限一维声明 `reload-session` 的家(见契约)。 */
+  permissionMode?: GuguPermissionMode;
 }): Promise<SessionReloadResponse> {
   const machine = machineRegistry.machineOf(input.sessionId);
   const response = (await invokeOnMachine(machine, SESSIONPAGE_SESSION_RELOAD_CHANNEL, {
@@ -43,6 +46,7 @@ export async function requestSessionReload(input: {
     ...(Array.isArray(input.mcpDisabledServers)
       ? { mcpDisabledServers: input.mcpDisabledServers }
       : {}),
+    ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
   })) as unknown;
   // 形状不对当成失败,并把拿到的东西说出来 —— ❌ 不默认成功:一个读不懂的回包被当成 ok,
   // 就是「界面说重开完了、实际什么都没发生」。

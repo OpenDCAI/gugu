@@ -22,6 +22,17 @@ describe('platform model addressing on a live session', () => {
     expect(platformModelIdFromNativeOption('gugu-platform\\')).toBeNull();
   });
 
+  it('reads the DeepSeek Harness form ([provider, model] JSON) back to the canonical id', () => {
+    expect(platformModelIdFromNativeOption('["deepseek-official","deepseek-v4.1-flash"]')).toBe('deepseek-v4.1-flash');
+    expect(runtimeOptionForPlatformModelId('deepseek-v4-pro', [
+      '["deepseek-official","deepseek-v4.1-flash"]',
+      '["deepseek-official","deepseek-v4-pro"]',
+    ])).toBe('["deepseek-official","deepseek-v4-pro"]');
+    // 别的路由(pi-ai 接的 provider)不是平台那条。
+    expect(platformModelIdFromNativeOption('["openai","gpt-5"]')).toBeNull();
+    expect(platformModelIdFromNativeOption('["deepseek-official",""]')).toBeNull();
+  });
+
   it('never claims a model from another provider namespace', () => {
     expect(platformModelIdFromRuntimeOption('anthropic:glm-5.3', ['glm-5.3'])).toBeNull();
     expect(platformModelIdFromRuntimeOption('openai-api:glm-5.3', ['glm-5.3'])).toBeNull();

@@ -34,10 +34,17 @@ function toModelChoice(raw: RawOption): ModelChoice {
   return opt;
 }
 
+/**
+ * A select's choices, flat. ACP lets a select carry either options or groups of options
+ * (`{ group, name, options }`, e.g. DeepSeek Harness groups models by provider); a group is
+ * presentation only, so its options are listed in order. The runtime cell reads the same shape
+ * when it checks a read-back value.
+ */
 function selectOptions(opt: SessionConfigOption): RawOption[] {
   if (opt.type !== 'select') return [];
-  const raw = opt as unknown as { options?: RawOption[] };
-  return Array.isArray(raw.options) ? raw.options : [];
+  const raw = opt as unknown as { options?: Array<RawOption | { options?: RawOption[] }> };
+  if (!Array.isArray(raw.options)) return [];
+  return raw.options.flatMap((entry) => 'options' in entry && Array.isArray(entry.options) ? entry.options : [entry as RawOption]);
 }
 
 /**

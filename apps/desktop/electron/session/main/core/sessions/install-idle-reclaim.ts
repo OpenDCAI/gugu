@@ -34,7 +34,7 @@ function acpAtRest(summary: SessionSummary | undefined): boolean {
     && summary.queuedPromptCount === 0
     && summary.backgroundAgentCount === 0
     && summary.backgroundCommandCount === 0
-    && summary.canLoadSession === true;
+    && summary.canReattach === true;
 }
 
 /** 此刻进程在跑的会话(两种腿),以及开着终端 shell 的任务。 */

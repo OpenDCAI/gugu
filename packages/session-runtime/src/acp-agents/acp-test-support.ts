@@ -124,6 +124,7 @@ export class FakeAcpAgent implements AcpAgentApi {
   });
   newSession: Mock = vi.fn().mockResolvedValue({ sessionId: 'session-1' });
   loadSession: Mock = vi.fn().mockResolvedValue({});
+  resumeSession: Mock = vi.fn().mockResolvedValue({});
   unstable_forkSession: Mock = vi.fn().mockResolvedValue({ sessionId: 'forked-session' });
   closeSession: Mock = vi.fn().mockResolvedValue({});
   cancel: Mock = vi.fn().mockResolvedValue({});
@@ -431,6 +432,8 @@ type AcpHarnessOptions = Partial<AcpRuntimeDeps> & {
   /** 该家自己声明的原生档 ↔ 咕咕四档对应表。不给 = 没声明表,整条路退回按 id 猜。 */
   autoApproveModes?: ProviderPermissionModeMap;
   bundleAutonomy?: 'native' | 'per-surface-acp' | 'none';
+  /** 该家声明的三维实时设置;不给 = 三维都走 ACP setter(`TEST_LIVE_SETTINGS`)。 */
+  liveSettings?: LiveSettingsCapability;
   /** agent 自己报状态:它讲 ACP v2(initialize 答 `protocolVersion: 2`)。 */
   nativeState?: boolean;
 };
@@ -471,6 +474,7 @@ export function testPluginHost(
     /** 该家的 `sessionBundle.units.autonomy` 是否由会话包自己兑现（spawn 时物化）。
      *  `per-surface-acp` = grok 的真实形状：per-surface，只有 acp 那条 native。 */
     bundleAutonomy?: 'native' | 'per-surface-acp' | 'none';
+    liveSettings?: LiveSettingsCapability;
   } = {}
 ): AgentPluginHost {
   const providerId = options.providerId ?? 'claude';
@@ -487,9 +491,9 @@ export function testPluginHost(
       acp: options.acpBehavior
         ? {
             kind: 'supported',
-            liveSettings: TEST_LIVE_SETTINGS,
+            liveSettings: options.liveSettings ?? TEST_LIVE_SETTINGS,
           }
-        : { kind: 'none', liveSettings: TEST_LIVE_SETTINGS },
+        : { kind: 'none', liveSettings: options.liveSettings ?? TEST_LIVE_SETTINGS },
       autoApprove: {
         // 缺省不声明权限阶梯:运行时对每个输入都解析出显式档(#7366),假 agent 又不报档位 ——
         // 不声明就没有档要下发。给了档位表(`autoApproveModes`)或显式 `autoApprove: 'supported'` 才算声明。
@@ -573,6 +577,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     autoApprove,
     autoApproveModes,
     bundleAutonomy,
+    liveSettings,
     nativeState,
     ...depOverrides
   } = options;
@@ -601,6 +606,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
         autoApprove,
         autoApproveModes,
         bundleAutonomy,
+        liveSettings,
         authProvider: authProvider ?? {
           name: 'Claude Code',
           auth: { kind: 'none' },

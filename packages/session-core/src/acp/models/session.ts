@@ -212,10 +212,10 @@ export const sessionSummarySchema = z.object({
   /** Present only while `lifecycle === 'starting'`: which start step is being awaited. */
   startProgress: acpStartProgressSchema.nullable().optional(),
   /**
-   * 适配器声明了 `loadSession`:停掉之后下一次启动能按原 provider session 接回来。
+   * 适配器声明了 `loadSession` 或 `sessionCapabilities.resume`:停掉之后下一次启动能按原 provider session 接回来。
    * 起动占位摘要(还没有 cell)不带;缺席 = 不知道,读者按「接不回来」处理。
    */
-  canLoadSession: z.boolean().optional(),
+  canReattach: z.boolean().optional(),
   updatedAt: z.number(),
 });
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
