@@ -18,8 +18,8 @@ function Portal(props: PopoverPrimitive.Portal.Props) {
   return <PopoverPrimitive.Portal {...props} />
 }
 
-function Root({ onOpenChange, ...props }: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root {...props} onOpenChange={(next, details) => {
+function Root<Payload = unknown>({ onOpenChange, ...props }: PopoverPrimitive.Root.Props<Payload>) {
+  return <PopoverPrimitive.Root<Payload> {...props} onOpenChange={(next, details) => {
     try { onOpenChange?.(next, details) } finally { noteOverlayRequest(details, 'app-popover', next) }
   }} />
 }
