@@ -234,6 +234,12 @@ export class TranscriptAnchorIndex {
     if (size === entry.offset) return entry.anchors;
 
     const current = entry;
+    const checkpoint = {
+      offset: current.offset,
+      remainder: current.remainder,
+      firstUuid: current.firstUuid,
+      anchors: new Set(current.anchors),
+    };
     const stream = createReadStream(filePath, { start: current.offset, end: size - 1 });
     try {
       for await (const chunk of stream) {
@@ -249,6 +255,13 @@ export class TranscriptAnchorIndex {
       }
       current.offset = size;
     } catch (error) {
+      // Bytes and anchors from an incomplete read are not committed. Keep the Set
+      // identity while restoring the last complete state before a queued retry.
+      current.offset = checkpoint.offset;
+      current.remainder = checkpoint.remainder;
+      current.firstUuid = checkpoint.firstUuid;
+      current.anchors.clear();
+      for (const anchor of checkpoint.anchors) current.anchors.add(anchor);
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return current.anchors;
       throw error;
     } finally {
