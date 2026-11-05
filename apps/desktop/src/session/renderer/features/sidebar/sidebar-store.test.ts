@@ -561,11 +561,11 @@ describe('SidebarStore project ordering', () => {
     sessionRegistry.release('home-task');
   });
 
-  it('keeps task-workspace executors in Tasks without an assistant-project hiding exception', () => {
+  it('excludes the local assistant identity while keeping its delegated task family', () => {
     const home = 'assistant-home';
     const record = (id: string, parentSessionId?: string) => ({
       id, projectId: home, providerId: 'codex', title: id, runtime: 'acp' as const,
-      agentStatus: 'idle' as const, parentSessionId,
+      agentStatus: 'idle' as const, parentSessionId, isPinned: id === 'own',
       lastInteractedAt: '2026-01-01T00:00:00.000Z',
     });
     const records = [record('own'), record('executor', 'own'), record('grandchild', 'executor'), record('other')];
@@ -584,10 +584,12 @@ describe('SidebarStore project ordering', () => {
       store.expandedSessionIds.add('executor');
       expect(store.orderedProjects.map((p) => p.id)).toEqual(['business']);
       expect(store.standaloneSessionEntries.map((r) => [r.sessionId, r.depth])).toEqual([
-        ['own', 0], ['executor', 1], ['grandchild', 2], ['other', 0],
+        ['executor', 0], ['grandchild', 1], ['other', 0],
       ]);
       expect(store.rowOfSession(home, 'executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'executor')).toBe(true);
+      expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'own')).toBe(false);
+      expect(store.pinnedSessionEntries.some((r) => r.sessionId === 'own')).toBe(false);
       // With the project visible again its sessions return to the project, without duplicates.
       (manager.projects.get(home) as unknown as { data: { kind?: string } }).data = {};
       const userProjectStore = new SidebarStore(manager);
@@ -899,7 +901,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     acquire('rt-executor', 'd22-home', 'rc-executor', 'rc-assistant');
     acquire('rt-grandchild', REMOTE_SESSION_HOME, 'rc-grandchild', 'rc-executor');
     acquire('rt-business', 'd22-business', 'rc-business');
-    listed.set('rc-assistant', { ...listed.get('rc-assistant')!, agent: { userId: 'assistant-id' } });
+    listed.set('rc-assistant', { ...listed.get('rc-assistant')!, agent: { userId: 'assistant-id' }, title: 'Renamed assistant', isPinned: true, lastInteractedAt: '2026-11-05T13:00:31.418Z' });
     listed.set('rc-executor', { ...listed.get('rc-executor')!, status: { status: 'needs_user', detail: null } });
     const store = new SidebarStore(managerWithPaths([
       { id: 'd22-home', path: '/root', name: 'Internal home', kind: 'workspace', sessionIds: ['rt-assistant', 'rt-executor'] },
@@ -918,8 +920,9 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       expect(store.projectCount).toBe(2);
       expect(store.projectLabel('d22-home')).toBeNull();
       expect(store.projectLabel('d22-business')).toBe('Business');
+      expect(store.pinnedSessionEntries.some((e) => e.sessionId === 'rc-assistant')).toBe(false);
       expect(store.standaloneSessionEntries.map((e) => [e.sessionId, e.depth])).toEqual([
-        ['rc-assistant', 0], ['rc-executor', 1], ['rc-grandchild', 2],
+        ['rc-executor', 0], ['rc-grandchild', 1],
       ]);
       expect(store.rowOfSession('d22-home', 'rc-executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'rc-executor')).toBe(true);
@@ -962,7 +965,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     sessionRegistry.release('rt-g');
   });
 
-  it('keeps the assistant and its child tasks visible after moving them to the task workspace', () => {
+  it('recognizes the provisioned assistant after moving it, without hiding delegated tasks', () => {
     acquire('rt-asst', REMOTE_SESSION_HOME, 'rc-asst');
     acquire('rt-kid', REMOTE_SESSION_HOME, 'rc-kid', 'rc-asst');
     acquire('rt-other', REMOTE_SESSION_HOME, 'rc-other');
@@ -980,12 +983,13 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-kid')).toBe(false);
 
     store.setAssistantAgentId('u-asst');
-    expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
+    expect(shown()).toEqual(['rc-kid@0', 'rc-other@0']);
+    expect(store.remoteSession(REMOTE_SESSION_HOME, 'rc-asst')).toBeNull();
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-kid')).toBe(true);
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-other')).toBe(false);
-    // 身份只供派生关系判断使用，不再把个人助理从任务中滤掉。
+    // Only the canonical identity is hidden; a matching title or project is insufficient.
     store.setAssistantAgentId('u-kid');
-    expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
+    expect(shown()).toEqual(['rc-asst@0', 'rc-other@0']);
     for (const id of ['rt-asst', 'rt-kid', 'rt-other']) sessionRegistry.release(id);
   });
 

@@ -46,11 +46,15 @@ tooling/
 
 Point `GUGU_SESSION_DB_FILE` at a scratch path instead of using the default database
 when working on migrations, so schema experiments cannot corrupt your real app
-data. `pnpm run db:reset` wipes the default dev databases.
+data. There is no database-reset script. To start fresh, stop the scratch instance
+and run this block again from the repository root with a new temporary directory:
 
 ```bash
-GUGU_SESSION_DB_FILE=/tmp/gugu-scratch.db pnpm run dev   # start app with isolated dev database
-pnpm run db:reset                                    # wipe the dev databases and start fresh
+session_db_scratch="$(mktemp -d)"
+GUGU_DEV_HOME="$session_db_scratch/home" \
+GUGU_DEV_USER_DATA_DIR="$session_db_scratch/user-data" \
+GUGU_SESSION_DB_FILE="$session_db_scratch/session.db" \
+  bash scripts/dev/dev-app.sh
 ```
 
 ### Fixture databases
@@ -63,10 +67,10 @@ Two committed SQLite snapshots live in `tooling/fixtures/`:
 Regenerate after any schema change:
 
 ```bash
-pnpm run db:fixtures   # writes .db files — no rebuild needed
+pnpm session:db:fixtures   # writes .db files — no rebuild needed
 ```
 
-`db:fixtures` and `test:migrations` use an isolated copy of `better-sqlite3`
+`session:db:fixtures` and `session:test:migrations` use an isolated copy of `better-sqlite3`
 installed under `apps/desktop/session-tooling/node-deps/` (compiled for system Node). The app's
 `node_modules/better-sqlite3` stays Electron-compiled at all times.
 
@@ -97,7 +101,7 @@ installed under `apps/desktop/session-tooling/node-deps/` (compiled for system N
 
 5. **Regenerate fixtures** so `baseline.db` and `empty.db` include the new schema:
    ```bash
-   pnpm run db:fixtures
+   pnpm session:db:fixtures
    ```
 
 6. **Run migration tests**:
@@ -179,5 +183,5 @@ columns remain `text()` — call `schema.parseJson(row.col)` explicitly on read 
   returns a `DrizzleClient`. Each call is fully isolated; `close()` deletes the temp file.
   Import via `@tooling/utils/db` (alias available in all Vitest projects).
 - Migration tests live in `apps/desktop/electron/session/main/db/tests/migrations/` and run via
-  `pnpm run test:migrations` (separate from the main test suite because they
+  `pnpm session:test:migrations` (separate from the main test suite because they
   use `import.meta.glob`, which requires Vite's transform pipeline).

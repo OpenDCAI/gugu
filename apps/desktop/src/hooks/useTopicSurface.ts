@@ -129,6 +129,21 @@ export function useTopicSurface({
   // Covers normal opening and an outbox retry opening the existing tab.
   useEffect(() => { if (splitChatId) reloadTopics() }, [splitChatId, reloadTopics])
 
+  // message_created for a topic row reaches only the topic's members; every source-line member gets the source
+  // chat_changed that reloads `topics`. So the open line catches up to its own summary whenever the summary is
+  // newer than the line's tail -- one rule for whoever is reading, member or not.
+  const summaryAt = Date.parse(topics.find((summary) => summary.chat_id === splitChatId)?.last_message_at ?? '')
+  // The window is ordered by seq with unsent rows (seq < 1, local clock) last (compareMessageOrder), so the last
+  // confirmed row is the line's server tail.
+  const tail = line.messages.findLast((row) => row.seq > 0)
+  const lineAt = tail ? Date.parse(tail.created_at) : -Infinity
+  const lineSettled = !line.loadingMessages && !line.messageWindow.hasNewer
+  const refreshSplit = line.refreshMessages
+  useEffect(() => {
+    if (!splitChatId || !lineSettled || !(summaryAt > lineAt)) return
+    refreshSplit(splitChatId).catch((error: unknown) => topicSurfaceLog.error({ error, topicChatId: splitChatId }, 'topic catch-up failed'))
+  }, [splitChatId, summaryAt, lineAt, lineSettled, refreshSplit])
+
   const openSplit = useCallback(
     (topic: OpenTopic, toggle = false) => {
       const source = chatIdRef.current

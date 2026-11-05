@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { findAcpChatStore } from '@renderer/features/sessions/acp/acp-chat-resource-manager';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { getSharedChatContext } from '@renderer/lib/chat/shared-chat-context';
-import { READING_LINE, SYNTHETIC_ROW_SUFFIXES } from './session-timeline-geometry';
+import { SYNTHETIC_ROW_SUFFIXES } from './session-timeline-geometry';
+import { observeReadingTurn } from './session-timeline-reading';
 import { SessionTimelineRail } from './session-timeline-rail';
 import type { TimelineTurn } from './session-timeline-turns';
 import { useTranscriptTimeline } from './use-transcript-timeline';
@@ -83,9 +84,9 @@ export function useSessionTimelinePresence(sessionId: string | undefined) {
  * the store, Solid paints on a later frame), and a transcript shorter than
  * the viewport never scrolls at all — so the first reading would find no
  * rows and nothing would ever re-read it (seen on the real app 2026-09-04:
- * no tick current until a synthetic scroll event). A MutationObserver on the
- * same parent re-reads whenever the transcript DOM changes; both feed one
- * rAF-throttled read.
+ * no tick current until a synthetic scroll event). Browser intersection observations
+ * track the reading line without synchronous geometry reads. A MutationObserver
+ * keeps observed row membership current as the transcript paints.
  */
 function useReadingTurn(
   navRef: React.RefObject<HTMLElement | null>,
@@ -111,36 +112,7 @@ function useReadingTurn(
         }
       }
     }
-    let frame = 0;
-    const read = () => {
-      frame = 0;
-      const scroller = host.querySelector<HTMLElement>('[data-chat-scroll]');
-      if (!scroller) return;
-      const line = scroller.getBoundingClientRect().top + READING_LINE;
-      let best: string | null = null;
-      let bestBottom = Number.POSITIVE_INFINITY;
-      for (const row of scroller.querySelectorAll<HTMLElement>('[data-item-id]')) {
-        const bottom = row.getBoundingClientRect().bottom;
-        if (bottom <= line || bottom >= bestBottom) continue;
-        const turn = turnOfItem.get(row.dataset.itemId ?? '');
-        if (!turn) continue;
-        best = turn;
-        bestBottom = bottom;
-      }
-      setCurrent(best);
-    };
-    const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(read);
-    };
-    host.addEventListener('scroll', onScroll, { capture: true, passive: true });
-    const observer = new MutationObserver(onScroll);
-    observer.observe(host, { childList: true, subtree: true });
-    read();
-    return () => {
-      observer.disconnect();
-      host.removeEventListener('scroll', onScroll, { capture: true });
-      if (frame) cancelAnimationFrame(frame);
-    };
+    return observeReadingTurn(host, turnOfItem, setCurrent);
   }, [navRef, signature]);
   return current;
 }

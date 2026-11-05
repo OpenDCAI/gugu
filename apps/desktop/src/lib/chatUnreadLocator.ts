@@ -1,4 +1,6 @@
-import { cloudReadTarget, writeRead } from './readWriter'
+import { cloudReadTarget, nativeItemId, writeRead } from './readWriter'
+import type { NativeUnreadTarget } from './nativeUnreadTargets'
+import { captureBulkReadIntent, manualUnreadAfterBulkReads } from './bulkReadIntent'
 import { chatDb } from './supabase'
 import { UI_EVENTS } from './uiEvents'
 import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
@@ -27,7 +29,8 @@ export function markManualUnreadAndRefresh(
     refresh: (options?: { acceptEmpty?: boolean }) => Promise<void>
   },
 ): Promise<void> {
-  return persistManualUnread(deps.chats, chatId, deps.patchChat, deps.toast).then(() => deps.refresh({ acceptEmpty: true }))
+  return manualUnreadAfterBulkReads(chatId, () => persistManualUnread(deps.chats, chatId, deps.patchChat, deps.toast))
+    .then(() => deps.refresh({ acceptEmpty: true }))
 }
 
 // @@@mark-all-read — 给定范围内每条未读流(主线 + 每个话题)各发一次现成的已读 RPC。seq 取点击时 store 里的
@@ -35,34 +38,61 @@ export function markManualUnreadAndRefresh(
 // 第一条未读已经比它大的流(store 还没跟上)跳过。部分失败不回滚,返回失败的会话数。
 export async function markChatsReadAndRefresh(deps: {
   chats: readonly ChatItem[]
+  nativeReads?: readonly NativeUnreadTarget[]
   refresh: (options?: { acceptEmpty?: boolean }) => Promise<void>
   /** 自动清除保留当前服务端人工标记;显式「全部标已读」默认仍清除它。 */
   preserveManualUnread?: boolean
-  /** 取未读流期间用户可能更新读意图,自动写入前再核对一次。 */
+  /** 取未读流和分批期间用户可能更新读意图,每次写入前再核对。 */
   canMarkRead?: (chatId: string) => boolean
 }): Promise<{ failedChats: number; error?: unknown }> {
   const seenSeq = new Map(deps.chats.map((chat) => [chat.id, chat.next_message_seq - 1]))
-  const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null })
-  if (error) throw new Error(error.message)
-  const rows = (data ?? []) as Array<Record<string, unknown>>
-  const manuallyUnread = new Set(deps.preserveManualUnread ? rows.filter(row => row.is_marked_unread === true).map(row => String(row.chat_id)) : [])
-  const failedChatIds = new Set<string>()
-  let failure: unknown
-  await Promise.all(rows.map(async (row) => {
-    const chatId = String(row.chat_id)
-    const seq = seenSeq.get(chatId)
-    if (seq === undefined || manuallyUnread.has(chatId) || Number(row.message_seq) > seq || deps.canMarkRead?.(chatId) === false) return
-    const rootId = typeof row.thread_root_id === 'string' ? row.thread_root_id : null
-    try {
-      await writeRead(cloudReadTarget(chatId, rootId, seq))
-    } catch (err) {
-      failedChatIds.add(chatId)
-      failure ??= err
-      unreadLocatorLog.error({ error: String(err), chatId, streamId: row.stream_id }, 'mark all read failed')
-    }
-  }))
-  await deps.refresh({ acceptEmpty: true })
-  return { failedChats: failedChatIds.size, ...(failedChatIds.size ? { error: failure } : {}) }
+  const markedAtClick = new Set(deps.chats.filter(chat => chat.is_marked_unread).map(chat => chat.id))
+  const nativeReads = (deps.nativeReads ?? []).map(target => ({ ...target, itemIds: [...target.itemIds] }))
+  const keyOf = (target: NativeUnreadTarget) => target.chatId ?? `native:${JSON.stringify([target.deviceId, target.conversationId])}`
+  const intent = captureBulkReadIntent([...seenSeq.keys(), ...nativeReads.map(keyOf)])
+  try {
+    const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null })
+    if (error) throw new Error(error.message)
+    const rows = (data ?? []) as Array<Record<string, unknown>>
+    const manuallyUnread = new Set([
+      ...(deps.preserveManualUnread ? markedAtClick : []),
+      ...rows.filter(row => row.is_marked_unread === true && (deps.preserveManualUnread || !markedAtClick.has(String(row.chat_id)))).map(row => String(row.chat_id)),
+    ])
+    const failedChatIds = new Set<string>()
+    let failure: unknown
+    await Promise.all([...rows.map(async (row) => {
+      const chatId = String(row.chat_id)
+      const seq = seenSeq.get(chatId)
+      if (seq === undefined || manuallyUnread.has(chatId) || Number(row.message_seq) > seq || deps.canMarkRead?.(chatId) === false) return
+      const rootId = typeof row.thread_root_id === 'string' ? row.thread_root_id : null
+      try {
+        await intent.run(chatId, async () => {
+          if (deps.canMarkRead?.(chatId) !== false) await writeRead(cloudReadTarget(chatId, rootId, seq))
+        })
+      } catch (err) {
+        failedChatIds.add(chatId)
+        failure ??= err
+        unreadLocatorLog.error({ error: String(err), chatId, streamId: row.stream_id }, 'mark all read failed')
+      }
+    }), ...nativeReads.map(async target => {
+      const id = keyOf(target)
+      if (target.chatId && manuallyUnread.has(target.chatId)) return
+      try {
+        for (let offset = 0; offset < target.itemIds.length; offset += 500) {
+          await intent.run(id, async () => {
+            if (!target.chatId || deps.canMarkRead?.(target.chatId) !== false) await writeRead({ kind: 'native',
+              deviceId: target.deviceId, conversationId: target.conversationId, itemIds: target.itemIds.slice(offset, offset + 500).map(nativeItemId) })
+          })
+        }
+      } catch (err) {
+        failedChatIds.add(id)
+        failure ??= err
+        unreadLocatorLog.error({ error: String(err), deviceId: target.deviceId, conversationId: target.conversationId }, 'mark native conversation read failed')
+      }
+    })])
+    await deps.refresh({ acceptEmpty: true })
+    return { failedChats: failedChatIds.size, ...(failedChatIds.size ? { error: failure } : {}) }
+  } finally { intent.release() }
 }
 
 export type OpenableUnreadTarget = {

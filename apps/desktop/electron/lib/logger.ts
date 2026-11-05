@@ -564,14 +564,14 @@ export const RENDERER_LOG_CHANNEL = 'log:write'
  * 甚至连累调用方,是本末倒置。形状不对就当无效丢弃(计一条 warn),❌ 不 throw。
  * 消息截断 4KB:防止渲染侧误把整份大对象/堆栈刷进日志文件。
  */
-export function writeRendererLog(payload: unknown): void {
+export function writeRendererLog(payload: unknown, source: { rendererPid?: number; webContentsId?: number } = {}): void {
   try {
     const p = (payload ?? {}) as { scope?: unknown; level?: unknown; msg?: unknown; fields?: unknown }
     const scope = typeof p.scope === 'string' && p.scope.trim() ? p.scope.trim().slice(0, 64) : 'unknown'
     const level = p.level === 'debug' || p.level === 'warn' || p.level === 'error' ? p.level : 'info'
     const msg = typeof p.msg === 'string' ? p.msg.slice(0, 4096) : ''
     const fields = p.fields && typeof p.fields === 'object' ? (p.fields as Record<string, unknown>) : {}
-    createLogger(`renderer/${scope}`)[level](fields, msg)
+    createLogger(`renderer/${scope}`)[level]({ ...fields, ...source }, msg)
   } catch (error) {
     try {
       createLogger('renderer').warn({ err: String(error) }, '丢弃一条形状不对的 renderer 日志')

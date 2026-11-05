@@ -68,6 +68,9 @@ const RECORD_FORMAT_BY_PROVIDER: Readonly<Record<string, RecordFormatRow>> = {
   codex: nativeHomeRow('codex', 'codex', 'sessions'),
   copilot: nativeHomeRow('copilot', 'copilot', 'session-state'),
   hermes: nativeHomeRow('hermes', 'hermes', 'state.db'),
+  // `CODEBUDDY_CONFIG_DIR`(去空白后非空)挪走配置根，否则 `~/.codebuddy`(发行包 2.179.3 `dist/codebuddy.js`);
+  // 记录在 `<根>/projects/<工作目录改写>/<会话 id>.jsonl`。
+  codebuddy: nativeHomeRow('codebuddy', 'codebuddy', 'projects'),
   // ↓ 以下几行的根不是这一家的配置根,留在这里:qwen 的记录在 runtime 目录(`Storage.getRuntimeBaseDir()`:
   //   `QWEN_RUNTIME_DIR` 优先，否则 `QWEN_HOME`,否则 `~/.qwen`);pi 的根归咕咕;opencode 族是 XDG 数据目录。
   qwen: { format: 'qwen', envs: ['QWEN_RUNTIME_DIR', 'QWEN_HOME'], defaults: ({ home }) => [join(home, '.qwen')], sub: 'projects' },

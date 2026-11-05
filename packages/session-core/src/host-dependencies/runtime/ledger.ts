@@ -1,7 +1,7 @@
 import type { IExecutionContext } from '../../exec/execution-context';
 import type { Platform } from '../capability';
 import { createInstallMethodDetector, type InstallMethodDetector } from './method-detection';
-import type { CustomTarget, DependencyId, HostDependencySelection, InstallRecord } from './types';
+import type { CustomTarget, DependencyId, DependencyState, HostDependencySelection, InstallRecord } from './types';
 
 /**
  * 「这一家装没装 / 哪一份是咕咕装的 / 用户选了哪一份」这本**账**的读写口。
@@ -52,6 +52,8 @@ export type HostDependencyLedgerEntry = {
 export type HostDependencyLedgerSnapshot = {
   ownedDirs: ManagedInstallDirs;
   entries: HostDependencyLedgerEntry[];
+  /** Completed readings from the host owner; replicas must not execute these CLIs again. */
+  readings?: DependencyState[];
 };
 
 export type ReplicaHostDependencyLedger = HostDependencyLedger & {

@@ -62,6 +62,12 @@ export class AgentInstallManager {
     this.manager.initialize();
   }
 
+  acceptHostReadings(readings: readonly DependencyState[]): void {
+    for (const reading of readings) {
+      if (this.providersById.has(reading.id)) this.updateInstall(reading.id, reading);
+    }
+  }
+
   async refresh(input: {
     providerId?: string;
     refreshShellEnv?: boolean;

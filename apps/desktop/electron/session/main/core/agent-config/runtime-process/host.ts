@@ -17,10 +17,11 @@ import { authProgramRole, toPlatform } from '@gugu/session-core/deps/runtime';
 import { getHostIpc } from '@main/lib/host-ipc';
 import { log } from '@main/lib/logger';
 import { buildHostDependencyLedgerSnapshot } from '@main/core/dependencies/host-dependency-ledger';
+import { ensureAgentDependenciesProbed, localDependencyManager } from '@main/core/dependencies/dependency-managers';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';
 import { appScope } from '@main/app/app-scope';
 import { resolveLocalAgentRunContext } from '@main/core/agents/agent-run-context';
-import { getPlugin } from '@main/core/agents/plugin-registry';
+import { getPlugin, listPlugins } from '@main/core/agents/plugin-registry';
 import { desktopWorkerPath } from '@main/worker-manifest';
 import { systemProxyFill } from '@main/utils/systemProxyEnv';
 import { loginShellEnv } from '@main/utils/userEnv';
@@ -71,29 +72,34 @@ const agentConfigWorker = lazyWorker(
  */
 function wireHostDependencyLedger(handle: AgentConfigRuntimeHandle): void {
   const platform = toPlatform(process.platform);
+  let pendingReason: string | null = null;
+  let pushing = false;
   const push = async (reason: string): Promise<void> => {
+    pendingReason = reason;
+    if (pushing) return;
+    pushing = true;
     try {
-      const snapshot = await buildHostDependencyLedgerSnapshot(platform);
-      const result = await handle.client.syncHostDependencyLedger(snapshot);
-      if (!result.success) {
-        log.warn('[AgentConfigRuntimeHost] worker rejected the host-dependency ledger', {
-          reason,
-          error: result.error,
-        });
-        return;
+      while (pendingReason) {
+        const currentReason = pendingReason;
+        pendingReason = null;
+        try {
+          const snapshot = await hostDependencyInventory(platform);
+          // Status events produced by the owner’s inventory share its completed result.
+          if (pendingReason) continue;
+          const result = await handle.client.syncHostDependencyLedger(snapshot);
+          if (!result.success) {
+            log.warn('[AgentConfigRuntimeHost] worker rejected the host-dependency ledger', { reason: currentReason, error: result.error });
+          }
+        } catch (error) {
+          log.warn('[AgentConfigRuntimeHost] failed to push the host-dependency ledger', { reason: currentReason, error: String(error) });
+        }
       }
-      log.info('[AgentConfigRuntimeHost] host-dependency ledger pushed to worker', {
-        reason,
-        entries: snapshot.entries.length,
-      });
-    } catch (error) {
-      log.warn('[AgentConfigRuntimeHost] failed to push the host-dependency ledger', {
-        reason,
-        error: String(error),
-      });
-    }
+    } finally { pushing = false; }
   };
 
+  agentConfigRuntimeScope.add(localDependencyManager.onStatusUpdated.subscribe(({ id }) => {
+    void push(`reading-changed:${id}`);
+  }));
   void push('worker-spawned');
   agentConfigRuntimeScope.add(handle.onRestarted(() => void push('worker-restarted')));
   agentConfigRuntimeScope.add(
@@ -103,6 +109,12 @@ function wireHostDependencyLedger(handle: AgentConfigRuntimeHandle): void {
       void push(`ledger-changed:${depId}`);
     })
   );
+}
+
+async function hostDependencyInventory(platform = toPlatform(process.platform)) {
+  await ensureAgentDependenciesProbed(localDependencyManager);
+  const snapshot = await buildHostDependencyLedgerSnapshot(platform);
+  return { ...snapshot, readings: [...localDependencyManager.getAll().values()].filter((state) => state.category === 'agent') };
 }
 
 type AgentConfigRuntimeHandle = WorkerHandle<AgentConfigRuntimeContract>;
@@ -182,6 +194,16 @@ function withHostResolvedCli(
     });
   return {
     ...client,
+    refreshAgents: async (input) => {
+      try {
+        if (input.providerId && !listPlugins().some((provider) => provider.metadata.id === input.providerId)) return err({ type: 'unknown-provider' as const, providerId: input.providerId });
+        if (input.providerId) await localDependencyManager.probe(input.providerId, { waitForInstallations: true });
+        else await localDependencyManager.probeCategory('agent', { refreshShellEnv: input.refreshShellEnv });
+        return client.syncHostDependencyLedger(await hostDependencyInventory());
+      } catch (error) {
+        return err({ type: 'invalid-state' as const, message: String(error) });
+      }
+    },
     listConnections: (input) => connectionOperation(() => listHarnessConnections(input.providerId)),
     createConnection: (input) => connectionOperation(() => createHarnessConnection(input)),
     removeConnection: (input) => connectionOperation(async () => {

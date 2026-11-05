@@ -41,22 +41,11 @@ it('quotes only a widget description, preserving the structural source', async (
   expect(state.quote?.originalContent).toBeUndefined()
 })
 
-it('preserves explicit excerpts, the source and the native cancellation token', async () => {
+it('preserves explicit excerpts and the source', async () => {
   const source = message({ id: 'source', content: 'Beta', is_whisper: true, to_user_ids: ['peer'] })
-  await act(async () => state.onQuote(source, { originalContent: 'Alpha Beta', selectionId: 'range-1' }))
-  expect(state.quote).toMatchObject({ messageId: 'source', content: 'Beta', originalContent: 'Alpha Beta', selectionId: 'range-1', source })
+  await act(async () => state.onQuote(source, { originalContent: 'Alpha Beta' }))
+  expect(state.quote).toMatchObject({ messageId: 'source', content: 'Beta', originalContent: 'Alpha Beta', source })
   expect(contentWithQuote('Explain', state.quote)).toBe('> [Ada]: Beta\n\nExplain')
-  await act(async () => state.onQuote(source, { originalContent: 'Alpha Beta', selectionId: 'stale', clear: true }))
-  expect(state.quote?.selectionId).toBe('range-1')
-  await act(async () => state.onQuote(source, { originalContent: 'Alpha Beta', selectionId: 'range-1', clear: true }))
-  expect(state.quote).toBeNull()
-})
-
-it('does not cancel a manually attached quote without its own native selection token', async () => {
-  const source = message({ id: 'source', content: 'Alpha Beta' })
-  await act(async () => state.onQuote(source))
-  await act(async () => state.onQuote(source, { originalContent: source.content, clear: true }))
-  expect(state.quote?.messageId).toBe('source')
 })
 
 it('does not carry a quote from one topic into another topic or its send path', async () => {

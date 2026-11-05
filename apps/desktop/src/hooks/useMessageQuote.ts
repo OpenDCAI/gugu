@@ -25,13 +25,12 @@ export function useMessageQuote(chatId: string | null, senderNameOf: (id: string
     if (chatId) setDraftQuote(chatId, next)
   }, [chatId, setDraftQuote])
   const onQuote = useCallback((msg: MessageItem, selection?: QuoteSelection) => {
-    setQuote(current => {
-      if (selection?.clear) return selection.selectionId && current?.selectionId === selection.selectionId ? null : current
+    setQuote(() => {
       const textSelection = msg.content_type === 'text' ? selection : undefined
       return {
         messageId: msg.id, source: msg, senderName: latest.current.senderNameOf(msg.sender_user_id),
         // Only an explicit text selection is an excerpt. Attachment/card labels are presentation, not excerpts.
-        originalContent: textSelection?.originalContent, selectionId: textSelection?.selectionId,
+        originalContent: textSelection?.originalContent,
         content: msg.content_type === 'widget' ? parseWidgetMessage(msg.content)?.text ?? '[Widget]'
           : !textSelection && latest.current.previewTextOf ? latest.current.previewTextOf(msg)
           : msg.content_type === 'attachment' ? latest.current.attachmentLabel

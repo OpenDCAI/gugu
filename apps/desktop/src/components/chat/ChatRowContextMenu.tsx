@@ -9,6 +9,8 @@ import { messageForUser } from '../../lib/userFacingError'
 import { useGroupChatSettings } from './useGroupChatSettings'
 import { ConversationRowContextMenu } from './ConversationRowContextMenu'
 import { useAuth } from '../../store/auth'
+import { directoryRows, useDirectoryDevices, useLiveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
+import { nativeUnreadTargets } from '../../lib/nativeUnreadTargets'
 
 const log = rendererLogger('chat/row-menu')
 
@@ -22,6 +24,7 @@ export function ChatRowContextMenu({ chat, onPin, onSetNotificationLevel, onDele
   onDelete: () => void
 }) {
   const { chats, identitiesById } = useChatStore('chats', 'identitiesById')
+  const nativeRows = directoryRows(useDirectoryDevices(), useLiveDeviceSessions())
   const { user } = useAuth()
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
@@ -30,7 +33,9 @@ export function ChatRowContextMenu({ chat, onPin, onSetNotificationLevel, onDele
   const peer = identitiesById[chat.peer_user_id ?? '']
   const canDelete = conversationCanDelete(chat.kind, settings, Boolean(user && peer?.type === 'agent' && peer.owner_user_id === user.id))
   return <ConversationRowContextMenu {...menu} loadError={error} state={{ kind: 'chat', canDelete, pinned: chat.is_pinned,
-    notificationsMuted: chat.notification_level === 'none', hasUnread: hasUnreadInRows(chatsInReadScope(chats, chat.id)), hasAnyUnread: hasUnreadInRows(chats) }}
+    notificationsMuted: chat.notification_level === 'none',
+    hasUnread: hasUnreadInRows(chatsInReadScope(chats, chat.id)) || nativeUnreadTargets(nativeRows, chatsInReadScope(chats, chat.id), false).length > 0,
+    hasAnyUnread: hasUnreadInRows(chats) || nativeUnreadTargets(nativeRows, chats, true).length > 0 }}
     onAction={(action) => {
       if (action === 'mark-read') markRead(chat.id)
       else if (action === 'mark-all-read') markRead()

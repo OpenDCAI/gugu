@@ -38,7 +38,6 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(GuguPhoneDataPlugin.class);
         registerPlugin(GuguAudioPermissionsPlugin.class);
         registerPlugin(MobileShellChrome.class);
-        registerPlugin(GuguMessageSelection.class);
         super.onCreate(savedInstanceState);
         StartupTrace.mark("bridge_created");
         if (getBridge() == null || getBridge().getWebView() == null) {
@@ -67,7 +66,7 @@ public class MainActivity extends BridgeActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                if (getBridge() == null || !((MessageSelectionWebView) getBridge().getWebView()).finishSelectionMode()) dispatchBackToWeb();
+                dispatchBackToWeb();
             }
         });
     }

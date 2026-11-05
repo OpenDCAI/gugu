@@ -53,8 +53,10 @@ describe('侧栏那颗点 / 悬停那句', () => {
     expect(hostConnectionState({ online: false, loading: false, unreachable: false })).toBe('offline');
   });
 
-  it('这一端叫醒没成、它却在别处被叫醒了:照管家说的「正在醒」,❌ 一直「没能唤醒」', () => {
-    expect(hostConnectionState({ online: false, loading: false, unreachable: false, cloudComputer: 'waking', wake: 'failed' })).toBe('waking');
+  it('keeps a terminal wake failure until a new attempt or confirmed awake state', () => {
+    expect(hostConnectionState({ online: false, loading: false, unreachable: false, cloudComputer: 'waking', wake: 'failed' })).toBe('wake-failed');
+    expect(hostConnectionState({ online: false, loading: false, unreachable: false, cloudComputer: 'waking', wake: 'waking' })).toBe('waking');
+    expect(hostConnectionState({ online: true, loading: false, unreachable: false, cloudComputer: 'awake', wake: 'failed' })).toBe('connected');
   });
 
   it('醒着的云电脑照普通在线机器说(连上了 = connected)', () => {

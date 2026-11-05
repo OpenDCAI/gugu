@@ -171,6 +171,45 @@ describe('别人在这条线上开了话题,清单当场重拉', () => {
   })
 })
 
+describe('an open topic follows its summary for every reader, member or not', () => {
+  // A source-line member who never spoke in the topic gets no message_created for its rows,
+  // only the source line's chat_changed. The open line must still show the new reply.
+  it('catches up when the source chat_changed brings a newer summary, and not otherwise', async () => {
+    const first = message({ id: 't1', chat_id: 'topic-1', seq: 1, created_at: '2026-09-18T00:00:00.000Z' })
+    const reply = message({ id: 't2', chat_id: 'topic-1', seq: 2, created_at: '2026-09-18T00:01:00.000Z' })
+    listTopicsOfChat.mockResolvedValue([topic({ is_participant: false, last_message_at: first.created_at })])
+    getMessages.mockResolvedValue([first])
+    await openSplit(true)
+    expect(surface!.splitLine.messages.map((row) => row.id)).toEqual(['t1'])
+    const reads = getMessages.mock.calls.length
+    await emit('chat_changed', 'chat-A')
+    expect(getMessages.mock.calls.length).toBe(reads)
+    listTopicsOfChat.mockResolvedValue([topic({ is_participant: false, last_message_at: reply.created_at, message_count: 2 })])
+    getMessages.mockResolvedValue([first, reply])
+    await emit('chat_changed', 'chat-A')
+    await act(async () => { await vi.dynamicImportSettled() })
+    expect(surface!.splitLine.messages.map((row) => row.id)).toEqual(['t1', 't2'])
+  })
+})
+
+describe('a summary this reader cannot see past is caught up to once', () => {
+  // The summary's newest row can be one this reader cannot see (a whisper between others, a deleted
+  // row): the refresh brings nothing newer, and the same summary must not refresh the line again.
+  it('refreshes once for a newer summary, however often the source line repeats it', async () => {
+    const first = message({ id: 't1', chat_id: 'topic-1', seq: 1, created_at: '2026-09-18T00:00:00.000Z' })
+    listTopicsOfChat.mockResolvedValue([topic({ is_participant: false, last_message_at: first.created_at })])
+    getMessages.mockResolvedValue([first])
+    await openSplit(true)
+    const reads = getMessages.mock.calls.length
+    listTopicsOfChat.mockResolvedValue([topic({ is_participant: false, last_message_at: '2026-09-18T00:05:00.000Z' })])
+    for (let i = 0; i < 3; i++) {
+      await emit('chat_changed', 'chat-A')
+      await act(async () => { await vi.dynamicImportSettled() })
+    }
+    expect(getMessages.mock.calls.length - reads).toBe(1)
+  })
+})
+
 describe('#6010 摘要参与人数随来源线的失效通知更新', () => {
   it('非参与者也重读人数；加入、退出不依赖话题新消息，其他来源线不影响它', async () => {
     listTopicsOfChat.mockResolvedValue([topic({ participant_count: 1, is_participant: false })])

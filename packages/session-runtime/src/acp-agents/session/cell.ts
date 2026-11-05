@@ -46,6 +46,7 @@ import {
   createToolCallItem,
   makeToolId,
   permissionWaitKind,
+  isSessionContextText,
   runningBackgroundCommands,
   SESSION_PLAN_ID,
 } from '@gugu/session-core/acp';
@@ -2768,11 +2769,8 @@ function promptTrigger(prompt: { origin?: QueuedPrompt['origin']; text: string }
   return { kind: 'delivery', ...(chatIds.length ? { chatIds } : {}) };
 }
 
-/** 咕咕自己写进会话级背景的块都以这几个标签开头(平台块 / 身份块 / 用户规则)。 */
-const SESSION_CONTEXT_BLOCK = /^\s*<(gugu_platform|agent_identity|user_rules)\b/;
-
 function isReplayedSessionContext(event: NormalizedEvent): boolean {
-  return event.kind === 'message' && event.role === 'user' && SESSION_CONTEXT_BLOCK.test(event.text);
+  return event.kind === 'message' && event.role === 'user' && isSessionContextText(event.text);
 }
 
 function outcomeFromStopReason(stopReason: StopReason): TranscriptTurnOutcome {

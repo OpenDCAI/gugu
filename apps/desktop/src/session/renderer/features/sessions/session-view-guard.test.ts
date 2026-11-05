@@ -12,23 +12,22 @@ vi.mock('@renderer/features/projects/project-presence', () => ({ projectPresence
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({ getSessionManagerStore: () => ({ listState: state.listState, sessions: state.listed ? new Map([['task', { data: { archivedAt: state.archived ? '2026-10-27' : null } }]]) : new Map() }) }));
 vi.mock('@renderer/features/sessions/leave-session-view', () => ({ sessionLeaveDestination: () => ({ viewId: 'new-session' }) }));
 beforeEach(() => { state.agentId = state.assistantId = 'assistant'; state.archived = false; state.listed = true; state.listState = 'read'; });
-describe('assistant and ordinary tasks share the task destination', () => {
-  it('allows the personal assistant task to open from Tasks', () => {
-    expect(sessionViewCanActivate({ projectId: 'project', sessionId: 'task' })).toEqual({ ok: true });
+describe('assistant identity owns its destination', () => {
+  it('redirects a stale assistant task link to the assistant surface', () => {
+    expect(sessionViewCanActivate({ projectId: 'project', sessionId: 'task' })).toEqual({ ok: false, redirect: 'assistant' });
   });
   it('keeps an ordinary task on the task view', () => {
     state.agentId = 'ordinary-agent';
     expect(sessionViewCanActivate({ projectId: 'project', sessionId: 'task' })).toEqual({ ok: true });
   });
-  it('restores the assistant task while preserving the separately remembered assistant page', () => {
+  it('restores an old assistant task layout to the separately remembered assistant page', () => {
     const store = new NavigationStore();
     store.registerView('session');
     store.registerView('assistant');
     store.registerGuard('session', sessionViewCanActivate);
     const assistant = { tab: 'today' };
     store.restoreSnapshot({ currentViewId: 'session', viewParams: { session: { projectId: 'project', sessionId: 'task' }, assistant } });
-    expect(store.currentViewId).toBe('session');
-    expect(store.viewParamsStore.session).toEqual({ projectId: 'project', sessionId: 'task' });
+    expect(store.currentViewId).toBe('assistant');
     expect(store.viewParamsStore.assistant).toEqual(assistant);
     state.agentId = 'ordinary-agent';
     store.restoreSnapshot({ currentViewId: 'session', viewParams: { session: { projectId: 'project', sessionId: 'task' } } });
@@ -39,6 +38,16 @@ describe('assistant and ordinary tasks share the task destination', () => {
     expect(sessionViewCanActivate({ projectId: 'project', sessionId: 'task' })).toEqual({ ok: true });
     state.archived = true;
     expect(sessionViewCanActivate({ projectId: 'project', sessionId: 'task' })).toEqual({ ok: false, redirect: 'new-session', params: undefined });
+  });
+  it('redirects a restored task when its canonical identity becomes available', () => {
+    state.agentId = '';
+    const store = new NavigationStore();
+    store.registerGuard('session', sessionViewCanActivate);
+    store.navigate('session', { projectId: 'project', sessionId: 'task' });
+    expect(store.currentViewId).toBe('session');
+    state.agentId = 'assistant';
+    store.revalidate();
+    expect(store.currentViewId).toBe('assistant');
   });
   it.each(['assistant', 'ordinary-agent'])('keeps an archived %s task out of the task view', agentId => {
     state.agentId = agentId;

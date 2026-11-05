@@ -46,7 +46,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 describe('ChatMessageComposer', () => {
-  it.each([[true, 'native-range', false], [true, undefined, true], [false, undefined, true]] as const)('preserves native selection focus for automatic quotes (phone=%s, token=%s)', async (mobile, selectionId, focus) => {
+  it.each([true, false])('focuses the composer when a quote is attached (phone=%s)', async (mobile) => {
     mobileShellState.enabled = mobile
     const onSend = vi.fn(async () => {})
     await harness.render(createElement(ChatMessageComposer, { onSend }))
@@ -56,11 +56,10 @@ describe('ChatMessageComposer', () => {
     const range = document.createRange(); range.selectNodeContents(source)
     window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
     await harness.render(createElement(ChatMessageComposer, { onSend,
-      quoteContent: { messageId: 'source-1', senderName: 'Ada', content: 'Beta', originalContent: 'Alpha Beta', selectionId, source: message({ id: 'source-1' }) },
+      quoteContent: { messageId: 'source-1', senderName: 'Ada', content: 'Beta', originalContent: 'Alpha Beta', source: message({ id: 'source-1' }) },
     }))
     const editor = container.querySelector('[contenteditable]')!
-    expect(document.activeElement === editor).toBe(focus)
-    if (!focus) expect(window.getSelection()?.toString()).toBe('Beta')
+    expect(document.activeElement).toBe(editor)
     source.remove()
   })
 

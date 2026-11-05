@@ -181,6 +181,145 @@ test('a read phone failure stays an error and the next real failed turn becomes 
   } finally { await fx.close() }
 })
 
+test('phone presence budget does not rewrite an unchanged agent on a healthy heartbeat', async () => {
+  const fx = await fixture(async () => ({ status: 'done', text: '[NO_REPLY]' }))
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'presence budget' }], randomUUID())
+    await until(() => fx.host.state().execution === null && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    assert.equal(fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)?.[1].p_agent_status, 'idle')
+    assert.deepEqual(fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)?.[1].p_recent_actions, [])
+    const before = fx.calls.filter(([name]) => name === 'set_agent_runtime_state').length
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    assert.equal(fx.calls.filter(([name]) => name === 'set_agent_runtime_state').length, before)
+  } finally { await fx.close() }
+})
+
+test('phone presence budget closing an already idle host withdraws capability without a retired runtime-status write', async () => {
+  const fx = await fixture(async () => ({ status: 'done', text: '[NO_REPLY]' }))
+  const reports = () => fx.calls.filter(([name]) => name === 'set_agent_runtime_state')
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'close after idle' }], randomUUID())
+    await until(() => fx.host.state().execution === null && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    assert.equal(reports().at(-1)[1].p_agent_status, 'idle')
+    const before = reports().length
+    const device = fx.devices.find(row => row.device_id === deviceId)
+    const status = device.status
+    await fx.host.close()
+    assert.equal(fx.host.state().status, 'stopped')
+    assert.equal(device.capabilities.host_runtime_capability, 0)
+    assert.deepEqual(device.capabilities.runtimes, [])
+    assert.equal(device.status, status)
+    for (const [, args] of reports()) assert.equal(Object.hasOwn(args, 'p_runtime_status'), false)
+    assert.equal(reports().length, before)
+  } finally { await fx.close() }
+})
+
+for (const fails of [false, true]) test(`phone presence budget joins an in-flight idle write and retries only after failure (fails=${fails})`, async () => {
+  let turns = 0, armed = false, held = false
+  let beginTurn, finishTurn, beginIdle, finishIdle
+  const running = new Promise(resolve => { beginTurn = resolve })
+  const turnGate = new Promise(resolve => { finishTurn = resolve })
+  const idleStarted = new Promise(resolve => { beginIdle = resolve })
+  const idleGate = new Promise(resolve => { finishIdle = resolve })
+  const fx = await fixture(async () => {
+    if (++turns > 1) { beginTurn(); await turnGate }
+    return { status: 'done', text: '[NO_REPLY]' }
+  }, { prepare: ({ cloud }) => {
+    const rpc = cloud.identity.rpc
+    cloud.identity.rpc = async (name, args) => {
+      const result = await rpc(name, args)
+      if (armed && !held && name === 'set_agent_runtime_state' && args.p_agent_status === 'idle') {
+        held = true; beginIdle(); await idleGate
+        if (fails) return { data: null, error: { message: 'presence fixture unavailable' } }
+      }
+      return result
+    }
+  } })
+  const idleWrites = () => fx.calls.filter(([name, args]) => name === 'set_agent_runtime_state' && args.p_agent_status === 'idle').length
+  let heartbeat
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'presence setup' }], randomUUID())
+    await until(() => fx.host.state().execution === null && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'controlled presence turn', clientRequestId: randomUUID() }], randomUUID())
+    await running
+    const beforeIdle = idleWrites()
+    armed = true; finishTurn()
+    await idleStarted
+    const beforeHeartbeat = fx.calls.filter(([name]) => name === 'upsert_device').length
+    heartbeat = fx.host.handle({ type: 'configure', config: fx.config })
+    await until(() => fx.calls.filter(([name]) => name === 'upsert_device').length > beforeHeartbeat, fx.events)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(idleWrites() - beforeIdle, 1)
+    finishIdle(); await heartbeat
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    assert.equal(idleWrites() - beforeIdle, fails ? 2 : 1)
+  } finally { finishTurn(); finishIdle(); await heartbeat?.catch(() => undefined); await fx.close() }
+})
+
+test('phone presence budget coalesces a tool burst and publishes its final action at the next allowed heartbeat', async (t) => {
+  let at = Date.now()
+  let turns = 0
+  let release, began
+  const running = new Promise(resolve => { began = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  const fx = await fixture(async (_command, hooks) => {
+    if (++turns === 1) return { status: 'done', text: '[NO_REPLY]' }
+    for (let i = 0; i < 30; i += 1) hooks.emit({ type: 'tool_start', name: `budget_tool_${i}` })
+    await new Promise(resolve => setImmediate(resolve))
+    began()
+    await gate
+    return { status: 'done', text: '[NO_REPLY]' }
+  })
+  const reports = () => fx.calls.filter(([name]) => name === 'set_agent_runtime_state')
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'presence setup' }], randomUUID())
+    await until(() => fx.host.state().execution === null && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    const before = reports().length
+    t.mock.method(Date, 'now', () => at)
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'presence burst', clientRequestId: randomUUID() }], randomUUID())
+    await running
+    assert.equal(reports().length - before, 1)
+    at += 30_000
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    assert.equal(reports().length - before, 2)
+    assert.equal(reports().at(-1)[1].p_recent_actions[0], 'budget_tool_29')
+  } finally { release(); await fx.close() }
+})
+
+test('phone presence budget includes the last tool on idle after a short turn with only two writes', async (t) => {
+  let at = Date.now(), turns = 0
+  const fx = await fixture(async (_command, hooks) => {
+    if (++turns === 1) return { status: 'done', text: '[NO_REPLY]' }
+    for (let i = 0; i < 30; i += 1) hooks.emit({ type: 'tool_start', name: `budget_tool_${i}` })
+    await new Promise(resolve => setImmediate(resolve))
+    at += 9_000
+    return { status: 'done', text: '[NO_REPLY]' }
+  })
+  const reports = () => fx.calls.filter(([name]) => name === 'set_agent_runtime_state')
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'presence setup' }], randomUUID())
+    await until(() => fx.host.state().execution === null && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    const before = reports().length
+    t.mock.method(Date, 'now', () => at)
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'short presence turn', clientRequestId: randomUUID() }], randomUUID())
+    await until(() => turns === 2 && fx.host.state().execution === null, fx.events)
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    const turn = reports().slice(before)
+    assert.equal(turn.length, 2)
+    assert.deepEqual(turn.map(([, args]) => args.p_agent_status), ['working', 'idle'])
+    assert.equal(turn.at(-1)[1].p_recent_actions[0], 'budget_tool_29')
+    assert.equal(typeof turn.at(-1)[1].p_last_action_at, 'string')
+    at += 30_000
+    await fx.host.handle({ type: 'configure', config: fx.config })
+    assert.equal(reports().length - before, 2)
+  } finally { await fx.close() }
+})
+
 test('a first preparation request failure recovers in the same task and returns exactly one result to the assistant', async () => {
   let issues = 0, turns = 0
   const caller = { sessionId: 'edb18513-6477-4c4d-8766-049227046427', deviceId: 'acceptance-computer', name: '个人助理', harness: 'pi', platformModel: 'platform:free', transport: 'acp' }

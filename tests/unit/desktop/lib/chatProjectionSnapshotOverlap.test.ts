@@ -26,9 +26,9 @@ let failedKeyset = false
 let latency = 0
 let latestPreviews = false
 
-function builder(table: string) {
+function builder(table: string, args?: { p_chat_ids?: readonly string[] }) {
   let selection = ''
-  let requested: readonly string[] | undefined
+  let requested: readonly string[] | undefined = args?.p_chat_ids
   const chain: unknown = new Proxy({}, {
     get(_target, property) {
       if (property === 'then') {
@@ -64,11 +64,11 @@ function builder(table: string) {
                 last_message_preview: null, next_message_seq: 4,
               })), error: null,
             }
-            if (table === 'messages_view' && latestPreviews) return {
+            if (table === 'rpc:list_chat_previews' && latestPreviews) return {
               data: batch.map(chat_id => ({ id: `${chat_id}-latest`, chat_id, seq: 3000,
                 created_at: '2026-11-05T00:00:00Z', preview: `latest:${chat_id}`, content_type: 'text' })), error: null,
             }
-            if (['messages_view', 'contact_overrides', 'rpc:list_unread_locators', 'rpc:get_agent_presence_batch'].includes(table)) {
+            if (['rpc:list_chat_previews', 'contact_overrides', 'rpc:list_unread_locators_for_chats', 'rpc:get_agent_presence_batch'].includes(table)) {
               return { data: [], error: null }
             }
             throw new Error(`unexpected projection table ${table}`)
@@ -85,7 +85,7 @@ function builder(table: string) {
 }
 
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
-  chatDb: { from: (table: string) => builder(table), rpc: (name: string) => builder(`rpc:${name}`) },
+  chatDb: { from: (table: string) => builder(table), rpc: (name: string, args?: { p_chat_ids?: readonly string[] }) => builder(`rpc:${name}`, args) },
   identityDb: { from: (table: string) => builder(table), rpc: (name: string) => builder(`rpc:${name}`) },
 }))
 vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', () => ({
@@ -146,7 +146,7 @@ async function firstScreenAt800ms(prioritize: boolean) {
     for (let step = 0; step < 100 && firstAt === null; step += 1) await vi.advanceTimersByTimeAsync(100)
     expect(firstAt).not.toBeNull()
     return { firstAt: firstAt!, syncBeforePaint: syncAt.filter(at => at < firstAt!).length,
-      previewRequests: calls.filter(call => call.table === 'messages_view').length }
+      previewRequests: calls.filter(call => call.table === 'rpc:list_chat_previews').length }
   } finally {
     coordinator.stop()
     await vi.advanceTimersByTimeAsync(2000)

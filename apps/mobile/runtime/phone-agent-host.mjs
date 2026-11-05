@@ -9,6 +9,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { processPendingDeviceCommandsOnce, reportRuntimeInstanceHeartbeat, recoverOrphanedDeviceCommands } from '../../../packages/core/src/cloud/deviceCommands.ts'
 import { createAgentRuntimeStateReporter } from '../../../packages/core/src/cloud/agentRuntimeStateReporter.ts'
+import { createAgentRuntimeStatePublisher } from '../../../packages/core/src/cloud/deviceRuntimeSweep.ts'
 import { handleAgentCreateDeviceCommand, resolveGuguIds } from '../../../packages/core/src/local/agent/deviceCommandRuntime.ts'
 import { deliveryDisclosureMessage, pullAgentInbox, unreadRowFromRpc } from '../../../packages/core/src/local/agent/agentInboxReader.ts'
 import { agentFailureNeedsModelChoice, agentFailureReason } from '../../../packages/core/src/shared/agentQuotaReason.ts'
@@ -127,7 +128,14 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     return agent
   }
   const reporter = createAgentRuntimeStateReporter(cloud.identity, { onGoneAgent: async (id) => { delete store.state.agents[id]; inboxScans.delete(id); await store.save(); publish() } })
-  const report = (agent, online = true) => agent.removedIdentity ? Promise.resolve() : reporter({ agentUserId: agent.agentUserId, runtimeStatus: online ? 'online' : 'offline', activityStatus: agent.status === 'working' ? 'running' : 'idle', agentStatus: agent.status, agentStatusDetail: agent.status === 'working' ? 'running' : agent.status === 'needs_user' ? 'question' : agent.status === 'error' ? null : 'plain', runtimeKind: 'gugu', runtimeLabel: config.deviceRow?.label ?? config.deviceInfo?.model ?? 'Android', recentActions: agent.recentActions ?? null, lastActionAt: agent.lastActionAt ?? null })
+  const publishRuntimeState = createAgentRuntimeStatePublisher()
+  const report = (agent, online = true) => publishRuntimeState(() => agent.removedIdentity ? null : ({
+    agentUserId: agent.agentUserId, runtimeStatus: online ? 'online' : 'offline',
+    activityStatus: agent.status === 'working' ? 'running' : 'idle', agentStatus: agent.status,
+    agentStatusDetail: agent.status === 'working' ? 'running' : agent.status === 'needs_user' ? 'question' : agent.status === 'error' ? null : 'plain',
+    runtimeKind: 'gugu', runtimeLabel: config.deviceRow?.label ?? config.deviceInfo?.model ?? 'Android',
+    recentActions: agent.recentActions ?? [], lastActionAt: agent.lastActionAt ?? null,
+  }), reporter)
   const verifyAgent = async (agentUserId) => {
     const { data, error } = await cloud.identity.from('active_users').select('id,type,owner_user_id,device_id,display_name,gugu_number,desired_status').eq('id', uuid(agentUserId)).maybeSingle()
     if (error) throw new Error(error.message)

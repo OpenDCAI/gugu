@@ -32,8 +32,9 @@ export function ChatBottomDock({ reserve, above, children }: { reserve: boolean;
         for (let node: HTMLElement | null = pill; node && node !== el; node = node.offsetParent as HTMLElement | null) offset += node.offsetTop
         top = Math.min(top, offset)
       }
-      column.style.setProperty(CHAT_DOCK_HEIGHT_VAR, `${el.offsetHeight}px`)
-      column.style.setProperty(CHAT_DOCK_AVATAR_HEIGHT_VAR, `${el.offsetHeight - top}px`)
+      const height = el.offsetHeight
+      column.style.setProperty(CHAT_DOCK_HEIGHT_VAR, `${height}px`)
+      column.style.setProperty(CHAT_DOCK_AVATAR_HEIGHT_VAR, `${height - top}px`)
     }
     report()
     const observer = new ResizeObserver(report)

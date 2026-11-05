@@ -1,6 +1,9 @@
 import { sessionLeaveDestination } from '@renderer/features/sessions/leave-session-view';
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
 import { projectPresence } from '@renderer/features/projects/project-presence';
+import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
+import { isAssistantAgent } from '@renderer/features/assistant/assistant-lineage';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import type { GuardResult } from '@renderer/app/view-registry';
 
 /**
@@ -36,6 +39,10 @@ export function sessionViewCanActivate(params: unknown): GuardResult {
       const destination = sessionLeaveDestination(projectId);
       return { ok: false, redirect: destination.viewId, params: destination.params };
     }
+  }
+  // Old task links and saved layouts must return the assistant to its own surface, without mounting its host.
+  if (isAssistantAgent(sessionAgentBindings.bindingFor(sessionId)?.agentUserId, readAssistantShellBridge()?.getSnapshot()?.assistant?.id)) {
+    return { ok: false, redirect: 'assistant' };
   }
   return { ok: true };
 }

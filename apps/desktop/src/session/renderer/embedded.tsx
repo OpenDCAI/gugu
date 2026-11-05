@@ -1,9 +1,11 @@
+import { installLocalRendererDiagnostics } from '@/lib/localRendererDiagnostics';
 // gugu-embedded entry: mount the session-page <App/> into a host-provided container
 // (window.__EMDASH_MOUNT__) instead of light-DOM #root, so gugu can portal it into a
 // Shadow DOM at the 会话页 tab (one build / one process / CSS-isolated, NOT a webview).
 // The gugu host sets window.electronAPI (stub or real RPC bridge) BEFORE loading this bundle.
 // 会话页是独立文档,壳里装的垫片不跨文档:非安全上下文(http://<ip>)下 crypto.randomUUID 缺席会让这里启动即白。
 import '@/lib/insecure-context-shims';
+installLocalRendererDiagnostics();
 import { hasEntryRoot, renderEntryRoot } from '@/lib/renderer-entry-root';
 import { installRemoteHostSessionpageBridges } from './features/remote-hosts/install-sessionpage-bridges';
 import './lib/install-sessionpage-history-bridge';
