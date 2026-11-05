@@ -155,6 +155,8 @@ const SelectionCheckbox = ({ checked }: { checked: boolean }) => (
     )}
   </div>
 )
+const SELECT_ROW_STYLE: CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', cursor: 'pointer' }
+const SELECT_BUBBLE_STYLE: CSSProperties = { flex: 1, minWidth: 0, pointerEvents: 'none' }
 // memo:面板因为与消息无关的状态重渲时(头栏、输入区、运行条),rowProps 不变 ⇒ 行连同气泡都不重算。
 const MessageListRow = memo(function MessageListRow({
   index,
@@ -284,28 +286,23 @@ const MessageListRow = memo(function MessageListRow({
         </div>
       )}
       {/* @@@multi-select (#988) — 多选态：行首勾选框 + 整行点击切换选中；内层气泡 pointer-events:none
-          全面禁交互（连带隐藏悬浮操作条/菜单/长按）。非多选态原样渲染。 */}
-      {row.type === 'task-exchange' ? <TaskExchangeBubble message={msg} recipientUserId={row.recipientUserId} mobile={mobile} onOpenFile={onOpenFile} /> : selectMode ? (
-        <div
-          data-message-select-row={msg.id}
-          onClick={() => onToggleSelect(msg.id)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '0 14px',
-            cursor: 'pointer',
-            background: isSelected ? 'var(--accent-tint-row)' : undefined,
-          }}
-        >
-          <SelectionCheckbox checked={isSelected} />
-          <div style={{ flex: 1, minWidth: 0, pointerEvents: 'none' }}>{bubble}</div>
-        </div>
-      ) : isAgentFloodNotice ? (
+          全面禁交互（连带隐藏悬浮操作条/菜单/长按）。
+          @@@select-same-tree — 气泡在两种态下挂在同一棵外壳里，进出多选只改外壳的样式和勾选框;
+          外壳要是只在多选态才包,每只可见气泡都会卸载重挂(正文 markdown 重解析),点「多选」整列卡一下。 */}
+      {row.type === 'task-exchange' ? <TaskExchangeBubble message={msg} recipientUserId={row.recipientUserId} mobile={mobile} onOpenFile={onOpenFile} /> : !selectMode && isAgentFloodNotice ? (
         <AgentFloodSystemNotice messageId={msg.id} content={msg.content ?? ''} onUndone={onAgentFloodUndone} />
-      ) : notice?.kind === 'member-joined' ? (
+      ) : !selectMode && notice?.kind === 'member-joined' ? (
         <MemberJoinNotice userIds={notice.userIds} content={msg.content ?? ''} memberProfiles={bubbleMemberProfiles} onMention={onMentionMember} />
-      ) : bubble}
+      ) : (
+        <div
+          data-message-select-row={selectMode ? msg.id : undefined}
+          onClick={selectMode ? () => onToggleSelect(msg.id) : undefined}
+          style={selectMode ? { ...SELECT_ROW_STYLE, background: isSelected ? 'var(--accent-tint-row)' : undefined } : undefined}
+        >
+          {selectMode && <SelectionCheckbox checked={isSelected} />}
+          <div style={selectMode ? SELECT_BUBBLE_STYLE : undefined}>{bubble}</div>
+        </div>
+      )}
       {/* @@@5856 锚点:这条消息长出来的话题挂在它底下(它是这条消息的附件,所以跟气泡同侧同缩进),
           双向连接的另一端是分栏标题块里那句「引自…」。正文要传进去:话题名默认就是从这条正文截的,
           没改过名时锚点不再把它念第二遍(owner:「你不感觉这个像是个文字重复吗」)。 */}
