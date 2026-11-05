@@ -8,7 +8,7 @@ import { extensionContentSecurityPolicy } from '../../session/shared/extensions/
 import { appDataTooLarge } from '../../session/shared/extensions/app-data'
 import { GUGU_PUBLISHER, publisherOf, type Publisher } from '../../session/shared/extensions/app-identity'
 import { appFrameChannel, appOrigin, gateOrigin } from './appOrigin'
-import { ICON_PIXELS, fileIconKey, iconSizeRefusal, iconTypeRefusal } from '../../session/shared/extensions/app-icon'
+import { APP_ICON_PIXELS, ICON_PIXELS, fileIconKey, iconSizeRefusal, iconTypeRefusal } from '../../session/shared/extensions/app-icon'
 import { APP_RUNTIME_FORGET_PAGE, APP_RUNTIME_GATE_PAGE, appRuntimeScriptTag, injectAppRuntime } from '../../session/shared/extensions/app-runtime-protocol'
 import {
   attachmentInstallPlan,
@@ -62,6 +62,8 @@ interface AppStorePlugin {
   discard(args: { stage: string } | { dir: string }): Promise<void>
   list(): Promise<{ dirs: string[]; stages: number }>
   readText(args: { dir: string; path: string }): Promise<{ text: string }>
+  /** Any file of an installed version, as base64 (an icon, re-encoded by this page). */
+  read(args: { dir: string; path: string }): Promise<{ base64: string }>
   writeText(args: { dir: string; path: string; text: string }): Promise<void>
   readIndex(): Promise<{ json: string | null }>
   /**
@@ -94,6 +96,8 @@ interface InstalledRecord {
   pages: string[]
   /** Tab kind → the icon, and `fileIconKey` → a file icon (`fileIcons`): re-encoded by this page. */
   icons: Record<string, string>
+  /** The App's own icon (`icon`), re-encoded by this page at the desktop's size; absent: a record written before it was kept. */
+  appIcon?: string | null
 }
 
 /** What the shell serves an App from, and with which policy (read by AppOrigins.java). */
@@ -138,6 +142,7 @@ async function readShipped(): Promise<ExtensionManifest[]> {
 
 let shipped: ExtensionManifest[] = []
 let shippedIcons: Record<string, string> = {}
+let shippedAppIcons: Record<string, string> = {}
 let index: Index = { version: 1, installed: {}, serve: {} }
 
 /** 「始终用它」 on the phone: kept in this page (the desktop keeps it in main). */
@@ -166,8 +171,9 @@ function tell(): void {
     extensions: [...shipped, ...checked.flatMap(({ parsed }) => (parsed.ok ? [parsed.manifest] : []))],
     invalid: checked.flatMap(({ record, parsed }) => (parsed.ok ? [] : [{ dirName: record.manifest.id, reason: parsed.issues.join('; ') }])),
     icons: Object.assign({ ...shippedIcons }, ...installed.map((record) => record.icons)) as Record<string, string>,
+    // An App's own icon: a chat's ⋯ list and its settings page draw it, as on the desktop.
+    appIcons: Object.assign({ ...shippedAppIcons }, ...installed.flatMap((record) => (record.appIcon ? [{ [record.manifest.id]: record.appIcon }] : []))) as Record<string, string>,
     // The far-left rail and its dock are the desktop's: the phone has neither.
-    appIcons: {},
     dock: [],
     disabled: index.disabled ?? [],
     autoUpdateOff: index.autoUpdateOff ?? [],
@@ -251,6 +257,10 @@ let listening = false
 async function load(): Promise<void> {
   shipped = await readShipped()
   shippedIcons = Object.assign({}, ...(await Promise.all(shipped.map((manifest) => iconsOf(manifest, (path) => shippedFile(manifest.id, path), true)))))
+  shippedAppIcons = Object.assign({}, ...(await Promise.all(shipped.map(async (manifest) => {
+    const icon = await appIconOf(manifest, (path) => shippedFile(manifest.id, path))
+    return icon ? { [manifest.id]: icon } : {}
+  }))))
   index = { version: 1, installed: {}, serve: {} }
   unreadable = null
   let stored: string | null = null
@@ -275,6 +285,7 @@ async function load(): Promise<void> {
   for (const record of Object.values(index.installed)) {
     index.serve[record.manifest.id] = { root: `file:${record.dir}`, csp: cspOf(record.manifest) }
     if (!unreadable && record.runtimeTag !== appRuntimeScriptTag(record.manifest.apiVersion)) await retag(record)
+    if (!unreadable && record.appIcon === undefined) record.appIcon = await appIconOf(record.manifest, (path) => installedFile(record.dir, path))
   }
   if (unreadable) {
     tell()
@@ -413,6 +424,21 @@ async function iconsOf(
   return icons
 }
 
+/** The App's own icon (`icon`) at the size the desktop draws it (APP_ICON_PIXELS), or none. */
+async function appIconOf(manifest: ExtensionManifest, read: (path: string) => Promise<Uint8Array | undefined>): Promise<string | null> {
+  return manifest.icon ? iconOf(manifest.icon, await read(manifest.icon), APP_ICON_PIXELS) : null
+}
+
+/** A file of an installed version; one the shell cannot read is logged and drawn as none (the App's letter). */
+async function installedFile(dir: string, path: string): Promise<Uint8Array | undefined> {
+  try {
+    return Uint8Array.from(atob((await appStore.read({ dir, path })).base64), (char) => char.charCodeAt(0))
+  } catch (error) {
+    log.warn({ dir, path, error: error instanceof Error ? error.message : String(error) }, 'an installed App file could not be read')
+    return undefined
+  }
+}
+
 /** A shipped App's file, as the build put it next to its manifest (phoneAppsPlugin). */
 async function shippedFile(id: string, path: string): Promise<Uint8Array | undefined> {
   const response = await fetch(`/apps/${id}/${path}`)
@@ -420,11 +446,11 @@ async function shippedFile(id: string, path: string): Promise<Uint8Array | undef
 }
 
 /** A tab's icon as this page re-encodes it (app-icon.ts: the desktop's types, limit and size), or none. */
-async function iconOf(path: string, bytes: Uint8Array | undefined): Promise<string | null> {
+async function iconOf(path: string, bytes: Uint8Array | undefined, size = ICON_PIXELS): Promise<string | null> {
   if (!bytes || iconTypeRefusal(path) || iconSizeRefusal(bytes.byteLength)) return null
   const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>]))
   try {
-    return await redrawImage(url, { size: ICON_PIXELS, fit: 'fill', type: 'image/png' })
+    return await redrawImage(url, { size, fit: 'fill', type: 'image/png' })
   } finally {
     URL.revokeObjectURL(url)
   }
@@ -683,6 +709,7 @@ async function store(
     throw error
   }
   const icons = await iconsOf(manifest, async (path) => files.get(path))
+  const appIcon = await appIconOf(manifest, async (path) => files.get(path))
   index.installed[manifest.id] = {
     dir,
     manifest,
@@ -694,6 +721,7 @@ async function store(
     runtimeTag: appRuntimeScriptTag(manifest.apiVersion),
     pages,
     icons,
+    appIcon,
   }
   index.serve[manifest.id] = { root: `file:${dir}`, csp: cspOf(manifest) }
   await save()
