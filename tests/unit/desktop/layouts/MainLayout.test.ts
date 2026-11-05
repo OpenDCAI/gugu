@@ -4,6 +4,7 @@ vi.mock('../../../../apps/desktop/src/lib/ownedAgentResources', () => ({ hostOwn
 vi.mock('../../../../apps/desktop/src/hooks/useSessionInputOutbox', () => ({ SessionInputOutboxHost: () => null }))
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
+import postcss from 'postcss'
 import { act, useEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDraftWriter } from '../../../../apps/desktop/src/store/chatDraftWrites'
@@ -432,7 +433,11 @@ describe('MainLayout', () => {
     const mainShell = appShell?.children[1] as HTMLElement | undefined
     // #7333 壳根读 --shell-bg:不透明时与导航材质同底,mac 原生材质可见时透明(tokens.css @@@window-material-css)。
     expect(appShell?.style.background).toBe('var(--shell-bg)')
-    expect(readFileSync('apps/desktop/src/styles/tokens.css', 'utf8')).toMatch(/:root \{\n {2}--shell-bg: var\(--nav-rail\);\n\}/)
+    const rootShellBg: string[] = []
+    postcss.parse(readFileSync('apps/desktop/src/styles/tokens.css', 'utf8')).each((node) => {
+      if (node.type === 'rule' && node.selector === ':root') node.walkDecls('--shell-bg', (decl) => { rootShellBg.push(decl.value) })
+    })
+    expect(rootShellBg, 'the opaque default of --shell-bg is the nav material').toEqual(['var(--nav-rail)'])
     // @@@mobile-safe-area-top (#1227) — desktop shell takes NO status-bar inset (mobile-gated).
     expect(appShell?.style.paddingTop).toBe('')
     expect(mainShell).toBeTruthy()
@@ -616,6 +621,37 @@ describe('MainLayout', () => {
     expect(harness.container.textContent).toContain('chat-list-panel')
     expect(chatArea?.parentElement?.parentElement?.style.display).toBe('none')
   })
+  it('leaves the mobile chat pane alone on Android back while a layer is open over it', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    chatStoreMock.chats = [{ id: 'chat-1' }]
+    chatStoreMock.activeChatId = 'chat-1'
+    await harness.render(createNode(MainLayout, {
+      user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
+    }))
+    await act(async () => {
+      const row = harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLButtonElement | null
+      row?.click()
+      await Promise.resolve()
+    })
+    const chatArea = harness.container.querySelector('[data-testid="mock-chat-area"]') as HTMLElement | null
+    expect(chatArea?.parentElement?.parentElement?.style.display).toBe('flex')
+    // A layer opened after the page registered its handler: the page handler runs first on window and must
+    // ask the stack, not rely on listener order (Android WebView does not order capture before bubble).
+    const layer = Symbol('open-layer')
+    sheetStack.push(layer)
+    try {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('gugu:native-back'))
+        await Promise.resolve()
+      })
+      expect(harness.container.textContent).not.toContain('chat-list-panel')
+      expect(chatArea?.parentElement?.parentElement?.style.display).toBe('flex')
+    } finally {
+      sheetStack.splice(sheetStack.indexOf(layer), 1)
+    }
+  })
+
   it('keeps one mobile navigation landmark after visiting another tab', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false

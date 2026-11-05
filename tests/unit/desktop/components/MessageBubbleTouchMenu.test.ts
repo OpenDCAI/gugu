@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
+import postcss from 'postcss'
 import { act } from 'react'
 import { flushSync } from 'react-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -323,9 +324,15 @@ describe('MessageBubble touch menu', () => {
     const [name, owner] = Array.from(sender.children) as HTMLElement[]
     expect(name.classList.contains('msg-sender-name')).toBe(true)
     expect(owner.dataset.messageAgentOwner).toBe('true')
-    const chromeCss = readFileSync('apps/desktop/src/components/chat/messageBubbleChrome.css', 'utf8')
-    expect(chromeCss, 'the row is capped by its column; uncapped, nowrap text pushes it past the column').toMatch(/\.msg-sender \{[^}]*max-width: 100%/)
-    expect(chromeCss).toMatch(/\.msg-sender-name \{[^}]*text-overflow: ellipsis/)
+    const declared = (selector: string, prop: string) => {
+      const values: string[] = []
+      postcss.parse(readFileSync('apps/desktop/src/components/chat/messageBubbleChrome.css', 'utf8')).walkRules((rule) => {
+        if (rule.selector === selector) rule.walkDecls(prop, (decl) => { values.push(decl.value) })
+      })
+      return values
+    }
+    expect(declared('.msg-sender', 'max-width'), 'the row is capped by its column; uncapped, nowrap text pushes it past the column').toContain('100%')
+    expect(declared('.msg-sender-name', 'text-overflow')).toContain('ellipsis')
   })
   it('overlays the mobile read receipt without shrinking the sender bubble', async () => {
     await renderMessage(undefined, true, vi.fn(), {

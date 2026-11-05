@@ -136,3 +136,63 @@ export function createUpdateQuit(host: UpdateQuitHost, options: UpdateQuitOption
     },
   }
 }
+
+/** 兜底路径上给 Squirrel 写盘 + 起 ShipIt 的余量。正常路径不走这里(见 `exit` 里的判断)。 */
+export const SQUIRREL_HANDOFF_GRACE_MS = 5_000
+
+export interface SquirrelHandoffHost {
+  platform: NodeJS.Platform
+  /** 原生 autoUpdater 的 `update-downloaded`:Squirrel 把包备好了。 */
+  onStaged: (listener: () => void) => void
+  /** 原生 autoUpdater 的 `quitAndInstall()`。 */
+  quitAndInstall: () => void
+  logInfo: (detail: Record<string, unknown>, message: string) => void
+  logWarn: (detail: Record<string, unknown>, message: string) => void
+  logError: (detail: Record<string, unknown>, message: string) => void
+}
+
+export interface SquirrelHandoff {
+  /** 停机三段跑完之后的最后一步。`hardExit` 绕过 Electron 的退出流程,调了就不回来。 */
+  exit: (forUpdate: boolean, hardExit: () => never) => void
+}
+
+/**
+ * 退出的最后一步(before-quit 停机之后)。
+ *
+ * @@@5747 为更新而退出时,最后一步**不能**一上来就硬杀:硬退绕过 Electron 的退出流程,而 Squirrel 的
+ * 「装完并重新打开」正挂在那条被绕开的路上。交给 Squirrel 只是 mac 的事:Windows / Linux 上
+ * electron-updater 的 quitAndInstall 早在按下时就起好了安装器(NSIS `Executing … --updated`),
+ * 这里再调原生 autoUpdater 只会抛「No update available, can't quit and install」再落到硬退。
+ *
+ * @@@5793 包已经备好时**没有任何东西可等**:ShipIt 从收到安装请求起就在等我们退(实测我们一退,它 91 毫秒
+ * 后就开装)。原先无条件等的那 5 秒,两次更新两次都是等到超时才走。只有 Squirrel 还没备好包的兜底路径上,
+ * `quitAndInstall()` 才是真正在备包,那时才需要给它写盘的余量。「备好了没」是原生事件的读数,不是猜。
+ */
+export function createSquirrelHandoff(host: SquirrelHandoffHost, options: { schedule?: (run: () => void, ms: number) => UpdateQuitTimer } = {}): SquirrelHandoff {
+  const schedule = options.schedule ?? defaultSchedule
+  let staged = false
+  if (host.platform === 'darwin') {
+    try {
+      host.onStaged(() => { staged = true })
+    } catch (error) {
+      host.logWarn({ error: String(error) }, '[updater] 订不上原生 update-downloaded,交接按兜底路径走')
+    }
+  }
+  return {
+    exit(forUpdate, hardExit) {
+      if (!forUpdate || host.platform !== 'darwin') return hardExit()
+      host.logInfo({ squirrelStagedUpdate: staged }, '[updater] 停机完成,交给 Squirrel 安装并重新打开')
+      try {
+        host.quitAndInstall()
+      } catch (error) {
+        host.logError({ error: String(error) }, '[updater] 交接失败,硬退 —— 包已备好,退出即安装')
+        return hardExit()
+      }
+      if (staged) return hardExit()
+      schedule(() => {
+        host.logError({}, '[updater] Squirrel 未在交接余量内接管,硬退兜底')
+        hardExit()
+      }, SQUIRREL_HANDOFF_GRACE_MS)
+    },
+  }
+}

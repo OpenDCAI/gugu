@@ -9,9 +9,7 @@
 // **不先立退出意图就交接,进程退不掉、只能靠看门狗**;先立了就一路顺下去、看门狗一次都不响。
 // 这一组在修复前必红、修复后全绿。
 import { describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { createUpdateQuit, type UpdateQuitTimer } from '../../../../apps/desktop/electron/update-quit'
+import { createSquirrelHandoff, createUpdateQuit, type UpdateQuitTimer } from '../../../../apps/desktop/electron/update-quit'
 
 /** 把定时器攥在手里:测试不必真等 20 秒,也能断言「到点了它响不响」。 */
 function fakeClock() {
@@ -163,27 +161,58 @@ describe('#5793 更新退出:不许靠超时兜底把进程拖走', () => {
   })
 })
 
-// 退出的最后一步长在 main.ts 的 before-quit 里(拿不到 Electron 就跑不起来),所以这一组钉结构。
-// 钉的是「有没有那个判断」,不是「等多久」—— 把 5 秒改小只是把空等改短,方向仍然是错的。
+// 退出的最后一步(before-quit 停机之后):包已备好就不该再有交接余量。判的是「有没有等」,不是「等多久」——
+// 把 5 秒改小只是把空等改短,方向仍然是错的。
 describe('#5793 包已备好就不该再有交接余量', () => {
-  const main = (): string => readFileSync(resolve('apps/desktop/electron/main.ts'), 'utf8')
+  class Exited extends Error {}
+  function handoff(platform: NodeJS.Platform, options: { quitAndInstall?: () => void } = {}) {
+    const clock = fakeClock()
+    let staged: (() => void) | null = null
+    const quitAndInstall = vi.fn(options.quitAndInstall ?? (() => {}))
+    const h = createSquirrelHandoff({
+      platform, onStaged: (listener) => { staged = listener }, quitAndInstall,
+      logInfo: vi.fn(), logWarn: vi.fn(), logError: vi.fn(),
+    }, { schedule: clock.schedule })
+    const exits: number[] = []
+    // reallyExit 不回来:替身抛出,证明它之后的代码一行都没跑。
+    const hardExit = (): never => { exits.push(1); throw new Exited() }
+    const exit = (forUpdate: boolean) => { try { h.exit(forUpdate, hardExit) } catch (error) { if (!(error instanceof Exited)) throw error } }
+    return { clock, quitAndInstall, exits, exit, stage: () => staged?.() }
+  }
 
-  it('订了原生 update-downloaded —— 「包备好了没」必须是读数,不是猜', () => {
-    expect(main()).toContain("nativeAutoUpdater.on('update-downloaded'")
-    expect(main()).toContain('squirrelStagedUpdate = true')
+  it('包已备好(原生 update-downloaded 来过):交给 Squirrel 之后当场退,不排任何余量', () => {
+    const t = handoff('darwin')
+    t.stage()
+    t.exit(true)
+    expect(t.quitAndInstall).toHaveBeenCalledOnce()
+    expect(t.exits).toHaveLength(1)
+    expect(t.clock.scheduled, '没有东西可等').toBe(0)
   })
 
-  it('备好了就直接走,余量只留给还没备好的兜底路径', () => {
-    const src = main()
-    expect(src).toContain('if (squirrelStagedUpdate) hardExit()')
-    // 余量本身还在(兜底不能拆),但它已经不在正常路径上。
-    expect(src).toContain('SQUIRREL_HANDOFF_GRACE_MS')
+  it('包还没备好:交接之后留余量,到点才硬退兜底', () => {
+    const t = handoff('darwin')
+    t.exit(true)
+    expect(t.quitAndInstall).toHaveBeenCalledOnce()
+    expect(t.exits).toHaveLength(0)
+    expect(t.clock.scheduled).toBe(1)
+    expect(() => t.clock.fire(), 'the grace timer ends in a hard exit').toThrow(Exited)
+    expect(t.exits).toHaveLength(1)
   })
 
-  it('顺序与看门狗已经从 main.ts 挪进 ./update-quit,不再散在这里', () => {
-    const src = main()
-    expect(src).toContain("from './update-quit'")
-    expect(src).not.toContain('quittingForUpdate')
+  it('交接本身抛了:硬退,不排余量', () => {
+    const t = handoff('darwin', { quitAndInstall: () => { throw new Error('No update available') } })
+    t.exit(true)
+    expect(t.exits).toHaveLength(1)
+    expect(t.clock.scheduled).toBe(0)
+  })
+
+  it.each([['不是为更新而退', 'darwin', false], ['Windows 上安装器早已起好', 'win32', true], ['Linux', 'linux', true]] as const)('%s:直接硬退,不碰原生 autoUpdater', (_label, platform, forUpdate) => {
+    const t = handoff(platform)
+    t.stage()
+    t.exit(forUpdate)
+    expect(t.quitAndInstall).not.toHaveBeenCalled()
+    expect(t.exits).toHaveLength(1)
+    expect(t.clock.scheduled).toBe(0)
   })
 })
 

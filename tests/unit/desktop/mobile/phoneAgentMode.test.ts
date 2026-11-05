@@ -124,8 +124,12 @@ describe('one phone endpoint owns registration and RPC', () => {
     await stopPhoneAgentHost(test.ownerId)
     expect(test.remove).not.toHaveBeenCalled()
     expect(test.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'offline', capabilities: { host_kind: 'phone', runtimes: [], host_runtime_capability: 0, keep: 'unchanged' } }))
-    expect(test.readEq.mock.calls).toEqual([['user_id', test.ownerId], ['device_id', deviceId]])
-    expect(test.updateEq.mock.calls).toEqual([['user_id', test.ownerId], ['device_id', deviceId]])
+    // The row is addressed by owner and device; the order the query builder is called in is not behaviour.
+    const filters = { user_id: test.ownerId, device_id: deviceId }
+    expect(Object.fromEntries(test.readEq.mock.calls)).toEqual(filters)
+    expect(test.readEq).toHaveBeenCalledTimes(2)
+    expect(Object.fromEntries(test.updateEq.mock.calls)).toEqual(filters)
+    expect(test.updateEq).toHaveBeenCalledTimes(2)
     await expect(disconnectPhoneDevice(test.ownerId)).resolves.toEqual({ removed: false, retainedForHost: true })
     expect(test.remove).not.toHaveBeenCalled()
   })

@@ -534,7 +534,7 @@ import type {
 import { createRuntimeBeforeQuitHandler, runShutdownPhase, type ShutdownPhaseEvent } from './runtime-quit'
 import { createProjectionDeviceRuntime } from './projection-device-runtime'
 import { openProjectionDevicePipe } from './projection-device-transport'
-import { createUpdateQuit } from './update-quit'
+import { createSquirrelHandoff, createUpdateQuit } from './update-quit'
 import { createUpdateFlow } from './update-flow'
 import { createUpdateChecks } from './update-check'
 import { createSignalExit } from './signal-exit'
@@ -3076,17 +3076,15 @@ async function downloadMacDmgUpdate(): Promise<void> {
 //   ② 有看门狗,库那条路若卡在「等一个不会再来的事件」上,到点我们自己走停机退出 ——
 //      ShipIt 已经备好包,退出即安装。宁可少一次自动重开,也不能让人对着「正在重启…」干等;
 //   ③ 退出时**不用硬杀**(见 before-quit 里的 exit 分支):硬杀会连 Squirrel 的「装完重开」一起跳过。
-// @@@5793 Squirrel 备好包了没。退出那一刻据此决定还要不要留交接余量 —— 备好了就没什么可等的。
-let squirrelStagedUpdate = false
-if (process.platform === 'darwin') {
-  try {
-    nativeAutoUpdater.on('update-downloaded', () => {
-      squirrelStagedUpdate = true
-    })
-  } catch (error) {
-    updaterLogger.warn({ error: String(error) }, '[updater] 订不上原生 update-downloaded,交接按兜底路径走')
-  }
-}
+// @@@5793 Squirrel 备好包了没、退出最后一步怎么交给它:见 ./update-quit 的 createSquirrelHandoff。
+const squirrelHandoff = createSquirrelHandoff({
+  platform: process.platform,
+  onStaged: (listener) => { nativeAutoUpdater.on('update-downloaded', listener) },
+  quitAndInstall: () => nativeAutoUpdater.quitAndInstall(),
+  logInfo: (detail, message) => updaterLogger.info(detail, message),
+  logWarn: (detail, message) => updaterLogger.warn(detail, message),
+  logError: (detail, message) => updaterLogger.error(detail, message),
+})
 
 // 顺序、看门狗、重复按下这三件事在 ./update-quit 里,连同 #5793 的根因一起写在那个文件的头注释。
 const updateQuit = createUpdateQuit({
@@ -3253,9 +3251,6 @@ app.setAboutPanelOptions({
   copyright: `© ${new Date().getFullYear()} 咕咕`
 })
 
-/** 兜底路径上给 Squirrel 写盘 + 起 ShipIt 的余量。正常路径不走这里(见 exit 里的判断)。 */
-const SQUIRREL_HANDOFF_GRACE_MS = 5_000
-
 const shutdownLogger = createLogger('shutdown')
 const reportShutdownPhase = (event: ShutdownPhaseEvent): void => {
   const error = event.error ? ` error=${JSON.stringify(event.error)}` : ''
@@ -3275,30 +3270,7 @@ app.on('before-quit', createRuntimeBeforeQuitHandler({
   exit: (code) => {
     const hardExit = (): never =>
       (process as NodeJS.Process & { reallyExit: (exitCode: number) => never }).reallyExit(code)
-    // @@@5747 为更新而退出时,最后一步**不能**一上来就硬杀:reallyExit 绕过 Electron 的退出流程,
-    // 而 Squirrel 的「装完并重新打开」正挂在那条被绕开的路上 —— 这就是「装完不会自己起来」的成因。
-    // 停机三段此刻已经跑完(agent、PTY 都收干净了),剩下的只是让 Squirrel 接手。
-    // 交给 Squirrel 只是 mac 的事。Windows / Linux 上 electron-updater 的 quitAndInstall 早在按下时
-    // 就已经起好了安装器(NSIS `Executing … --updated`),这里再调原生 autoUpdater 只会抛
-    // 「No update available, can't quit and install」再落到硬退(owner 的 Chole 上每次更新都是这样)。
-    if (!updateQuit.forUpdate || process.platform !== 'darwin') hardExit()
-    updaterLogger.info({ squirrelStagedUpdate }, '[updater] 停机完成,交给 Squirrel 安装并重新打开')
-    try {
-      nativeAutoUpdater.quitAndInstall()
-    } catch (error) {
-      updaterLogger.error({ error: String(error) }, '[updater] 交接失败,硬退 —— 包已备好,退出即安装')
-      hardExit()
-    }
-    // @@@5793 包已经备好时,这里**没有任何东西可等**:ShipIt 从收到安装请求起就在等我们退
-    // (owner 实测:我们一退,它 91 毫秒后就开装)。原先无条件等的那 5 秒,两次更新两次都是等到
-    // 超时才走 —— 纯粹的空等。只有在 Squirrel 还没备好包的兜底路径上,上面那一句才是真正在备包,
-    // 那时才需要给它写盘的余量。
-    if (squirrelStagedUpdate) hardExit()
-    const handoff = setTimeout(() => {
-      updaterLogger.error({}, '[updater] Squirrel 未在交接余量内接管,硬退兜底')
-      hardExit()
-    }, SQUIRREL_HANDOFF_GRACE_MS)
-    handoff.unref()
+    squirrelHandoff.exit(updateQuit.forUpdate, hardExit)
   },
   warn: (message) => console.warn(message),
   reportPhase: reportShutdownPhase,

@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs'
 import { HOST_CALLS, HOST_EVENTS } from '../../../../apps/desktop/src/session/shared/extensions/host-calls'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { createGugu } from '../../../../apps/desktop/src/session/app-runtime/create-gugu'
 import { EXTENSION_GUIDE_TOPICS } from '../../../../apps/desktop/src/session/shared/extensions/authoring-guide'
 import { BRIDGE_VERBS } from '../../../../apps/desktop/src/session/shared/extensions/bridge-protocol'
 import { EXTENSION_CAPABILITIES } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
@@ -67,12 +66,10 @@ function preloadVerbs(): string[] {
   return [...Object.keys(HOST_CALLS), ...Object.keys(HOST_EVENTS)].filter((key) => !key.includes('.') && !hostHalves.includes(key))
 }
 
-/** What `gugu.files` offers, read from the runtime that builds it (app-runtime/create-gugu.ts). */
+/** What `gugu.files` offers, read off the object the runtime builds (app-runtime/create-gugu.ts). */
 function runtimeFileVerbs(): string[] {
-  const source = readFileSync(fileURLToPath(new URL('../../../../apps/desktop/src/session/app-runtime/create-gugu.ts', import.meta.url)), 'utf8')
-  const start = source.indexOf('const files = Object.freeze({')
-  const body = source.slice(start, source.indexOf('\n  });', start))
-  return [...body.matchAll(/^ {4}([A-Za-z]\w*)[:,]/gm)].map(([, key]) => key)
+  const gugu = createGugu({ appFiles: {}, reportError: () => {} } as never, { files: () => new Promise(() => {}) })
+  return Object.keys(gugu.files as object)
 }
 
 const truth: Truth = {
