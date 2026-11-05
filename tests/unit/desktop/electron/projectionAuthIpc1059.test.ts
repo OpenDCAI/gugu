@@ -1,23 +1,26 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { runInNewContext } from 'node:vm';
-import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { runtimeAuthFromSupabaseTokens } from '@gugu/core/cloud/runtimeAuthProvider';
 import { createProjectionDeviceRuntime } from '../../../../apps/desktop/electron/projection-device-runtime';
 import { projectionControlKey, projectionControlSigner } from '../../../../apps/desktop/electron/projection-control-auth';
+import { createHumanAuthSessionIpc } from '../../../../apps/desktop/electron/runtime-auth-provider';
 
-const source = ts.createSourceFile('main.ts', readFileSync(resolve('apps/desktop/electron/main.ts'), 'utf8'), ts.ScriptTarget.Latest, true);
-const changed = source.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'onHumanAuthSessionChanged');
+// The handlers main registers for human-auth-session:write / :clear (createHumanAuthSessionIpc), wired to the same
+// globals main gives them; the auth-change notifier and session-life are the context's stubs.
 function handler(channel: string, context: Record<string, unknown>) {
-  const statement = source.statements.find(node => ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)
-    && node.expression.expression.getText(source) === 'ipcMain.handle'
-    && ts.isStringLiteral(node.expression.arguments[0]!) && node.expression.arguments[0].text === channel);
-  if (!changed || !statement || !ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) throw new Error('Actual auth IPC is missing');
-  // Execute the actual callback and auth-change notifier without booting Electron main.
-  const code = `${changed.getText(source)}\n(${statement.expression.arguments[1]!.getText(source)})`;
-  return runInNewContext(ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText,
-    context) as (event: unknown, input: unknown) => Promise<unknown>;
+  const fn = (name: string) => context[name] as (...args: unknown[]) => Promise<unknown>
+  const ipc = createHumanAuthSessionIpc({
+    toAuth: context.runtimeAuthFromSupabaseTokens as typeof runtimeAuthFromSupabaseTokens,
+    set: (auth) => { context.pushedHumanAuth = auth },
+    revoke: () => (context.projectionDeviceRuntime as { invalidate(): void }).invalidate(),
+    persist: (mirror) => fn('writeHumanAuthSession')(mirror),
+    erase: () => fn('clearHumanAuthSession')(),
+    leaveIfChanging: (next) => fn('sessionLifeLeaveIfChanging')(next) as Promise<void>,
+    enter: () => fn('sessionLifeEnter')() as Promise<void>,
+    changed: () => (context.projectionDeviceRuntime as { invalidate(): void }).invalidate(),
+  })
+  if (channel === 'human-auth-session:write') return (_event: unknown, input: unknown) => ipc.write(input as { access_token: string })
+  if (channel === 'human-auth-session:clear') return (_event: unknown, input: unknown) => ipc.clear(input)
+  throw new Error('Actual auth IPC is missing')
 }
 
 describe('actual auth IPC revokes projection before persistence', () => {

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { spawnSync } from 'node:child_process'
-import ts from 'typescript'
 import { createUpdateState, createUpdateStateReceiver } from '../../../../apps/desktop/shared/update-state'
+import { createUpdateChecks } from '../../../../apps/desktop/electron/update-check'
 
 describe('#1342 host update revisions', () => {
   it('increments for every published state and preserves the revision of a captured reply', () => {
@@ -39,56 +36,42 @@ describe('#1342 host update revisions', () => {
   )
 })
 
-function actualCheckOutcome(mode: 'automatic' | 'manual') {
-  const source = ts.createSourceFile('main.ts', readFileSync(resolve('apps/desktop/electron/main.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
-  const functions = ['checkForUpdates', 'startAutoUpdateChecks'].map(name => {
-    const declaration = source.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name)
-    if (!declaration) throw new Error(`Missing actual ${name}`)
-    return declaration.getText(source)
-  })
-  const ipc = source.statements.find(node => ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)
-    && node.expression.expression.getText(source) === 'ipcMain.handle'
-    && ts.isStringLiteral(node.expression.arguments[0]!) && node.expression.arguments[0].text === 'updates:check')
-  if (!ipc || !ts.isExpressionStatement(ipc) || !ts.isCallExpression(ipc.expression)) throw new Error('Missing actual updates:check RPC')
-  const compiled = ts.transpileModule(`${functions.join('\n')}\nconst manual = ${ipc.expression.arguments[1]!.getText(source)}`, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText
-  // A separate real Node event loop observes detached rejections without masking Vitest's handler.
-  const child = spawnSync(process.execPath, ['-e', `
-    const offline = new Error('Network offline'), warnings = [], unhandled = [], timers = [];
-    const updaterPolicy = { enabled: true }, IS_TEST_MODE = false;
-    const AUTO_UPDATE_INITIAL_DELAY_MS = 10000, AUTO_UPDATE_INTERVAL_MS = 1800000;
-    const updaterState = { current: { revision: 7, status: 'downloading', percent: 42 } };
-    const originalState = updaterState.current;
-    const autoUpdater = { checkForUpdates: () => Promise.reject(offline) };
-    const emitUpdateStatus = () => { throw new Error('A failed query must not publish state'); };
-    const console = { warn: (...args) => warnings.push(args) };
-    const setTimeout = callback => timers.push(callback), setInterval = callback => timers.push(callback);
-    process.on('unhandledRejection', error => unhandled.push(error.message));
-    ${compiled}
-    (async () => {
-      let rejectedWithOriginalError = false;
-      if (${JSON.stringify(mode)} === 'automatic') {
-        startAutoUpdateChecks();
-        for (const callback of timers) callback();
-        await new Promise(setImmediate);
-        await new Promise(setImmediate);
-      } else {
-        try { await manual(); } catch (error) { rejectedWithOriginalError = error === offline; }
-      }
-      process.stdout.write(JSON.stringify({ timerCount: timers.length, warnings, unhandled,
-        rejectedWithOriginalError, stateUnchanged: updaterState.current === originalState }));
-    })().catch(error => { process.stderr.write(String(error)); process.exitCode = 1; });
-  `], { encoding: 'utf8', timeout: 10000 })
-  if (child.status !== 0) throw new Error(`Actual update check child failed: ${child.stderr}`)
-  return JSON.parse(child.stdout) as {
-    timerCount: number; warnings: unknown[][]; unhandled: string[]; rejectedWithOriginalError: boolean; stateUnchanged: boolean
+// The checks main wires into the updates:check RPC and the automatic timers (update-check.ts), with the feed
+// offline. Unhandled rejections are observed on the real process, as a detached one would surface.
+async function actualCheckOutcome(mode: 'automatic' | 'manual') {
+  const offline = new Error('Network offline'), warnings: unknown[][] = [], unhandled: string[] = [], timers: Array<() => void> = []
+  const originalState = { revision: 7, status: 'downloading', percent: 42 }
+  const onUnhandled = (error: unknown) => { unhandled.push((error as Error).message) }
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const checks = createUpdateChecks({
+      policy: () => ({ enabled: true as const }),
+      blocked: () => { throw new Error('A failed query must not publish state') },
+      query: () => Promise.reject(offline),
+      current: () => originalState,
+      warn: (...args) => { warnings.push(args) },
+      automatic: true,
+      setTimeout: (callback) => timers.push(callback), setInterval: (callback) => timers.push(callback),
+    })
+    let rejectedWithOriginalError = false
+    let state: unknown = originalState
+    if (mode === 'automatic') {
+      checks.startAutomatic()
+      for (const callback of timers) callback()
+      await new Promise(setImmediate)
+      await new Promise(setImmediate)
+    } else {
+      try { state = await checks.check() } catch (error) { rejectedWithOriginalError = error === offline }
+    }
+    return { timerCount: timers.length, warnings, unhandled, rejectedWithOriginalError, stateUnchanged: state === originalState }
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
   }
 }
 
 describe('#1342 actual update check entry points', () => {
-  it('both automatic timers warn on network failure without an unhandled rejection or state change', () => {
-    const outcome = actualCheckOutcome('automatic')
+  it('both automatic timers warn on network failure without an unhandled rejection or state change', async () => {
+    const outcome = await actualCheckOutcome('automatic')
     expect(outcome.timerCount).toBe(2)
     expect(outcome.warnings).toEqual([
       ['[updater] check failed:', 'Network offline'],
@@ -98,8 +81,8 @@ describe('#1342 actual update check entry points', () => {
     expect(outcome.stateUnchanged).toBe(true)
   })
 
-  it('manual RPC still rejects with the original network error and preserves live progress', () => {
-    const outcome = actualCheckOutcome('manual')
+  it('manual RPC still rejects with the original network error and preserves live progress', async () => {
+    const outcome = await actualCheckOutcome('manual')
     expect(outcome.rejectedWithOriginalError).toBe(true)
     expect(outcome.warnings).toEqual([['[updater] check failed:', 'Network offline']])
     expect(outcome.unhandled).toEqual([])
