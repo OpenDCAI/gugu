@@ -121,35 +121,36 @@ describe('MessageBubble touch menu', () => {
       expect(document.querySelector('[role="group"][aria-label="快速回应"]')?.querySelectorAll('button')).toHaveLength(7)
     })
   })
-  it('copies a text selection made inside the mobile menu\'s select-text view', async () => {
+  it('selects text in place on the bubble and copies the picked part', async () => {
     const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
     await longPress()
     await clickElement(document.querySelector('[data-testid="message-action-selectText"]')!)
-    expect(document.querySelector('[data-testid="message-action-menu"]'), '换一屏,菜单不收').not.toBeNull()
-    const text = document.querySelector<HTMLElement>('[data-testid="message-selection-text"]')!
-    expect(text.textContent).toBe('hello from mobile')
-    selectTextIn(text, 'from mobile')
-    await clickElement(document.querySelector('[data-testid="message-action-copy"]')!)
+    expect(document.querySelector('[role="menu"]'), 'the menu steps aside').toBeNull()
+    const bubble = messageBubble()
+    expect(bubble.style.userSelect, 'the bubble itself becomes selectable').toBe('text')
+    expect(window.getSelection()?.toString(), 'starts with the whole text selected').toBe('hello from mobile')
+    selectMessageText('from mobile')
+    document.dispatchEvent(new Event('selectionchange'))
+    await clickElement(document.querySelector('[data-testid="message-selection-copy"]')!)
     expect(writeText).toHaveBeenCalledWith('from mobile')
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
+    expect(document.querySelector('[data-testid="message-selection-bar"]')).toBeNull()
+    expect(bubble.style.userSelect, 'back to long-press = menu').toBe('none')
   })
-  it('routes native in-menu Copy through the same clipboard feedback', async () => {
-    const writeText = vi.fn(async (_text: string) => {})
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-    const toast = vi.fn()
-    await renderMessage(toast)
+  it('leaves text selection on a tap outside the bubble and lets the system own long-press meanwhile', async () => {
+    await renderMessage()
     await longPress()
     await clickElement(document.querySelector('[data-testid="message-action-selectText"]')!)
-    const text = document.querySelector<HTMLElement>('[data-testid="message-selection-text"]')!
-    selectTextIn(text, 'hello')
-    const event = new Event('copy', { bubbles: true, cancelable: true })
-    await act(async () => { text.dispatchEvent(event) })
-    expect(event.defaultPrevented).toBe(true)
-    expect(writeText).toHaveBeenCalledWith('hello')
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+    const press = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 })
+    await act(async () => { messageBubble().dispatchEvent(press) })
+    expect(press.defaultPrevented, 'native selection handles, not our menu').toBe(false)
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    await act(async () => { document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
+    expect(document.querySelector('[data-testid="message-selection-bar"]')).toBeNull()
+    expect(window.getSelection()?.toString()).toBe('')
   })
   it('keeps external-link copying without resource actions on ordinary messages', async () => {
     const writeText = vi.fn(async (_text: string) => {})
@@ -398,7 +399,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.body.querySelector('[role="menu"]')).toBeNull()
 
     await longPress()
-    const quick = [...document.body.querySelectorAll<HTMLElement>('[data-testid="message-action-menu"] [role="group"][aria-label="快速回应"] [role="menuitem"]')]
+    const quick = [...document.body.querySelectorAll<HTMLElement>('[role="menu"] [role="group"][aria-label="快速回应"] [role="menuitem"]')]
     expect(quick.map((b) => b.textContent)).toEqual([...QUICK_REACTIONS.map(({ emoji }) => emoji), ''])
     await clickElement(quick[1])
     expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
@@ -423,7 +424,7 @@ describe('MessageBubble touch menu', () => {
       flushSync(() => { (document.querySelector('button[aria-label="更多表情"]') as HTMLButtonElement).click() })
       expect(document.querySelectorAll('section[aria-label="表态"] button')).toHaveLength(24)
     })
-    const sheet = document.querySelector('[data-testid="message-action-menu"]')!
+    const sheet = document.querySelector('[role="menu"]')!
     expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
     expect(sheet.querySelector('[role="group"][aria-label="快速回应"]')).toBeNull()
     expect(sheet.querySelector('[data-testid="message-action-reply"]')).toBeNull()

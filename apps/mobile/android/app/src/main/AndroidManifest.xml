@@ -171,6 +171,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- long-press haptic tick: the WebView ignores navigator.vibrate() without it -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- @@@scan (#537-A) - native QR scan to add friend / join group -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
