@@ -185,7 +185,7 @@ describe('markdown redesign: the real document page', () => {
   test('M5 reading right-click offers only block links and citing, with the original line fingerprint', async () => {
     const block = paragraph()
     block.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 80, clientY: 110 }))
-    expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat'])
+    expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite'])
     menuItems()[0]!.click()
     await until('the block link is copied', () => gugu.clipboard.writeText.mock.calls.length > 0)
     expect(gugu.linkTo).toHaveBeenLastCalledWith(expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '6' }) }))
@@ -310,7 +310,7 @@ describe('folder documents: reading', () => {
       hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
       expect($('block-controls').hidden).toBe(true)
       $('preview').querySelector('p[data-line="6-6"]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
-      expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat'])
+      expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite'])
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
       view().focus()
     } finally {

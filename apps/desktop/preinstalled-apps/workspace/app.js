@@ -88,7 +88,6 @@ const STRINGS = {
     moveBlockDown: '下移',
     deleteBlock: '删除',
     copyBlockLink: '复制这一块的链接',
-    citeBlock: '引用到聊天',
     insertHeading: '标题',
     insertList: '列表',
     insertTodo: '待办',
@@ -279,7 +278,6 @@ const STRINGS = {
     moveBlockDown: 'Move down',
     deleteBlock: 'Delete',
     copyBlockLink: 'Copy link to block',
-    citeBlock: 'Cite in chat',
     insertHeading: 'Heading',
     insertList: 'List',
     insertTodo: 'To-do',
@@ -2509,13 +2507,17 @@ function blockMenu() {
 function blockLinks(current, pick) {
   return [
     [state.t.copyBlockLink, blockAction(() => { const p = pick(); return copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) })],
-    [state.t.citeBlock, blockAction(() => cite(current, [pick()], state.held))],
+    [state.t.cite, blockAction(() => cite(current, [pick()], state.held))],
   ]
 }
 
 function readBlockMenu(event) {
   const current = state.current
   if (document.body.dataset.mode !== 'preview' || current?.file.type !== 'text' || current.previewPending) return
+  // While text is selected here, a press belongs to the selection: its bar (Copy, Cite, ＋ Keep) is its one menu. A
+  // phone's long-press selects a word and then sends this event, which would open the block's menu over that bar.
+  const picked = document.getSelection()
+  if (picked && !picked.isCollapsed && $('preview').contains(picked.anchorNode)) return event.preventDefault()
   let block = event.target.closest('[data-line]')
   const root = $('preview').firstElementChild
   if (!block || !root?.contains(block)) return
