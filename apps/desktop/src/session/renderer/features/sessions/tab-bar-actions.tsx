@@ -70,7 +70,7 @@ export const TabBarAddMenu = observer(function TabBarAddMenu({ chatId }: { chatI
     : <>{menu}<OpenAddMenuCommand onOpen={() => setOpen(true)} /></>;
 });
 
-/** 任务页一格的那几项:给这条会话加的(侧会话、审阅、终端、浏览器、端口、文件)、文件夹,和已装的 App。 */
+/** 任务页一格的那几项:文件夹(第一项,和对话的「+」同一个位置)、给这条会话加的(侧会话、审阅、终端、浏览器、端口),和已装的 App。 */
 const TaskAddItems = observer(function TaskAddItems() {
   const { translate } = useSessionMessages();
   const sessionView = useWorkspaceViewModel();
@@ -83,7 +83,8 @@ const TaskAddItems = observer(function TaskAddItems() {
   const folder = installedExtensionsStore.enabledTabContributions.find((entry) => entry.kind === WORKSPACE_APP_KIND);
   return (
     <>
-      {getSessionWorkspaceActionOrder(projectId, terminalEnabled).flatMap((actionId) => [
+      {folder && <FolderMenuItem label={installedExtensionsStore.tabTitle(folder.kind) ?? folder.title} onOpen={() => openTab(folder.kind)} />}
+      {getSessionWorkspaceActionOrder(projectId, terminalEnabled).map((actionId) =>
         renderWorkspaceActionMenuItem(actionId, translate, {
           blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
           blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
@@ -93,11 +94,8 @@ const TaskAddItems = observer(function TaskAddItems() {
           openPorts: () => sessionView.paneLayout.open('remote-ports', {}, { from: null, intent: 'newTab' }),
           startSideSession: () => startSideSession(projectId, sessionId),
           canStartSideSession: canSideSession
-        }),
-        ...(actionId === 'review' && folder
-          ? [<FolderMenuItem key={folder.kind} label={installedExtensionsStore.tabTitle(folder.kind) ?? folder.title} onOpen={() => openTab(folder.kind)} />]
-          : []),
-      ])}
+        })
+      )}
       {/* Installed Apps extend the menu without joining the built-in union: their kinds exist only at runtime, and
           widening that union would cost the exhaustiveness the built-ins get from it. Refs #2374.
           behavior tab-extensions「+」菜单分两段:上面那几项是给这条会话加的;这一段列已装的 App,点一个 = 把它放到

@@ -102,10 +102,12 @@ const text = (item: Element) => item.textContent?.trim();
 const glyph = (item: Element) => item.querySelector('svg')?.innerHTML;
 
 describe('folder entry E1-E3', () => {
-  it('E1 / CmdT: puts Folder third among the task builtins and keeps its original open target', async () => {
+  it('E1 / CmdT: puts Folder first, where a chat\'s + puts its folder, and keeps its original open target', async () => {
+    const groupGlyph = glyph((await menu('group'))[0]!);
     const items = await menu(undefined, true);
-    expect(items.filter((item) => !item.closest('[data-apps]')).map(text)).toEqual(['Side chat', 'Review', 'Folder', 'Terminal', 'Browser', 'Ports']);
-    await act(async () => items.find((item) => text(item) === 'Folder')!.click());
+    expect(items.filter((item) => !item.closest('[data-apps]')).map(text)).toEqual(['Folder', 'Side chat', 'Review', 'Terminal', 'Browser', 'Ports']);
+    expect(glyph(items[0]!)).toBe(groupGlyph);
+    await act(async () => items[0]!.click());
     expect(h.open).toHaveBeenCalledWith('workspace.main', {}, { from: null, intent: 'newTab', target: { paneId: 'pane' } });
   });
   it('E1: the task Apps section omits only the folder and keeps other Apps', async () => {
