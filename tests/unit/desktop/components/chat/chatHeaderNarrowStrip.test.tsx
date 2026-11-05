@@ -22,11 +22,10 @@ async function renderHeader({ narrow, showHeaderMenu }: { narrow: boolean; showH
   await renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     isGroupChat: true,
     isRoomChat: true,
-    searchMode: false,
     infoShown: false,
     showHeaderMenu,
     moreButtonRef: createRef<HTMLButtonElement>(),
-    onEnterSearchMode: vi.fn(),
+    onSearch: vi.fn(),
     onOpenFolder: vi.fn(),
     onOpenInfo: vi.fn(),
     onCloseInfo: vi.fn(),

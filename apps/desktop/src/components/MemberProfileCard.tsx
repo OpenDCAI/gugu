@@ -17,6 +17,7 @@ import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { Button } from './ui/Button'
 import { FieldList } from './contactsDetailControls'
 import { cn } from '@/lib/cn'
+import { Search } from '@/lib/icons'
 import { CommunityPointsTag } from './forum/CommunityPointsTag'
 import { useAgentSession } from '@/lib/projectGroupChatsBridge'
 import { useMobileShell } from '@/hooks/useMobileShell'
@@ -210,6 +211,7 @@ export function MemberProfileCard({
   member,
   onOpenChat,
   onWhisper,
+  onFindMessages,
   editControls,
   aliasControls,
   fill = false,
@@ -218,6 +220,8 @@ export function MemberProfileCard({
   onOpenChat?: (target: MemberProfileChatTarget) => void
   // @@@whisper (#820) — 群聊模式下悄悄话入口；仅 isGroupProfile && onWhisper 时渲染。
   onWhisper?: (target: MemberProfileChatTarget) => void
+  /** 「查找 TA 的消息」:这个会话的全局搜索,带 in: 和 from: 两枚可删的标签。 */
+  onFindMessages?: () => void
   editControls?: MemberProfileEditControls
   aliasControls?: MemberProfileAliasControls
   fill?: boolean
@@ -343,6 +347,13 @@ export function MemberProfileCard({
           >
             <IconWhisper />
             {t('profile.whisper')}
+          </Button>
+        ) : null}
+
+        {onFindMessages ? (
+          <Button size="sm" data-testid="member-profile-find-messages-button" className={profileButtonClass} onClick={onFindMessages}>
+            <Search size={14} />
+            {t('profile.findMessages')}
           </Button>
         ) : null}
 

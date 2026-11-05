@@ -9,6 +9,7 @@ import { useMobileShell } from '../hooks/useMobileShell'
 import { Popover } from './ui/Popover'
 import { Sheet } from './ui/Sheet'
 import { useTranslation } from 'react-i18next'
+import { searchInChat } from '@renderer/features/global-search/search-session'
 
 const adjacentSettingsSelector = '[data-testid="sidebar-profile-button"], [data-testid="sidebar-profile-menu"], [data-testid="sidebar-settings-nav"], [data-testid="settings-panel"]'
 
@@ -21,6 +22,7 @@ export function MemberProfilePopover({
   onClose: _onClose,
   onOpenChat,
   onWhisper,
+  searchChatId,
   editControls,
   testId = AUTOMATION_TEST_IDS.groupMemberProfileMenu,
 }: {
@@ -29,6 +31,8 @@ export function MemberProfilePopover({
   onOpenChat?: (target: MemberProfileChatTarget) => void
   // @@@whisper (#820) — 透传给 MemberProfileCard 的悄悄话回调。
   onWhisper?: (target: MemberProfileChatTarget) => void
+  /** The conversation this card was opened in: 「查找 TA 的消息」searches it for this member. */
+  searchChatId?: string
   editControls?: MemberProfileEditControls
   testId?: AutomationTestId
 }) {
@@ -54,7 +58,8 @@ export function MemberProfilePopover({
   const side = profile.preferredSide ?? 'left'
   const mobile = useMobileShell()
   const ariaLabel = t('profile.profileDialog', { name: shownName })
-  const card = <MemberProfileCard member={enrichedMember} onOpenChat={onOpenChat} onWhisper={onWhisper} editControls={editControls} aliasControls={aliasControls} fill={mobile} />
+  const findMessages = searchChatId ? () => { _onClose(); searchInChat(searchChatId, { userId: profile.member.id, name: displayName }) } : undefined
+  const card = <MemberProfileCard member={enrichedMember} onOpenChat={onOpenChat} onWhisper={onWhisper} onFindMessages={findMessages} editControls={editControls} aliasControls={aliasControls} fill={mobile} />
   const memberData = { 'data-profile-member-id': profile.member.id, 'data-profile-member-type': profile.member.type, 'data-profile-member-role': profile.member.role }
 
   // 手机是共用的底部面板(#6836):贴着锚点的 284 宽卡片在整行宽的成员页上左右都放不下,会整张落在屏外。

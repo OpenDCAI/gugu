@@ -21,6 +21,7 @@ import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { ArrowUpToLine, ChevronLeft, Mic, Paperclip, Search, Sparkles } from '@/lib/icons'
 import { useReportChatOnScreen } from '@/lib/onScreenChat'
 import { UI_EVENTS } from '@/lib/uiEvents'
+import { searchInChat } from '@renderer/features/global-search/search-session'
 import { showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat'
 import { ShellSlot } from '@/session/renderer/features/assistant/assistant-shell'
 import { useChatStore } from '@/store/chatContext'
@@ -233,7 +234,7 @@ function MobileAssistantAppContent({
           </div>
         }
         actions={(
-          <IconButton size="lg" hidden={tab !== 'chat'} aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId, viewportKey: "assistant" } }))} data-testid="mobile-assistant-search">
+          <IconButton size="lg" hidden={tab !== 'chat'} aria-label={t('top.search')} onClick={() => searchInChat(chatId)} data-testid="mobile-assistant-search">
             <Search />
           </IconButton>
         )}

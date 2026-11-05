@@ -35,8 +35,9 @@ function ProfileFixture({ go, sub }: { go: (sub: string) => void; sub: string | 
 }
 vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneProfile', () => ({ PhoneProfile: ProfileFixture }))
 vi.mock('../../../apps/desktop/src/session/renderer/features/assistant/assistant-shell', () => ({ ShellSlot: () => null }))
+const { searchInChat } = vi.hoisted(() => ({ searchInChat: vi.fn() }))
+vi.mock('../../../apps/desktop/src/session/renderer/features/global-search/search-session', () => ({ searchInChat }))
 
-import { UI_EVENTS } from '../../../apps/desktop/src/lib/uiEvents'
 import { MobileAssistantApp } from '../../../apps/desktop/src/mobile/assistant/MobileAssistantApp'
 
 let h: ReturnType<typeof createReactHarness>
@@ -72,8 +73,7 @@ it('keeps profile subpages inside the same header and restores the search action
   await h.render(<MobileAssistantApp {...props} />)
   const header = find('mobile-assistant-header')
   const chat = find('retained-chat')
-  const received = vi.fn()
-  window.addEventListener(UI_EVENTS.openChatSearch, received)
+  searchInChat.mockClear()
   await clickElement(find('mobile-assistant-pill'))
   const expectProfileLocation = () => {
     expect(find('mobile-assistant-pill').getAttribute('aria-pressed')).toBe('true')
@@ -95,10 +95,9 @@ it('keeps profile subpages inside the same header and restores the search action
   await clickElement(find('mobile-assistant-tab-chat'))
   expect((find('mobile-assistant-search') as HTMLButtonElement).hidden).toBe(false)
   await clickElement(find('mobile-assistant-search'))
-  expect(received).toHaveBeenCalledTimes(1)
-  expect((received.mock.calls[0][0] as CustomEvent).detail).toEqual({ chatId: 'dm', viewportKey: 'assistant' })
+  expect(searchInChat).toHaveBeenCalledTimes(1)
+  expect(searchInChat).toHaveBeenCalledWith('dm')
   expect(state.transition).not.toHaveBeenCalled()
-  window.removeEventListener(UI_EVENTS.openChatSearch, received)
 })
 
 it('returns from a profile detail before leaving its section using the one phone header', async () => {

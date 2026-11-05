@@ -19,11 +19,10 @@ async function renderHeader(props: { isGroupChat: boolean; mobile: boolean }, ex
   await renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     ...props,
     isRoomChat: props.isGroupChat,
-    searchMode: false,
     infoShown: false,
     showHeaderMenu,
     moreButtonRef: createRef<HTMLButtonElement>(),
-    onEnterSearchMode: vi.fn(),
+    onSearch: vi.fn(),
     onOpenFolder: vi.fn(),
     onOpenInfo,
     onCloseInfo: vi.fn(),

@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { AT_BARE_PATTERN } from '@gugu/session-shared/markdown';
 import { chatMentionProvider } from './chat-mention-provider';
 
@@ -7,7 +6,7 @@ import { chatMentionProvider } from './chat-mention-provider';
  *
  * 为什么需要它:@ 提及在原文里就是它的地址,那是发给 agent 的东西(`session_message` 三种正式
  * 地址之一)。输入框里它是一枚 pill、聊天记录里也是一枚 pill,只有「排队提示」那一条直接打印原文,
- * 于是 36 位 uuid 摆到了用户脸上(owner 2026-09-16 实撞)。
+ * 于是 36 位 uuid 摆到了用户脸上(owner 2026-09-16 实撞)。搜索结果那一行也是原文,同样用它。
  *
  * 只换**认得出的**那些:名册里查不到的 token 原样留着,❌ 不许把一段不认识的字猜成某个人。
  */
@@ -21,26 +20,9 @@ const MENTION_PATTERN = new RegExp(
   'g'
 );
 
-export function renderMentionTokens(text: string, uri?: string): ReactNode {
-  const pattern = new RegExp(MENTION_PATTERN.source, 'g');
-  const out: ReactNode[] = [];
-  let cursor = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-  while ((match = pattern.exec(text)) !== null) {
-    const bracketName = match[1]?.trim();
-    const bareToken = match[3];
-    const name = bracketName
-      ? bracketName
-      : bareToken
-        ? chatMentionProvider.resolve(bareToken, uri)?.name?.trim() ?? ''
-        : '';
-    if (!name) continue;
-    if (match.index > cursor) out.push(text.slice(cursor, match.index));
-    out.push(<span key={`m${key++}`}>@{name}</span>);
-    cursor = match.index + match[0].length;
-  }
-  if (out.length === 0) return text;
-  if (cursor < text.length) out.push(text.slice(cursor));
-  return out;
+export function renderMentionTokens(text: string, uri?: string): string {
+  return text.replace(new RegExp(MENTION_PATTERN.source, 'g'), (token, bracketName?: string, _address?: string, bareToken?: string) => {
+    const name = bracketName?.trim() || (bareToken ? chatMentionProvider.resolve(bareToken, uri)?.name?.trim() : '') || '';
+    return name ? `@${name}` : token;
+  });
 }

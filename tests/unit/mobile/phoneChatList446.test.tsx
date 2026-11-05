@@ -3,6 +3,9 @@ import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentDisplayStatus, GroupChatSettings } from '@gugu/core/shared/types/chat'
 import { chatService } from '../../../apps/desktop/src/lib/chat'
+// The task workspace's stores import each other in a cycle that only resolves when app-state loads first, as the app's
+// own entry does; importing ChatListPanel alone would enter it through sidebar-store.
+import '@renderer/lib/stores/app-state'
 import { ChatListPanel, TopicSubRow } from '../../../apps/desktop/src/components/ChatListPanel'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { SidebarStore } from '@renderer/features/sidebar/sidebar-store'
