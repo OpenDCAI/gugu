@@ -19,6 +19,8 @@ export interface LifeView {
   /** at = the failed startup stage; null = an effect fault outside any stage. cause = what the leg reported. */
   readonly failure: { readonly at: StageName | null; readonly message: string; readonly cause: SerializedError } | null;
   readonly lastExit: string | null;
+  /** The lifecycle owner observed a process exit; absent on older hosts. */
+  readonly processExited?: boolean;
   /** Only for an attempt started by a reconfigure: did it continue the provider session or start a new one. */
   readonly nativeSession: 'preserved' | 'replaced' | null;
 }
@@ -34,17 +36,20 @@ export function lifeIsStarting(view: Pick<LifeView, 'kind' | 'hold'> & { pending
 }
 
 /** What the agent status feed carries of a session's LifeView (the chat-page pill). */
-export type LifeStatus = Pick<LifeView, 'kind' | 'stage'>;
+export type LifeStatus = Pick<LifeView, 'kind' | 'stage' | 'processExited'>;
 
 /**
  * The one composition of a session-life session's status (session_get, session_peers, the pill): its lifecycle answers
  * first (archived, starting, failed), otherwise the activity the status writer recorded.
  */
-export function displayStatus(life: Pick<LifeView, 'kind'>, activity: AgentStatus | null): AgentStatus | 'starting' | 'archived' | null {
+export function displayStatus(life: Pick<LifeStatus, 'kind' | 'processExited'>, activity: AgentStatus | null): AgentStatus | 'starting' | 'archived' | 'offline' | null {
   switch (life.kind) {
     case 'archived': return 'archived';
     case 'starting': return 'starting';
     case 'failed': return 'error';
-    case 'dormant': case 'ready': case 'stopping': return activity;
+    // Only the lifecycle owner's observed exit overrides activity. Silence, pending inputs and an
+    // unstarted session (including an older host without this fact) are not evidence of an exit.
+    case 'dormant': return life.processExited === true ? 'offline' : activity;
+    case 'ready': case 'stopping': return activity;
   }
 }

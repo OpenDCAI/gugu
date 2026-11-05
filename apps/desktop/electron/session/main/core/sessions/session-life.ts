@@ -264,10 +264,10 @@ export class SessionLife {
 
   read(sessionId: string): LifeView { return this.view(sessionId, this.known(sessionId)); }
 
-  /** Kind and stage only (status feed, session_get): no pending rows read. */
+  /** Lifecycle facts only (status feed, session_get): no pending rows read. */
   status(sessionId: string): LifeStatus {
     const entry = this.known(sessionId);
-    return { kind: entry.life.kind, stage: stageOf(entry) };
+    return { kind: entry.life.kind, stage: stageOf(entry), processExited: entry.life.kind === 'dormant' && entry.life.lastExit?.processExited === true };
   }
 
   private known(sessionId: string): Omit<Entry, 'events'> {
@@ -456,6 +456,7 @@ export class SessionLife {
       hold: hold?.reason ?? null,
       failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message, cause: life.hold.cause } : null,
       lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null,
+      processExited: life.kind === 'dormant' && life.lastExit?.processExited === true,
       nativeSession: life.kind === 'ready' && entry.reconfigured ? life.have.channel.nativeSession : null };
   }
 

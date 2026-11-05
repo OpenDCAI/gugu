@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { displayStatus } from '../../../../apps/desktop/src/session/shared/core/sessions/session-life';
 import { SessionLife } from '../../../../apps/desktop/electron/session/main/core/sessions/session-life';
 import type { LifeStore, SessionLifePorts } from '../../../../apps/desktop/electron/session/main/core/sessions/session-life';
 import type { LegAdapter, PendingRow } from '../../../../apps/desktop/electron/session/main/core/sessions/session-life-adapter';
@@ -14,7 +15,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 const seq = (value: number) => value as Seq;
-const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
+const EXIT: ExitFact = { processExited: true, cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
 function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
   failAt?: StageName; failAwaitsPerson?: boolean; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; channelLostTimes?: number; failOnceAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
@@ -109,6 +110,26 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
+  { name: 'a thrown dispatch leaves the outcome unknown without inventing a process exit', async run() {
+    const r = rig({ dispatchThrowsOnce: true }); r.session(); await r.owner.signIn('A');
+    const sent = r.send(); await r.owner.quiescent('s');
+    assert.equal(r.rows.get(sent.seq)!.state, 'unknown');
+    assert.equal(displayStatus(r.owner.status('s'), 'error'), 'error');
+    assert.equal(r.owner.read('s').processExited, false);
+    await r.owner.signOut();
+  } },
+  { name: 'only an owned process exit shows offline; a stale exit cannot take the resumed generation offline', async run() {
+    const r = rig(); r.session(); await r.owner.signIn('A');
+    assert.equal(displayStatus(r.owner.status('s'), 'working'), 'working');
+    r.send('s', 'source-1'); await r.owner.quiescent('s');
+    const oldExit = r.exitCallbacks.at(-1)!;
+    oldExit(EXIT); await r.owner.quiescent('s');
+    assert.equal(displayStatus(r.owner.status('s'), 'working'), 'offline');
+    r.send('s', 'source-2'); await r.owner.quiescent('s');
+    oldExit(EXIT); await r.owner.quiescent('s');
+    assert.equal(displayStatus(r.owner.status('s'), 'working'), 'working');
+    await r.owner.signOut();
+  } },
   { name: 'a notice queued before boot sign-in remains startable; archive settles a stranded notice', async run() {
     const r = rig(); r.session();
     const notice = r.owner.enqueue({ sessionId: 's', messageId: 'update-notice', text: 'Your work was interrupted; check commands and continue.', kind: 'ordinary' });

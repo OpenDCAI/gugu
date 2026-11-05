@@ -45,11 +45,14 @@ const LIFE_KINDS: readonly LifeView['kind'][] = ['dormant', 'starting', 'ready',
 /** The bound session's lifecycle: `null` = session-life does not own it; anything else malformed throws. */
 function readLife(value: unknown): LifeStatus | null {
   if (value === null) return null
-  const life = value as { kind?: unknown; stage?: unknown } | undefined
+  const life = value as { kind?: unknown; stage?: unknown; processExited?: unknown } | undefined
   if (!life || typeof life !== 'object' || !LIFE_KINDS.includes(life.kind as LifeView['kind'])) {
     throw new Error('agent status feed entry carries a malformed life')
   }
-  return { kind: life.kind as LifeView['kind'], stage: readStage(life.stage) }
+  if (life.processExited !== undefined && typeof life.processExited !== 'boolean') {
+    throw new Error('agent status feed entry carries a malformed life exit')
+  }
+  return { kind: life.kind as LifeView['kind'], stage: readStage(life.stage), ...(life.processExited !== undefined ? { processExited: life.processExited } : {}) }
 }
 
 function readStage(value: unknown): LifeView['stage'] {
