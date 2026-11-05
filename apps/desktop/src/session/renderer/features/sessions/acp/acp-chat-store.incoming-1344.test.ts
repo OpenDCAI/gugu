@@ -2,9 +2,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { LifeView } from '@shared/core/sessions/session-life';
+import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
-Object.defineProperty(document, 'fonts', { configurable: true, value: { load: vi.fn().mockResolvedValue([]) } });
-Object.defineProperty(window, 'electronAPI', { configurable: true, value: { invoke: () => Promise.resolve([]), eventSend: () => {}, eventOn: () => () => {}, getPathForFile: () => '' } });
+installAcpChatStoreHost();
 const { AcpChatStore } = await import('./acp-chat-store');
 const stores: InstanceType<typeof AcpChatStore>[] = [];
 afterEach(() => { for (const store of stores.splice(0)) store.dispose(); });

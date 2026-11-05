@@ -12,29 +12,17 @@
  * 这里判的是渲染层**什么时候**、**拿什么值**去写。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => ({}),
 }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 
-// 桥必须在模块图加载之前就位 —— 理由见 acp-chat-store.session-absent.test.ts 抬头。
 const invokes: Array<{ channel: string; args: unknown[] }> = [];
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: (channel: string, ...args: unknown[]) => {
-      invokes.push({ channel, args });
-      return Promise.resolve([]);
-    },
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
+installAcpChatStoreHost((channel: string, ...args: unknown[]) => {
+  invokes.push({ channel, args });
+  return Promise.resolve([]);
 });
 const { AcpChatStore } = await import('./acp-chat-store');
 

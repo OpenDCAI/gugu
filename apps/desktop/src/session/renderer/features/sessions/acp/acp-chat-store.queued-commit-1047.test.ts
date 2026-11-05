@@ -2,31 +2,12 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { HistoryPage } from '@gugu/session-core/acp/client';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
-Object.defineProperty(document, 'fonts', {
-  configurable: true, value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: { invoke: () => Promise.resolve([]), eventSend: () => {}, eventOn: () => () => {}, getPathForFile: () => '' },
-});
+installAcpChatStoreHost();
 const { AcpChatStore } = await import('./acp-chat-store');
 
-function replica<T>(initial: T) {
-  let value = initial;
-  const listeners = new Set<(next: T) => void>();
-  return {
-    current: () => value,
-    ready: Promise.resolve(),
-    onGone: () => () => {},
-    onChange: (listener: (next: T) => void) => {
-      listeners.add(listener);
-      return () => { listeners.delete(listener); };
-    },
-    set(next: T) { value = next; for (const listener of listeners) listener(next); },
-  };
-}
 
 function turn(id: string, seq: number, text: string): TranscriptTurn {
   return { id, seq, initiator: 'user', items: [
@@ -66,10 +47,10 @@ it('loads A while queued B is still running, preserves B during the history requ
   expect(session.getHistory).not.toHaveBeenCalled();
 
   // A->null->B can be coalesced into A->B by the runtime publication tick.
-  activeTurn.set(b);
+  activeTurn.push(b);
   expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('B');
   expect(session.getHistory, 'A must be reconciled before B becomes idle').toHaveBeenCalledTimes(1);
-  activeTurn.set({ ...b, items: [...b.items, { kind: 'message', id: 'B:tail', seq: 2, role: 'assistant', text: 'B keeps streaming' }] });
+  activeTurn.push({ ...b, items: [...b.items, { kind: 'message', id: 'B:tail', seq: 2, role: 'assistant', text: 'B keeps streaming' }] });
   expect(session.getHistory, 'same-turn chunks are not commits').toHaveBeenCalledTimes(1);
   pending.shift()!({ success: true, data: { turns: [{ ...a, outcome: { kind: 'done' } }], count: 1,
     nextCursor: null, cursor: { epoch: 'runtime', seq: 1 }, reset: false } });
@@ -79,7 +60,7 @@ it('loads A while queued B is still running, preserves B during the history requ
   expect(store.chatState.transcript.state.activeTurnSnapshot?.id).toBe('B');
   expect(store.chatState.transcript.findItemById('B:tail')).toMatchObject({ text: 'B keeps streaming' });
 
-  activeTurn.set(null);
+  activeTurn.push(null);
   expect(session.getHistory).toHaveBeenCalledTimes(2);
   expect(store.chatState.transcript.state.activeTurnSnapshot?.id, 'retain B until history arrives').toBe('B');
   pending.shift()!({ success: true, data: { turns: [{ ...b, outcome: { kind: 'done' } }], count: 2,

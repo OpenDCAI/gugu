@@ -24,6 +24,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { runInAction } from 'mobx';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 const custody = vi.fn(async () => {});
 vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
@@ -39,42 +40,10 @@ type StoreModule = typeof import('./acp-chat-store');
 type StoreCtor = StoreModule['AcpChatStore'];
 type Store = InstanceType<StoreCtor>;
 
-// 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例与理由)。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: () => Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost();
 const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 
 /** 一份 replica 的最小形状:`current()` + `onChange()`,能从外面推一次新值。 */
-function replica<T>(initial: T) {
-  let value = initial;
-  type Meta = { kind: 'seed' } | { kind: 'update'; mutationIds: string[] };
-  const listeners = new Set<(value: T, meta: Meta) => void>();
-  return {
-    current: () => value,
-    onChange: (cb: (value: T, meta: Meta) => void) => {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
-    onGone: () => () => undefined,
-    ready: Promise.resolve(),
-    push(next: T, meta: Meta = { kind: 'update', mutationIds: [] }) {
-      value = next;
-      for (const listener of [...listeners]) listener(next, meta);
-    },
-    listenerCount: () => listeners.size,
-  };
-}
 
 const readyState = {
   lifecycle: 'ready',

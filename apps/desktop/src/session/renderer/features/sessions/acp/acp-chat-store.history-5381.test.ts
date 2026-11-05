@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 
 vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
@@ -32,20 +33,8 @@ vi.mock('@renderer/lib/acp/acp-live-session', async (original) => ({
 type StoredPage = { turns: TranscriptTurn[]; originTurnIds: string[]; nextCursor: number | null };
 let storedPage: StoredPage | null = null;
 
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: (channel: string) =>
-      Promise.resolve(channel === 'sessions.getStoredHistory' ? storedPage : []),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost((channel: string) =>
+  Promise.resolve(channel === 'sessions.getStoredHistory' ? storedPage : []));
 const { AcpChatStore } = await import('./acp-chat-store');
 
 const turn = (id: string, seq: number): TranscriptTurn =>
@@ -60,7 +49,6 @@ function fakeRuntime(count: number) {
   const revs = committed.map((_, index) => index + 1);
   let rev = count;
   let epoch = 'runtime';
-  const replica = <T>(value: T) => ({ current: () => value, onChange: () => () => {}, onGone: () => () => {}, ready: Promise.resolve() });
   const calls: Array<{ before?: number; changedSince?: HistoryCursor }> = [];
   return {
     calls,

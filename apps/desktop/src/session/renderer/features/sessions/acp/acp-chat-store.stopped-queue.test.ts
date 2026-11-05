@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runInAction } from 'mobx';
 import type { Session } from '@shared/core/sessions/sessions';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 const getStoredQueue = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const records = vi.hoisted(() => new Map<string, Partial<Session>>());
@@ -20,39 +21,10 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: (arg: unknown) => toast
 type StoreModule = typeof import('./acp-chat-store');
 type Store = InstanceType<StoreModule['AcpChatStore']>;
 
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
 const invoke = vi.fn((..._args: unknown[]) => Promise.resolve([]));
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke,
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost(invoke);
 const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 
-function replica<T>(initial: T) {
-  let value = initial;
-  const listeners = new Set<() => void>();
-  return {
-    current: () => value,
-    onChange: (cb: () => void) => {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
-    onGone: () => () => undefined,
-    ready: Promise.resolve(),
-    push(next: T) {
-      value = next;
-      for (const listener of [...listeners]) listener();
-    },
-  };
-}
 
 const readyState = {
   lifecycle: 'ready',

@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { runInAction } from 'mobx';
+import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 
 const setModelOption = vi.fn();
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
@@ -25,20 +26,7 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({
 
 type StoreModule = typeof import('./acp-chat-store');
 
-// 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例与理由)。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: () => Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost();
 const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 
 let seq = 0;

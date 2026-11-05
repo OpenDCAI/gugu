@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { runInAction } from 'mobx';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => ({}),
@@ -42,49 +43,10 @@ type Store = InstanceType<StoreCtor>;
 const storedHistory = vi.fn(async () => ({ turns: [] as TranscriptTurn[], originTurnIds: [] as string[], nextCursor: null }));
 const turn = (id: string): TranscriptTurn => ({ id, seq: 0, initiator: 'user', items: [] }) as unknown as TranscriptTurn;
 
-// 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例与理由)。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: (channel: string) => channel === 'sessions.getStoredHistory' ? storedHistory() : Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost((channel: string) => channel === 'sessions.getStoredHistory' ? storedHistory() : Promise.resolve([]));
 const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 
 /** 一份 replica 的最小形状:`current()` + `onChange()`,能从外面推一次新值。 */
-function replica<T>(initial: T) {
-  let value = initial;
-  const listeners = new Set<(value: T) => void>();
-  const goneListeners = new Set<(error: { code: string }) => void>();
-  return {
-    current: () => value,
-    onChange: (cb: (value: T) => void) => {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
-    onGone: (cb: (error: { code: string }) => void) => {
-      goneListeners.add(cb);
-      return () => goneListeners.delete(cb);
-    },
-    ready: Promise.resolve(),
-    push(next: T) {
-      value = next;
-      for (const listener of [...listeners]) listener(value);
-    },
-    /** 重连被拒、不会再好:新进程里没有这份实例。 */
-    gone() {
-      for (const listener of [...goneListeners]) listener({ code: 'NOT_FOUND' });
-    },
-    listenerCount: () => listeners.size + goneListeners.size,
-  };
-}
 
 const readyState = {
   lifecycle: 'ready',

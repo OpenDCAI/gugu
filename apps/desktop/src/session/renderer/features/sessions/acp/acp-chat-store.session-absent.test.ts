@@ -14,6 +14,7 @@ import { reaction, runInAction } from 'mobx';
 import { WireError } from '@gugu/session-wire';
 import { log } from '@renderer/utils/logger';
 import type { SessionInput } from '@/lib/sessionInputOutbox';
+import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 
 const custody = vi.fn(async (..._args: unknown[]) => {});
 vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
@@ -30,42 +31,9 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({
   },
 }));
 
-/**
- * ⚠️ `lib/ipc.ts` 在**模块求值期**读 `window.electronAPI`，取不到就装一个 fail-loud 桩，
- * 于是 `new AcpChatStore` → `getSharedChatContext()` → `preloadIssueMentionIcons` 会抛
- * `electronAPI.invoke is unavailable for integrations.list`。(历史:#6888 起 preloadIssueMentionIcons 把调用放进 then,
- * 没有桥时不再同步抛;下面的顺序前提照旧保留。)
- *
- * 所以桥必须在**模块图加载之前**就位 ⇒ 用动态 import，而不是顶层静态 import。
- * 第一版就是静态 import 写的：阳性对照当场红，而其余 7 条"绿" ——
- * 因为 context 在抛错前已被缓存，后续用例复用了它。**那 7 条绿依赖测试 1 抛过异常**，
- * 是顺序依赖的假绿，vitest 自己也报了 "might cause false positive tests"。
- */
 type StoreModule = typeof import('./acp-chat-store');
 type StoreCtor = StoreModule['AcpChatStore'];
-// 桥必须在**模块图加载之前**就位(见上),这两条 defineProperty 与那次动态 import 的先后
-// 关系是本文件的正确性前提。顶层语句按序执行,该前提原样保持 —— 上面那条阳性对照守着它:
-// 实测把 import 提到 defineProperty 之前,它立刻红成 `electronAPI.invoke is unavailable`。
-//
-// 但它们不再放在 beforeAll 里。那个钩子有 **30s 固定预算**,而这次 import 要 transform 出
-// 整张 renderer 模块图(d15 idle 就要 transform ~12s)。mac1 满载时它单独超过 30s,
-// 钩子一超时,20 条用例是**跳过**而不是变红 —— CI 报表上写的是 `20 tests | 20 skipped`,
-// 整组守卫静默消失,没人看得出来。实测三条互不相关的分支被它打红过(2026-08-24)。
-// 搬到顶层后这段耗时落在文件的 import/transform 阶段,不再撞那道悬崖:
-// 慢就是慢,但不会变成「假装跑过了」。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: () => Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost();
 const { AcpChatStore, isVisibleQueuedPrompt }: StoreModule = await import('./acp-chat-store');
 
 let seq = 0;

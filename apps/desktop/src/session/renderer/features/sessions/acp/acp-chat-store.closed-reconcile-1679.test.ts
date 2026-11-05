@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { runInAction } from 'mobx';
 import { batch } from 'solid-js';
 import type { TranscriptTurn, SessionState } from '@gugu/session-core/acp/client';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => ({ getStoredQueue: async () => [] }),
@@ -12,27 +13,16 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: (value: unknown) => toa
 const listeners = new Map<string, Set<(data: unknown) => void>>();
 const read = vi.fn();
 const tail = vi.fn();
-Object.defineProperty(document, 'fonts', { configurable: true, value: { load: async () => [] } });
-Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
-  invoke: (channel: string, ...args: unknown[]) => channel.includes('getStoredSettledTurn') ? read(...args)
+installAcpChatStoreHost(
+  (channel: string, ...args: unknown[]) => channel.includes('getStoredSettledTurn') ? read(...args)
     : channel.includes('getStoredHistory') ? tail(...args) : Promise.resolve([]),
-  eventSend: () => {}, getPathForFile: () => '',
-  eventOn: (channel: string, callback: (data: unknown) => void) => {
+  (channel: string, callback: (data: unknown) => void) => {
     const set = listeners.get(channel) ?? new Set(); listeners.set(channel, set); set.add(callback);
     return () => set.delete(callback);
   },
-} });
+);
 const { AcpChatStore } = await import('./acp-chat-store');
 
-function replica<T>(initial: T) {
-  let value = initial;
-  const callbacks = new Set<(next: T) => void>();
-  return { current: () => value, onChange: (callback: (next: T) => void) => {
-    callbacks.add(callback); return () => callbacks.delete(callback);
-  }, onGone: () => () => {}, push: (next: T) => {
-    value = next; for (const callback of [...callbacks]) callback(next);
-  } };
-}
 const ready: SessionState = {
   lifecycle: 'working', activeTurnId: 'runtime:turn:0', pendingPermissions: [], lastStopReason: null,
   lastTurnOutcome: 'none', queuedPrompts: [], backgroundAgentCount: 0, backgroundCommandCount: 0,

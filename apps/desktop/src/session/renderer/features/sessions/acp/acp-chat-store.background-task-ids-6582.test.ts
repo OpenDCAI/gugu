@@ -13,6 +13,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { autorun, runInAction } from 'mobx';
 import { collectBackgroundCommandRoster } from '@gugu/session-chat-ui';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => ({ getStoredQueue: vi.fn().mockResolvedValue([]), queuePrompt: vi.fn() }),
@@ -34,39 +35,9 @@ vi.mock('solid-js', async (importOriginal) => {
 type StoreModule = typeof import('./acp-chat-store');
 type Store = InstanceType<StoreModule['AcpChatStore']>;
 
-// 桥必须在模块图加载之前就位(同 acp-chat-store.host-closed-6497.test.ts)。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: () => Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost();
 const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 
-function replica<T>(initial: T) {
-  let value = initial;
-  const listeners = new Set<(value: T) => void>();
-  return {
-    current: () => value,
-    onChange: (cb: (value: T) => void) => {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
-    onGone: () => () => undefined,
-    ready: Promise.resolve(),
-    push(next: T) {
-      value = next;
-      for (const listener of [...listeners]) listener(value);
-    },
-  };
-}
 
 const readyState = {
   lifecycle: 'ready',

@@ -26,6 +26,7 @@
  * 三条断言全红 —— 那正是修之前的代码。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 
 
 vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
@@ -40,21 +41,7 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 type StoreModule = typeof import('./acp-chat-store');
 type StoreCtor = StoreModule['AcpChatStore'];
 
-// 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例):
-// `lib/ipc.ts` 在模块求值期读 `window.electronAPI`,取不到就装 fail-loud 桩。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: () => Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost();
 const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 
 let seq = 0;

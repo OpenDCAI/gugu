@@ -28,26 +28,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { until } from '../../../../../../../../tests/support/awaitCondition'
 import type { TranscriptTurn } from '@gugu/session-core/acp'
+import { installAcpChatStoreHost } from './acp-chat-store.test-host'
 
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }))
 
 type StoreModule = typeof import('./acp-chat-store')
 type StoreCtor = StoreModule['AcpChatStore']
 
-// 桥必须在模块图加载之前就位(与 acp-chat-store.reconnect-5318.test.ts 同一个先例)。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-})
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: () => Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-})
+installAcpChatStoreHost()
 const { AcpChatStore }: StoreModule = await import('./acp-chat-store')
 
 /** provider 在 prompt 边界上说的那句话 —— 改口之后它必须**逐字**还在。 */

@@ -21,6 +21,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runInAction, when } from 'mobx';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 let nextSession: unknown = null;
 vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
@@ -43,30 +44,9 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 
 type StoreModule = typeof import('./acp-chat-store');
 
-// 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例与理由)。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: () => Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost();
 const { AcpChatStore }: StoreModule = await import('./acp-chat-store');
 
-function replica<T>(initial: T) {
-  return {
-    current: () => initial,
-    onChange: () => () => {},
-    onGone: () => () => {},
-    ready: Promise.resolve(),
-  };
-}
 
 const readyState = {
   lifecycle: 'ready',

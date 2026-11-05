@@ -23,6 +23,7 @@ import { reaction, runInAction } from 'mobx';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { Session } from '@shared/core/sessions/sessions';
 import { state as inputState, changed as inputsChanged, EMPTY as NO_INPUTS } from '@/lib/sessionInputOutboxBridge';
+import { installAcpChatStoreHost, replica } from './acp-chat-store.test-host';
 
 const records = vi.hoisted(() => new Map<string, Partial<Session>>());
 const link = vi.hoisted(() => ({
@@ -157,30 +158,17 @@ const host = {
   sync: vi.fn(async (_sessionId: string): Promise<{ inserted: number }> => ({ inserted: 0 })),
 };
 
-// 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例与理由)。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: (channel: string, ...args: unknown[]) => {
-      if (channel === 'sessions.syncStoredHistoryFromRecord') return host.sync(args[0] as string);
-      if (channel !== 'sessions.getStoredHistory') return Promise.resolve([]);
-      const params = args[0] as { limit?: number; fromSeq?: number };
-      host.storedReads.push(params);
-      if (host.storedFailure) return Promise.reject(host.storedFailure);
-      if (host.storedPending) return host.storedPending;
-      // 开场补读那一页之后新落库的(`fromSeq`):这些用例里没有。
-      if (params.fromSeq !== undefined) return Promise.resolve({ turns: [], originTurnIds: [], nextCursor: null });
-      const page = host.storedPages.length > 1 ? host.storedPages.shift()! : host.storedPages[0];
-      return Promise.resolve(page ?? { turns: [], originTurnIds: [], nextCursor: null });
-    },
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
+installAcpChatStoreHost((channel: string, ...args: unknown[]) => {
+  if (channel === 'sessions.syncStoredHistoryFromRecord') return host.sync(args[0] as string);
+  if (channel !== 'sessions.getStoredHistory') return Promise.resolve([]);
+  const params = args[0] as { limit?: number; fromSeq?: number };
+  host.storedReads.push(params);
+  if (host.storedFailure) return Promise.reject(host.storedFailure);
+  if (host.storedPending) return host.storedPending;
+  // 开场补读那一页之后新落库的(`fromSeq`):这些用例里没有。
+  if (params.fromSeq !== undefined) return Promise.resolve({ turns: [], originTurnIds: [], nextCursor: null });
+  const page = host.storedPages.length > 1 ? host.storedPages.shift()! : host.storedPages[0];
+  return Promise.resolve(page ?? { turns: [], originTurnIds: [], nextCursor: null });
 });
 const { AcpChatStore } = await import('./acp-chat-store');
 const { MACHINE_LINK_GRACE_MS } = await import('./acp-chat-store');
@@ -192,9 +180,6 @@ const turn = (id: string, seq: number): TranscriptTurn =>
   ({ id, seq, initiator: 'user', items: [{ kind: 'message', id: `${id}-m`, seq: 0, role: 'user', text: id }] }) as unknown as TranscriptTurn;
 const page = (...turns: TranscriptTurn[]): StoredPage => ({ turns, originTurnIds: turns.map((t) => `origin-${t.id}`), nextCursor: null });
 
-function replica<T>(initial: T) {
-  return { current: () => initial, onChange: () => () => {}, onGone: () => () => {}, ready: Promise.resolve() };
-}
 
 const readyState = {
   lifecycle: 'ready',

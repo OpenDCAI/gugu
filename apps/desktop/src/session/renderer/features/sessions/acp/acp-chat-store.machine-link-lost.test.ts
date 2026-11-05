@@ -20,6 +20,7 @@
  * `toLoadError` 不带机器,kind 断言红。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 
 
 vi.mock('@renderer/lib/acp/acp-session-attachment', () => ({
@@ -47,20 +48,7 @@ vi.mock('@renderer/lib/machine-clients', async (importOriginal) => ({
   },
 }));
 
-// 桥必须在模块图加载之前就位(同 acp-chat-store.session-absent.test.ts 的先例)。
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: () => Promise.resolve([]),
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
-});
+installAcpChatStoreHost();
 const { AcpChatStore, MACHINE_LINK_GRACE_MS } = await import('./acp-chat-store');
 const { AcpLiveSession } = await import('@renderer/lib/acp/acp-live-session');
 const { machineRegistry } = await import('@renderer/lib/machine-routing');
