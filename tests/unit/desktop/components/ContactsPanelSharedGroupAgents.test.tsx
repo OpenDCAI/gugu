@@ -30,6 +30,8 @@ describe('ContactsPanel shared-group Agent cloud projection', () => {
     })
 
     const cloud = harness.container.querySelector('[data-device-scope="cloud"]')
+    // 设备段默认收起,收起时只挂可被查找的名字行;像用户一样先点开这一段
+    await clickElement(cloud?.querySelector('[data-slot="section-label"]') as HTMLElement)
     const row = cloud?.querySelector('[data-contact-id="shared-agent"]') as HTMLElement | null
     expect(row).toBeTruthy()
     await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.contactsSelectModeButton}"]`) as HTMLElement)
