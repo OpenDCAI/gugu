@@ -37,6 +37,9 @@ import {
   SidebarMenuButton,
   SidebarMenuRow,
   sidebarDropTargetClass,
+  sidebarRowActionsSlotClass,
+  sidebarRowHoverActionsClass,
+  sidebarRowRestActionsClass,
 } from './sidebar-primitives';
 import { useSessionDropTarget } from './use-session-drop-target';
 import { moveSessionUnder } from '@renderer/features/sessions/set-session-parent-flow';
@@ -268,30 +271,32 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
             ) : null}
             {!isExpanded && <ProjectNeedsYouDot count={needsYouCount} />}
           </div>
-          <SidebarUnreadCount count={groupUnread} />
-            <Tooltip>
-              <TooltipTrigger
-                className="h-6"
-                render={
-                  <SidebarItemMiniButton
-                    type="button"
-                    aria-label={translate('sidebar.newSessionIn', { project: projectLabel })}
-                    className={
-                      'opacity-0 transition-opacity duration-[var(--dur-fast,120ms)] group-hover/row:opacity-100'
-                    }
-                    onPointerEnter={() => prefetchRepository()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openNewSession();
-                    }}
-                    disabled={project.state === 'unregistered'}
-                  >
-                    <Zap className="h-4 w-4" />
-                  </SidebarItemMiniButton>
-                }
-              />
-              <TooltipContent>{translate('sidebar.newSession')}</TooltipContent>
-            </Tooltip>
+          {/* 行尾同会话行一格:静止只占未读数的宽度,悬浮才换成「新建会话」(见 sidebarRowActionsSlotClass)。 */}
+          <span data-row-hover-actions className={sidebarRowActionsSlotClass}>
+            <span className={sidebarRowHoverActionsClass}>
+              <Tooltip>
+                <TooltipTrigger
+                  className="h-6"
+                  render={
+                    <SidebarItemMiniButton
+                      type="button"
+                      aria-label={translate('sidebar.newSessionIn', { project: projectLabel })}
+                      onPointerEnter={() => prefetchRepository()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openNewSession();
+                      }}
+                      disabled={project.state === 'unregistered'}
+                    >
+                      <Zap className="h-4 w-4" />
+                    </SidebarItemMiniButton>
+                  }
+                />
+                <TooltipContent>{translate('sidebar.newSession')}</TooltipContent>
+              </Tooltip>
+            </span>
+            <span className={sidebarRowRestActionsClass}><SidebarUnreadCount count={groupUnread} /></span>
+          </span>
         </SidebarMenuRow>
     </ProjectRowContextMenu>
   );

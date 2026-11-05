@@ -339,16 +339,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return summarizeSessionBranches(this.placement.nodeById.values());
   }
 
-  get sessionBranchColumnMetrics() {
-    let totalWidth = 14;
-    let runningWidth = 7;
-    for (const summary of this.sessionBranchSummaries.values()) {
-      totalWidth = Math.max(totalWidth, String(summary.total).length * 7);
-      for (const state of summary.active) runningWidth = Math.max(runningWidth, String(state.count).length * 7);
-    }
-    return { totalWidth, runningWidth, width: totalWidth + runningWidth + 35 };
-  }
-
   get sessionBranchTrail(): { id: string; title: string }[] {
     const trail: { id: string; title: string }[] = [];
     let node = this.sessionBranchRootId ? this.placement.nodeById.get(this.sessionBranchRootId) : undefined;
