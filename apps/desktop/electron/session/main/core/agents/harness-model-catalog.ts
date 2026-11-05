@@ -246,6 +246,8 @@ export function setAcpSpawnResolver(resolver: AcpSpawnResolver): void {
 /** 第二遍探测要叠上去的东西(由宿主按这家的 Chat UI 注入信封生成,见 `harness-catalog-probe-env.ts`)。 */
 export type ProbePlatformCredentials = {
   env: Record<string, string>;
+  /** Explicit plugin policy: there is no platform route to probe, not a credential failure. */
+  skipReason?: 'platform-unsupported';
   sessionMeta?: Record<string, unknown>;
   platform?: AcpPlatformInjection;
 };
@@ -915,6 +917,7 @@ export async function probeHarnessModelCatalog(
   const scratchDir = await mkdtemp(join(tmpdir(), `gugu-probe-creds-${pluginId}-`));
   try {
     const probeCredentials = await resolveProbePlatformEnv(pluginId, scratchDir);
+    if (probeCredentials.skipReason === 'platform-unsupported') return first;
     const second = await probeOnce(pluginId, leg, probeCredentials, model);
     if (second.kind === 'ready') {
       log.info(`${pluginId}: 未登录,但占位凭据那趟读到 ${second.efforts.length} 档推理强度`);

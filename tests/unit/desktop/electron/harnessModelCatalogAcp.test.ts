@@ -783,6 +783,25 @@ function handle(msg) {
     await expect(probeHarnessModelCatalog('qoder', 'acp')).rejects.toThrow(/qoder placeholder credentials unavailable/)
     expect(spawns).toBe(1)
   })
+  it('preserves Antigravity sign-in methods when its declared platform route is unsupported', async () => {
+    const { buildProbePlatformCredentials } = await import('../../../../apps/desktop/electron/harness-catalog-probe-env')
+    await useForkingAgent()
+    let scratch = ''
+    setProbePlatformEnvResolver(async (id, dir) => {
+      scratch = dir
+      return buildProbePlatformCredentials(id, dir)
+    })
+    await expect(probeHarnessModelCatalog('antigravity', 'acp')).resolves.toEqual({
+      kind: 'auth-required', authMethods: [{ id: 'moonshot', name: 'Sign in to Moonshot' }], efforts: [], selectedEffort: null,
+    })
+    expect(spawns).toBe(1)
+    expect(scratch).not.toBe('')
+    expect(existsSync(scratch)).toBe(false)
+  })
+  it('still rejects an unknown engine rather than treating a missing contract as unsupported', async () => {
+    const { buildProbePlatformCredentials } = await import('../../../../apps/desktop/electron/harness-catalog-probe-env')
+    await expect(buildProbePlatformCredentials('unknown-catalog-engine', '/unused')).rejects.toThrow('no Chat UI injection contract')
+  })
   /**
    * 文档载体那几家要把 settings 文档写进这一趟的临时目录 —— 探完必须整目录删掉,❌ 留在磁盘上。
    */

@@ -62,6 +62,7 @@ import {
   codexPlatformProviderBlock,
   CODEX_PLATFORM_PROVIDER_ID,
   materializePiModelConfig,
+  pluginRegistry,
 } from '@gugu/session-plugins/agents'
 import { platformEnvelopeKind } from './platform-envelope'
 import { claudeAcpAdapterEnv } from './sessionpage/sessionpage-platform-hooks'
@@ -87,6 +88,9 @@ export async function buildProbePlatformCredentials(
   pluginId: string,
   scratchDir: string,
 ): Promise<ProbePlatformCredentials> {
+  if (pluginRegistry.get(pluginId)?.capabilities.sessionBundle.platform.kind === 'unsupported') {
+    return { env: {}, skipReason: 'platform-unsupported' }
+  }
   const contract = findInjectionContract(pluginId, 'cui')
   if (!contract) throw probeCredentialsFault(pluginId, 'no Chat UI injection contract')
   if (!contract.wired) throw probeCredentialsFault(pluginId, `Chat UI injection (${contract.dialect}) is not wired`)
