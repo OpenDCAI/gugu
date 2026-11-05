@@ -39,7 +39,7 @@ export interface SessionLifePorts {
   /** Every open side chat, entered (sent to) or not. */
   allForks(): readonly string[];
   parentOf(sessionId: string): string | null;
-  /** Hydrate only: the session's canonical binding names exactly this account (unknown owner = false). */
+  /** Hydrate and receipt recovery require the canonical binding to name this account (unknown owner = false). */
   ownedBy(sessionId: string, userId: string): Promise<boolean>;
   markRead(row: PendingRow): Promise<void>;
   reportFailure(rows: readonly PendingRow[], cause: SerializedError): Promise<void>;

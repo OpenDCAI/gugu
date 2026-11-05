@@ -325,7 +325,8 @@ it('rechecks mutable active messages instead of caching an incomplete native env
   active.items.push({ ...turn('later-native', input.text).items[0]!, seq: 1 })
   const projection = projectPendingMessages([], active, pending, cache)
   expect(projection.waiting).toEqual([])
-  expect(projection.active?.items[1]).toMatchObject({ sendStatus: { state: 'unknown' } })
+  expect(projection.active?.items[1]).toMatchObject({ id: 'later-native:native-user', role: 'user' })
+  expect(projection.active?.items[1]).not.toHaveProperty('sendStatus')
 })
 
 
