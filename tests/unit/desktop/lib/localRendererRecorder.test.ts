@@ -98,4 +98,24 @@ describe('local renderer observations', () => {
     await microtask(); await vi.advanceTimersByTimeAsync(0)
     expect(rows.some(row => row.event === 'overlay-open' && (row.layers as Array<{ kind: string }>).some(layer => layer.kind === 'alertdialog'))).toBe(true)
   })
+
+  it('can retry a root refused at the cap after another root has been collected', async () => {
+    const refs: Array<{ value?: object }> = []
+    vi.stubGlobal('WeakRef', class {
+      value?: object
+      constructor(value: object) { this.value = value; refs.push(this) }
+      deref() { return this.value }
+    })
+    const rows: DiagnosticFields[] = []
+    recorder = createLocalRendererDiagnostics(window, row => rows.push(row))
+    for (let i = 0; i < 31; i++) recorder.observeRoot(document.createElement('div').attachShadow({ mode: 'open' }))
+    const host = document.createElement('div'); document.body.append(host)
+    const root = host.attachShadow({ mode: 'open' })
+    recorder.observeRoot(root)
+    refs[1].value = undefined // Deterministic collection boundary, no forced GC.
+    recorder.observeRoot(root)
+    const popup = document.createElement('div'); popup.setAttribute('role', 'dialog'); root.append(popup)
+    await microtask()
+    expect(rows.some(row => row.event === 'overlay-open')).toBe(true)
+  })
 })

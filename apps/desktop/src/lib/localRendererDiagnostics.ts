@@ -84,11 +84,11 @@ export function createLocalRendererDiagnostics(win: Window & typeof globalThis, 
   })
   const observeRoot = (root: Node) => {
     if (roots.has(root)) return
-    roots.add(root)
     for (let i = rootRefs.length - 1; i >= 0; i--) if (!rootRefs[i].deref()) rootRefs.splice(i, 1)
     if (rootRefs.length >= 32) { suppressed++; return }
-    rootRefs.push(new WeakRef(root))
     mutation.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-open', 'data-closed', 'data-ending-style', 'inert'] })
+    roots.add(root)
+    rootRefs.push(new WeakRef(root))
     if (root instanceof win.Element) scan(root)
     else if (root instanceof win.Document || root instanceof win.ShadowRoot) {
       for (const element of [...root.querySelectorAll(OVERLAYS)].slice(0, 32)) inspect(element)
