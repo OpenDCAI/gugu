@@ -371,7 +371,8 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
 
     // Check the OS user's account before an installer or service command can change the installation.
     if (found.accounts.some(account => account.userId !== userId)) {
-      throw new StepFailure('loginFailed', `This system user is already signed in to another Gugu account (${found.accounts.filter(account => account.userId !== userId).map(sshAccountLabel).join(', ')}). Sign out on that server or use another system user.`)
+      const server = found.accounts.filter(account => account.userId !== userId).map(sshAccountLabel).join(', ')
+      throw new StepFailure('accountMismatch', `This system user is already signed in to another Gugu account (${server}). Sign out on that server or use another system user.`, { accountMismatch: { server } })
     }
 
     // A version signal is not consent to restart work through the fallback installer.

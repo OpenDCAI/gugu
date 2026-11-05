@@ -563,6 +563,8 @@ export default {
         "serverTooOld": "Gugu server on that machine is too old to sign in from the desktop.",
         "versionCheckFailed": "Couldn't read the Gugu server version on that machine. Stopped. See details.",
         "loginFailed": "Sign-in didn't finish. Try again.",
+        "accountMismatch": "That machine is signed in as {{server}}, not your account {{current}}. To add it, sign out of Gugu on that machine first, or use another system user.",
+        "accountMismatchUnknownCurrent": "That machine is signed in as {{server}}, a different account. To add it, sign out of Gugu on that machine first, or use another system user.",
         "cloudUnreachable": "That machine can't reach Gugu. Allow outbound HTTPS or set a proxy, then retry.",
         "machineLimit": "Machine limit reached.",
         "agentsRunning": "Agents are running on that machine. It updates once they're idle.",

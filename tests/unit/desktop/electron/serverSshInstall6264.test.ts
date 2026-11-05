@@ -909,7 +909,10 @@ describe('runSshInstall', () => {
 
   it.each(['install', 'upgrade'] as const)('refuses a second account before changing the installation (%s)', async mode => {
     const { final, seen } = await install({ installed: true, grant: true, running: true, accounts: ['u9 colleague@lab.edu'] }, { mode })
-    expect(final.failure).toMatchObject({ step: 'detect', reason: 'loginFailed', detail: expect.stringContaining('another Gugu account') })
+    // #1682 A distinct reason, not a sign-in failure: retrying cannot change which account the server holds.
+    expect(final.failure).toMatchObject({ step: 'detect', reason: 'accountMismatch', accountMismatch: { server: 'c… · u9' },
+      detail: expect.stringContaining('another Gugu account') })
+    expect(JSON.stringify(final.failure)).not.toContain('colleague@lab.edu')
     expect(final.machine?.others).toEqual(['c… · u9'])
     expect(seen).toHaveLength(1)
     expect(seen.some(stdin => stdin.includes('service install') || stdin.includes('--no-login') || stdin.includes('login --grant-stdin'))).toBe(false)
