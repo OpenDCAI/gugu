@@ -1,6 +1,5 @@
-import { sha256 } from '@noble/hashes/sha2.js'
 import { anySignal } from './anySignal'
-import { copyVerifiedFile, type FileSink } from './fileCipher'
+import { copyVerifiedFile, fileSha256, type FileSink } from './fileCipher'
 
 /** One read-only entry point. Providers own byte acquisition; callers never select URLs or transports. */
 export type FileRef = { item_id: string; version?: number } | { message_id: string } | { attachment_id: string }
@@ -261,7 +260,7 @@ export async function stageFileHandle(file: FileHandle, name: string, send: (com
   if (file.revision.sha256 !== null) return stageFileSource(file, name, send)
   // A historical source has no server digest. Bind the native copy to the already-authorized
   // immutable snapshot with a local checksum; the historical revision itself stays unhashed.
-  const hash = sha256.create()
+  const hash = fileSha256.create()
   let observedSha: string
   try {
     requireFileRevision(file.revision)
