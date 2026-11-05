@@ -49,7 +49,7 @@ export function watchPhoneSessionSendQueues(accountId: string, options?: { phone
       const nextReplying = result.ok && result.batch.liveReply !== undefined ? Boolean(result.batch.liveReply) : replying
       const replyChanged = nextReplying !== replying
       replying = nextReplying
-      if (!result.ok || queueChanged || replyChanged || result.batch.turns.some(turn => turn.outcome)) changed()
+      if (!result.ok || queueChanged || replyChanged || result.batch.settlements.length > 0 || result.batch.turns.some(turn => turn.outcome)) changed()
     })
     const stopErrors = client.subscribeSessionErrors?.(deviceId, subscriptionId, error => { connected = false; report(error); changed() })
     const stopLink = client.onLinkChange(deviceId, open => {

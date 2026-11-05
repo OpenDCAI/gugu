@@ -226,3 +226,41 @@ it('rechecks when the last live reply clears after native persistence, without a
     removedTurnIds: [], settlements: [], queuedPrompts: [], liveReply: null } })
   await vi.waitFor(() => expect(delivered).toHaveBeenCalledTimes(1))
 })
+
+it.each(['resolved', 'cancelled'] as const)('rechecks a completed native foreground when its last settlement is %s', async state => {
+  const pending = { itemId: 'approval', state: 'pending' as const, optionId: null, resolvedBy: null, resolvedAt: null }
+  const base: TimelineSnapshot = { cursor: { epoch: 'provider', seq: 1 }, turns: [turn('unsettled-provider')],
+    queuedPrompts: [], settlements: [pending], liveReply: null, hasOlder: false }
+  remote.snapshot.mockResolvedValue(base)
+  stop = watchPhoneSessionSendQueues('owner')
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(1))
+  await outbox.flush()
+  expect(delivered).not.toHaveBeenCalled()
+  const settled = { ...pending, state }
+  remote.snapshot.mockResolvedValue({ ...base, settlements: [settled] })
+  remote.timeline({ ok: true, batch: { from: 1, cursor: { epoch: 'provider', seq: 2 }, turns: [],
+    removedTurnIds: [], settlements: [settled], queuedPrompts: [], liveReply: null } })
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledTimes(1))
+})
+
+it('retains the queue when another settlement is still pending', async () => {
+  const first = { itemId: 'first-approval', state: 'pending' as const, optionId: null, resolvedBy: null, resolvedAt: null }
+  const second = { ...first, itemId: 'second-approval' }
+  const base: TimelineSnapshot = { cursor: { epoch: 'provider', seq: 1 }, turns: [turn('unsettled-provider')],
+    queuedPrompts: [], settlements: [first, second], liveReply: null, hasOlder: false }
+  remote.snapshot.mockResolvedValue(base)
+  stop = watchPhoneSessionSendQueues('owner')
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(1))
+  const settledFirst = { ...first, state: 'resolved' as const }
+  remote.snapshot.mockResolvedValue({ ...base, settlements: [settledFirst, second] })
+  remote.timeline({ ok: true, batch: { from: 1, cursor: { epoch: 'provider', seq: 2 }, turns: [],
+    removedTurnIds: [], settlements: [settledFirst], queuedPrompts: [], liveReply: null } })
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(2))
+  await outbox.flush()
+  expect(delivered).not.toHaveBeenCalled()
+  const settledSecond = { ...second, state: 'cancelled' as const }
+  remote.snapshot.mockResolvedValue({ ...base, settlements: [settledFirst, settledSecond] })
+  remote.timeline({ ok: true, batch: { from: 2, cursor: { epoch: 'provider', seq: 3 }, turns: [],
+    removedTurnIds: [], settlements: [settledSecond], queuedPrompts: [], liveReply: null } })
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledTimes(1))
+})
