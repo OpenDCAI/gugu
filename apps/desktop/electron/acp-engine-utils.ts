@@ -215,8 +215,8 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
       const baseTools = initial.personalAssistant ? GUGU_ASSISTANT_LISTED_TOOLS : GUGU_LISTED_TOOLS
       const search = initial.webSearch?.available() ? initial.webSearch : undefined
       const listedTools = search ? new Set([...baseTools, 'web_search']) : baseTools
-      const trackRequest: GuguMcpRequestTracker = (work, toolName) => {
-        const tracked = trackHostRequest(work, toolName)
+      const trackRequest: GuguMcpRequestTracker = (work, toolName, requestId) => {
+        const tracked = trackHostRequest(work, toolName, requestId)
         if (initial.personalAssistant && toolName) {
           void tracked.then(() => startupDiscovery.release(), () => startupDiscovery.release())
         }
