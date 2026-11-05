@@ -1,7 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import { getChunks } from '@codemirror/merge';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDiffController } from '@renderer/lib/codemirror/diff-controller';
 import { createFileEditor } from '@renderer/lib/codemirror/file-editor';
 import { bindModel } from '@renderer/lib/codemirror/model-binding';
@@ -150,5 +150,21 @@ describe('file editor', () => {
     expect(editor.view.state.doc.toString()).toBe('const a = 1;\nx');
     editor.attach(null, null, save);
     expect(editor.view.state.doc.length).toBe(0);
+  });
+
+  it('a file swapped out mid-word leaves no completion work for the next state', () => {
+    vi.useFakeTimers();
+    try {
+      const editor = createFileEditor({ dark: false });
+      document.body.appendChild(editor.container).style.height = '300px';
+      cleanups.push(() => editor.destroy());
+      editor.attach(new TextModel('file:///c.ts', 'typescript', 'const word = 1;\n'), null, () => {});
+      editor.view.dispatch({ changes: { from: 16, insert: 'w' }, selection: { anchor: 17 }, userEvent: 'input.type' });
+      // The empty state has no autocompletion; the typing debounce of the file above must not run against it.
+      editor.attach(null, null, () => {});
+      expect(() => vi.runOnlyPendingTimers()).not.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
