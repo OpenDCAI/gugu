@@ -23,7 +23,7 @@ import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
 import { blockKey, type JoinedGroup, type SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
-import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
+import { isAssistantAgent, isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
 import { taskPresentation } from '@/lib/taskAgentStatus';
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus';
 import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
@@ -728,6 +728,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     for (const page of sessions) {
       const sessionId = page.data.id;
       for (const session of pageSessions(page)) {
+        if (isAssistantAgent(sessionAgentBindings.bindingFor(session.data.id)?.agentUserId, this.assistantAgentId)) continue;
         entries.push({
           id: session.data.id,
           projectId: project.id,
@@ -753,7 +754,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     this.assistantAgentId = id;
   }
 
-  /** 别的机器上一个项目的会话:来自会话目录(列出不挂载),新的在前；助理也保留在任务里。 */
+  /** Remote task entries exclude the assistant's own identity; delegated children remain tasks. */
   private remoteEntries(projectId: string, machine: string): SidebarSessionEntry[] {
     const listed = this.machines?.sessionsOf?.(machine);
     if (!listed) return [];
@@ -778,12 +779,12 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     let derived = this.remoteEntryById.get(key);
     if (!derived) {
       derived = computed(() => {
-        const session = this.machines?.session?.(machine, conversationId);
-        const live = this.machines?.sessionsOf?.(machine).live ?? false;
-        if (!session || session.projectId !== projectId) return null;
+        const listed = this.remoteSession(projectId, conversationId);
+        if (!listed) return null;
+        const { summary: session, live } = listed;
+        const agentId = session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId;
         // Direct-link freshness only governs access; identified agents share presence with avatars.
-        const presentation = sessionPresentation(session, live,
-          session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId);
+        const presentation = sessionPresentation(session, live, agentId);
         return {
           id: session.conversationId,
           projectId,
@@ -832,7 +833,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const machine = this.machines?.machineOf(projectId) ?? null;
     if (!machine) return null;
     const summary = this.machines?.session?.(machine, sessionId) ?? null;
-    return summary ? { summary, live: this.machines?.sessionsOf?.(machine).live ?? false } : null;
+    if (!summary || summary.projectId !== projectId) return null;
+    const agentId = summary.agent?.userId ?? sessionAgentBindings.bindingFor(sessionId)?.agentUserId;
+    return isAssistantAgent(agentId, this.assistantAgentId) ? null : { summary, live: this.machines?.sessionsOf?.(machine).live ?? false };
   }
 
   /**
@@ -934,6 +937,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
           page.state === 'unregistered' || !('archivedAt' in page.data && page.data.archivedAt);
         if (!visible) continue;
         for (const session of pageSessions(page)) {
+          if (isAssistantAgent(sessionAgentBindings.bindingFor(session.data.id)?.agentUserId, this.assistantAgentId)) continue;
           entries.push({
             id: session.data.id,
             projectId: project.id,

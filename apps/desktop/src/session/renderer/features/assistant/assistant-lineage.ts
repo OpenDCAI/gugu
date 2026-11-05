@@ -6,8 +6,13 @@ import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 
 export type ListedSession = { deviceId: string; summary: SessionpageSessionSummary; live: boolean };
 
+/** Provisioned identity, shared by local bindings, remote summaries and navigation. */
+export function isAssistantAgent(agentId: string | null | undefined, assistantId: string | null | undefined): boolean {
+  return !!assistantId && agentId === assistantId;
+}
+
 export function isAssistantSession(summary: Pick<SessionpageSessionSummary, 'agent'>, assistantId: string | null | undefined): boolean {
-  return !!assistantId && summary.agent?.userId === assistantId;
+  return isAssistantAgent(summary.agent?.userId, assistantId);
 }
 
 /** 它派出来的全部会话(子、孙……),它自己的不算;每条只出现一次。 */

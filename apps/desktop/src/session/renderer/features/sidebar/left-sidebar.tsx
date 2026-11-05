@@ -4,6 +4,7 @@ import React from 'react';
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { useAssistantShell } from '@renderer/features/assistant/assistant-shell';
+import { isAssistantAgent } from '@renderer/features/assistant/assistant-lineage';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import {
@@ -76,9 +77,13 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   // #7199 个人助理不住在任务区:它是谁(壳按库里的标记认出来,经助理那座桥发过来),交给 store 去藏它自己的会话。
   const assistantShell = useAssistantShell();
   const assistantAgentId = assistantShell?.assistant?.id ?? null;
+  const activeSessionId = appState.navigation.currentViewId === 'session' ? appState.navigation.viewParamsStore.session?.sessionId : undefined;
+  const activeAgentId = activeSessionId ? sessionAgentBindings.bindingFor(activeSessionId)?.agentUserId : undefined;
   React.useEffect(() => {
     sidebarStore.setAssistantAgentId(assistantAgentId);
-  }, [assistantAgentId]);
+    // Identity may arrive after restoring an old task URL. Re-run the same route guard when it does.
+    if (isAssistantAgent(activeAgentId, assistantAgentId)) appState.navigation.revalidate();
+  }, [assistantAgentId, activeAgentId]);
   const agentNameOnHoverEnabled = interfaceSettings?.showLeftSidebarAgentNameOnHover ?? true;
   React.useEffect(() => {
     sidebarStore.setAgentNameOnHoverEnabled(agentNameOnHoverEnabled);

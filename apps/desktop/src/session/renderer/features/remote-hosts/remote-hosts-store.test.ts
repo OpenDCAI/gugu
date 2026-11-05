@@ -507,6 +507,29 @@ describe('#7158 gugu.showSession: the row the task list draws for another machin
 });
 
 describe('#7199 打开云电脑上的会话:醒着也现问管家(设备表里的「醒着」可能还是睡下之前的)', () => {
+  it('keeps a terminal wake timeout through repeated waking snapshots until the host is awake', async () => {
+    const store = new RemoteHostsStore();
+    store.start();
+    let devices = [device({ id: 'timed-out-cloud', isOnline: false, directTerminal: false, cloudComputer: 'waking' })];
+    const listeners = new Set<() => void>();
+    const off = installRemoteHostsBridge({
+      listDevices: () => devices,
+      subscribeDevices: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      pickFolder: async () => null,
+      wakeCloudComputer: async () => { throw { reason: 'timeout', code: null, message: 'host stayed unavailable' }; },
+    });
+    try {
+      expect(await store.wakeCloudComputer('timed-out-cloud')).toBe(false);
+      expect(store.connectionState('timed-out-cloud')).toBe('wake-failed');
+      for (const listener of listeners) listener();
+      expect(store.connectionState('timed-out-cloud')).toBe('wake-failed');
+      expect(store.wakeFailure('timed-out-cloud')?.reason).toBe('timeout');
+      devices = [device({ id: 'timed-out-cloud', cloudComputer: 'awake' })];
+      for (const listener of listeners) listener();
+      expect(store.wakeFailure('timed-out-cloud')).toBeNull();
+    } finally { off(); }
+  });
+
   it('管家说它醒着时那一下没成:❌ 记成「没能唤醒」(没叫过它);睡着时叫醒没成照记', async () => {
     const store = new RemoteHostsStore();
     store.start();

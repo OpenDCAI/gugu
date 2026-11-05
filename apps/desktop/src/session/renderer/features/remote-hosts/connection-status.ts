@@ -71,9 +71,9 @@ export function hostConnectionState(input: {
   if (input.sshLink === 'outdated') return 'update-failed';
   if (input.sshLink === 'unreachable') return 'reconnecting';
   // 云电脑:管家说的睡 / 醒压过库里的在线与否(睡下后租约还要 2 分钟才过期)。
-  // 管家说正在醒压过这一端旧的「没叫醒」(它在别处被叫醒了)。
-  if (input.cloudComputer === 'waking') return 'waking';
+  // A completed refusal/timeout wins over stale manager progress until a new explicit attempt or an awake snapshot.
   if (input.wake === 'failed' && input.cloudComputer !== 'awake') return 'wake-failed';
+  if (input.cloudComputer === 'waking') return 'waking';
   if (input.wake === 'waking' && input.cloudComputer !== 'awake') return 'waking';
   if (input.cloudComputer === 'asleep') return 'asleep';
   if (!input.online) return 'offline';
