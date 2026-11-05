@@ -234,8 +234,8 @@ describe('workspace App: what the old workspace panel did', () => {
   })
 })
 
-describe('the document and file list share their complete file menu', () => {
-  test.each([false, true])('both entries keep the same actions and permissions when readOnly=%s', async (readOnly) => {
+describe('the document ⋯ is the file actions that lead the list menu', () => {
+  test.each([false, true])('both entries keep the same file actions and permissions when readOnly=%s', async (readOnly) => {
     const ctx = { ...context, capabilities: readOnly ? ['files:read'] : context.capabilities }
     contextChanged(ctx)
     await until('the folder and its permission are ready', () => !!document.querySelector('[data-id="plan"]') && $('upload').hidden === readOnly)
@@ -248,12 +248,14 @@ describe('the document and file list share their complete file menu', () => {
       contextChanged({ ...ctx, file: { chat: 'chat-1', id: 'plan' } })
       await until('the same file is open', () => app().shown === 'plan.md')
       $('more').click()
-      expect(offered()).toEqual(rowItems)
-      expect(rowItems.slice(0, 3)).toEqual(['复制链接', '用别的 App 打开', '下载'])
-      expect(rowItems.includes('删除')).toBe(!readOnly)
-      expect(rowItems.includes('改名')).toBe(!readOnly)
+      const fileItems = rowItems.slice(0, rowItems.indexOf('打开'))
+      expect(offered()).toEqual(fileItems)
+      expect(fileItems.slice(0, 3)).toEqual(['复制链接', '用别的 App 打开', '下载'])
+      expect(fileItems.includes('删除')).toBe(!readOnly)
+      expect(fileItems.includes('改名')).toBe(!readOnly)
+      // List-only items stay in the list: the open document is already open and has no list to select in.
       expect(rowItems).toContain('选择')
-      expect(rowItems).toContain('详情')
+      expect(offered()).not.toContain('打开')
     } finally {
       pressEscape()
       contextChanged({ ...context })

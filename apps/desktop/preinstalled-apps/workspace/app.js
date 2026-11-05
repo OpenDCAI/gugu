@@ -1525,7 +1525,7 @@ function mayDelete(entry) {
   return deletable.get(key)
 }
 
-// The seven file-level actions lead the same menu in the list and in an open document.
+// The seven file-level actions: all of an open document's ⋯, and the first group of the list's menu for the same file.
 function fileActions(target, entry, canDelete = false) {
   const t = state.t
   const readOnly = state.current?.entry.id === entry.id && state.current.file.readOnly
@@ -3195,7 +3195,7 @@ function start() {
   }
   $('more').onclick = () => {
     const entry = state.shown
-    if (entry) showFileMenu($('more'), entry, (yes) => rowMenu($('doc-title'), entry, yes))
+    if (entry) showFileMenu($('more'), entry, (yes) => fileActions($('doc-title'), entry, yes))
   }
   document.addEventListener('pointerdown', (event) => {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()

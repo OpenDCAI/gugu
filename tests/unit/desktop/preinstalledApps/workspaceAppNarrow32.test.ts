@@ -108,7 +108,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     $('more').click()
     expect($('menu').hidden).toBe(false)
     expect($('more').getAttribute('aria-expanded')).toBe('true')
-    await vi.waitFor(() => expect([...$('menu').querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Copy link', 'Open with another App', 'Download', 'Rename', 'Move to…', 'Delete', 'Open', 'Select', 'Details']))
+    await vi.waitFor(() => expect([...$('menu').querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Copy link', 'Open with another App', 'Download', 'Rename', 'Move to…', 'Delete']))
     ;([...$('menu').querySelectorAll('button')].find((item) => item.textContent === 'Download') as HTMLButtonElement).click()
     expect($('menu').hidden, 'choosing closes it').toBe(true)
     expect($('more').getAttribute('aria-expanded')).toBe('false')
