@@ -28,7 +28,7 @@ const row = (seq: number): AgentInboxUnreadRow => ({
 it('persists one rejected item, discloses a terminal failure, and admits the following item through the real reader/store', async () => {
   const cloudRows = [row(1), row(2)]; const read = new Set<string>();
   const publish = vi.fn();
-  const life = new SessionLife({ sessions: () => ['s'], store: () => lifeStore, adapter: () => { throw new Error('Must not start a provider'); },
+  const life = new SessionLife({ logger: { info: () => {} }, sessions: () => ['s'], store: () => lifeStore, adapter: () => { throw new Error('Must not start a provider'); },
     forks: () => [], allForks: () => [], parentOf: () => null, ownedBy: async () => true, markRead: async () => {}, reportFailure: async () => {},
     publish, removed: vi.fn(), failed: vi.fn(), now: Date.now });
   const postDisclosure = vi.fn(async () => {});
