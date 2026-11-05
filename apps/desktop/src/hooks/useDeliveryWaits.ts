@@ -5,7 +5,7 @@ import { loadMessageAgentWakes } from '@/lib/chatMessageRevalidation'
 
 const NO_WAKES: ReadonlyMap<string, ReadonlySet<string>> = new Map()
 
-/** My messages an agent has not taken yet: their bubbles say so until it reads them. */
+/** My messages no running instance can deliver to an agent they wake: their bubbles say so until it reads them. */
 export function useDeliveryWaits(messages: readonly MessageItem[], memberReadSeqs: Record<string, number>): ReadonlyMap<string, HeldMessage> {
   const lookup = useMemo(() => pendingDeliveryMessageIds(messages, memberReadSeqs).join(','), [messages, memberReadSeqs])
   const [wakes, setWakes] = useState(NO_WAKES)

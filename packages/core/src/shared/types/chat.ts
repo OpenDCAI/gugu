@@ -152,8 +152,8 @@ export interface MessageItem {
   edited_at?: string | null
 }
 
-/** queued / undelivered = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts deliveryWaits). */
-export type MessageSendState = 'sending' | 'queued' | 'undelivered' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
+/** undelivered = persisted, but no running instance holds an agent it wakes (shared/ui/systemNotice.ts deliveryWaits). */
+export type MessageSendState = 'sending' | 'undelivered' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
 
 export interface ReactionGroup {
   emoji: string

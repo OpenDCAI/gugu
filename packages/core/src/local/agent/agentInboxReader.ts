@@ -828,7 +828,7 @@ async function injectBatch(
           deps.onOutcome?.({ agentUserId, ok: false })
           // Admission already advanced the cursor. Report provider failure here, where the exact
           // source rows are still known, including pulls started without a device command.
-          throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, unit.members, deps, error))
+          throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, unit.members, deps, error, failureReason(error)))
         })
       }
     } catch (error) {
@@ -1063,10 +1063,10 @@ export async function discloseInboxRowsFailed(agentUserId: string, sources: read
   outcome: { kind: 'retained' } | { kind: 'failed'; cause: unknown } | { kind: 'unknown' }): Promise<Disclosure> {
   deps.onOutcome?.({ agentUserId, ok: false })
   // A start that failed keeps its rows queued for the retry: said as retained, left unread for that delivery.
-  if (outcome.kind === 'retained') return discloseBatchFailure(agentUserId, sources, deps)
+  if (outcome.kind === 'retained') return discloseBatchFailure(agentUserId, sources, deps, undefined, 'notAdmitted')
   // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
   const said = outcome.kind === 'failed'
-    ? await discloseBatchFailure(agentUserId, sources, deps, outcome.cause)
+    ? await discloseBatchFailure(agentUserId, sources, deps, outcome.cause, failureReason(outcome.cause))
     : await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown')
   await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
   return said
@@ -1125,11 +1125,9 @@ async function advanceCursor(
           { agentUserId, chatId, messageId: member.row.id, err: error instanceof Error ? error.message : String(error) },
           'cursor advance failed after accepted injection; the tail of this chat will be re-pulled (duplicates stay visible by stable id)',
         )
-        // An accepted delivery whose read receipt failed is a user-visible delivery failure, not a
-        // recoverable skip. Disclose the affected tail and rethrow so the kick caller observes failure;
-        // leaving the cursor untouched is deliberate and keeps the cloud row eligible for a later pull.
-        deps.onOutcome?.({ agentUserId, ok: false })
-        throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, chatMembers, deps))
+        // The agent has these rows: a read receipt that did not land is the host's own failure, never said in the chat.
+        // The cloud row stays unread, so a later pull settles it (an enqueuing host's duplicate retries its read marker).
+        throw error
       }
     }
   }
@@ -1145,8 +1143,8 @@ async function discloseBatchFailure(
   agentUserId: string,
   members: readonly Pick<PreparedMessage, 'row'>[],
   deps: AgentInboxReaderDeps,
-  completionError?: unknown,
-  reason: AgentFailureReason = failureReason(completionError),
+  completionError: unknown,
+  reason: AgentFailureReason,
   beforeAdmission = false,
 ): Promise<Disclosure> {
   const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
@@ -1249,9 +1247,8 @@ function errorText(error: unknown): string {
   return typeof message === 'string' ? message : String(error)
 }
 
-/** 失败的原因(聊天里的披露行与论坛指派上的投递状态同一个):没受理是咕咕这边的错;受理后那一轮失败按上游的原因说。 */
+/** 受理后那一轮失败的原因,按上游的错误说。没受理的(notAdmitted / deliveryRejected / outcomeUnknown)由调用处按阶段直接给。 */
 function failureReason(completionError: unknown): AgentFailureReason {
-  if (completionError === undefined) return 'notAdmitted'
   return agentFailureReason(errorText(completionError)) ?? 'generic'
 }
 
