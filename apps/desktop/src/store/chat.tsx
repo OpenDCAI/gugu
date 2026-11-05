@@ -22,8 +22,8 @@ import {
   replaceChatRows,
   type AccountImRepository,
 } from '../lib/imRepository'
-import { closeImRepository, publishMessageWindow, subscribeIdentities } from '../lib/chatMessageWindowPublication'
-import { readCompleteCachedChats } from '../lib/chatSnapshotPublication'
+import { closeImRepository, publishMessageWindow } from '../lib/chatMessageWindowPublication'
+import { paintLocalChats, publishLocalFirstFrame } from '../lib/chatSnapshotPublication'
 import { createChatListProjectionLedger, useChatProjectionBinding, notifyForIngestedMessage } from './chatListProjection'
 import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
 import { bindRepositoryMessageCache } from './chatDiskWindow'
@@ -137,29 +137,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     const previous = cache.view(chatId).threadMessages
     cache.patchView(chatId, { threadMessages: typeof updater === 'function' ? updater(previous) : updater })
   }, [cache])
-  // @@@local-first-frame — the list and its people paint from the local store as soon as it is read. Whatever the account
-  // initialization still waits on (a snapshot rebuild after an update, message alignment) runs behind this frame.
-  const paintLocal = useCallback((repository: AccountImRepository) => {
-    const cached = readCompleteCachedChats(repository)
-    // Nothing local (a new device): the account read is what the list waits for, so it shows loading, not "no conversations".
-    if (cached.length === 0) { if (chatsRef.current.length === 0) setChatsLoad((state) => state === 'unread' ? 'loading' : state); return }
-    chatsRef.current = cached
-    projectionRef.current.seedFromCache(cached) // durable snapshot = 上一次会话的服务端投影 (#4314)
-    setChats(cached)
-  }, [chatsRef, setChats])
+  const paintLocal = useCallback((repository: AccountImRepository) => paintLocalChats(repository, { chatsRef, projection: projectionRef.current, setChats, setChatsLoad }), [chatsRef, setChats])
   const getImRepository = useCallback(async (): Promise<AccountImRepository> => {
     if (!userId) throw new Error('Cannot open IM repository without an account')
     if (imRepositoryScope.disposed || imRepositoryScope.accountId !== userId) throw new Error(`IM repository scope ${userId} disposed`)
     if (imRepositoryRef.current?.accountId === userId) return imRepositoryRef.current
     if (imRepositoryPromiseRef.current?.accountId === userId) return imRepositoryPromiseRef.current.promise
-    const promise: Promise<AccountImRepository> = openImRepository(userId, {
-      initialize: initializeAccountSync,
-      loaded: (local) => {
-        if (imRepositoryScope.disposed || imRepositoryPromiseRef.current?.promise !== promise) return
-        subscribeIdentities(local, setIdentitiesById) // people (incl. my own avatar) resolve from local rows too
-        paintLocal(local)
-      },
-    }).catch((error) => { if (imRepositoryPromiseRef.current?.promise === promise) imRepositoryPromiseRef.current = null; throw error })
+    const loaded = (local: AccountImRepository) => publishLocalFirstFrame(local, () => !imRepositoryScope.disposed && imRepositoryPromiseRef.current?.promise === promise, setIdentitiesById, paintLocal)
+    const promise: Promise<AccountImRepository> = openImRepository(userId, { initialize: initializeAccountSync, loaded }).catch((error) => { if (imRepositoryPromiseRef.current?.promise === promise) imRepositoryPromiseRef.current = null; throw error })
     imRepositoryPromiseRef.current = { accountId: userId, promise }
     const repository = await promise
     if (imRepositoryScope.disposed || imRepositoryPromiseRef.current?.promise !== promise) {

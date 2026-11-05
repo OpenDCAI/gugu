@@ -585,7 +585,7 @@ function droppedRow(store: ImStoreName, row: unknown, error: unknown): DroppedRo
   const key = isRecord(row) ? String(row.id ?? row.key ?? row.identityId ?? '?') : '?'
   const reasons: string[] = []
   for (let cause = error; cause instanceof Error; cause = cause.cause) reasons.push(cause.message)
-  return { store, key, reason: reasons.join(' <- ') || String(error) }
+  return { store, key, reason: reasons.join(' <- ') }
 }
 
 /** Rows whose partner was dropped (or never written) are dropped too: a message needs its stream, a window must cover its messages. */
