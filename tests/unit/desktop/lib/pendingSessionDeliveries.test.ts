@@ -333,7 +333,7 @@ it('offers explicit recovery only when the host advertises it, and never resends
   const receipt = { ...row('restart-input', 1, 'unknown'), resendable: true }
   const inputs = projectSessionPendingDeliveries([], view([receipt]), [])
   expect(inputs[0]?.delivery).toEqual({ state: 'unknown', retryable: true, error: undefined })
-  const native = { ...turn('recovered', 'different display text'), outcome: { kind: 'error' as const, message: 'restart' },
+  const native = { ...turn('recovered', 'different display text'), outcome: { kind: 'error' as const, reason: 'prompt_failed' as const },
     items: [{ ...turn('recovered', 'different display text').items[0]!, _meta: { guguClientMessageId: receipt.messageId } }] }
   const result = projectPendingMessages([native], null, inputs)
   expect(result.waiting).toEqual([])

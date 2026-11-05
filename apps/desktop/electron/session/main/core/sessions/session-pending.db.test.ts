@@ -155,7 +155,7 @@ describe('session_pending store', () => {
     const original = { id: 'original-input-client-id', text: envelope('delivery-1') };
     const insert = fixture.sqlite.prepare('INSERT INTO session_turns (id,session_id,seq,turn_id,data) VALUES (?, ?, ?, ?, ?)');
     const item = { kind: 'message', role: 'user', id: 'native-user', text: original.text, _meta: { guguClientMessageId: original.id } };
-    insert.run('s:1', 's', 1, 'oldest', JSON.stringify({ id: 'oldest', seq: 1, outcome: { kind: 'error' }, items: [item] }));
+    insert.run('s:1', 's', 1, 'oldest', JSON.stringify({ id: 'oldest', seq: 1, outcome: { kind: 'error', reason: 'prompt_failed' }, items: [item] }));
     for (let seq = 2; seq <= 710; seq++) insert.run(`s:${seq}`, 's', seq, `turn-${seq}`, JSON.stringify({ id: `turn-${seq}`, seq, items: [{ kind: 'execute-tool-call', output: 'x'.repeat(1500) }] }));
     insert.run('s:711', 's', 711, 'reply', JSON.stringify({ items: [{ ...item, id: 'assistant', role: 'assistant', text: envelope('absent') }] }));
     const lookup = storedPendingInputLookup('s');
