@@ -467,7 +467,13 @@ function inventoryDigest(entries: WorkflowEntry[]): string {
   return hash.digest('hex')
 }
 
-export function pinnedWorkflow(use: unknown, label: string): { path: string; sha: string } {
+export function pinnedWorkflow(use: unknown, label: string): { path: string; sha?: string } {
+  // GitHub resolves a relative reusable call from the caller's commit, including when
+  // that caller is itself pinned to an older commit. No mutable checkout/ref is read.
+  const relative = typeof use === 'string'
+    ? /^\.\/(\.github\/workflows\/[\w.-]+\.ya?ml)$/.exec(use)
+    : null
+  if (relative) return { path: relative[1] }
   const match = typeof use === 'string'
     ? /^GUYI-AI\/gugu\/(\.github\/workflows\/[\w.-]+\.ya?ml)@([0-9a-f]{40})$/.exec(use)
     : null
@@ -862,7 +868,7 @@ export function loadWorkflowInventory(
     for (const [id, job] of Object.entries<Parsed>(workflow.jobs ?? {})) {
       if (job?.uses === undefined) continue
       const pin = pinnedWorkflow(job.uses, `${identity} job ${id}`)
-      reusableWorkflows[job.uses] = readEntry(pin.sha, pin.path, [...parents, identity])
+      reusableWorkflows[job.uses] = readEntry(pin.sha ?? sha, pin.path, [...parents, identity])
     }
     return { path: workflowPath, source,
       ...(Object.keys(reusableWorkflows).length > 0 ? { reusableWorkflows } : {}) }
