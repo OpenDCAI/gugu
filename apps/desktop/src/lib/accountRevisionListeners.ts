@@ -13,6 +13,7 @@ import { advanceMemberReadSeq, agentReaderUserId, applyDeliveryReceipt } from '@
 import { chatService } from './chat'
 import { UI_EVENTS } from './uiEvents'
 import { rendererLogger } from './log'
+import { persistMessagePatches } from './chatMessageRevalidation'
 import {
   readDeliveryRevision,
   readMemberReadRevision,
@@ -162,12 +163,13 @@ function applyDeliveryRevisions(line: ChatLine): AccountRevisionListener {
       if (!delivery.receipt) { needsRevalidate = true; continue }
       const { deviceId, status } = delivery.receipt
       const reader = status === 'read' ? agentReaderUserId(deviceId) : null
-      line.setMessagesAndCache((prev) => prev.map((message) => {
-        if (message.id !== delivery.messageId) return message
+      const apply = (message: MessageItem) => {
         const next = applyDeliveryReceipt(message, { status, device_id: deviceId }, line.userId)
         if (reader && !(next.readers ?? []).includes(reader)) next.readers = [...(next.readers ?? []), reader]
         return next
-      }), chatId)
+      }
+      await persistMessagePatches(line.userId, [delivery.messageId], apply)
+      line.setMessagesAndCache(prev => prev.map(message => message.id === delivery.messageId ? apply(message) : message), chatId)
     }
     if (needsRevalidate) await line.revalidateWindowOverlays(chatId, true)
   }

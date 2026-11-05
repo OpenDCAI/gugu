@@ -9,6 +9,7 @@ import { MAIN_AUTH_STORAGE_KEY, mainAuthSessionStorage, supabase } from './supab
 import { phoneHostAuthAvailable, phoneHostGetSession, phoneHostRefreshSession, phoneHostRestoreSession, phoneHostSignOut, setPhoneHostAuthHandoffBarrier } from './phoneHostAuth'
 import { platform } from '../platform'
 import type { AuthUser } from '../store/auth'
+import { ingestMessages } from './messageIngest'
 
 export type SessionCoordinatorStatus = 'boot-restoring' | 'authenticated' | 'degraded' | 'anonymous' | 'expired'
 export type SessionCoordinatorSnapshot = { status: SessionCoordinatorStatus; session: Session | null; user: AuthUser | null; error: Error | null }
@@ -234,6 +235,7 @@ export class SessionCoordinator {
       throw errorOf(error, 'Logout failed')
     }
     if (signedOutSession && signedOutSession.user.id !== session.user.id) throw new Error('Signed out session owner changed')
+    await ingestMessages(session.user.id, 'clear')
     if (!await this.transitionWithoutSession('anonymous', 'SIGNED_OUT', signedOutSession ?? session))
       throw this.snapshot.error ?? new Error('Logout cleanup failed')
     return { success: true }
@@ -340,6 +342,7 @@ export class SessionCoordinator {
     // @@@4395 我们自己发起、只是超出了预算的 signOut 落地时也会发这条。用户本来就要求登出,
     // 这是**预期内**的终态 —— 干净地转 anonymous,❌ 不要当成意外签出去做恢复(那会重交已失败的凭证)。
     if (this.signOutRequested && this.signOutRequested.generation === this.generation) {
+      await ingestMessages(this.snapshot.session.user.id, 'clear')
       await this.transitionWithoutSession('anonymous', 'SIGNED_OUT', this.snapshot.session)
       return
     }

@@ -28,6 +28,7 @@ import { remotePortsController } from './core/pty/direct-terminal/port-forward-c
 import { pullRequestController } from './core/pull-requests/controller';
 import { resourceMonitorController } from './core/resource-monitor/controller';
 import { searchController } from './core/search/controller';
+import { imMessagesController } from './core/im-messages/controller';
 import { sessionTimelineController } from './core/session-timeline/controller';
 import { sessionHistoryController } from './core/session-history/controller';
 import { sessionImportController } from './core/session-import/controller';
@@ -75,6 +76,7 @@ export const rpcRouter = createRPCRouter({
   pullRequests: pullRequestController,
   viewState: viewStateController,
   search: searchController,
+  imMessages: imMessagesController,
   sessionHistory: sessionHistoryController,
   sessionImport: sessionImportController,
   sessionTimeline: sessionTimelineController,
