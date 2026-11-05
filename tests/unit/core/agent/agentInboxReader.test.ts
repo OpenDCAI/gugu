@@ -1302,9 +1302,9 @@ describe('P-E2 推进时机窗口(只落已裁决的 after 支)', () => {
     await expect(pullAgentInbox(AGENT, crashDeps)).rejects.toThrow('SIGKILL between inject and advance')
     expect(firstInjections).toHaveLength(1)
     expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(0)
-    expect(disclosures).toHaveLength(1)
-    expect(disclosures[0]!.key).toMatch(/^turn-failure:batch:[0-9a-f]{32}$/)
-    expect(outcomes).toEqual([{ ok: false }])
+    // The agent has the message: a read receipt that did not land is never said in the chat, nor counted as its failure.
+    expect(disclosures).toEqual([])
+    expect(outcomes).toEqual([])
     // 重启 → 重拉 → 重注入:同一稳定 id 第二次出现(重是显形的),消息没有丢。
     resetAgentInboxReaderStateForTests()
     const { deps, injections } = makeDeps(cloud)

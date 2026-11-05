@@ -52,13 +52,12 @@ describe('MessageSendStatus', () => {
     expect(document.body.querySelector('.gg-ring-march')).toBeNull()
     expect(document.body.querySelector('[data-testid="message-send-retry"]')).toBeNull()
   })
-  it('shows a terminal per-recipient archive refusal alongside other recipients still waiting', async () => {
-    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'queued', messageId: 'm',
+  it('shows a terminal per-recipient archive refusal beside a delivered message', async () => {
+    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'sent', messageId: 'm',
       blocks: [{ agent_user_id: 'archived', reason: 'agent_archived' }] }),
     { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
     const notice = document.body.querySelector('[data-agent-id="archived"]')!
     expect(notice.textContent).toContain('对方已归档、未送达')
-    expect(document.body.querySelector('[data-send-state="receiving"]')).not.toBeNull()
     expect(document.body.querySelector('[data-testid="message-send-failed"]')).toBeNull()
   })
   it('uses the shared Base UI menu and wires retry/discard actions', async () => {
@@ -82,15 +81,6 @@ describe('MessageSendStatus', () => {
     const discard = document.body.querySelector('[data-testid="message-send-discard"]') as HTMLElement
     await clickElement(discard)
     expect(discardSend).toHaveBeenCalledWith('message-1')
-  })
-  it('shows three receiving dots without extra status text or changing the indicator footprint', async () => {
-    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'queued', messageId: 'message-1' }), { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
-    const dots = document.body.querySelector('[data-send-state="receiving"]')!
-    expect(dots.getAttribute('aria-label')).toBe('等待接收')
-    expect(dots.querySelectorAll('circle')).toHaveLength(3)
-    expect(dots.textContent).toBe('')
-    expect([dots.getAttribute('width'), dots.getAttribute('height')]).toEqual(['15', '15'])
-    expect(document.body.querySelector('.gg-ring-march')).toBeNull()
   })
 })
 

@@ -103,12 +103,15 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
 /**
  * The sources this session's queue already holds, with whether their row is still open (queued / dispatching). The reader
  * leaves every one out of a new batch (frozen batches never overlap), including terminal failures without read receipts.
+ * An accepted row whose read marker has not landed is not held back: the reader's refetch of it is the exact duplicate
+ * `enqueue` answers by retrying that read marker.
  */
 export function claimedSessionSources(sessionId: string, sourceMessageIds: readonly string[]): ReadonlyMap<string, boolean> {
   if (!sourceMessageIds.length) return new Map();
-  return new Map(db.select({ id: sessionPendingSource.sourceMessageId, state: sessionPending.state }).from(sessionPendingSource)
-    .innerJoin(sessionPending, eq(sessionPending.seq, sessionPendingSource.seq))
+  return new Map(db.select({ id: sessionPendingSource.sourceMessageId, state: sessionPending.state, settledAt: sessionPending.settledAt })
+    .from(sessionPendingSource).innerJoin(sessionPending, eq(sessionPending.seq, sessionPendingSource.seq))
     .where(and(eq(sessionPendingSource.sessionId, sessionId), inArray(sessionPendingSource.sourceMessageId, [...sourceMessageIds]))).all()
+    .filter(row => row.state !== 'accepted' || row.settledAt !== null)
     .map(row => [row.id, row.state === 'queued' || row.state === 'dispatching']));
 }
 
