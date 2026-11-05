@@ -26,10 +26,22 @@ function Surface({ chatId }: { chatId: string }) {
 const bar = () => harness.container.querySelector<HTMLElement>('[data-testid=search-trail-bar]')
 const button = (label: RegExp) => [...bar()!.querySelectorAll<HTMLElement>('button')].find((b) => label.test(b.getAttribute('aria-label') ?? b.textContent ?? ''))!
 
-beforeEach(() => { harness = createReactHarness(); opened.length = 0 })
-afterEach(() => { harness.cleanup(); resetSearchSession() })
+beforeEach(() => {
+  // jsdom omits CSS.escape. This fixture only uses selector-safe UUIDs, but a
+  // real paint frame still calls the browser API before looking up a row.
+  vi.stubGlobal('CSS', { escape: vi.fn((id: string) => id) })
+  harness = createReactHarness(); opened.length = 0
+})
+afterEach(() => { harness.cleanup(); resetSearchSession(); vi.unstubAllGlobals() })
 
 describe('search trail bar', () => {
+  it('exercises the deferred paint lookup while the toolbar remains mounted', async () => {
+    updateSearchSession({ trail: { hits, index: 0, query: '蓝鲸' } })
+    await renderWithAppProviders(harness, createNode(Surface, { chatId: C1 }))
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+    expect(CSS.escape).toHaveBeenCalledWith(M1)
+  })
+
   it('shows the position on the conversation holding the current hit, and nothing elsewhere', async () => {
     updateSearchSession({ trail: { hits, index: 1, query: '蓝鲸' } })
     await renderWithAppProviders(harness, createNode(Surface, { chatId: C1 }))
