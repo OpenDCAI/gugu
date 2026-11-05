@@ -2009,7 +2009,6 @@ async function handleGroup(args, deps) {
     ...(args.changes.pinned !== undefined ? { pinned: args.changes.pinned } : {}),
   }))
   if (args.action === 'announcement-delete') return JSON.stringify(await admin.deleteAnnouncement(args.announcement_id))
-  if (args.action === 'flood-undo') return JSON.stringify(await admin.undoFlood(args.adjustment_id))
   const chatId = await requireChat(args, deps)
   if (args.action === 'add-agent') {
     const requested = typeof args.agent === 'string' ? args.agent.trim() : ''
@@ -2763,10 +2762,6 @@ export const TOOL_DEFS = [
   {
     name: 'group_announcement_delete', writer: true, description: 'Delete one group announcement as an admin.',
     schema: z.object({ announcement_id: z.string().min(1) }), handler: (args, deps) => handleGroup({ ...args, action: 'announcement-delete' }, deps),
-  },
-  {
-    name: 'group_flood_undo', writer: true, description: 'Undo one system automatic passive adjustment as a group member. Restores only that recorded change; it cannot choose an Agent’s listen mode.',
-    schema: z.object({ adjustment_id: z.string().min(1) }), handler: (args, deps) => handleGroup({ ...args, action: 'flood-undo' }, deps),
   },
   // ── profile_ ── 自己的资料 + 咕咕号解析
   {
