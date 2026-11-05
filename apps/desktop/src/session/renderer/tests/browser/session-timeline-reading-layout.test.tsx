@@ -59,3 +59,11 @@ it('rebinds a replaced scroll root and follows recycled row identities', async (
   await vi.waitFor(() => expect(harness.container.querySelector('nav')?.getAttribute('data-reading-turn')).toBe('turn-4'));
   replacement.replaceWith(scroller);
 });
+
+it('tracks exact-edge entry and exit before and after the reading line', async () => {
+  const scroller = await mount();
+  for (const [top, expected] of [[137, 'turn-2'], [200, 'turn-2'], [240 - READING_LINE, 'turn-3'], [0, 'turn-0'], [80 - READING_LINE, 'turn-1']] as const) {
+    await act(async () => { scroller.scrollTop = top; });
+    await vi.waitFor(() => expect(harness.container.querySelector('nav')?.getAttribute('data-reading-turn')).toBe(expected));
+  }
+});

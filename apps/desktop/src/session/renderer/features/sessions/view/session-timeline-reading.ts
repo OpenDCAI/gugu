@@ -23,6 +23,8 @@ export function observeReadingTurn(
     const next = host.querySelector<HTMLElement>('[data-chat-scroll]');
     if (next !== scroller) {
       intersection?.disconnect(); rows.clear(); visible.clear(); scroller = next;
+      // Match the positive-area predicate below: threshold 0 misses a row that
+      // was already intersecting with zero area exactly at the viewport edge.
       intersection = scroller ? new IntersectionObserver(entries => {
         if (stopped) return;
         for (const entry of entries) {
@@ -32,7 +34,7 @@ export function observeReadingTurn(
           else visible.delete(row);
         }
         publish();
-      }, { root: scroller, rootMargin: `-${READING_LINE}px 0px 0px 0px` }) : null;
+      }, { root: scroller, rootMargin: `-${READING_LINE}px 0px 0px 0px`, threshold: Number.EPSILON }) : null;
     }
     if (!scroller || !intersection) { onChange(null); return; }
     const current = new Set(scroller.querySelectorAll<HTMLElement>('[data-item-id]'));
