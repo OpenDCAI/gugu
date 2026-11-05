@@ -173,7 +173,7 @@ describe('runtime-only side chat entry', () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])('opens into the actual companion (already present: %s)', async (existing) => {
+  it.each([false, true])('opens side by side with its conversation (a page already beside it: %s)', async (existing) => {
     vi.unstubAllGlobals();
     const registry = createTabRegistry(['acp-chat', 'side-chat', 'file'].map((kind) => createTabProvider({
       kind, conversation: kind === 'acp-chat', resourceKey: (data: { sessionId: string }) => data.sessionId,
@@ -187,7 +187,7 @@ describe('runtime-only side chat entry', () => {
     const opened = nextCall(mocks.setFocusedRegion);
     startSideSession('project-1', 'task-1'); await opened;
     expect(layout.groups).toHaveLength(2);
-    expect(layout.groups[0].pane.entries.get(source)?.companionPaneId).toBe(layout.groups[1].paneId);
+    expect(layout.pair?.pinned).toBe(source);
     expect(layout.focusedPane.activeEntry?.kind).toBe('side-chat');
     layout.dispose();
   });

@@ -36,8 +36,7 @@ function CmdShortcut({
 /**
  * 任何一类页签的右键(spec session-page「一屏几块」,照原型):
  *   关闭页签 / 关闭其他页签 / 关闭右侧页签 / 关闭全部页签(照 VS Code、Chrome;暂时用不了的灰着,❌ 藏掉)
- *   ── 拆开(并排的一对才有)/ 向右分 / 向下分(在能分格的布局里一直摆着;这一格只有这一枚、或分满了,点了说为什么)/ 在新窗口打开 /
- *      移到另一栏(这条会话不止一格时)
+ *   ── 拆开(并排的一对才有)/ 向右分(在能分屏的地方一直摆着;没有别的页、或太窄,点了说为什么)/ 在新窗口打开
  *   ── 这类页签自己的命令(`kindCommands`,比如会话那枚的置顶、重命名、归档)。
  * 一组里一项都没有就连分隔线一起不画。
  */
@@ -86,42 +85,33 @@ export const TabContextMenu = observer(function TabContextMenu({
       run: () => host.closeAll(),
     },
   ];
-  // 向右分 / 向下分 = 和屏上那页并排(spec session-page「并排」)。分不出去也摆着,点了说为什么:没有别的页可并排 / 太窄(太矮)放不下两页。
-  const split = (edge: 'right' | 'bottom') => {
-    const blocked = host.tabSplitBlocked(tab.tabId, edge);
+  // 向右分 = 和屏上那页并排(spec session-page「并排」)。分不出去也摆着,点了说为什么:没有别的页可并排 / 太窄放不下两页。
+  const split = () => {
+    const blocked = host.tabSplitBlocked(tab.tabId);
     if (blocked === null) {
-      host.splitTab(tab.tabId, edge);
+      host.splitTab(tab.tabId);
       return;
     }
-    const reason = blocked === 'only-tab' ? 'tabs.splitOnlyTab' : blocked === 'full' ? 'tabs.splitFull' : edge === 'right' ? 'tabs.splitTooNarrow' : 'tabs.splitTooShort';
-    toast({ title: translate(reason) });
+    toast({ title: translate(blocked === 'only-tab' ? 'tabs.splitOnlyTab' : 'tabs.splitTooNarrow') });
   };
   const splitCommands: TabCommand[] = [
     // 并排的一对:「拆开」= 两枚都变回普通页签,点着的那枚占满(spec session-page「并排」,照 Chrome「Separate views」)。
+    ...(tab.pairRole
+      ? [{ id: 'engine:separate-pair', label: translate('tabs.separatePair'), group: 'split' as const, shortcut: 'session.splitPane' as const, run: () => host.separatePair() }]
+      : []),
     {
       id: 'engine:split-right',
       label: translate('tabs.splitRight'),
       group: 'split' as const,
-      shortcut: 'session.splitPane' as const,
+      ...(tab.pairRole ? {} : { shortcut: 'session.splitPane' as const }),
       isEnabled: () => host.inSplitLayout,
-      run: () => split('right'),
-    },
-    {
-      id: 'engine:split-down',
-      label: translate('tabs.splitDown'),
-      group: 'split' as const,
-      isEnabled: () => host.inSplitLayout,
-      run: () => split('bottom'),
+      run: split,
     },
   ];
-  // 分隔线下面:向右分 / 向下分 / 在新窗口打开 / 移到另一栏(spec session-page「页签右键」)。
+  // 分隔线下面:拆开 / 向右分 / 在新窗口打开(spec session-page「页签右键」)。
   const openInWindow = host.tabWindowOpener(tab.tabId);
   if (openInWindow) {
     splitCommands.push({ id: 'engine:open-in-window', label: translate('tabs.openInWindow'), group: 'split' as const, run: openInWindow });
-  }
-  const moveToOtherPane = host.tabMoveToOtherPane(tab.tabId);
-  if (moveToOtherPane) {
-    splitCommands.push({ id: 'engine:move-to-other-pane', label: translate('tabs.moveToOtherPane'), group: 'split' as const, run: moveToOtherPane });
   }
 
   const groups = [engineCommands, splitCommands, kindCommands]

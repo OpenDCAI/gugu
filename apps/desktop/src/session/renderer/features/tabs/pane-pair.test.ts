@@ -41,13 +41,13 @@ describe('real pane navigation and placement', () => {
     expect(layout.open('file', { id: 'README.md' }, { from: 'closed-source', intent: 'navigate' })).toBeUndefined();
     expect(JSON.stringify(layout.snapshot)).toBe(before);
   });
-  it('dragging moves one resource without initialize/dispose and assigns the actual companion', () => {
+  it('dragging moves one resource without initialize/dispose into the side of the pair', () => {
     const { layout, pane, folder, chat, initialize, dispose } = setup();
     const resource = pane._resources.get(folder);
     initialize.mockClear(); dispose.mockClear();
     expect(layout.splitPane(layout.activePaneId, 'right', folder)).toBe(true);
     expect(layout.groups).toHaveLength(2);
-    expect(pane.entries.get(chat)?.companionPaneId).toBe(layout.activePaneId);
+    expect(layout.pair).toEqual({ pinned: chat, side: folder });
     expect(layout.focusedPane._resources.get(folder)).toBe(resource);
     expect(initialize).not.toHaveBeenCalled(); expect(dispose).not.toHaveBeenCalled();
   });
@@ -81,10 +81,13 @@ describe('real pane navigation and placement', () => {
     restored.go(folder, -1);
     expect(restored.entries.get(folder)?.kind).toBe('folder');
   });
-  it('restoring a companion never revives a pane absent from the snapshot', () => {
-    const { layout, pane, chat } = setup();
-    pane.entries.get(chat)!.companionPaneId = 'removed-pane';
-    layout.restoreSnapshot(JSON.parse(JSON.stringify(layout.snapshot)));
-    expect(layout.focusedPane.entries.get(chat)?.companionPaneId).toBeUndefined();
+  it('a legacy companion field in a save is ignored', () => {
+    const { layout, chat } = setup();
+    const saved = JSON.parse(JSON.stringify(layout.snapshot));
+    saved.groups[0].tabManager.tabs[0].companionPaneId = 'removed-pane';
+    layout.restoreSnapshot(saved);
+    expect(layout.groups).toHaveLength(1);
+    expect(JSON.stringify(layout.snapshot)).not.toContain('companionPaneId');
+    expect(layout.focusedPane.entries.has(chat)).toBe(true);
   });
 });

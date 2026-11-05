@@ -63,6 +63,7 @@ it('carries the actual openChatResource task pane through its native portal with
     expect(back.disabled).toBe(true)
     expect(toolbar!.querySelector('[aria-label="tabs.backToConversation"]')).toBeNull()
     expect(layout.focusedPane.resolvedActiveTabId).toBe(resource)
-    expect(layout.focusedPane.tabOrder).toEqual([conversation, resource])
+    // Beside the task's conversation: the pair in its one strip (kept when narrow, owner 11-05).
+    expect(layout.stripTabIds).toEqual([conversation, resource])
   } finally { layout.dispose() }
 })

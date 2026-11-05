@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import { ChevronDown, ChevronLeft } from '@/lib/icons';
 import { Button } from '@renderer/lib/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu';
@@ -7,7 +7,8 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { cn } from '@renderer/utils/utils';
 import { isStripOverflowing, readStripTabs, wheelToHorizontal, type StripTabEntry } from './tab-bar/tab-overflow';
 import { readRendererPlatform, shellRestoreLane, WINDOW_CONTROL_BAR_HEIGHT_PX } from '@/lib/window-chrome';
-import { usePaneContext } from '@renderer/features/tabs/pane-context';
+import { PaneContext, usePaneContext } from '@renderer/features/tabs/pane-context';
+import type { PaneStore } from './pane-store';
 import { PaneDropZone } from './tab-bar/draggable-tab';
 import { SESSION_TAB_HEIGHT_PX } from './tab-bar/tab-chip';
 import { isUnavailableTabResource, UnavailableTabBarItem } from './unavailable-tab';
@@ -32,7 +33,10 @@ export const TabBar = observer(function TabBar({
   /** 这条页签条是不是贴着主内容区左缘(左边再无聊天栏/分栏)。见 <TabStripShell>。 */
   reserveShellRestoreLane?: boolean;
 }) {
-  const { paneId, pane } = usePaneContext();
+  const { paneId, pane, isFocusedPane } = usePaneContext();
+  // 并排时另一页在它自己那一格里,页签画在这条页签条上、紧跟钉住那枚(一条会话只有一条页签条,spec session-page「并排」)。
+  const side = pane.pairSide;
+  const pinned = side ? pane.resolvedActiveTabId : undefined;
 
   const { translate } = useSessionMessages();
   const active = pane.activeEntry;
@@ -113,11 +117,26 @@ export const TabBar = observer(function TabBar({
         }
         const def = pane.registry.get(tab.kind);
         const TabItemComponent = def.TabBarItem;
-        return <TabItemComponent key={tab.tabId} tab={tab} host={pane} ctx={pane.ctx} />;
+        const item = <TabItemComponent key={tab.tabId} tab={tab} host={pane} ctx={pane.ctx} />;
+        return side && id === pinned ? [item, <PairedSideTabs key={`side-${side.paneId}`} side={side} focused={!isFocusedPane} />] : item;
       })}
       </TabStripMotion>
     </TabStripShell>
   );
+});
+
+/**
+ * The side pane's tabs, drawn in the main strip with their own host (close, menu, drag act on them): the side in front
+ * first (joined to the pinned tab), then the pages it showed before.
+ */
+const PairedSideTabs = observer(function PairedSideTabs({ side, focused }: { side: { paneId: string; pane: PaneStore }; focused: boolean }) {
+  const value = useMemo(() => ({ paneId: side.paneId, pane: side.pane, isFocusedPane: focused }), [side, focused]);
+  const tabs = [...side.pane.resolvedTabs].sort((a, b) => Number(b.isActive) - Number(a.isActive));
+  return <PaneContext.Provider value={value}>{tabs.map((tab) => {
+    if (isUnavailableTabResource(tab.resource) || !side.pane.registry.has(tab.kind)) return <UnavailableTabBarItem key={tab.tabId} tab={tab} host={side.pane} />;
+    const Item = side.pane.registry.get(tab.kind).TabBarItem;
+    return <Item key={tab.tabId} tab={tab} host={side.pane} ctx={side.pane.ctx} />;
+  })}</PaneContext.Provider>;
 });
 
 /** 放不下时贴条右端那枚「全部页签」(照 VS Code 的 Show Opened Editors)。菜单打开时才读一次页签。 */

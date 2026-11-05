@@ -28,8 +28,10 @@ const root = createRoot(host);
 let layout: PaneLayoutStore;
 afterEach(() => { root.render(null); layout?.dispose(); document.body.classList.remove('gugu-skin'); });
 
+// Narrow: one page of a pair is on screen, the one looked at (owner 11-05 §6.4) — as PaneTreeView draws it.
 const ChatPanes = observer(function ChatPanes({ chatId }: { chatId: string }) {
-  return <>{chatLayoutOf(chatId).groups.map(group => <PaneContext.Provider key={group.paneId} value={{ pane: group.pane, paneId: group.paneId, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>;
+  const layout = chatLayoutOf(chatId);
+  return <>{layout.groups.filter(group => group.paneId === layout.activePaneId).map(group => <PaneContext.Provider key={group.paneId} value={{ pane: group.pane, paneId: group.paneId, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>;
 });
 
 it.each([250, 390].flatMap(width => ['private-card', 'group-folder'].map(origin => ({ width, origin }))))('keeps the actual $origin portal body within 48px at $width px', async ({ width, origin }) => {

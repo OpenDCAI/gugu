@@ -13,8 +13,6 @@ export interface TabEntry<S = unknown> {
   readonly kind: string;
   readonly tabId: string;
   history?: TabHistorySnapshot;
-  /** The conversation's explicit companion, cleared when that pane is closed. */
-  companionPaneId?: string;
   openerTabId?: string;
   /**
    * Reactive, serializable domain state for this tab.
@@ -124,6 +122,8 @@ export type ResolvedTab<T extends TabResource = TabResource> = {
   readonly isActive: boolean;
   /** 拿着焦点的那一枚(并排时是点着的那一边;不并排时与 isActive 相同)。 */
   readonly isFocused?: boolean;
+  /** 并排的一对里排左('start')/ 排右('end'):页签条上两枚连成一块(spec session-page「并排」)。 */
+  readonly pairRole?: 'start' | 'end';
   readonly resource: T;
 };
 
@@ -147,7 +147,7 @@ export interface TabProvider<
   OpenArgs = S,
 > {
   readonly kind: K;
-  /** Only a conversation may create/reuse a companion for an ordinary navigation. */
+  /** A conversation: what is opened from it goes side by side with it (spec session-page「并排」). */
   conversation?: boolean;
 
   /**

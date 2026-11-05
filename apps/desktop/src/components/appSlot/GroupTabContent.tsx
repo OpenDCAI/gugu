@@ -114,8 +114,11 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   const desktop = platform.kind === 'electron'
   const { user } = useAuth()
   const pane = chatPaneOf(chatId, tabId)
-  const backIsPanel = (pane?.navigationOf(tabId)?.index ?? 0) > 0
-  const back = () => (pane?.navigationOf(tabId)?.index ?? 0) > 0 ? pane?.go(tabId, -1) : closeChatTab(chatId, tabId)
+  // 「返回」 goes to the tab whose page opened this one (owner 10-24): its own history, else the page it was opened from.
+  // Opened straight from the conversation has none (that is the conversation beside it).
+  const openedBy = pane?.openerOf(tabId)
+  const backIsPanel = (pane?.navigationOf(tabId)?.index ?? 0) > 0 || (!!openedBy && !(pane!.registry.has(openedBy.kind) && pane!.registry.get(openedBy.kind).conversation))
+  const back = () => backIsPanel ? pane?.go(tabId, -1) : closeChatTab(chatId, tabId)
   const close = () => closeChatTab(chatId, tabId)
   const [offer, setOffer] = useState<Offer | null>(null)
   const [installingOffer, setInstallingOffer] = useState(false)

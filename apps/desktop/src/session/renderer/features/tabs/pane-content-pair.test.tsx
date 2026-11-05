@@ -1,4 +1,3 @@
-import { DndContext } from '@dnd-kit/core';
 import { JSDOM } from 'jsdom';
 import { observer } from 'mobx-react-lite';
 import React, { act, useEffect } from 'react';
@@ -144,23 +143,20 @@ describe('each actual pane owns its content', () => {
     layout.dispose();
   });
 
-  it('offers an explicit return to the conversation after a narrow open without changing the layout', async () => {
+  it('a narrow open still pairs (owner 11-05: narrow keeps the pair, shows the clicked side); the strip goes back', async () => {
     const conversation = createTabProvider({ ...provider, kind: 'conversation', conversation: true });
     const layout = new PaneLayoutStore(createTabRegistry([provider, conversation]), { viewId: 'narrow-conversation-return' });
     const source = layout.open('conversation', { id: 'conversation' }, { from: null, intent: 'newTab' })!;
     layout.focusedPane.setDimensions(390, 620);
-    const tree = JSON.stringify(layout.layout);
+    layout.setViewActive(true);
+    layout.setNarrow(true);
     const file = layout.open('page', { id: 'file' }, { from: source, intent: 'navigate' })!;
-    expect(layout.groups).toHaveLength(1);
-    expect(layout.focusedPane.tabOrder).toEqual([source, file]);
-    const group = layout.groups[0];
-    act(() => root.render(<DndContext><PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent /></PaneContext.Provider></DndContext>));
-    const back = dom.window.document.querySelector<HTMLButtonElement>('[data-testid="tab-return-conversation"]');
-    expect(back).not.toBeNull();
-    expect(back!.closest('[data-tabbar-actions]')).not.toBeNull();
-    await act(async () => { back!.click(); });
-    expect(layout.focusedPane.resolvedActiveTabId).toBe(source);
-    expect(layout.focusedPane.tabOrder).toEqual([source, file]);
+    expect(layout.pair).toEqual({ pinned: source, side: file });
+    expect(layout.groups.filter(({ pane }) => pane.isVisible).map(({ pane }) => pane.resolvedActiveTabId)).toEqual([file]);
+    const tree = JSON.stringify(layout.layout);
+    act(() => layout.mainGroup.pane.setActiveTab(source));
+    expect(layout.groups.filter(({ pane }) => pane.isVisible).map(({ pane }) => pane.resolvedActiveTabId)).toEqual([source]);
+    expect(layout.pair).toEqual({ pinned: source, side: file });
     expect(JSON.stringify(layout.layout)).toBe(tree);
     layout.dispose();
   });

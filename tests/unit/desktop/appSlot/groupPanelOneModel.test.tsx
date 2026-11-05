@@ -179,16 +179,18 @@ describe('an App opened in the group (「在本群打开」)', () => {
   const installTabs = (tabs: { name: string; title: string; opensFiles?: Record<string, string[]>; chatFile?: string }[]) =>
     act(() => installedExtensionsStore.applyList({ extensions: [{ id: 'board', name: 'Board', version: '1.0.0', apiVersion: 14, defaultLocale: 'en', contributes: { tabs } }], invalid: [] } as unknown as InstalledExtensionsList))
 
-  it('the folder asked for is a tab of its own beside a remembered App, with no Back', async () => {
+  it('the folder asked for is a tab of its own beside the chat, pushing the App back into the strip, with no Back', async () => {
     const chatId = 'folder-entry-7590'
     const calendar = openPanelItem(chatId, { kind: 'day-calendar.main', title: '日历' })
     await harness.render(slot({ chatId }))
     expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe('day-calendar.main')
     ask(chatId, { app: 'workspace' })
     expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe(WORKSPACE_APP_KIND)
-    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).not.toBeNull()
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]'), 'opened straight from the chat').toBeNull()
     expect(isFolderItem(shownItem(chatId))).toBe(true)
-    expect(panelTabsOf(chatId).map((tab) => tab.tabId), 'the companion keeps its identity').toEqual([calendar])
+    // owner 11-05: the side it replaced is an ordinary tab of the one strip (closing the folder brings it back, §7).
+    expect(panelTabsOf(chatId).map((tab) => tab.tabId)).toContain(calendar)
+    expect(panelTabsOf(chatId)).toHaveLength(2)
   })
 
   it('opens its own page here, with no file', async () => {
@@ -255,7 +257,7 @@ describe('an App opened in the group (「在本群打开」)', () => {
     const folder = openPanelItem(chatId, folderItem())
     ask(chatId, { itemId: 'B', opener: detail as never, from: shownPanelTab(chatId)!.tabId })
     await act(async () => {})
-    expect(panelTabsOf(chatId).map((tab) => tab.item.itemId ?? 'folder')).toEqual(['B'])
+    expect(panelTabsOf(chatId).map((tab) => tab.item.itemId ?? 'folder').sort()).toEqual(['B', 'folder'])
     expect(shownPanelTab(chatId)?.tabId, 'the tab already there').toBe(board!.tabId)
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
     expect(shownPanelTab(chatId)?.tabId).toBe(folder)
@@ -269,11 +271,11 @@ describe('the split default is remembered per kind of tab (owner 10-28)', () => 
     act(() => { openPanelItem(chatId, folderItem()) })
     const panel = shownPanelTab(chatId)!.tabId
     expect(chatLayoutOf(chatId).groups).toHaveLength(2)
-    // The person separates the group files panel: only that kind is remembered.
-    act(() => chatLayoutOf(chatId).moveTab(panel, chatLayoutOf(chatId).groups[1].paneId, chatLayoutOf(chatId).groups[0].paneId))
+    // The person separates the pair (拆开): owner 11-05 §6.3, any record of separate wins — the session stops pairing.
+    act(() => chatLayoutOf(chatId).unpair({ declined: true }))
     expect(chatLayoutOf(chatId).groups[0].pane.entries.has(panel)).toBe(true)
-    // Members / settings (the info tab) is another kind: it still opens beside the chat.
     act(() => openInfoTab(chatId, 'members'))
+    expect(chatLayoutOf(chatId).groups).toHaveLength(1)
     const info = infoTabOf(chatId)!.tabId
     expect(infoTabOf(chatId)?.tabId).toBe(info)
     // A session peeked beside the page makes the info tab fill the block and then gives it back: not the person's choice.

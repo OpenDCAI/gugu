@@ -38,13 +38,13 @@ function normalizeTabDescriptor(
 ): TabDescriptor {
   const persistedKind = (tab as { kind: string }).kind;
   if (persistedKind !== 'extension' && !isBuiltInTabKind(persistedKind)) {
-    const { kind: extensionKind, tabId, history, companionPaneId, openerTabId, isPreview: _isPreview, returnTo: _returnTo, ...state } = tab as unknown as TabDescriptor & {
+    const { kind: extensionKind, tabId, history, openerTabId, companionPaneId: _companionPaneId, isPreview: _isPreview, returnTo: _returnTo, ...state } = tab as unknown as TabDescriptor & {
       kind: string;
       tabId: string;
       isPreview: boolean;
       [key: string]: unknown;
     };
-    return { kind: 'extension', extensionKind, tabId, state, ...(history ? { history } : {}), ...(companionPaneId ? { companionPaneId } : {}), ...(openerTabId ? { openerTabId } : {}) };
+    return { kind: 'extension', extensionKind, tabId, state, ...(history ? { history } : {}), ...(openerTabId ? { openerTabId } : {}) };
   }
   if (tab.kind === 'file' && !tab.isExternal) {
     return { ...tab, path: resolveWorkspacePath(workspacePath, tab.path) };

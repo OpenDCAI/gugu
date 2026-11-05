@@ -39,14 +39,14 @@ export interface TabHost {
    * `multiBlock` = 这一格所在的这屏不止一块(调用方从 ScreenBlockContext 读)。
    */
   tabFill(tabId: string, multiBlock?: boolean): { full: boolean; toggle: () => void } | null;
-  /** Moves this tab into a new pane on that side of its own. */
-  splitTab(tabId: string, edge: 'right' | 'bottom'): void;
+  /** 向右分: this tab side by side with the page on screen (spec session-page「并排」). */
+  splitTab(tabId: string): void;
+  /** 拆开: the pair back to ordinary tabs, the one looked at fills. */
+  separatePair(): void;
   /** 这一格在一个能分格的布局里(单独成窗的那一格、独立的格子不在)。 */
   readonly inSplitLayout: boolean;
-  /** 往那一边分为什么分不出来(null = 分得出来)。 */
-  tabSplitBlocked(tabId: string, edge: 'right' | 'bottom'): 'full' | 'only-tab' | 'too-small' | null;
-  /** 「移到另一栏」:这条会话还有别的格可去时给出怎么挪,没有 = null(原型页签右键)。 */
-  tabMoveToOtherPane(tabId: string): (() => void) | null;
+  /** 为什么分不出来(null = 分得出来)。 */
+  tabSplitBlocked(tabId: string): 'only-tab' | 'too-small' | null;
   /** 页签右键「在新窗口打开」:这一枚能单独成窗就给出怎么开,不能 = null(spec session-page「一屏几块」)。 */
   tabWindowOpener(tabId: string): (() => void) | null;
   /**

@@ -17,11 +17,12 @@ const FULLSCREEN_STYLE = {
   zIndex: 'var(--z-pane-fullscreen)',
 } as CSSProperties;
 
-/** One actual pane, one strip and one active navigation context. Splits belong to the layout tree. */
-export const PaneContent = observer(function PaneContent({
-  emptyState, tabLeadingSlot, tabTrailingSlot, actionsSlot, hideTabBar,
-  reserveShellRestoreLane, leadingReservePx, contentOverlay,
-}: {
+type PaneContentProps = {
+  /**
+   * 'all' (default): this pane's strip over its page. While paired the session's one strip spans both pages: the main
+   * pane draws it as 'bar' above the pair, each pane its page as 'body' (PaneTreeView, spec session-page「并排」).
+   */
+  part?: 'all' | 'bar' | 'body';
   emptyState?: ReactNode;
   tabLeadingSlot?: ReactNode;
   tabTrailingSlot?: ReactNode;
@@ -30,7 +31,19 @@ export const PaneContent = observer(function PaneContent({
   reserveShellRestoreLane?: boolean;
   leadingReservePx?: number;
   contentOverlay?: ReactNode;
-}) {
+};
+
+/** One actual pane: its page, with the session's strip over it unless the strip is drawn above a pair. */
+export const PaneContent = observer(function PaneContent({ part = 'all', ...props }: PaneContentProps) {
+  return part === 'bar'
+    ? <TabBar leadingSlot={props.tabLeadingSlot} tabTrailingSlot={props.tabTrailingSlot} actionsSlot={props.actionsSlot} reserveShellRestoreLane={props.reserveShellRestoreLane} leadingReservePx={props.leadingReservePx} />
+    : <PaneBody {...props} hideTabBar={props.hideTabBar || part === 'body'} />;
+});
+
+const PaneBody = observer(function PaneBody({
+  emptyState, tabLeadingSlot, tabTrailingSlot, actionsSlot, hideTabBar,
+  reserveShellRestoreLane, leadingReservePx, contentOverlay,
+}: Omit<PaneContentProps, 'part'>) {
   const { paneId, pane, isFocusedPane } = usePaneContext();
   const shellRef = useRef<HTMLDivElement | null>(null);
   useCommandProvider(useMemo(() => ({

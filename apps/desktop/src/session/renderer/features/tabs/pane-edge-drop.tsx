@@ -25,7 +25,8 @@ export const edgeFirst: CollisionDetection = (args) => {
   return [[...edges].sort((a, b) => distance(String(a.id)) - distance(String(b.id)))[0]];
 };
 
-export const PANE_EDGES: readonly PaneEdge[] = ['left', 'right', 'top', 'bottom'];
+/** 只有左右:并排就是左右两页(「向下分」owner 11-05 拿掉了)。 */
+export const PANE_EDGES: readonly PaneEdge[] = ['left', 'right'];
 
 /**
  * 拖页签时一格四边的落点:落在哪一边,就在那一边分出一格,新格占这一格的一半 —— 指着时就把那一半画出来,

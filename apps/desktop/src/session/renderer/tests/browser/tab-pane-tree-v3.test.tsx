@@ -25,7 +25,7 @@ async function mount() {
   const other = layout.open('page', { id: 'folder' }, { from: null, intent: 'newTab' })!;
   layout.focusedPane.setDimensions(harness.container.clientWidth, harness.container.clientHeight);
   expect(layout.splitPane(layout.activePaneId, 'right', other)).toBe(true);
-  await act(() => harness.render(<PaneTreeView layout={layout} renderPane={(id) => <iframe title={id} style={{ width: '100%', height: '100%' }} />} />));
+  await act(() => harness.render(<PaneTreeView layout={layout} renderPane={(id, _first, _last, part) => (part === 'bar' ? null : <iframe title={id} style={{ width: '100%', height: '100%' }} />)} />));
   await until('the actual split has a measurable divider', () => harness.container.querySelector<HTMLElement>('[data-slot="resizable-handle"]')?.getBoundingClientRect().height ?? 0, (height) => height > 100);
 }
 
@@ -87,7 +87,7 @@ it('splitting and closing a pane keep the pane that stays mounted, its page the 
     useEffect(() => { mounts.push(`mount ${id === kept ? 'kept' : 'other'}`); return () => { mounts.push(`unmount ${id === kept ? 'kept' : 'other'}`); }; }, [id]);
     return <iframe title={id} style={{ width: '100%', height: '100%' }} />;
   }
-  await act(() => harness.render(<PaneTreeView layout={layout} renderPane={(id) => <Page id={id} />} />));
+  await act(() => harness.render(<PaneTreeView layout={layout} renderPane={(id, _first, _last, part) => (part === 'bar' ? null : <Page id={id} />)} />));
   const page0 = harness.container.querySelector(`iframe[title="${kept}"]`);
   await act(() => { expect(layout.splitPane(kept, 'right', file)).toBe(true); });
   const other = layout.groups.find(({ paneId }) => paneId !== kept)!.paneId;

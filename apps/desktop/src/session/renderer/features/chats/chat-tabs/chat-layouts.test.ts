@@ -40,25 +40,26 @@ describe('chat navigation uses the same page history and real panes as tasks', (
     expect(openPanelItem(id, file('same-file'), { intent: 'newTab', from: conversation })).not.toBe(first);
     expect(openPanelItem('another-private-repeat-card', file('same-file'))).not.toBe(first);
   });
-  it('opens from the conversation into one reusable actual companion', () => {
-    const id = 'companion-chat'; const layout = chatLayoutOf(id);
+  it('opens from the conversation side by side in the one strip; the next one takes the side, closing it brings A back', () => {
+    const id = 'pair-chat'; const layout = chatLayoutOf(id);
     const chat = layout.focusedPane.resolvedActiveTabId!;
     const first = openPanelItem(id, file('A'))!;
-    const companion = layout.activePaneId;
+    expect(layout.pair).toEqual({ pinned: chat, side: first });
+    const second = openPanelItem(id, file('B'))!;
+    expect(layout.pair).toEqual({ pinned: chat, side: second });
     expect(layout.groups).toHaveLength(2);
-    expect(openPanelItem(id, file('B'))).toBe(first);
-    expect(layout.activePaneId).toBe(companion);
-    expect(layout.groups[0].pane.entries.get(chat)?.companionPaneId).toBe(companion);
+    expect(layout.stripTabIds).toEqual([chat, second, first]);
+    closeChatTab(id, second);
+    expect(layout.pair).toEqual({ pinned: chat, side: first });
     closeChatTab(id, first);
     expect(layout.groups).toHaveLength(1);
-    expect(layout.focusedPane.entries.get(chat)?.companionPaneId).toBeUndefined();
   });
   it('explicit new-tab intent leaves the source content unchanged', () => {
     const id = 'explicit-chat'; const folder = openPanelItem(id, folderItem())!;
     const first = openPanelItem(id, file('README'), { from: folder, intent: 'newTab' })!;
     expect(first).not.toBe(folder);
     expect(panelTabsOf(id).find((tab) => tab.tabId === folder)?.item.itemId).toBeUndefined();
-    expect(chatPaneOf(id, first)?.tabOrder.indexOf(first)).toBe(chatPaneOf(id, folder)!.tabOrder.indexOf(folder) + 1);
+    expect(chatLayoutOf(id).groups.flatMap(({ pane }) => pane.tabOrder)).toEqual(expect.arrayContaining([folder, first]));
   });
   it('closing an inactive page does not change the focused page; closing restores a link once', () => {
     const id = 'close-chat'; let restored = 0;
@@ -79,14 +80,17 @@ describe('chat navigation uses the same page history and real panes as tasks', (
     expect(JSON.stringify(layout.layout)).toBe(before);
     expect(chatAlone(id)).toBe(false);
   });
-  it('a topic navigates the companion and closing it leaves the source group', () => {
+  it('a topic pairs with its group in the group strip; another topic takes its place; closing it leaves the group', () => {
     const id = 'topic-chat'; const layout = chatLayoutOf(id);
+    const chat = layout.focusedPane.resolvedActiveTabId!;
     openTopicTab(id, { topicChatId: 'topic-a', name: 'A' });
     const first = topicTabOf(id)!.tabId;
+    expect(layout.pair).toEqual({ pinned: chat, side: first });
     openTopicTab(id, { topicChatId: 'topic-b', name: 'B' });
     expect(topicTabOf(id)?.tabId).toBe(first);
     expect(chatPaneOf(id, first)?.navigationOf(first)?.pages).toHaveLength(2);
     closeTopicTab(id);
+    expect(layout.groups).toHaveLength(1);
     expect(layout.groups.some(({ pane }) => pane.entriesOfKind(CHAT_TAB_KIND).length > 0)).toBe(true);
   });
   it('a file name refresh keeps the same context and does not revive a closed tab', () => {
