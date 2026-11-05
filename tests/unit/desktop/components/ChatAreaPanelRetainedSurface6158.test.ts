@@ -18,6 +18,12 @@ import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localS
 
 const { getImRepositoryMock } = vi.hoisted(() => ({ getImRepositoryMock: vi.fn() }))
 
+// Layout geometry is exercised in sticky-group-avatar.test.tsx (real Chromium).
+// Keep jsdom without IntersectionObserver so MessageList visibility fallback stays covered.
+vi.mock('../../../../apps/desktop/src/components/chat/observeAvatarSpan', () => ({
+  observeAvatarSpan: () => () => {},
+}))
+
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: {} }) }))
 vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/topics', () => ({

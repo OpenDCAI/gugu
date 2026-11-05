@@ -13,6 +13,12 @@ import { MessageList, type ChatListRowItem, type MessageListRowProps } from '../
 import { TopicSplitPane } from '../../../../apps/desktop/src/components/chat/TopicSplitPane'
 import { createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 
+// Layout geometry is exercised in sticky-group-avatar.test.tsx (real Chromium).
+// Keep jsdom without IntersectionObserver so MessageList visibility fallback stays covered.
+vi.mock('../../../../apps/desktop/src/components/chat/observeAvatarSpan', () => ({
+  observeAvatarSpan: () => () => {},
+}))
+
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 
 const noop = () => {}

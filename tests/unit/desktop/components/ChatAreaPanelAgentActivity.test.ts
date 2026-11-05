@@ -57,6 +57,12 @@ const topicServiceMock = vi.hoisted(() => ({
   getAgentFloodAdjustment: vi.fn(async () => null),
   undoAgentFloodAdjustment: vi.fn(async () => 0),
 }))
+// Layout geometry is exercised in sticky-group-avatar.test.tsx (real Chromium).
+// Keep jsdom without IntersectionObserver so MessageList visibility fallback stays covered.
+vi.mock('../../../../apps/desktop/src/components/chat/observeAvatarSpan', () => ({
+  observeAvatarSpan: () => () => {},
+}))
+
 vi.mock('../../../../apps/desktop/src/lib/topics', () => ({ topicService: topicServiceMock }))
 
 
