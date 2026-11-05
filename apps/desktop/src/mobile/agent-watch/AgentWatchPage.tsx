@@ -10,7 +10,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import type { AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
 import { useDevicesStore } from '@/store/devicesContext'
 import { useBackLayer } from '@/components/ui/sheetStack'
-import { navigateMobile } from '../navigateMobile'
+import { navigateMobile, skipMobileTransition } from '../navigateMobile'
 import { requestAlertPermissionOnce, useAgentWatchAlerts, useAgentWatchFocus } from './useAgentWatchAlerts'
 import { rowOpens, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { MachinesPage } from './MachinesPage'
@@ -98,6 +98,12 @@ export function AgentWatchPage({
     }
   }
   const route = routes[routes.length - 1]!
+  const presentedRequest = useRef(seenOpenRequest)
+  useLayoutEffect(() => {
+    if (presentedRequest.current === seenOpenRequest) return
+    presentedRequest.current = seenOpenRequest
+    skipMobileTransition()
+  }, [seenOpenRequest])
   useLayoutEffect(() => { onRouteChange?.(route.name) }, [route.name, onRouteChange])
   const navigate = useCallback((next: AgentWatchRoute[], direction: 'push' | 'pop' | 'replace') => {
     // Skipping a View Transition still runs its update callback. A newer external

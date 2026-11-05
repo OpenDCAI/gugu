@@ -184,12 +184,15 @@ describe('AgentWatchPage native back routing', () => {
 
   it('does not let a delayed earlier page transition overwrite a newer external destination', async () => {
     const updates: Array<() => void> = []
+    const skip = vi.fn()
+    let finish = () => {}
+    const finished = new Promise<void>(resolve => { finish = resolve })
     const previous = Object.getOwnPropertyDescriptor(document, 'startViewTransition')
     const previousMedia = window.matchMedia
     window.matchMedia = vi.fn(() => ({ matches: false }) as MediaQueryList)
     Object.defineProperty(document, 'startViewTransition', { configurable: true, value: (update: () => void) => {
       updates.push(update)
-      return { finished: Promise.resolve(), skipTransition: vi.fn() }
+      return { finished, skipTransition: skip }
     } })
     const pager = document.createElement('div')
     pager.dataset.mobileTabPager = ''
@@ -201,11 +204,13 @@ describe('AgentWatchPage native back routing', () => {
       expect(updates).toHaveLength(1)
       await harness.render(createNode(AgentWatchPage, { ...props, openRequest: { deviceId: 'device-1', session } }))
       expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
+      expect(skip, 'the old page snapshot must not keep animating over the new destination').toHaveBeenCalledOnce()
       await act(async () => { updates[0]!() })
       expect(harness.container.querySelector('[data-testid="pick-machine"]')).toBeNull()
       expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
       expect(props.onRouteChange).toHaveBeenLastCalledWith('timeline')
     } finally {
+      finish()
       pager.remove()
       window.matchMedia = previousMedia
       if (previous) Object.defineProperty(document, 'startViewTransition', previous)
