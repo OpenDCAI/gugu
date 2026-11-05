@@ -10,7 +10,7 @@ const GROUP = '33333333-3333-4333-8333-333333333333'
 const OTHER = '44444444-4444-4444-8444-444444444444'
 const GROUP_TOOLS = [
   'group_add_agent', 'group_announcement_delete', 'group_announcement_post',
-  'group_announcement_update', 'group_avatar_set', 'group_create', 'group_flood_undo',
+  'group_announcement_update', 'group_avatar_set', 'group_create',
   'group_info', 'group_join_decide', 'group_join_requests', 'group_leave', 'group_list',
   'group_remove_member', 'group_set_role', 'group_update',
 ]
@@ -41,7 +41,6 @@ async function connect(options: { rejection?: string; kind?: string; forkOf?: st
       if (options.receipt !== undefined) return options.receipt
       if (name === 'set_agent_listen_mode_as') return { chat_id: body.p_chat_id, user_id: body.p_agent_user_id, listen_mode: body.p_mode }
       if (name === 'set_group_member_role_as') return { chat_id: body.p_chat_id, user_id: body.p_member_user_id, role: body.p_role }
-      if (name === 'undo_agent_flood_adjustment') return [{ adjustment_id: body.p_adjustment_id, restored: 1 }]
       throw new Error(`Unexpected fixture write: ${name}`)
     },
     restPatch: async () => { throw new Error('Direct table PATCH is not the listen-mode entry') },
@@ -137,17 +136,5 @@ describe('listen_mode through the unchanged group tool', () => {
     const result = await h.call({ chat_id: GROUP, member: `user:${TARGET}`, listen_mode: 'passive' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('database did not confirm listen_mode')
-  })
-
-  it('keeps flood_undo confined to the recorded adjustment', async () => {
-    const h = await connect()
-    const result = await h.client.callTool({ name: 'group_flood_undo', arguments: { adjustment_id: 'recorded-adjustment' } })
-    expect(result.isError, text(result)).not.toBe(true)
-    expect(JSON.parse(text(result))).toMatchObject({ adjustment_id: 'recorded-adjustment', restored: 1 })
-    expect(h.writes).toEqual([{ name: 'undo_agent_flood_adjustment', body: { p_adjustment_id: 'recorded-adjustment', p_as_user_id: SELF } }])
-    h.writes.length = 0
-    const invalid = await h.client.callTool({ name: 'group_flood_undo', arguments: { adjustment_id: 'recorded-adjustment', listen_mode: 'active' } })
-    expect(invalid.isError).toBe(true)
-    expect(h.writes).toEqual([])
   })
 })
