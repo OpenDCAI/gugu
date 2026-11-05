@@ -84,27 +84,28 @@ export function AgentWatchPage({
   const devices = useMemo(() => [...new Map([...hosts, ...(phones ?? [])].map((one) => [one.device_id, one])).values()], [hosts, phones])
   const { toast } = useToast()
   // 只记录实际走过的页。外部直达会话时,项目列表没有被访问,不能成为它的父页。
-  const [routes, setRoutes] = useState<AgentWatchRoute[]>([{ name: 'projects' }])
-  const [seenOpenRequest, setSeenOpenRequest] = useState(openRequest)
+  const [navigation, setNavigation] = useState(() => ({ routes: [{ name: 'projects' }] as AgentWatchRoute[], request: openRequest }))
+  const { routes, request: seenOpenRequest } = navigation
   // Consume an external destination before committing the newly visible layer. A passive
   // navigation would first expose Projects and capture it as the old view-transition page.
   if (openRequest && openRequest !== seenOpenRequest) {
-    setSeenOpenRequest(openRequest)
-    if ('projectId' in openRequest) setRoutes([{ name: 'projects', reveal: openRequest }])
+    if ('projectId' in openRequest) setNavigation({ request: openRequest, routes: [{ name: 'projects', reveal: openRequest }] })
     else {
       const { deviceId, session, tabKind, draft } = openRequest
-      setRoutes([rowOpens(session)
+      setNavigation({ request: openRequest, routes: [rowOpens(session)
         ? { name: 'timeline', deviceId, session, ...(tabKind ? { appKind: tabKind } : {}), ...(draft ? { draft } : {}) }
-        : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } }])
+        : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } }] })
     }
   }
   const route = routes[routes.length - 1]!
   useLayoutEffect(() => { onRouteChange?.(route.name) }, [route.name, onRouteChange])
   const navigate = useCallback((next: AgentWatchRoute[], direction: 'push' | 'pop' | 'replace') => {
-    const update = () => setRoutes(next)
+    // Skipping a View Transition still runs its update callback. A newer external
+    // request must reject route writes queued before that destination was accepted.
+    const update = () => setNavigation(current => current.request === seenOpenRequest ? { ...current, routes: next } : current)
     if (active) navigateMobile(update, direction)
     else update()
-  }, [active])
+  }, [active, seenOpenRequest])
   const setRoute = useCallback((next: AgentWatchRoute) => navigate([...routes, next], 'push'), [navigate, routes])
   const goBack = useCallback(() => {
     if (routes.length > 1) navigate(routes.slice(0, -1), 'pop')

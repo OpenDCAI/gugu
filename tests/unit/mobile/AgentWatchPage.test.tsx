@@ -182,6 +182,37 @@ describe('AgentWatchPage native back routing', () => {
     expect(props.onRouteChange).toHaveBeenLastCalledWith('projects')
   })
 
+  it('does not let a delayed earlier page transition overwrite a newer external destination', async () => {
+    const updates: Array<() => void> = []
+    const previous = Object.getOwnPropertyDescriptor(document, 'startViewTransition')
+    const previousMedia = window.matchMedia
+    window.matchMedia = vi.fn(() => ({ matches: false }) as MediaQueryList)
+    Object.defineProperty(document, 'startViewTransition', { configurable: true, value: (update: () => void) => {
+      updates.push(update)
+      return { finished: Promise.resolve(), skipTransition: vi.fn() }
+    } })
+    const pager = document.createElement('div')
+    pager.dataset.mobileTabPager = ''
+    document.body.appendChild(pager)
+    const props = { active: true, onExit: vi.fn(), onRouteChange: vi.fn() }
+    try {
+      await harness.render(createNode(AgentWatchPage, { ...props, openRequest: null }))
+      await act(async () => { (harness.container.querySelector('[data-testid="create-agent"]') as HTMLButtonElement).click() })
+      expect(updates).toHaveLength(1)
+      await harness.render(createNode(AgentWatchPage, { ...props, openRequest: { deviceId: 'device-1', session } }))
+      expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
+      await act(async () => { updates[0]!() })
+      expect(harness.container.querySelector('[data-testid="pick-machine"]')).toBeNull()
+      expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
+      expect(props.onRouteChange).toHaveBeenLastCalledWith('timeline')
+    } finally {
+      pager.remove()
+      window.matchMedia = previousMedia
+      if (previous) Object.defineProperty(document, 'startViewTransition', previous)
+      else Reflect.deleteProperty(document, 'startViewTransition')
+    }
+  })
+
   it('keeps missing-device external targets on the fallback root and exits in one back step', async () => {
     const props = { active: true, onExit: vi.fn(), onRouteChange: vi.fn() }
     await harness.render(createNode(AgentWatchPage, { ...props, openRequest: null }))
