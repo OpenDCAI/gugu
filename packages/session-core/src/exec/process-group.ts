@@ -154,7 +154,7 @@ export function execInProcessGroup(
         return
       }
       if (killHandle) clearTimeout(killHandle)
-      if ((code ?? 0) === 0) {
+      if (code === 0) {
         const processGroupResidualCount = residualCount()
         if (processGroupResidualCount) {
           terminateGroup('SIGTERM')

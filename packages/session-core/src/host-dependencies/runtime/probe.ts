@@ -39,6 +39,7 @@ export function versionLineOf(output: string, versionLine: RegExp | undefined): 
  *   非零退出。只有「跑挂了而且没报出版本」才判 error。
  */
 export function defaultProbeStatus(result: ProbeResult, versionLine?: RegExp): DependencyStatus {
+  if (result.signal && !result.timedOut) return 'error';
   const ranAndFailed = result.exitCode !== null && result.exitCode !== 0 && !result.timedOut;
   const printed = result.stdout || result.stderr;
   const reportedAVersion = VERSION_RE.test(versionLineOf(printed, versionLine) ?? printed.split('\n')[0] ?? '');
@@ -261,6 +262,7 @@ export async function runVersionProbe(
       stdout?: string;
       stderr?: string;
       code?: number;
+      signal?: string | null;
       killed?: boolean;
       timedOut?: boolean;
       processGroupResidualCount?: number;
@@ -271,6 +273,7 @@ export async function runVersionProbe(
       stdout: e.stdout ?? '',
       stderr: e.stderr ?? '',
       exitCode: e.code ?? null,
+      ...(e.signal ? { signal: e.signal } : {}),
       timedOut: !!(e.timedOut ?? e.killed),
       processGroupResidualCount: e.processGroupResidualCount,
     };

@@ -225,7 +225,7 @@ function dependencyStateFromProbeResult(
     version,
     path: resolvedPath,
     checkedAt: Date.now(),
-    error: status === 'error' ? probe?.stderr?.trim() || 'Unknown error' : undefined,
+    error: status === 'error' ? probe?.stderr?.trim() || (probe?.signal ? `Process terminated by ${probe.signal}` : 'Unknown error') : undefined,
   };
 }
 

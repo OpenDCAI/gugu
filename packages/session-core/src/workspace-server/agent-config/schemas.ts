@@ -331,6 +331,7 @@ export type AgentInstallProgress = z.infer<typeof agentInstallProgressSchema>;
  * ❌ 不在这边另起一套自己探。
  */
 export const hostDependencyLedgerSnapshotSchema = z.object({
+  readings: z.array(dependencyStateSchema).optional(),
   ownedDirs: z.object({
     ownedNpmRoots: z.array(z.string()),
     ownedShimDirs: z.array(z.string()),
