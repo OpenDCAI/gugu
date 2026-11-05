@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import type { NativeSessionRecord, TimelineSnapshot } from '@gugu/session-core/session-record/contract'
+import type { NativeSessionRecord, TimelineSnapshot, TimelineAfterResult } from '@gugu/session-core/session-record/contract'
 import { SessionInputOutbox, type SessionInput } from '@/lib/sessionInputOutbox'
 import { changed, state, EMPTY } from '@/lib/sessionInputOutboxBridge'
 import { watchPhoneSessionSendQueues } from '@/mobile/agent-watch/phone-send-queue-host'
@@ -11,12 +11,13 @@ const remote = vi.hoisted(() => ({
   events: new Map<string, (data: never) => void>(),
   link: (_open: boolean) => {},
   directoryChanged: () => {}, runtime: 'acp' as 'acp' | 'pty' | null,
+  timeline: (_result: TimelineAfterResult) => {},
 }))
 vi.mock('@/mobile/agent-watch/sessionpage-rpc', () => ({
   machineRpc: () => ({ sessions: { lifeView: remote.life }, sessionTimeline: { sessionNativeRecord: remote.native } }),
   fetchSnapshot: remote.snapshot,
   subscribeSession: async () => {}, unsubscribeSession: async () => {},
-  subscribeSessionEvents: () => () => {}, subscribeSessionErrors: () => () => {},
+  subscribeSessionEvents: (_device: string, _id: string, listener: typeof remote.timeline) => { remote.timeline = listener; return () => {} }, subscribeSessionErrors: () => () => {},
   onLinkChange: (_id: string, listener: typeof remote.link) => { remote.link = listener; return () => {} },
   onMachineEvent: (_id: string, channel: { name: string }, listener: (data: never) => void) => {
     remote.events.set(channel.name, listener); return () => remote.events.delete(channel.name)
@@ -176,4 +177,17 @@ it('retains the existing provider completion path for a terminal-hosted target',
   stop = watchPhoneSessionSendQueues('owner')
   await vi.waitFor(() => expect(delivered).toHaveBeenCalledTimes(1))
   expect(remote.native).not.toHaveBeenCalled()
+})
+
+it('rechecks when the last live reply clears after native persistence, without a provider turn patch', async () => {
+  const base: TimelineSnapshot = { cursor: { epoch: 'provider', seq: 1 }, turns: [turn('unsettled-provider')],
+    queuedPrompts: [], settlements: [], liveReply: { sourceMessageId: 'message', activity: { phase: 'replying' } }, hasOlder: false }
+  remote.snapshot.mockResolvedValue(base)
+  stop = watchPhoneSessionSendQueues('owner')
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(1))
+  expect(delivered).not.toHaveBeenCalled()
+  remote.snapshot.mockResolvedValue({ ...base, liveReply: null })
+  remote.timeline({ ok: true, batch: { from: 1, cursor: { epoch: 'provider', seq: 2 }, turns: [],
+    removedTurnIds: [], settlements: [], queuedPrompts: [], liveReply: null } })
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledTimes(1))
 })

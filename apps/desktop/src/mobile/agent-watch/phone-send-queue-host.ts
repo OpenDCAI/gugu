@@ -39,13 +39,17 @@ export function watchPhoneSessionSendQueues(accountId: string, options?: { phone
     let epoch = 0
     let failedSettlement = false
     let queuedIds = ''
+    let replying = false
     const queueIds = (prompts: { id: string }[] | undefined) => JSON.stringify((prompts ?? []).map(prompt => prompt.id))
     const stopEvents = client.subscribeSessionEvents(deviceId, subscriptionId, result => {
       // Streaming text does not change whether the foreground has completed.
       const nextQueue = result.ok ? queueIds(result.batch.queuedPrompts) : ''
       const queueChanged = nextQueue !== queuedIds
       queuedIds = nextQueue
-      if (!result.ok || queueChanged || result.batch.turns.some(turn => turn.outcome)) changed()
+      const nextReplying = result.ok && result.batch.liveReply !== undefined ? Boolean(result.batch.liveReply) : replying
+      const replyChanged = nextReplying !== replying
+      replying = nextReplying
+      if (!result.ok || queueChanged || replyChanged || result.batch.turns.some(turn => turn.outcome)) changed()
     })
     const stopErrors = client.subscribeSessionErrors?.(deviceId, subscriptionId, error => { connected = false; report(error); changed() })
     const stopLink = client.onLinkChange(deviceId, open => {
@@ -76,6 +80,7 @@ export function watchPhoneSessionSendQueues(accountId: string, options?: { phone
         if (native && !native.ok) throw Object.assign(new Error(native.error.message), { code: native.error.code })
         if (closed || !current() || readingEpoch !== epoch) return { ready: false, turns: [] }
         queuedIds = queueIds(snapshot.queuedPrompts)
+        replying = Boolean(snapshot.liveReply)
         if (!subscribed) {
           await client.subscribeSession(deviceId, sessionId, subscriptionId, snapshot.cursor)
           if (closed || !current()) {
