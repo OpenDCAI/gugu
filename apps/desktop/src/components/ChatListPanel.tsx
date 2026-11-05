@@ -273,7 +273,6 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
   const displayName = chatDisplayName(chat, peerName)
   const shownName = useShownAgentName({ name: displayName, createdAt: isAgentChat ? peerIdentity?.created_at ?? undefined : undefined })
   const preview = chatPreviewText(chat)
-  const hasBolt = isRoom || isAgentChat
 
   return (
     <>
@@ -323,9 +322,6 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
         }
         accessory={
           <>
-            {/* Bolt/sparkle — the design accent, kept off the icon-size ladder
-                (11px decorative, not an icon-button glyph). Shown on agent and group rows. */}
-            {hasBolt && !mobile && <Zap size={11} style={{ color: 'var(--agent-bolt)', flexShrink: 0 }} />}
             {topicsExpanded !== undefined && (
               <span className="relative size-3.5 shrink-0">
                 <IconButton size="sm" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"

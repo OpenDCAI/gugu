@@ -37,6 +37,7 @@ import {
 } from '@renderer/features/projects/stores/project-group-layout';
 import {
   SIDEBAR_STATE_GROUP_ORDER,
+  needsYouCount,
   sidebarStateGroup,
   type SidebarStateGroup,
 } from './session-groups';
@@ -111,6 +112,8 @@ type SidebarSessionEntry = {
   time: number;
   group: SidebarStateGroup | null;
   presentation?: AgentStatusPresentation | null;
+  /** The host's read bit: a read failure stays in its group but leaves the counts (isNeedsYou). */
+  unseen: boolean;
   hostOnline?: boolean;
   /** Raw addressing name; components decide how to display it. */
   title: string;
@@ -743,6 +746,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
             : 0,
           group: sidebarStateGroup(mountedSessionPresentation(session)),
           presentation: mountedSessionPresentation(session),
+          unseen: !session.seen,
           title: session.data.title,
           createdAt: session.data.createdAt,
         });
@@ -776,6 +780,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
           session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId)),
         presentation: sessionPresentation(session, listed.live,
           session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId),
+        unseen: session.unseen === true,
         hostOnline,
         title: session.title,
       });
@@ -873,7 +878,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    */
   needsYouCountForProject(projectId: string): number {
     const entries = this.placement.entries.get(projectId) ?? [];
-    return entries.filter((e) => e.group === 'needs-you' && e.hostOnline !== false).length;
+    return needsYouCount(entries);
   }
 
   toggleIdleExpanded(foldKey: string): void {
@@ -923,6 +928,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
               : 0,
             group: sidebarStateGroup(mountedSessionPresentation(session)),
             presentation: mountedSessionPresentation(session),
+            unseen: !session.seen,
             title: session.data.title,
             createdAt: session.data.createdAt,
           });

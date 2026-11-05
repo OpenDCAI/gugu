@@ -575,13 +575,6 @@
      ⚠️ 别把 needs_user 与 removed 这两个**状态**并掉 —— 它们靠形状/字号分,不只靠色相分
      (agentContactRowDotClass:needs_user 是 8px 黄色字形、removed 是 5px 色点)。 */
   --color-danger: var(--danger);
-  /* agent 标识 ⚡bolt 的琥珀。设计稿定的「明暗一致」——所以它只在 :root 出现一次，
-     不随主题变。原先这个字面值在 ChatListPanel / ChatAreaPanel / ContactsPanel /
-     ContactProfileCard 四处各抄了一遍，改一次要找齐四处。 */
-  /* @@@chrome-is-ink (Refs #6104) — agent 身份标识属 chrome ⇒ 墨色。
-     原值是琥珀 #e0a13a(H=75.6),design.md:「Emphasis comes from weight, size, and the fill
-     percentage of the foreground, not from hue」。 */
-  --agent-bolt: var(--fg);
   --color-draft: #FA8C16;
   /* 搜索命中的底色:mark 的字跟着正文(color: inherit),深色上用琥珀的淡染,❌ 一块亮黄压着浅色字(深色巡检 10-27)。 */
   --color-warning-highlight: color-mix(in oklab, var(--warn) 38%, transparent);
@@ -1993,7 +1986,7 @@ body.barcode-scanner-active #root {
 .gg-list-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .gg-list-row-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .gg-list-row-title {
-  flex: 0 1 auto;   /* 贴合内容:附件(⚡ / chip)紧跟名字,时间靠 meta 的 margin-inline-start:auto 推到右端 */
+  flex: 0 1 auto;   /* 贴合内容:附件(chip)紧跟名字,时间靠 meta 的 margin-inline-start:auto 推到右端 */
   min-width: 0;
   font-size: var(--font-body);
   line-height: var(--lh-body);

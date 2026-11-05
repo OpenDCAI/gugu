@@ -117,19 +117,23 @@ describe('chat folds the presentation into its coarse status', () => {
 describe('needs-you and attention are defined once', () => {
   const at = (status: 'working' | 'needs_user' | 'error' | 'idle', detail: string | null = null) =>
     presentAgentStatus({ reading: { status, detail } as AgentStatusView })
-  it('includes failed tasks and every human wait in passive Needs you (#1165)', () => {
+  it('includes unread failures and every human wait in passive Needs you (#1165)', () => {
     for (const wait of ['approval', 'question', 'plan', 'dialog']) {
-      expect(isNeedsYou(at('needs_user', wait))).toBe(true)
+      expect(isNeedsYou(at('needs_user', wait), false)).toBe(true)
     }
-    expect(isNeedsYou(at('error'))).toBe(true)
+    expect(isNeedsYou(at('error'), true)).toBe(true)
+  })
+  it('a failure already looked at stays on its row but no longer asks for you, so old failures do not pile up', () => {
+    expect(presentationAttention(at('error'))).toBe('error')
+    expect(isNeedsYou(at('error'), false)).toBe(false)
   })
   it('keeps ordinary activity and unreachable agents out of passive Needs you', () => {
     for (const tone of AGENT_STATUS_TONES) {
       const presentation = { tone, label: 'none' as const, animate: false, emphasis: false }
-      expect(isNeedsYou(presentation), tone).toBe(tone === 'needs_user' || tone === 'error')
+      expect(isNeedsYou(presentation, true), tone).toBe(tone === 'needs_user' || tone === 'error')
     }
-    expect(isNeedsYou(null)).toBe(false)
-    expect(isNeedsYou(undefined)).toBe(false)
+    expect(isNeedsYou(null, true)).toBe(false)
+    expect(isNeedsYou(undefined, true)).toBe(false)
   })
   it('attention is a wait or a failure', () => {
     expect(presentationAttention(at('needs_user', 'question'))).toBe('needs_user')
@@ -139,12 +143,9 @@ describe('needs-you and attention are defined once', () => {
   it("an unreachable host's working is not drawn; its other readings are", () => {
     expect(presentAgentStatus({ reading: { status: 'working', detail: 'running' }, hostOnline: false })).toBeNull()
     expect(presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' }, hostOnline: false })).toMatchObject({ tone: 'needs_user' })
-    // U7-C decision (b): retain the row mark while excluding offline hosts from attention totals.
     for (const status of ['needs_user', 'error'] as const) {
       const presentation = presentAgentStatus({ reading: { status, detail: null }, hostOnline: false })
       expect(presentation?.tone).toBe(status)
-      expect(isNeedsYou(presentation, false)).toBe(false)
-      expect(isNeedsYou(presentation, true)).toBe(true)
     }
   })
 })

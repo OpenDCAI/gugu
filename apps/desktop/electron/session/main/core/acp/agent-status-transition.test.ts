@@ -89,7 +89,7 @@ describe('ACP status projection: park (#6448)', () => {
       failure: { kind: 'adapter-exit', exitCode: 0 } });
     const final = replay(snapshots).readings.at(-1)!;
     expect(final).toMatchObject({ status: 'idle', detail: 'done' });
-    expect(isNeedsYou(presentAgentStatus({ reading: final, unseen: true }))).toBe(false);
+    expect(isNeedsYou(presentAgentStatus({ reading: final, unseen: true }), true)).toBe(false);
   });
 
   it.each([0, 1, null])('does not turn completed idle work into Needs you when its adapter exits (%s)', exitCode => {
@@ -98,23 +98,30 @@ describe('ACP status projection: park (#6448)', () => {
     const result = replay([working(), done, gone]);
     expect(result.readings.at(-1)).toMatchObject({ status: 'idle', detail: 'done' });
     expect(result.doneEdges).toBe(1);
-    expect(isNeedsYou(presentAgentStatus({ reading: result.readings.at(-1)!, unseen: true }))).toBe(false);
+    expect(isNeedsYou(presentAgentStatus({ reading: result.readings.at(-1)!, unseen: true }), true)).toBe(false);
     expect(gone.failure).toMatchObject({ kind: 'adapter-exit', exitCode });
   });
 
   it.each(['approval', 'question', 'plan'] as const)('keeps a real %s request in Needs you', waitKind => {
     const reading = replay([working(waits(['request', waitKind]))]).readings.at(-1)!;
-    expect(isNeedsYou(presentAgentStatus({ reading }))).toBe(true);
+    // A wait needs you whatever its read bit says: it is not over until someone answers.
+    for (const unseen of [true, false]) expect(isNeedsYou(presentAgentStatus({ reading, unseen }), unseen)).toBe(true);
   });
 
-  it('keeps genuine turn failures and failed startups in Needs you', () => {
+  // The status writer stores every error reading as unread (agent-status-writer: 「出错写成未读」), so a fresh
+  // failure needs you; once someone has looked at it, it stays red on its row but leaves Needs you.
+  it('keeps genuine turn failures and failed startups in Needs you until they are read', () => {
     const failed = summary({ lifecycle: 'lost', lastTurnOutcome: 'errored', failure: { kind: 'adapter-exit', exitCode: 1, message: 'Work failed' } });
-    const reading = replay([working(), failed]).readings.at(-1)!;
-    expect(reading.status).toBe('error');
-    expect(isNeedsYou(presentAgentStatus({ reading }))).toBe(true);
     const startFailed = summary({ lifecycle: 'lost', lastTurnOutcome: 'stopped', lastStopReason: 'end_turn',
       failure: { kind: 'start-failed', message: 'Could not start', error: {} as never } });
     expect(deriveAcpAgentStatusActions(undefined, startFailed)).toMatchObject([{ kind: 'event', event: { type: 'error' } }]);
+    for (const steps of [[working(), failed], [startFailed]]) {
+      const reading = replay(steps).readings.at(-1)!;
+      expect(reading.status).toBe('error');
+      expect(isNeedsYou(presentAgentStatus({ reading, unseen: true }), true)).toBe(true);
+      expect(presentAgentStatus({ reading, unseen: false }).tone).toBe('error');
+      expect(isNeedsYou(presentAgentStatus({ reading, unseen: false }), false)).toBe(false);
+    }
   });
 
   it.each([

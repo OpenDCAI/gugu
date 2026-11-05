@@ -1,4 +1,3 @@
-import { Zap } from '@/lib/icons'
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { formatCalendarDay } from '@/i18n/format'
 import { useChatStore } from '@/store/chatContext'
@@ -44,7 +43,6 @@ export const NeedsYouTaskRow = observer(function NeedsYouTaskRow({ task, onClick
       <Avatar name={name!} avatarUrl={agent?.avatar ?? null} seed={agentId} size={mobile ? 48 : 'sm'} isAgent harnessBadge={false} />
     </PhoneMessageAvatar>}
     title={name}
-    accessory={<Zap size={11} className="shrink-0 text-[var(--agent-bolt)]" />}
     meta={Number.isFinite(time) ? formatCalendarDay(new Date(time).toISOString()) : undefined}
     subtitle={title}
   />

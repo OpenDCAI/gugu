@@ -11,7 +11,7 @@ import { cn } from '@/lib/cn'
  * 槽位:
  *   leading   头像 / 图标(固定尺寸,调用方传 <Avatar size="sm">)
  *   title     名字(优先保宽,至少 40%)
- *   accessory 名字右边的附件(⚡bolt、设备 chip),先于名字被截断
+ *   accessory 名字右边的附件(设备 chip),先于名字被截断
  *   meta      右上时间(caption,tabular-nums)
  *   subtitle  第二行(预览 / 状态)
  *   trailing  第二行右侧(未读数 / 静音图标)

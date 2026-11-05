@@ -165,12 +165,12 @@ describe('an App page with gugu\'s look', () => {
     row.remove();
   });
 
-  it('draws the host\'s elements: an icon, a member\'s face (an agent\'s with ⚡), a neutral figure for anyone else', () => {
+  it('draws the host\'s elements: an icon, a member\'s face (an agent\'s without ⚡), a neutral figure for anyone else', () => {
     expect(document.querySelector('gugu-icon')!.shadowRoot!.querySelector('svg')).not.toBeNull();
     const member = document.querySelector('#member gugu-avatar')!.shadowRoot!;
     expect(member.querySelector('img')!.getAttribute('src')).toBe(FACE);
     expect(member.querySelector('.name')!.textContent).toBe('周报助手');
-    expect(member.querySelector('.badge')).not.toBeNull();
+    expect(member.querySelector('.badge, .bolt')).toBeNull();
     const stranger = document.querySelector('#stranger gugu-avatar')!;
     expect(stranger.shadowRoot!.querySelector('img')).toBeNull();
     expect(stranger.shadowRoot!.querySelector('svg')).not.toBeNull();

@@ -3,6 +3,7 @@ import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
+import { ICON_BODIES } from '@gugu/session-ui/icon-bodies'
 import { NeedsYouHost } from '../../../../apps/desktop/src/components/needsYou/NeedsYouHost'
 import { ChatListPanel } from '../../../../apps/desktop/src/components/ChatListPanel'
 import { ChatBottomDock } from '../../../../apps/desktop/src/components/chat/ChatBottomDock'
@@ -178,4 +179,26 @@ it.each([false, true])('clicking a global item opens its exact host task (phone=
   await mount(mobile); await open()
   await act(async () => rows()[1].click())
   expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'agent-b', deviceId: 'server' })
+})
+it('phone and desktop show the same notifications for the same tasks: no old read failures, no ⚡, nothing above Messages', async () => {
+  const at = (day: number) => new Date(Date.UTC(2026, 9, day)).toISOString()
+  state.sessions = [
+    ...Array.from({ length: 40 }, (_, i) => ({ ...task(`old-${i}`, 'error', false), lastInteractedAt: at(1 + (i % 28)) })),
+    { ...task('older-failure', 'error'), lastInteractedAt: at(3) },
+    { ...task('wait', 'needs_user'), lastInteractedAt: at(30) },
+    { ...task('newer-failure', 'error'), lastInteractedAt: at(20) },
+  ]
+  const shown: Array<{ count: string | undefined; rows: string[] }> = []
+  for (const mobile of [false, true]) {
+    await mount(mobile); await open()
+    const zap = /\sd="([^"]+)"/.exec(ICON_BODIES.Zap)![1]
+    expect([...document.querySelectorAll('[data-session-line] svg path, [data-chat-row] svg path')].filter(path => path.getAttribute('d') === zap), 'no ⚡ on any row').toHaveLength(0)
+    // Tasks live in the notification list only; the Messages list has none of them.
+    expect([...document.querySelectorAll('[data-session-line]')].every(row => row.closest('[data-testid="notification-list"]'))).toBe(true)
+    shown.push({ count: document.querySelector('[data-testid="notification-count"]')?.textContent ?? undefined, rows: rows().map(row => row.dataset.sessionLine!) })
+    await act(async () => toggle()!.click())
+    shell.cleanup(); workspace.cleanup(); shell = createReactHarness(); workspace = createReactHarness(); installShellSlots()
+  }
+  expect(shown[0]).toEqual({ count: '3', rows: ['wait', 'newer-failure', 'older-failure'] })
+  expect(shown[1]).toEqual(shown[0])
 })
