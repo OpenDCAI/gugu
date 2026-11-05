@@ -116,4 +116,29 @@ describe('a tab owns its page history', () => {
     open('README.md');
     expect(pane.navigationOf(id)?.pages).toHaveLength(2);
   });
+
+  it('tells each kind a tab held that the tab is gone on close, never on navigation', async () => {
+    const closed: string[] = [];
+    const provider = (kind: string) => createTabProvider({
+      kind,
+      resourceKey: (state: { path: string }) => state.path,
+      initialize: () => ({ dispose() {} }),
+      dispose() {},
+      closed: (tabId: string) => { closed.push(`${kind}:${tabId}`); },
+      TabBarItem: () => null,
+      TabBarItemDragPreview: () => null,
+      TabContent: () => null,
+    });
+    const layout = new PaneLayoutStore(createTabRegistry([provider('folder'), provider('file')]), { viewId: 'history-closed' });
+    layouts.push(layout);
+    layout.open('folder', { path: '/' }, { from: null, intent: 'newTab' });
+    const pane = layout.focusedPane;
+    const id = pane.resolvedActiveTabId!;
+    layout.open('file', { path: 'README.md' }, { from: id, intent: 'navigate' });
+    pane.go(id, -1);
+    pane.go(id, 1);
+    expect(closed).toEqual([]);
+    pane.closeTab(id);
+    expect(closed.sort()).toEqual([`file:${id}`, `folder:${id}`]);
+  });
 });

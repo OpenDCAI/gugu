@@ -95,6 +95,20 @@ describe('each App navigation context owns its resident pages', () => {
     expect(store.surfaceFor(other)).not.toBeNull();
   });
 
+  it('closing a tab drops every page it held, shown or in its history; another tab keeps its own', () => {
+    const tab = { sessionId: 's', tabId: 'closing' };
+    store.release('close.folder', bind(take('close.folder', tab)));
+    const file = bind(take('close.folder', { ...tab, itemId: 'f1' }));
+    const kept = bind(take('close.folder', { sessionId: 's', tabId: 'other' }));
+    expect(pages('close.folder')).toHaveLength(3);
+    store.closeSlot('s', 'closing');
+    expect(pages('close.folder').map((page) => page.key)).toEqual([key('close.folder', { sessionId: 's', tabId: 'other' })]);
+    expect(store.pageOfSlot('s', 'closing')).toBeNull();
+    store.release('close.folder', file);
+    expect(pages('close.folder')).toHaveLength(1);
+    expect(store.surfaceFor(kept)).not.toBeNull();
+  });
+
   it.each([false, true])('separates task contexts with perSession=%s, and keeps groups and the dock distinct', (perSession) => {
     const a = bind(take('isolated.main', { sessionId: 'a', tabId: 'tab', perSession }));
     const b = bind(take('isolated.main', { sessionId: 'b', tabId: 'tab', perSession }));

@@ -865,6 +865,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     this.entries.delete(id);
     this._resources.delete(id);
     removeTabId(this, id);
+    const kinds = new Set([entry.kind, ...(entry.history?.pages.map((page) => page.kind) ?? [])]);
+    for (const kind of kinds) if (this.registry.has(kind)) this.registry.get(kind).closed?.(id, this._ctx);
   }
 
   /** Call provider.dispose() for an entry if its resource exists. Does NOT remove from maps. */

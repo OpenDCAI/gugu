@@ -19,7 +19,7 @@ import { ExtensionTabBadge } from './extension-tab-badge';
 import { ExtensionMark } from './extension-mark';
 import { ExtensionTabPane } from './extension-tab-pane';
 import { ExtensionSharedSlot } from './extension-shared-slot';
-import { residentPageKey, residentPlace } from './extension-view-store';
+import { extensionViewStore, residentPageKey, residentPlace } from './extension-view-store';
 import { extensionSurfaceStore, extensionTabTitle } from './extension-surface-store';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
@@ -174,6 +174,7 @@ export function createExtensionTabProvider(
       extensionSurfaceStore.forget(sessionId, entry.tabId);
       resource.dispose();
     },
+    closed: (tabId, ctx) => extensionViewStore.closeSlot(ctx.place?.kind === 'session' ? ctx.place.sessionId : null, tabId),
 
     // Observers, because the title is read from the store: reinstalling an
     // extension that renamed its tab updates the tab bar in place.

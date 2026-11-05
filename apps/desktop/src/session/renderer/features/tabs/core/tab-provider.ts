@@ -198,6 +198,12 @@ export interface TabProvider<
    */
   dispose(entry: TabEntry<S>, resource: T, ctx: TabViewContext): void;
 
+  /**
+   * The tab `tabId` is closed for good, and one of its pages (now or in its Back/Forward history) was of this kind.
+   * `dispose` also runs when a page leaves its tab through history navigation; this runs only on close.
+   */
+  closed?(tabId: string, ctx: TabViewContext): void;
+
   /** Named capabilities surfaced as context-menu items and keyboard commands. */
   commands?: Record<string, CommandEntry<T>>;
 

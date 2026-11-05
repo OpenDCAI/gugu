@@ -9,6 +9,7 @@ import { RailAppIcon } from '@/components/RailAppIcon';
 import { FileHostMark } from '@/components/appSlot/FileHostMark';
 import { openFileStorageSettings, useFileHost } from '@/lib/fileHost';
 import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
+import { extensionViewStore } from '@renderer/features/extensions/extension-view-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { declaredMenuCommands, runExtensionCommand } from '@renderer/features/extensions/extension-commands';
 import { ExtensionTabBadge } from '@renderer/features/extensions/extension-tab-badge';
@@ -198,6 +199,7 @@ export const chatPanelTabProvider = createTabProvider<typeof CHAT_PANEL_TAB_KIND
     return true;
   },
   dispose: (entry, _resource, ctx) => extensionSurfaceStore.forget(null, groupPageSlot(chatIdOfView(ctx), entry.tabId)),
+  closed: (tabId, ctx) => extensionViewStore.closeSlot(null, groupPageSlot(chatIdOfView(ctx), tabId)),
   TabBarItem: PanelTabItem,
   TabBarItemDragPreview: PanelTabDragPreview,
   TabContent: PanelTabContent,

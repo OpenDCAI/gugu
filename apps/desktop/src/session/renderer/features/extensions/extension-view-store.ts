@@ -44,6 +44,8 @@ export interface ExtensionResidentPage {
   /** 群、每任务一份的任务或 App;文件页再带文件的 id。页的一生不变。 */
   place: string;
   itemId?: string;
+  /** The slot (task, tab) it was made for: when that tab closes, nothing can claim it again. */
+  slot: string;
 }
 
 /** 每个 App 最多留几张没人看的常驻页(有格正认领着的不算,也从不销毁)。 */
@@ -95,7 +97,7 @@ class ExtensionViewStore {
   private readonly boundPages = new Set<string>();
 
   constructor() {
-    makeObservable(this, { claim: action, release: action, forgetOpened: action, forgetIdle: action, forgetSlot: action });
+    makeObservable(this, { claim: action, release: action, forgetOpened: action, forgetIdle: action, forgetSlot: action, closeSlot: action });
   }
 
   /** The page now drawing this claim is bound (the layer says so). A claim already released: nothing to note. */
@@ -126,7 +128,7 @@ class ExtensionViewStore {
     const place = residentPlace(claim);
     const key = residentPageKey(kind, place);
     if (!this.residentPages.has(key)) {
-      this.residentPages.set(key, { key, kind, place, ...(claim.itemId ? { itemId: claim.itemId } : {}) });
+      this.residentPages.set(key, { key, kind, place, slot: slotKey(target.sessionId, target.tabId), ...(claim.itemId ? { itemId: claim.itemId } : {}) });
     }
     this.usedAt.set(key, nextUse++);
     const stack = this.stacks.get(key) ?? [];
@@ -147,6 +149,13 @@ class ExtensionViewStore {
   /** 那一格被关掉了。 */
   forgetSlot(sessionId: string | null, tabId: string): void {
     this.slotPages.delete(slotKey(sessionId, tabId));
+  }
+
+  /** That tab is closed: every page it held (shown or in its history) goes now, its webview with it. */
+  closeSlot(sessionId: string | null, tabId: string): void {
+    const slot = slotKey(sessionId, tabId);
+    this.slotPages.delete(slot);
+    for (const page of [...this.residentPages.values()]) if (page.slot === slot) this.drop(page.key);
   }
 
   release(kind: string, token: number): void {
