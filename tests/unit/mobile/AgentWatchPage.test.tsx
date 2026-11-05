@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, useLayoutEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
@@ -9,6 +9,10 @@ import { useLiveDeviceSessions, type DeviceSessions } from '../../../apps/deskto
 import { useDevicesStore } from '../../../apps/desktop/src/store/devicesContext'
 import { sheetStack } from '../../../apps/desktop/src/components/ui/sheetStack'
 import { createNode, createReactHarness } from '../../support/testHarness'
+import { PhoneLayer } from '../../../apps/desktop/src/mobile/PhoneLayer'
+import { useAppShowSession } from '../../../apps/desktop/src/mobile/agent-watch/useAppShowSession'
+import { APP_SHOW_SESSION_EVENT } from '../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { createShellTabStore, useShellTabOf } from '../../../apps/desktop/src/lib/shellTab'
 
 vi.mock('../../../apps/desktop/src/mobile/local-agent/usePhoneAgentDirectory', () => ({ usePhoneAgentDirectory: vi.fn() }))
 
@@ -65,10 +69,10 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/ProjectsPage', async () =>
     }: {
       onOpenSession: (deviceId: string, next: SessionpageSessionSummary) => void
       onCreate?: () => void
-      reveal?: { deviceId: string; sessionId: string }
+      reveal?: { deviceId: string; sessionId: string } | { projectId: string }
     }) => React.createElement(
       'div',
-      { 'data-testid': 'projects', 'data-reveal': reveal ? `${reveal.deviceId}|${reveal.sessionId}` : undefined },
+      { 'data-testid': 'projects', 'data-reveal': reveal ? ('projectId' in reveal ? reveal.projectId : `${reveal.deviceId}|${reveal.sessionId}`) : undefined },
       React.createElement('button', { type: 'button', 'data-testid': 'open-session', onClick: () => onOpenSession('device-1', session) }, 'open'),
       // 跨机器的子会话:画在父会话的项目分区里,住在另一台机器上。
       React.createElement('button', { type: 'button', 'data-testid': 'open-remote-child', onClick: () => onOpenSession('device-2', { ...session, conversationId: 'child-on-2' }) }, 'open child'),
@@ -135,6 +139,60 @@ function nativeBack(): boolean {
 }
 
 describe('AgentWatchPage native back routing', () => {
+  it.each([false, true])('commits the external target with task-layer activation, without a Projects frame (view transitions: %s)', async (supportsTransitions) => {
+    const visibleCommits: string[] = []
+    // Like the browser, defer the transition callback until after the old-page snapshot.
+    const transition = vi.fn(() => ({ finished: Promise.resolve(), skipTransition: vi.fn() }))
+    const previous = Object.getOwnPropertyDescriptor(document, 'startViewTransition')
+    const previousMedia = window.matchMedia
+    window.matchMedia = vi.fn(() => ({ matches: false }) as MediaQueryList)
+    Object.defineProperty(document, 'startViewTransition', { configurable: true, value: supportsTransitions ? transition : undefined })
+    const pager = document.createElement('div')
+    pager.dataset.mobileTabPager = ''
+    document.body.appendChild(pager)
+    const tabs = createShellTabStore('chats')
+    const Shell = () => {
+      const active = useShellTabOf(tabs) === 'tasks'
+      const openRequest = useAppShowSession(() => tabs.set('tasks'))
+      useLayoutEffect(() => {
+        if (active) visibleCommits.push(harness.container.querySelector('[data-testid="timeline-back"]') ? 'timeline' : 'projects')
+      })
+      return createNode(PhoneLayer, { open: active }, createNode(AgentWatchPage, { active, openRequest, onExit: () => tabs.set('chats') }))
+    }
+    try {
+      await harness.render(createNode(Shell, {}))
+      await act(async () => { window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: { deviceId: 'device-1', session } })) })
+      expect(visibleCommits).toEqual(['timeline'])
+      expect(harness.container.querySelector('[data-testid="projects"]')).toBeNull()
+      expect(transition).not.toHaveBeenCalled()
+    } finally {
+      pager.remove()
+      window.matchMedia = previousMedia
+      if (previous) Object.defineProperty(document, 'startViewTransition', previous)
+      else Reflect.deleteProperty(document, 'startViewTransition')
+    }
+  })
+
+  it('keeps explicit project location requests on Projects', async () => {
+    const props = { active: true, onExit: vi.fn(), onRouteChange: vi.fn() }
+    await harness.render(createNode(AgentWatchPage, { ...props, openRequest: null }))
+    await harness.render(createNode(AgentWatchPage, { ...props, openRequest: { projectId: 'project-1' } }))
+    expect(harness.container.querySelector('[data-testid="projects"]')?.getAttribute('data-reveal')).toBe('project-1')
+    expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeNull()
+    expect(props.onRouteChange).toHaveBeenLastCalledWith('projects')
+  })
+
+  it('keeps missing-device external targets on the fallback root and exits in one back step', async () => {
+    const props = { active: true, onExit: vi.fn(), onRouteChange: vi.fn() }
+    await harness.render(createNode(AgentWatchPage, { ...props, openRequest: null }))
+    await harness.render(createNode(AgentWatchPage, { ...props, openRequest: { deviceId: 'removed-device', session } }))
+    expect(harness.container.querySelector('[data-testid="projects"]')).toBeTruthy()
+    expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeNull()
+    expect(props.onRouteChange).toHaveBeenLastCalledWith('projects')
+    await act(async () => { expect(nativeBack()).toBe(true) })
+    expect(props.onExit).toHaveBeenCalledOnce()
+  })
+
   it('restores root navigation and watch focus when the opened device is removed', async () => {
     const onExit = vi.fn()
     const onRouteChange = vi.fn()
