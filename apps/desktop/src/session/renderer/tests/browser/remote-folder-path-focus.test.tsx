@@ -6,7 +6,7 @@ import { Sheet } from '@/components/ui/Sheet';
 import { RemoteFolderPicker } from '@/components/RemoteFolderPicker';
 import '@/styles/tokens.css';
 
-const listDirectory = vi.fn(async (_device: string, _request: { path: string }, _options?: unknown) => ({ result: { path: '/home/work', home: '/home/work', entries: [] } }));
+const listDirectory = vi.fn(async (_device: string, _request: { path: string; show_hidden?: boolean }, _options?: unknown) => ({ result: { path: '/home/work', home: '/home/work', entries: [] } }));
 vi.mock('@/lib/deviceFs', () => ({
   deviceFsListDirectory: (...args: Parameters<typeof listDirectory>) => listDirectory(...args),
   deviceFsMakeDirectory: async () => ({ result: {} }),
@@ -31,6 +31,8 @@ beforeEach(async () => {
 afterEach(() => { root.unmount(); host.remove(); });
 const input = () => document.querySelector<HTMLInputElement>('[data-testid="remote-folder-path-input"]');
 const frames = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+const completionRequested = (path: string) => until('the draft directory completion is requested', () =>
+  listDirectory.mock.calls.some(call => call[1].path === path && call[1].show_hidden === true));
 
 it('retains path focus when the focused breadcrumb button is replaced inside the real Sheet', async () => {
   await userEvent.click(page.getByTestId('remote-folder-path-blank'));
@@ -50,6 +52,8 @@ it('keeps a Chinese composition draft through Enter and navigates only after com
   expect(field).not.toBeNull();
   field!.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
   await userEvent.keyboard('/srv/项目');
+  // Drain the independent debounced completion before measuring key-triggered requests.
+  await completionRequested('/srv');
   const calls = listDirectory.mock.calls.length;
   field!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }));
   await frames();
@@ -88,6 +92,7 @@ it('does not handle IME candidate keys or the composition-ending 229 Enter as pi
   const field = input()!;
   expect(field).not.toBeNull();
   await userEvent.keyboard('/srv/中文');
+  await completionRequested('/srv');
   const calls = listDirectory.mock.calls.length;
   for (const key of ['Escape', 'Tab', 'ArrowDown', 'ArrowUp']) {
     field.dispatchEvent(new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true }));
@@ -99,4 +104,7 @@ it('does not handle IME candidate keys or the composition-ending 229 Enter as pi
   await frames();
   expect(input()).toBe(field);
   expect(listDirectory.mock.calls).toHaveLength(calls);
+  await userEvent.keyboard('{Enter}');
+  await until('a normal Enter navigates to the completed path', () => listDirectory.mock.calls.some(call =>
+    call[1].path === '/srv/中文' && call[1].show_hidden === false));
 });
