@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import { observeAvatarSpan } from './observeAvatarSpan'
 
 /** 组首那条消息的头像占位带这个标记;组尾的头像层往上找到它为止。 */
 const GROUP_TOP_ATTR = 'data-avatar-group-top'
@@ -20,24 +21,8 @@ function StickyGroupAvatar({ width, continuesGroup, children }: { width: string;
   const layerRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
     const slot = slotRef.current, layer = layerRef.current
-    const row = slot?.closest('[role="listitem"]')
-    if (!slot || !layer || !row?.parentElement) return
-    const measure = () => {
-      // 一条成组的消息,组首就是自己这一行 ⇒ 不往上找(往上找会落到上一组的组首,层伸进别的组)。
-      let top: Element | null = null
-      for (let r = continuesGroup ? row.previousElementSibling : null; r && !top; r = r.previousElementSibling) top = r.querySelector(`[${GROUP_TOP_ATTR}]`)
-      // 层的上下沿 = 组首那条气泡的上沿、这一条气泡的下沿:名字/时间行、表情回应都不算。
-      const bubble = (r: Element) => r.querySelector('[data-message-bubble-row]')?.getBoundingClientRect()
-      const own = bubble(row), first = bubble(top?.closest('[role="listitem"]') ?? row), box = slot.getBoundingClientRect()
-      if (!own || !first) return
-      layer.style.bottom = `${box.bottom - own.bottom}px`
-      layer.style.height = `${own.bottom - first.top}px`
-    }
-    // No synchronous first measure (it forced a layout mid-commit): the observer's first delivery runs after layout,
-    // before paint, and only writes styles.
-    const observer = new ResizeObserver(measure)
-    observer.observe(row.parentElement)
-    return () => observer.disconnect()
+    if (!slot || !layer) return
+    return observeAvatarSpan(slot, layer, continuesGroup)
   }, [continuesGroup])
   return (
     <div ref={slotRef} className={`${width} relative shrink-0 self-stretch`}>
