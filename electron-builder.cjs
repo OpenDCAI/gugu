@@ -93,6 +93,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { packNpmBundledDependencies, packedAppDir } = require('./scripts/build/pack-npm-bundled-deps.cjs')
 const { resolveElectronFuses } = require('./scripts/build/electron-fuses.cjs')
+const { verifyPackedClaudePayload } = require('./scripts/checks/verify-packed-claude-payload.cjs')
 const PACKED_APP_ENTRIES = new Set(['apps', 'build-resources', 'dist', 'node_modules', 'package.json'])
 const excludeClaudeNative = '!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**'
 const targetArgs = new Set(process.argv.slice(2))
@@ -372,6 +373,10 @@ module.exports = {
     // @@@packed-app-allowlist - resources/app holds the build output and its runtime dependencies, nothing else.
     // The checkout around it is not product: in CD it also carries the private operations overlay.
     const appDir = packedAppDir(context)
+    // Check the materialized dependency tree, including optional extraResources.
+    // A top-level-only glob silently shipped both Claude CLI architectures in 0.3.0.
+    const payload = verifyPackedClaudePayload(path.dirname(appDir))
+    console.log(`[thin-claude-payload] checked ${payload.checkedDirectories} directories; native packages=${payload.nativePackages}`)
     const stray = [
       ...fs.readdirSync(appDir).filter((name) => !PACKED_APP_ENTRIES.has(name)),
       ...fs.readdirSync(path.join(appDir, 'apps')).filter((name) => name !== 'desktop').map((name) => `apps/${name}`),
