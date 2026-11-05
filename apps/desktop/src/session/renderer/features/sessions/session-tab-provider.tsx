@@ -24,6 +24,7 @@ export const sessionTabProvider: TabProvider<
   SessionOpenArgs
 > = createTabProvider({
   kind: 'session',
+  pairRank: 0,
   mount: 'single',
   resourceKey: (state: SessionState) => state.sessionId,
   onBeforeOpen: (args: SessionOpenArgs): SessionState => ({

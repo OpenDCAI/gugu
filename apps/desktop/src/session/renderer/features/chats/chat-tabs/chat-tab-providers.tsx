@@ -81,6 +81,7 @@ const ChatTabContent = observer(function ChatTabContent(_props: TabContentProps)
 
 export const chatTabProvider = createTabProvider<typeof CHAT_TAB_KIND, ChatTabState, TabResource>({
   kind: CHAT_TAB_KIND,
+  pairRank: 0,
   mount: 'single',
   resourceKey: () => 'chat',
   // 别的页签的页、对话的名字和右端按钮都由对话画:它一直挂着(没上屏就藏着)。
@@ -223,6 +224,7 @@ function TopicTabContent(props: TabContentProps) {
 
 export const chatTopicTabProvider = createTabProvider<typeof CHAT_TOPIC_TAB_KIND, ChatTopicState, TabResource>({
   kind: CHAT_TOPIC_TAB_KIND,
+  pairRank: 1,
   placesPairItself: true,
   mount: 'single',
   resourceKey: () => 'topic',
