@@ -23,12 +23,13 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
   const value = useRef(record)
   value.current = record
   const requests = useRef<Promise<void>>(Promise.resolve())
-  const tailRequested = useRef(false)
+  const tailRequested = useRef(true)
   useEffect(() => {
     const connectionEpoch = epoch
     const generation = ++connectionEpoch.current
     connected.current = online; setConfirmed(null)
-    requests.current = Promise.resolve(); tailRequested.current = false
+    // Reconcile the latest page first, even when the cache or host's first unread is far behind.
+    requests.current = Promise.resolve(); tailRequested.current = true
     const cached = readCachedNativeRecord({ deviceId, sessionId })
     value.current = cached; setRecord(cached); setError(null); setErrorCode(null)
     if (!cached) void hydrateCachedNativeRecord({ deviceId, sessionId }).then((stored) => {
@@ -44,7 +45,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
       const requested = current.current
       const previous = value.current
       const last = previous?.turns.at(-1)?.seq
-      const tail = mode === 'tail' || tailRequested.current
+      const tail = mode !== 'older' && (mode === 'tail' || tailRequested.current)
       const input = mode === 'older' ? { before: previous?.nextCursor ?? undefined }
         : tail ? { tail: true } : mode === 'newer' && last !== undefined ? { after: last }
         : previous?.hasNewer && last !== undefined ? { before: last + 1 }
@@ -67,7 +68,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
   useEffect(() => {
     if (!enabled || !online || local) return
     return onLinkChange(deviceId, open => {
-      epoch.current++; connected.current = open; requests.current = Promise.resolve(); setConfirmed(null)
+      epoch.current++; connected.current = open; requests.current = Promise.resolve(); tailRequested.current = true; setConfirmed(null)
       if (open) void read('tail').catch(error => setError(messageForUser(error)))
     })
   }, [deviceId, enabled, online, local, read])

@@ -843,7 +843,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
       {!searchMode && <AgentConversationNoticeSlot sessionpageNotices={null} failureExplained={false} chatId={activeChatId} threadRootId={threadScope.rootId} profiles={messageMemberProfiles} />}
       {/* Input area — white card with rounded border floating in gray.
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
-      {selectMode ? (
+      {selectMode && (
         // Desktop selection and editing use the same ACP slot frame; phone spacing stays local.
         <div className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'transparent' : undefined, padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
           <div
@@ -873,9 +873,9 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
             </button>
           </div>
         </div>
-      ) : (
-        // ChatBottomDock owns the shared desktop frame; keep phone padding and safe area unchanged.
-        <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
+      )}
+      {/* 多选态只把输入框藏起来(和切走的面同一个 hidden),不卸载:卸载 = 编辑器拆掉再建,点「多选」/「取消」都卡一下。 */}
+        <div data-chat-composer="" hidden={selectMode} className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
         {chrome?.composerHeader}
         <ChatMessageComposer
           onSend={async (content, opts) => {
@@ -889,14 +889,13 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           onQuoteConsumed={() => setQuoteText(null)}
           mentionToInsert={mentionToInsert}
           onMentionInserted={() => setMentionToInsert(null)}
-          chatId={activeChatId} hidden={!surfaceVisible}
+          chatId={activeChatId} hidden={!surfaceVisible || selectMode}
           isGroupChat={isRoomChatSurface}
           groupMembers={composerGroupMembers} currentUserId={user?.id ?? null} agentStatuses={groupAgentStatuses} messages={messages}
           whisperTarget={whisperTarget}
           onExitWhisper={() => setWhisperTarget(null)}
         />
       </div>
-      )}
       </ChatBottomDock>
 
 

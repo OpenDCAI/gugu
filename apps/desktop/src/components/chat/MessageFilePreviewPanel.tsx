@@ -5,10 +5,9 @@ import { IconButton } from '../ui/IconButton'
 import { PaneHeader } from '../ui/Pane'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '../markdown/Markdown'
-import { DocumentPreviewContent } from './DocumentPreviewContent'
 import type { DocumentPreviewKind } from './documentPreview'
 import type { MessageActionItem } from './messageActionItems'
-import { useContext, useRef, type Ref } from 'react'
+import { lazy, Suspense, useContext, useRef, type Ref } from 'react'
 import { PaneContext } from '@renderer/features/tabs/pane-context'
 import { FileToolbar } from '@renderer/features/sessions/editor/file-toolbar'
 import { Button as ToolbarButton } from '@renderer/lib/ui/button'
@@ -18,6 +17,9 @@ import { useFileZoom } from '../preview/file-content-zoom'
 import { usePinchZoom } from '@/hooks/usePinchZoom'
 import { pinchZoom, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM } from '@/session/shared/preview/pinch-zoom'
 import type { HtmlPreviewRegistration } from '../preview/HtmlPreviewFrame'
+
+// pdf.js, docx-preview and the sheet parser load with the first document opened, not with the chat.
+const DocumentPreviewContent = lazy(() => import('./DocumentPreviewContent').then((m) => ({ default: m.DocumentPreviewContent })))
 
 export interface MessageFilePreviewPanelProps {
   viewerRef?: Ref<HTMLElement>
@@ -102,7 +104,7 @@ export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoErro
       {fileToolbar || mobile || ((loading || error) && file.sizeBytes === 0) ? null : <div style={{ padding: '0 18px 10px', color: 'var(--text-tertiary)', fontSize: 'var(--font-caption)', flexShrink: 0 }}>{formatAttachmentSize(file.sizeBytes)}{file.mimeType ? ` · ${file.mimeType}` : ''}</div>}
       {notice ? <div role="status" data-testid="message-file-preview-notice" className="gg-file-preview-notice">{notice}</div> : null}
       <div ref={kind === 'text' || kind === 'markdown' ? textRef : undefined} data-file-selection style={{ flex: 1, minHeight: 0, overflow: 'auto', color: 'var(--text-primary)' }}>
-        {loading ? <div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}{loadingFraction !== undefined ? <progress className="gg-progress" value={loadingFraction} max={1} /> : null}</div> : error ? <div style={{ ...statusStyle, color: 'var(--danger-fg)' }}>{error}</div> : kind === 'video' ? <video data-testid="message-file-preview-video" src={videoUrl} onError={event => onVideoError?.(event.currentTarget)} controls autoPlay playsInline className="block max-h-full w-full" /> : kind === 'unsupported' ? <div style={statusStyle}>{t('chatArea.filePreview.unsupported')}</div> : typeof content === 'string' && (kind === 'text' || kind === 'markdown') ? <div style={{ padding: fileToolbar ? '4px 18px 16px' : '16px 18px', zoom }}>{kind === 'markdown' ? <Markdown trust="chat" density="comfortable" content={content} hardBreaks /> : <pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', fontSize: 'var(--font-body)', lineHeight: 1.65 }}>{content}</pre>}</div> : <DocumentPreviewContent kind={kind} content={content} title={file.fileName} onOpenExternally={onOpenExternal} registerHtml={registerHtml} />}
+        {loading ? <div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}{loadingFraction !== undefined ? <progress className="gg-progress" value={loadingFraction} max={1} /> : null}</div> : error ? <div style={{ ...statusStyle, color: 'var(--danger-fg)' }}>{error}</div> : kind === 'video' ? <video data-testid="message-file-preview-video" src={videoUrl} onError={event => onVideoError?.(event.currentTarget)} controls autoPlay playsInline className="block max-h-full w-full" /> : kind === 'unsupported' ? <div style={statusStyle}>{t('chatArea.filePreview.unsupported')}</div> : typeof content === 'string' && (kind === 'text' || kind === 'markdown') ? <div style={{ padding: fileToolbar ? '4px 18px 16px' : '16px 18px', zoom }}>{kind === 'markdown' ? <Markdown trust="chat" density="comfortable" content={content} hardBreaks /> : <pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', fontSize: 'var(--font-body)', lineHeight: 1.65 }}>{content}</pre>}</div> : <Suspense fallback={<div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}</div>}><DocumentPreviewContent kind={kind} content={content} title={file.fileName} onOpenExternally={onOpenExternal} registerHtml={registerHtml} /></Suspense>}
       </div>
     </aside>
   )

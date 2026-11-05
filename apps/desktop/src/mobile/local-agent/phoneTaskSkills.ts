@@ -1,4 +1,3 @@
-import { parseDocument } from 'yaml'
 import { invokePhoneHost } from './phoneHostRpc'
 
 export interface PhoneTaskSkill { id: string; name: string; description: string; instructions: string; enabled: boolean }
@@ -56,6 +55,7 @@ export async function importPhoneTaskSkill(file: File, limits: PhoneSkillLimits)
   let description = ''
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)
   if (match) {
+    const { parseDocument } = await import('yaml')
     const doc = parseDocument(match[1], { uniqueKeys: true })
     if (doc.errors.length) throw new Error('SKILL.md 的开头配置无法解析，请检查名称与说明。')
     const metadata = doc.toJS({ maxAliasCount: 0 }) as Record<string, unknown> | null

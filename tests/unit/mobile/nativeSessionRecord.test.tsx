@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import type { NativeSessionRecord } from '@gugu/session-core/session-record/contract'
 import { createReactHarness } from '../../support/testHarness'
 import { useNativeSessionRecord } from '../../../apps/desktop/src/mobile/agent-watch/useNativeSessionRecord'
+import { writeCachedNativeRecord } from '../../../apps/desktop/src/mobile/agent-watch/timeline-cache'
 const scope = vi.hoisted(() => ({ read: vi.fn(), online: true, link: (_open: boolean) => {} }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ machineRpc: () => ({ sessionTimeline: { sessionNativeRecord: scope.read } }),
   onLinkChange: (_id: string, listener: typeof scope.link) => { scope.link = listener; return () => {} } }))
@@ -14,6 +15,119 @@ const record = (start: number, count: number, hasNewer = false): NativeSessionRe
   latestStoredSeq: hasNewer ? start + count + 60 : start + count - 1,
   turns: Array.from({ length: count }, (_, i) => ({ id: `s:turn:s${start + i}`, seq: start + i, initiator: 'user', items: [] })),
   nextCursor: start ? start : null, originTurnIds: [], activeTurn: null, hasNewer,
+})
+it.each([false, true])('opens the latest page in one read instead of walking from the first unread (local=%s)', async local => {
+  scope.read.mockImplementation(async (input: { tail?: boolean }) => ({ ok: true, value: input.tail ? record(940, 60) : record(0, 60, true) }))
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('entry-host', `cold-tail-${local}`, true, true, local); return null }
+  await harness.render(<Fixture />)
+  await vi.waitFor(() => expect(state.record?.turns.at(-1)?.seq).toBe(999))
+  expect(scope.read).toHaveBeenCalledExactlyOnceWith({ conversationId: `cold-tail-${local}`, tail: true })
+  expect(state.record?.hasNewer).toBe(false)
+  expect(state.ready).toBe(true)
+})
+
+it('shows an old cache immediately, replaces it with the tail, then preserves upward pagination during polling', async () => {
+  vi.useFakeTimers()
+  writeCachedNativeRecord({ deviceId: 'cached-tail-host', sessionId: 'cached-tail' }, record(0, 60, true))
+  const latest = Promise.withResolvers<{ ok: true; value: NativeSessionRecord }>()
+  scope.read.mockReturnValueOnce(latest.promise)
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('cached-tail-host', 'cached-tail', true, true); return null }
+  try {
+    await harness.render(<Fixture />)
+    expect(state.record?.turns[0]?.seq).toBe(0)
+    expect(state.ready).toBe(false)
+    expect(scope.read).toHaveBeenCalledExactlyOnceWith({ conversationId: 'cached-tail', tail: true })
+    await act(async () => { latest.resolve({ ok: true, value: record(940, 60) }) })
+    expect(state.record?.turns.map(turn => turn.seq)).toEqual(Array.from({ length: 60 }, (_, i) => 940 + i))
+    scope.read.mockResolvedValueOnce({ ok: true, value: record(880, 60, true) })
+    await act(async () => { await state.loadOlder() })
+    expect(scope.read).toHaveBeenLastCalledWith({ conversationId: 'cached-tail', before: 940 })
+    expect(state.record?.turns).toHaveLength(120)
+    scope.read.mockResolvedValueOnce({ ok: true, value: record(970, 30) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(scope.read).toHaveBeenLastCalledWith({ conversationId: 'cached-tail', after: 970 })
+    expect(state.record?.turns[0]?.seq).toBe(880)
+    expect(state.record?.turns.at(-1)?.seq).toBe(999)
+  } finally { vi.useRealTimers() }
+})
+
+it('retries the initial tail after failure instead of falling back to first-unread paging', async () => {
+  vi.useFakeTimers()
+  scope.read.mockRejectedValueOnce(new Error('Host temporarily unavailable'))
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('retry-tail-host', 'retry-tail', true, true); return null }
+  try {
+    await harness.render(<Fixture />)
+    expect(state.ready).toBe(false)
+    expect(state.error).toBe('Host temporarily unavailable')
+    scope.read.mockResolvedValueOnce({ ok: true, value: record(940, 60) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(scope.read.mock.calls.map(([input]) => input)).toEqual([
+      { conversationId: 'retry-tail', tail: true }, { conversationId: 'retry-tail', tail: true },
+    ])
+    expect(state.record?.turns.at(-1)?.seq).toBe(999)
+    expect(state.ready).toBe(true)
+  } finally { vi.useRealTimers() }
+})
+
+it('starts each enabled target with a tail read and keeps the old target response out', async () => {
+  const late = Promise.withResolvers<{ ok: true; value: NativeSessionRecord }>()
+  scope.read.mockReturnValueOnce(late.promise)
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture({ id, enabled }: { id: string; enabled: boolean }) { state = useNativeSessionRecord('switch-tail-host', id, enabled, true); return null }
+  await harness.render(<Fixture id="old-tail" enabled />)
+  scope.read.mockResolvedValueOnce({ ok: true, value: record(940, 60) })
+  await harness.render(<Fixture id="new-tail" enabled={false} />)
+  expect(scope.read).toHaveBeenCalledTimes(1)
+  await harness.render(<Fixture id="new-tail" enabled />)
+  await vi.waitFor(() => expect(state.ready).toBe(true))
+  expect(scope.read).toHaveBeenLastCalledWith({ conversationId: 'new-tail', tail: true })
+  await act(async () => { late.resolve({ ok: true, value: record(0, 1) }) })
+  expect(state.record?.turns.at(-1)?.seq).toBe(999)
+})
+
+it('does not consume a failed initial tail intent when the reader requests an older cached page', async () => {
+  vi.useFakeTimers()
+  writeCachedNativeRecord({ deviceId: 'older-tail-host', sessionId: 'older-tail' }, record(600, 60, true))
+  scope.read.mockRejectedValueOnce(new Error('Initial tail failed'))
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('older-tail-host', 'older-tail', true, true); return null }
+  try {
+    await harness.render(<Fixture />)
+    scope.read.mockResolvedValueOnce({ ok: true, value: record(540, 60, true) })
+    await act(async () => { await state.loadOlder() })
+    expect(scope.read).toHaveBeenLastCalledWith({ conversationId: 'older-tail', before: 600 })
+    expect(state.record?.turns).toHaveLength(120)
+    expect(state.ready).toBe(false)
+    scope.read.mockResolvedValueOnce({ ok: true, value: record(940, 60) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(scope.read).toHaveBeenLastCalledWith({ conversationId: 'older-tail', tail: true })
+    expect(state.record?.turns.at(-1)?.seq).toBe(999)
+    expect(state.record?.turns).toHaveLength(60)
+    expect(state.ready).toBe(true)
+  } finally { vi.useRealTimers() }
+})
+
+it('keeps the reconnect tail intent after its first read fails', async () => {
+  vi.useFakeTimers()
+  scope.read.mockResolvedValueOnce({ ok: true, value: record(0, 60, true) })
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('reconnect-tail-host', 'reconnect-tail', true, true); return null }
+  try {
+    await harness.render(<Fixture />)
+    await act(async () => { scope.link(false) })
+    scope.read.mockRejectedValueOnce(new Error('Reconnect read failed'))
+    await act(async () => { scope.link(true) })
+    expect(state.ready).toBe(false)
+    scope.read.mockResolvedValueOnce({ ok: true, value: record(940, 60) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(scope.read.mock.calls.slice(1).map(([input]) => input)).toEqual([
+      { conversationId: 'reconnect-tail', tail: true }, { conversationId: 'reconnect-tail', tail: true },
+    ])
+    expect(state.record?.turns.at(-1)?.seq).toBe(999)
+  } finally { vi.useRealTimers() }
 })
 it('retains the structured missing-record code for recovery and clears it after a successful reload', async () => {
   scope.read.mockResolvedValue({ ok: false, error: { code: 'record_not_found', message: 'Native record missing' } })

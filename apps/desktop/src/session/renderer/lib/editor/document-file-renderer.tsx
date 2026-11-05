@@ -1,9 +1,11 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState, type ReactNode } from 'react';
-import { DocumentPreviewContent } from '@/components/chat/DocumentPreviewContent';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { modelRegistry } from '@renderer/lib/text-model/model-registry';
+
+// The file tab view is preloaded at startup; the renderers load with the first document opened.
+const DocumentPreviewContent = lazy(() => import('@/components/chat/DocumentPreviewContent').then((m) => ({ default: m.DocumentPreviewContent })));
 
 /**
  * 文件 tab 里的文档阅读器:PDF(#5269)与 Word / PPT / Excel(#7191)。
@@ -75,12 +77,15 @@ export const DocumentFileRenderer = observer(function DocumentFileRenderer({
       </div>
     );
   }
-  if (!data) {
-    return (
-      <div className="text-foreground-muted flex h-full items-center justify-center p-4 text-sm">
-        {translate('file.loadingDocument')}
-      </div>
-    );
-  }
-  return <DocumentPreviewContent kind={kind} content={data} title={fileName} onOpenExternally={onOpenExternally} />;
+  const loading = (
+    <div className="text-foreground-muted flex h-full items-center justify-center p-4 text-sm">
+      {translate('file.loadingDocument')}
+    </div>
+  );
+  if (!data) return loading;
+  return (
+    <Suspense fallback={loading}>
+      <DocumentPreviewContent kind={kind} content={data} title={fileName} onOpenExternally={onOpenExternally} />
+    </Suspense>
+  );
 });

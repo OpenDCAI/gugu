@@ -9,6 +9,7 @@ import { getProjectManagerStore } from '@renderer/features/projects/stores/proje
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
+import { modalStore } from '@renderer/lib/modal/modal-store';
 import type { ProjectsTranslate } from '@renderer/localization/messages-projects';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { Automation } from '@shared/core/automations/automation';
@@ -69,20 +70,12 @@ export function useConfirmDeleteProject() {
     projectLabel: string;
     onDeleted?: () => void;
   }) => {
-    let automations: Automation[];
-    try {
-      await ensureProjectHostReady(projectId);
-      automations = await listProjectAutomations(projectId, translate('projects.delete.checkTimeout'));
-    } catch (error) {
-      reportError(error, projectId);
-      return;
-    }
-
-    showConfirmDeleteProject({
+    let checked = false;
+    const args = {
       title: translate('projects.delete.title'),
-      description: deleteProjectDescription(projectLabel, automations, translate),
       confirmLabel: translate('projects.delete.confirm'),
       onSuccess: async () => {
+        if (!checked) return;
         try {
           await getProjectManagerStore().deleteProject(projectId);
           onDeleted?.();
@@ -90,6 +83,29 @@ export function useConfirmDeleteProject() {
           reportError(error, projectId);
         }
       },
+    };
+    // Own a visible, cancellable dialog before any host/automation I/O. A late result may
+    // update only this request, never reopen a dismissed dialog or replace a newer one.
+    showConfirmDeleteProject({
+      ...args,
+      confirmDisabled: true,
+      description: <div className="space-y-3">
+        <p>{translate('projects.delete.description', { projectLabel })}</p>
+        <p role="status" className="text-foreground-muted">{translate('projects.delete.checking')}</p>
+      </div>,
     });
+    const pending = modalStore.activeModalArgs;
+    try {
+      await ensureProjectHostReady(projectId);
+      if (modalStore.activeModalArgs !== pending) return;
+      const automations = await listProjectAutomations(projectId, translate('projects.delete.checkTimeout'));
+      if (modalStore.activeModalArgs !== pending) return;
+      checked = true;
+      showConfirmDeleteProject({ ...args, description: deleteProjectDescription(projectLabel, automations, translate) });
+    } catch (error) {
+      if (modalStore.activeModalArgs !== pending) return;
+      pending?.onClose();
+      reportError(error, projectId);
+    }
   };
 }

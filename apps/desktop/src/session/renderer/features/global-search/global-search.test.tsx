@@ -76,7 +76,7 @@ afterEach(async () => {
 const settle = async () => { for (let round = 0; round < 3; round++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)) }) }
 async function render(text: string, tasks = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  await act(async () => root.render(<QueryClientProvider client={client}><GlobalSearch tasks={tasks} onClose={() => { closed++ }} /></QueryClientProvider>))
+  await act(async () => root.render(<QueryClientProvider client={client}><GlobalSearch tasks={tasks} onClose={() => {}} onOpen={() => { closed++ }} /></QueryClientProvider>))
   await act(async () => updateSearchSession({ text }))
   await settle()
 }
