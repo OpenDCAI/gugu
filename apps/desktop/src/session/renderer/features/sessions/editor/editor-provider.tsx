@@ -17,6 +17,7 @@ import { useSessionViewContext } from '../session-view-context';
 import { activeFileResource } from './pane-selectors';
 import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu';
 import { notify } from '@/lib/notices';
+import { bindEditorFileZoom } from '@/components/preview/file-content-zoom';
 import { quoteWorkspaceFile } from '@renderer/lib/editor/quote-workspace-file';
 
 interface EditorContextValue {
@@ -100,6 +101,7 @@ export const EditorProvider = observer(function EditorProvider({
     containerRef.current = container;
 
     const editor = m.editor.create(container, { ...DEFAULT_EDITOR_OPTIONS, contextmenu: false });
+    const offZoom = bindEditorFileZoom(container, editor, DEFAULT_EDITOR_OPTIONS.fontSize ?? 13);
     editorRef.current = editor;
     runInAction(() => editorBox.set(editor));
 
@@ -157,6 +159,7 @@ export const EditorProvider = observer(function EditorProvider({
       focusDisposable.dispose();
       cleanupMenu();
       cleanupActive();
+      offZoom();
       editor.dispose();
       container.remove();
       editorRef.current = null;

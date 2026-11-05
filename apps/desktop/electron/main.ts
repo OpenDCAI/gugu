@@ -2334,7 +2334,7 @@ ipcMain.on('window:menu-command', (event, command: unknown) => {
     windowMenuLogger.error({ command }, '标题栏菜单送来了清单外的命令,已拒收')
     return
   }
-  runWindowMenuCommand(command, { contents: event.sender, window })
+  void runWindowMenuCommand(command, { contents: event.sender, window }).catch(error => windowMenuLogger.error({ error }, 'Window menu command failed'))
 })
 ipcMain.on('window-chrome:get-labels', (event) => {
   event.returnValue = currentHostCatalog().windowChrome
