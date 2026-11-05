@@ -1,3 +1,4 @@
+// #6264
 import { describe, expect, it } from 'vitest'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { deviceRowModel, filterDevices, hasOtherMachines } from '@/lib/deviceRowModel'

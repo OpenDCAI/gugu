@@ -1,3 +1,4 @@
+// #6264
 // 免费额度跟设备走(官方会员口径):设备哈希、各平台取硬件标识、认领只做一次、失败不抛。
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

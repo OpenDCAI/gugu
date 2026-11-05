@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #7199
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness, deferred, message } from '../../../support/testHarness'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'

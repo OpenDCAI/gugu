@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #7199
 import { afterEach, describe, expect, it, vi } from 'vitest'
 const shown = vi.hoisted(() => ({ id: null as string | null }))
 vi.mock('../../../../apps/desktop/src/lib/onScreenChat', () => ({ chatOnScreen: () => shown.id }))

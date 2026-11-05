@@ -7,7 +7,7 @@ import {
 } from '@/session/renderer/features/integrations/integration-setup-model'
 
 // #7199 手机助理 App 的「连接应用」:连 / 断一家云端账号服务的纯逻辑(没有界面、不直接碰 rpc —— 依赖都从参数进来,
-// 单测在 tests/unit/mobile/phoneConnectorFlow7199.test.ts)。界面在 PhoneConnectorSetup.tsx。
+// 单测在 tests/unit/mobile/phoneConnectorFlow.test.ts)。界面在 PhoneConnectorSetup.tsx。
 //
 // 桌面连一家有四条路,各自有一步在手机上做不了,手机上换成等价的:
 //  · 表单(邮箱授权码、各家 API key):桌面是会话页的弹窗 → 手机一页表单,同一份字段定义与校验,同一个 `connect`。

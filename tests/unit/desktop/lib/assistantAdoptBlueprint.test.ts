@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #7199
 // 搬家(adopt):蓝图成员带 existing_agent_user_id,复用身份与私聊 —— 只许 single,不带 first_task / 首句。
 import { expect, it, vi } from 'vitest'
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({

@@ -31,7 +31,7 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   },
 }))
 vi.mock('../../../apps/desktop/src/mobile/phone-device/PhoneDeviceActionsPage', () => ({ PhoneDeviceActionsPage: () => null }))
-// 授权的协议那一半由 phoneConnectorFlow7199 用真授权服务跑过;这里只看页面怎么接它。
+// 授权的协议那一半由 phoneConnectorFlow 的测试用真授权服务跑过;这里只看页面怎么接它。
 vi.mock('../../../apps/desktop/src/session/shared/mcp-oauth-client', () => ({
   beginMcpAuthorization: vi.fn(async (input: { redirectUrl: string; state: string }) => ({
     authorizationUrl: `https://auth.example/authorize?state=${input.state}&redirect_uri=${encodeURIComponent(input.redirectUrl)}`,

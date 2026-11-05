@@ -1,6 +1,6 @@
 // #6264 手动安装 / 重装也清旧版本,与自动升级同一条规则(在用的 + 最近 5 份;各账号可以各跑各的版本)——
 // 否则旧版本把系统盘吃满(2026-09-24 d22 的系统盘满到装不下新包)。真跑一遍 install.sh:假包、假 HOME,不起服务、不登录。
-// 超过 5 份时清哪些,见 serverMatchingVersions6264.test.ts。
+// 超过 5 份时清哪些,见 serverMatchingVersions.test.ts。
 import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'

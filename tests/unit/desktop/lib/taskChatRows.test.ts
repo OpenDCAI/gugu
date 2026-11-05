@@ -1,3 +1,4 @@
+// #7199
 import { describe, expect, it } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { taskChatRows, taskChatWindow } from '../../../../apps/desktop/src/components/assistant/taskChatRows'

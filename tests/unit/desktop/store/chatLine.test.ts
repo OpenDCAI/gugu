@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #7199
 import { act, createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, chatStore, createReactHarness, message } from '../../../support/testHarness'

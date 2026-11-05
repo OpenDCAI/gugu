@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #7199
 import { expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../support/testHarness'
 import { usePhoneMachine } from '../../../apps/desktop/src/mobile/assistant/phoneMachine'

@@ -1,3 +1,4 @@
+// #6264
 import { describe, expect, it, vi } from 'vitest'
 
 // 线本身由注入的 deps 替掉;真的 deviceRpc 模块在测试里不求值(它一加载就挂 Supabase / 渲染层全局)。

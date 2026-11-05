@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #7199
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import type { Device } from '@gugu/core/shared/types/chat'

@@ -1,3 +1,4 @@
+// #7199
 // 远程隧道(owner 2026-10-15「这个功能应该先被启用」):中转坐标、frpc 配置与日志、内嵌 SSH 服务端(用系统 ssh 真连)、
 // 桌面那一头的状态机、渲染层的判据。整体说明见 packages/core/src/cloud/remoteTunnel.ts。
 import { spawn } from 'node:child_process'

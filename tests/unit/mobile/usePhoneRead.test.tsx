@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #7199
 import { PhoneRoutineRead } from '../../../apps/desktop/src/mobile/assistant/PhoneRoutineRead'
 import '../../../apps/desktop/src/i18n/registerAssistantCatalog'
 import { act } from 'react'

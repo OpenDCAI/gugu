@@ -1,3 +1,4 @@
+// #7199
 import { mkdir, mkdtemp, lstat, readFile, readlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
