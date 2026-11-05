@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { act } from 'react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation';
 import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store';
 import { state, changed, EMPTY } from '@/lib/sessionInputOutboxBridge';
@@ -144,12 +144,12 @@ it('uses the shared failed-message disclosure on touch and the existing inline e
   await until('the shared failure trigger is mounted', () => !!harness.container.querySelector('[data-testid="message-send-failed"]'));
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
   expect(harness.container.querySelector('[data-send-state="waiting"]')).toBeNull();
-  await act(async () => { (harness.container.querySelector('[data-testid="message-send-failed"]') as HTMLButtonElement).click(); });
+  await userEvent.click(harness.container.querySelector<HTMLElement>('[data-testid="message-send-failed"]')!);
   await until('touch disclosure shows the reason and existing actions', () => !!document.querySelector('[data-testid="message-send-failed-menu"]'));
   expect(document.querySelector('[data-testid="message-send-failed-menu"]')?.textContent).toContain(input.failure.message);
   expect(document.querySelector('[data-testid="message-send-retry"]')).not.toBeNull();
   expect(document.querySelector('[data-testid="message-send-discard"]')).not.toBeNull();
-  await act(async () => { (harness.container.querySelector('[data-testid="message-send-failed"]') as HTMLButtonElement).click(); });
+  await userEvent.click(harness.container.querySelector<HTMLElement>('[data-testid="message-send-failed"]')!);
   await until('the failure disclosure closes', () => !document.querySelector('[data-testid="message-send-failed-menu"]'));
   await act(async () => { (harness.container.querySelector('[data-slot="message-edit"]') as HTMLButtonElement).click(); });
   await until('the existing message editor opens for the refused row', () => !!harness.container.querySelector('[data-user-message-editor="phone-refused"]'));
