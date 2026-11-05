@@ -202,7 +202,23 @@ export class TranscriptAnchorIndex {
     { offset: number; remainder: Buffer; firstUuid: string | null; anchors: Set<string> }
   >();
 
+  private readonly inFlight = new Map<string, Promise<Set<string>>>();
+
   async anchorsOf(filePath: string): Promise<Set<string>> {
+    // Several session scans share this index. Serialize each file so its offset and
+    // incomplete line belong to one reader; queued callers still stat newly appended bytes.
+    const previous = this.inFlight.get(filePath);
+    const current = (previous?.catch(() => undefined) ?? Promise.resolve())
+      .then(() => this.readAnchors(filePath));
+    this.inFlight.set(filePath, current);
+    try {
+      return await current;
+    } finally {
+      if (this.inFlight.get(filePath) === current) this.inFlight.delete(filePath);
+    }
+  }
+
+  private async readAnchors(filePath: string): Promise<Set<string>> {
     let size: number;
     try {
       size = (await stat(filePath)).size;
@@ -218,6 +234,12 @@ export class TranscriptAnchorIndex {
     if (size === entry.offset) return entry.anchors;
 
     const current = entry;
+    const checkpoint = {
+      offset: current.offset,
+      remainder: current.remainder,
+      firstUuid: current.firstUuid,
+      anchors: new Set(current.anchors),
+    };
     const stream = createReadStream(filePath, { start: current.offset, end: size - 1 });
     try {
       for await (const chunk of stream) {
@@ -233,6 +255,13 @@ export class TranscriptAnchorIndex {
       }
       current.offset = size;
     } catch (error) {
+      // Bytes and anchors from an incomplete read are not committed. Keep the Set
+      // identity while restoring the last complete state before a queued retry.
+      current.offset = checkpoint.offset;
+      current.remainder = checkpoint.remainder;
+      current.firstUuid = checkpoint.firstUuid;
+      current.anchors.clear();
+      for (const anchor of checkpoint.anchors) current.anchors.add(anchor);
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return current.anchors;
       throw error;
     } finally {

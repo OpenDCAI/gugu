@@ -321,7 +321,7 @@ jobs:
       - uses: ./.github/actions/setup-playwright
         with:
           container-image: ${{ env.PLAYWRIGHT_IMAGE }}
-      - run: pnpm exec vitest run --project session-browser
+      - run: node scripts/test-infra/vitest-browser-shards.mjs --project session-browser
         shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
   web-smoke:
     name: Web E2E (${{ matrix.id }})

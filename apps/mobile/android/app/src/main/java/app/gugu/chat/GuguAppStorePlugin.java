@@ -157,6 +157,19 @@ public class GuguAppStorePlugin extends Plugin {
         } catch (IOException | RuntimeException error) { call.reject("Read failed", error); }
     }
 
+    /** Any file of an installed version, as base64 (its icon, for the page to re-encode): { dir, path }. */
+    @PluginMethod
+    public void read(PluginCall call) {
+        try {
+            File dir = versionDir(call);
+            File file = dir == null ? null : inside(dir, call.getString("path"));
+            if (file == null || !file.isFile()) { call.reject("No such file"); return; }
+            JSObject result = new JSObject();
+            result.put("base64", Base64.encodeToString(Files.readAllBytes(file.toPath()), Base64.NO_WRAP));
+            call.resolve(result);
+        } catch (IOException | RuntimeException error) { call.reject("Read failed", error); }
+    }
+
     /** Replace a text file of an installed version, atomically: { dir, path, text }. */
     @PluginMethod
     public void writeText(PluginCall call) {

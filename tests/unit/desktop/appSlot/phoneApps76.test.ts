@@ -65,6 +65,11 @@ vi.mock('@capacitor/core', () => ({
     async readText({ dir, path }: { dir: string; path: string }) {
       return { text: Buffer.from(shell.versions.get(dir)!.get(path)!).toString('utf8') }
     },
+    async read({ dir, path }: { dir: string; path: string }) {
+      const bytes = shell.versions.get(dir)?.get(path)
+      if (!bytes) throw new Error('No such file')
+      return { base64: Buffer.from(bytes).toString('base64') }
+    },
     async writeText({ dir, path, text }: { dir: string; path: string; text: string }) {
       shell.versions.get(dir)!.set(path, new Uint8Array(Buffer.from(text, 'utf8')))
     },
@@ -467,6 +472,48 @@ describe('the phone draws a tab without an icon of its own with its App\'s (owne
     cards.set('m-app-icon', { url, row })
     expect(await apps.installAttachment({ messageId: 'm-app-icon' })).toMatchObject({ success: true })
     expect((lastList() as unknown as { icons: Record<string, string> }).icons).toEqual({ 'vote.main': 'png:vote-app' })
+  })
+})
+
+// owner 11-05: an App in a chat's ⋯ list drew its first letter on the phone — the phone never told the store any App's own
+// icon (`appIcons`). It re-encodes the App's `icon` as the desktop's main does: a package's at install, a shipped App's at
+// each start, and once, at start, for a package installed before it was kept. (Control: the parent commit, `appIcons` {}.)
+describe('the phone re-encodes each App\'s own icon for the lists that open an App (owner 11-05)', () => {
+  const appIcons = () => (lastList() as unknown as { appIcons: Record<string, string> }).appIcons
+  beforeEach(() => {
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => { const url = `blob:${blobs.size}`; blobs.set(url, blob as Blob); return url })
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+  })
+
+  it('a package\'s at install, a shipped App\'s at start', async () => {
+    shell.shipped = [{ ...manifest('workspace', '1.0.0'), icon: 'icon.png' }]
+    shell.packages.set('/apps/workspace/icon.png', new TextEncoder().encode('shipped-app'))
+    const apps = await start()
+    const zip = new JSZip()
+    zip.file('manifest.json', JSON.stringify({ ...manifest('vote', '1.0.0'), icon: 'app.png' }))
+    zip.file('index.html', '<!doctype html><title>v</title>')
+    zip.file('app.png', 'vote-app')
+    const url = `https://cdn.example.test/${ALICE_UPLOADER}/vote-1.0.0.guguext`
+    shell.packages.set(url, await zip.generateAsync({ type: 'uint8array' }))
+    const row = { id: 'm-own-icon', content: '[附件] vote-1.0.0.guguext (application/vnd.gugu.extension+zip)\n[Size] 9\n[Kind] file', file_item_id: 'item-m-own-icon', file_version: 1, file_blob_id: null, sender_user_id: ALICE_UPLOADER }
+    cards.set('m-own-icon', { url, row })
+    expect(await apps.installAttachment({ messageId: 'm-own-icon' })).toMatchObject({ success: true })
+    expect(appIcons()).toEqual({ workspace: 'png:shipped-app', vote: 'png:vote-app' })
+  })
+
+  it('a package installed before its icon was kept: read from its files once, at start, and kept', async () => {
+    shell.versions.set('vote@1.0.0', new Map([['index.html', new Uint8Array(Buffer.from('<p>v</p>'))], ['app.png', new Uint8Array(Buffer.from('vote-app'))]]))
+    const record = { dir: 'vote@1.0.0', manifest: { ...manifest('vote', '1.0.0'), icon: 'app.png' }, publisher: { id: ALICE_UPLOADER, name: 'Alice' }, sha256: '', manifestDigest: '', installedAt: '', runtimeTag: appRuntimeScriptTag(EXTENSION_API_VERSION), pages: ['index.html'], icons: {} }
+    shell.index = JSON.stringify({ version: 1, installed: { vote: record }, serve: {} })
+
+    await (await start()).ready()
+    expect(appIcons()).toEqual({ vote: 'png:vote-app' })
+    expect((index().installed.vote as unknown as { appIcon: string }).appIcon).toBe('png:vote-app')
+
+    // Kept: the next start draws it without reading the file again.
+    shell.versions.get('vote@1.0.0')!.delete('app.png')
+    await (await start()).ready()
+    expect(appIcons()).toEqual({ vote: 'png:vote-app' })
   })
 })
 

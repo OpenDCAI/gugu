@@ -27,6 +27,12 @@ vi.mock('../../../apps/desktop/src/session/shared/remote-sessions/session-direct
 }))
 vi.mock('@renderer/lib/ipc', () => ({ events: { on: vi.fn() }, rpc: {}, onMachineEvent: () => () => undefined }))
 
+// jsdom has no layout: give the document (the sidebar list's scroller here) a window's height, so the sidebar's
+// virtualized conversation lines (@@@sidebar-chat-window) mount the lines that would fit, as on screen.
+beforeEach(() => {
+  for (const [key, value] of [['offsetHeight', 900], ['offsetWidth', 1024]] as const) Object.defineProperty(document.documentElement, key, { configurable: true, get: () => value })
+})
+
 let h: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   h = createReactHarness(); state.statuses = {}; state.sessions = []; state.canDissolve = true; vi.clearAllMocks()
@@ -156,7 +162,7 @@ it('phone group long-press keeps personal actions but omits deletion when the se
 
 it('phone topic long-press marks its own scope and leaves the parent unread', async () => {
   const clicked = vi.fn()
-  await renderWithAppProviders(h, createNode(TopicSubRow, { topic, mobile: true, isActive: false, tabIndex: 0, onClick: clicked, onFocus: vi.fn(), onKeyDown: vi.fn(), onPin: vi.fn(), onSetNotificationLevel: vi.fn(), onDelete: vi.fn() }), { chat: { chats: [source, topic, orphan] } })
+  await renderWithAppProviders(h, createNode(TopicSubRow, { topic, mobile: true, isActive: false, tabIndex: 0, actions: { activate: vi.fn(), openTopic: clicked, toggleTopics: vi.fn(), pin: vi.fn(), setNotificationLevel: vi.fn(), remove: vi.fn(), focus: vi.fn(), keyDown: vi.fn() } }), { chat: { chats: [source, topic, orphan] } })
   await hold(h.container.querySelector('[data-topic-subrow]')!)
   await clickElement(readAction())
   expect(state.read.mock.calls[0][0].chats.map(chat => chat.id)).toEqual(['task-topic'])
