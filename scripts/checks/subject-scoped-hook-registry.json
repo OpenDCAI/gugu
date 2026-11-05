@@ -22,10 +22,6 @@
     "how": "subject-scoped",
     "why": "Actions resolve input IDs from the current session's outbox snapshot on every render. Editor state carries its input ID and is exposed only while that ID is rejected in the current session; switching sessions cannot display or edit the prior session's input."
   },
-  "apps/desktop/src/hooks/useSessionpageSessionStartupFailure.ts::useSessionpageSessionStartupFailure": {
-    "how": "derived",
-    "why": "无自有的主体读数:值在渲染期由当前 conversationId 从账本快照(useSyncExternalStore)里当场挑出;唯一自有状态是「桥装上了没有」,与主体无关。"
-  },
   "apps/desktop/src/hooks/useAgentDisplayStatus.ts::useAgentDisplayStatus": {
     "how": "subject-scoped",
     "why": "#3839:换 agent 时在渲染期换掉 state(adjust-state-on-prop-change),不在副作用里补一刀。"
@@ -42,10 +38,6 @@
     "how": "keyed-map",
     "why": "#6002:useSyncExternalStore 在渲染期用当前 agentId 读取 presence map 的 harness 原始值;切换身份同步更换 snapshot 与订阅,不靠 effect 将上一个 agent 的答案追到新主体。"
   },
-  "apps/desktop/src/hooks/useRoomCollab.ts::useRoomCollab": {
-    "how": "subject-scoped",
-    "why": "The snapshot carries its scheduler.chat_id and is returned only for the current chatId; loader failures carry their chatId too. Switching topics returns no prior topic's rows or error while the existing roster loader refreshes."
-  },
   "apps/desktop/src/hooks/useSessionpageAgentProjection.ts::useSessionpageAgentProjection": {
     "how": "subject-scoped",
     "why": "#3911:ProjectionState 带上它描述的 agentUserId,主体不符时交出『还不知道』。owner 报的跨 agent 状态传染就出在这里。"
@@ -53,10 +45,6 @@
   "apps/desktop/src/hooks/useSessionpageSessionTimeline.ts::useSessionpageSessionTimeline": {
     "how": "subject-scoped",
     "why": "state 与 conversationId 一起存,增量只并进同一 conversationId 的 state,返回前要求当前 conversationId 匹配;切换主体的第一帧不会消费上一个会话的动作,也不会把上一个会话的待答审批显示在这个会话上。"
-  },
-  "apps/desktop/src/hooks/useRemoteAgentQuestion.ts::useRemoteAgentQuestion": {
-    "how": "subject-scoped",
-    "why": "状态带设备 ID 与会话 ID 组成的 key，绘制时只返回当前 key 的问题与可用性；切到本机会话或另一设备时立即交出空读数，旧订阅回调由 alive 标记丢弃，增量只并入同一 key 的问题。回答回调绑定当前设备和会话，不会将旧问题当作新主体的事实。"
   },
   "apps/desktop/src/hooks/useTopics.ts::useTopicsOfChat": {
     "how": "subject-scoped",

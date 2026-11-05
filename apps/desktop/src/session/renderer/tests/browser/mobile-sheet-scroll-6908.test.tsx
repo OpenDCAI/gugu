@@ -1,6 +1,5 @@
 /**
  * #6908 手机上的弹层(Sheet)放不下时,得有一块能滚,该点的都点得到。手机视口、真 Chromium、真 CSS、真组件,数据换成长的:
- *   · 看电脑会话的选项抽屉,25 个模型(owner 10-02「选模型那个……没法上下滑动」);
  *   · 群成员资料卡,995 字简介 + 群主的管理块;
  *   · 好友 / 入群申请详情,60 行附言;
  *   · 从别的 App 分享 30 个文件进来的「发送到」页。
@@ -15,7 +14,6 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { until } from '../../../../../../../tests/support/awaitCondition';
-import { SessionOptionsPill } from '@/mobile/agent-watch/SessionOptionsPill';
 import { CreateOptionsPill } from '@/mobile/agent-watch/CreateOptionsPill';
 import { Sheet } from '@/components/ui/Sheet';
 import { MemberProfilePopover } from '@/components/MemberProfilePopover';
@@ -27,11 +25,6 @@ import '@/i18n';
 import '@/styles/tokens.css';
 import '@/mobile/agent-watch/agent-watch.css';
 
-vi.mock('@/mobile/agent-watch/sessionpage-rpc', () => {
-  const group = (ids: string[]) => ({ selected: ids[0], available: ids.map((id) => ({ id, name: id, description: `${id} · description` })) });
-  const options = { model: group(Array.from({ length: 25 }, (_, i) => `model-${i + 1}`)), mode: group(['default', 'plan']), effort: group(['low', 'high']) };
-  return { SessionpageRpcError: class extends Error {}, fetchSessionOptions: async () => options, setSessionOption: async () => options, reloadSessionModel: async () => options };
-});
 // 资料卡、申请详情、发送到页经 lib/supabase 在加载时就建客户端,没有地址会当场抛;浏览器 project 没有 guguTestEnv,这里不连网,给个假地址。
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
 const { CHAT } = vi.hoisted(() => ({
@@ -58,19 +51,6 @@ const mount = (node: ReactNode) => {
 };
 const sheet = (testId: string) => document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 const inside = (el: Element, box: HTMLElement) => el.getBoundingClientRect().top >= box.getBoundingClientRect().top - 1 && el.getBoundingClientRect().bottom <= box.getBoundingClientRect().bottom + 1;
-
-it('agent-watch options: the model sheet scrolls to its last model, the other settings keep their full height', async () => {
-  mount(<SessionOptionsPill deviceId="device" sessionId="conversation" agentName="Claude Code" busy={false} />);
-  await userEvent.click(page.getByTestId('agent-watch-options-open'));
-  const rows = () => document.querySelectorAll('[data-testid="agent-watch-options"] .gg-aw-choice-group [role="radio"]');
-  await until('25 models in the sheet', () => rows().length === 25);
-  const box = sheet('agent-watch-options')!;
-  const summary = box.querySelector<HTMLElement>('.gg-aw-summary-group')!;
-  expect.soft(summary.clientHeight, 'the other settings keep their full height').toBe(summary.scrollHeight);
-  const last = rows()[24]!;
-  await userEvent.wheel(box.querySelector('.gg-aw-choice-group')!, { delta: { y: 400 }, times: 10 });
-  await until('the last model is inside the sheet', () => last.getBoundingClientRect().bottom <= box.getBoundingClientRect().bottom);
-});
 
 it('any sheet: content with no scroll area of its own still scrolls to its last row', async () => {
   mount(

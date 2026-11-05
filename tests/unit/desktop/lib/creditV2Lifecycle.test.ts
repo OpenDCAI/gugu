@@ -54,6 +54,14 @@ describe('shared v2 account ownership and invalidation', () => {
     await act(async () => { refreshSpendingPower() }); await flush()
     expect(state()).toMatchObject({ balance: '9007199254740993.00000001', windows: null, power: null, windowsError: 'quota permission denied' })
   })
+  it('a failed account read drops the whole account and says why, instead of keeping the last balance', async () => {
+    await harness.render(createElement(Probe, { userId: 'u1' })); await flush()
+    expect(state().balance).toBe('7.5')
+    vi.mocked(readCreditV2Account).mockRejectedValue(new Error('permission denied'))
+    await act(async () => { refreshSpendingPower() }); await flush()
+    expect(state()).toMatchObject({ balance: null, windows: null, membership: null, creditVersion: null, power: null,
+      balanceError: 'permission denied', windowsError: 'permission denied' })
+  })
   it('starts a fresh request after an unmounted pending subscriber returns with the same user', async () => {
     const pending = deferred<Account>()
     vi.mocked(readCreditV2Account).mockReturnValueOnce(pending.promise)

@@ -7,7 +7,7 @@ import type {
   SessionHistoryParams,
 } from '@shared/core/session-history/session-history';
 
-// spec session-page「会话历史」(#6083):面板的数据源。节奏照搬 `use-local-sessions`:
+// spec session-page「会话历史」(#6083):面板的数据源。按轮读:
 //   第 0 轮 本机索引缓存直接出(毫秒级,面板一开就有东西看;咕咕自己的会话每轮都是库里的真值)
 //   第 1 轮 对账磁盘 + 解析一小批(400ms 预算)
 //   第 n 轮 继续解析,直到本机索引 pending 归零
@@ -19,7 +19,7 @@ const PAGE_LIMIT = 200;
 const FIRST_ROUND_BUDGET_MS = 400;
 const BACKGROUND_ROUND_BUDGET_MS = 1200;
 const ROUND_PAUSE_MS = 300;
-/** 与 use-local-sessions 同一条上限:正在被写入的 transcript 每轮都 miss 缓存,pending 可以永远不归零。 */
+/** 轮数上限:正在被写入的 transcript 每轮都 miss 缓存,pending 可以永远不归零。 */
 const MAX_ROUNDS = 40;
 
 type LocalProgress = SessionHistoryPage['local'];

@@ -3,7 +3,7 @@ import type { LinkedIssue } from '@shared/core/linked-issue';
 import {
   buildIssueMentionHiddenContext,
   extractIssueMentionTargets,
-} from './issue-mention-context';
+} from './issue-context';
 
 const issue: LinkedIssue = {
   provider: 'linear',

@@ -47,10 +47,6 @@ vi.mock('../../../../apps/desktop/src/components/sessionpage/SessionSettingsSect
     return createElement('div', { 'data-testid': 'session-section' })
   },
 }))
-vi.mock('../../../../apps/desktop/src/components/devices/AssistantDeviceConnectors', () => ({
-  ThisDeviceConnectors: () => createElement('div', { 'data-testid': 'this-device' }),
-  OtherDeviceConnectors: () => createElement('div', { 'data-testid': 'other-devices' }),
-}))
 const wake = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../../../../apps/desktop/src/lib/cloudComputerStore', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../apps/desktop/src/lib/cloudComputerStore')>()),

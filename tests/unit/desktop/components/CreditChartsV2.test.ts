@@ -6,8 +6,7 @@ import { creditDecimal as d, type CreditAmount } from '@gugu/core/billing/credit
 import { creditAmounts, rankModels, stackedPoints } from '../../../../apps/desktop/src/lib/usage/charts'
 import { creditChartScale } from '../../../../apps/desktop/src/lib/usage/creditChartScale'
 import { formatCreditDecimal } from '../../../../apps/desktop/src/lib/billing/v2/decimal'
-import { QuotaMeter } from '../../../../apps/desktop/src/components/credits/QuotaMeter'
-import { quotaWindowViews } from '../../../../apps/desktop/src/lib/billing/quota'
+import { quotaWindowLabel } from '../../../../apps/desktop/src/lib/billing/quota'
 import { CreditStackedChart, StackedChart } from '../../../../apps/desktop/src/components/usage/UsageCharts'
 const chart = vi.hoisted(() => ({ spec: null as unknown }))
 // Only the canvas renderer is replaced: these assertions exercise the real chart's
@@ -93,13 +92,7 @@ it('preserves numeric token and request chart semantics', async () => {
   expect(spec.tooltip.mark.content[0].value(spec.data[0].values[0])).toBe('42')
 })
 
-it('keeps exact accessible quota text while using numeric meter geometry', async () => {
-  const view = quotaWindowViews({ plan_id: 'free', period_credits: d('9007199254740993.00000001'), period_used: d('0.00000001'), outstanding_credits: d('0'), credits_per_usd: null,
-    period_started_at: '2026-11-01T00:00:00Z', period_ends_at: '2026-12-01T00:00:00Z' }).period
-  await harness.render(createElement(QuotaMeter, { window: view }))
-  const meter = harness.container.querySelector('[role="meter"]')!
-  expect(meter.getAttribute('aria-valuemax')).toBe('1')
-  expect(Number(meter.getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(0)
-  expect(meter.getAttribute('aria-valuetext')).toContain('<0.01')
-  expect(meter.getAttribute('aria-valuetext')).toContain('9,007,199,254,740,993')
+it('names a quota window in days from two whole days up, in hours below', () => {
+  expect(quotaWindowLabel(720, 'en-US')).toBe('30 days')
+  expect(quotaWindowLabel(24, 'en-US')).toBe('24 hours')
 })
