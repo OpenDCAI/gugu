@@ -853,8 +853,11 @@ export const BRIDGE_VERBS = {
    * open read-write: the file the host handed this page needs nothing, any other `files:write` (checked in `app-files.ts`).
    */
   filesReplace: { needs: null },
-  /** Whether whoever reads may delete each file: asked as a file's menu opens, for that file (a list never carries it). */
-  filesCanDelete: { needs: 'files:read', only: 'page' },
+  /**
+   * Whether whoever reads may delete each file: asked as a file's menu opens, for that file (a list never carries it), or
+   * by a program for the files it is about to delete, all at once (the folder App's delete with item_ids).
+   */
+  filesCanDelete: { needs: 'files:read' },
   /** A chat file's kept versions, and one version's content (G2). Gated like open read-only, in `app-files.ts`. */
   filesVersions: { needs: null },
   filesReadVersion: { needs: null },

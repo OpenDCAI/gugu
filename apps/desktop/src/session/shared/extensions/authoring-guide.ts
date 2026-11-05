@@ -599,7 +599,7 @@ Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
 - Entry: \`{id,chat|workspace,name,savedName,contentType,type,parentId,path,systemRole,size,version,
-  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,metadata}\`. \`gugu.files.canDelete(entry|[…])\` (pages only) → [bool]: as its menu opens.
+  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,metadata}\`. \`gugu.files.canDelete(entry|[…])\` → [bool]: as its menu opens, or before a program deletes several.
   23: \`savedName\`: save name. Authors: \`{id,name,kind:human|agent|system}\` or null.
 - API 19: \`keep: {expiresAt,mine}|null\`; \`gugu.files.keep(entry, 'temporary'|'permanent')\`; 20: [], as download.
 

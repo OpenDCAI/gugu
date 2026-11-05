@@ -58,6 +58,7 @@ const listAppFiles = vi.fn(async () => []);
 const uploadAppFiles = vi.fn(async () => [{ id: 'new-file' }]);
 const renameAppFile = vi.fn(async () => ({ id: 'renamed' }));
 const replaceAppFile = vi.fn(async () => ({ id: 'replaced', version: 2 }));
+const appFilesCanDelete = vi.fn(async (_page: unknown, args: { refs: unknown[] }) => args.refs.map(() => true));
 // #7257: the files a revision named, as the program reads them.
 const changedGroupFiles = vi.fn(async (chatId: string, _reader: string | null, wanted: { ids: readonly string[]; all: boolean }) =>
   ({ entries: (wanted.all ? [] : wanted.ids).map((id) => ({ id, chat: chatId, name: 'board.json', version: 3 })), gone: [] as string[] }));
@@ -75,6 +76,7 @@ vi.mock('@main/core/extensions/app-files', () => ({
   uploadAppFiles,
   renameAppFile,
   replaceAppFile,
+  appFilesCanDelete,
 }));
 // This computer's projects: one of the person's, and the hidden home folder sessions start in with no project chosen.
 vi.mock('@main/core/projects/operations/getProjects', () => ({
@@ -330,6 +332,20 @@ describe('an App program as a caller of its App (F16)', () => {
     expect(which({ itemId: 'item-board', needs: null, asAgent: 'agent-1' })).toBe(true);
     expect(which({ itemId: 'item-board', needs: 'files:read' }), 'one the App\'s own page opened with a capability stays').toBe(false);
     expect(which({ itemId: 'other', needs: null, asAgent: 'agent-1' })).toBe(false);
+  });
+
+  // ws-batch (owner 11-05): the folder App's delete with item_ids asks for all of them at once, as the agent that handed them.
+  it('canDelete for several files a call handed it asks as that agent; one it did not hand is refused', async () => {
+    granted.add('files:read');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const release = surface.hand('call-1', 'agent-1', [HANDED, { ...HANDED, itemId: 'item-two' }]);
+    const refs = [{ id: 'item-board' }, { id: 'item-two' }];
+    expect(await call(child, 60, 'filesCanDelete', { refs }, 'call-1')).toMatchObject({ ok: true, value: [true, true] });
+    expect(appFilesCanDelete).toHaveBeenLastCalledWith(
+      { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1', callId: expect.any(String), signal: expect.any(AbortSignal) }, { refs });
+    expect(await call(child, 61, 'filesCanDelete', { refs: [...refs, { id: 'not-handed' }] }, 'call-1')).toMatchObject({ ok: false, code: 'denied' });
+    await release();
   });
 
   it('a call ends once the program let go of the file it was handed — its last writes handed on first (F106)', async () => {
