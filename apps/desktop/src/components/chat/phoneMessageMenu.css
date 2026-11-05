@@ -4,7 +4,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--z-menu);
-  background: rgb(20 20 24 / 0.28);
+  background: var(--bg-overlay-soft);
   -webkit-backdrop-filter: blur(10px) saturate(1.1);
   backdrop-filter: blur(10px) saturate(1.1);
   animation: gg-phone-menu-fade 200ms ease-out both;
@@ -37,10 +37,10 @@
   animation: gg-phone-menu-lift 340ms var(--gg-phone-menu-ease) both;
 }
 .gg-phone-menu-preview > * { margin-top: var(--clip-top); pointer-events: none; }
-/* 长消息只露手指附近那一截:被裁的那头渐隐,看得出后面还有。 */
-.gg-phone-menu-preview[data-clipped-bottom] { -webkit-mask-image: linear-gradient(#000 calc(100% - 32px), transparent); mask-image: linear-gradient(#000 calc(100% - 32px), transparent); }
-.gg-phone-menu-preview[data-clipped-top] { -webkit-mask-image: linear-gradient(transparent, #000 32px); mask-image: linear-gradient(transparent, #000 32px); }
-.gg-phone-menu-preview[data-clipped-top][data-clipped-bottom] { -webkit-mask-image: linear-gradient(transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+/* 长消息只露手指附近那一截:被裁的那头渐隐,看得出后面还有。遮罩只看不透明度,取哪个实色都一样。 */
+.gg-phone-menu-preview[data-clipped-bottom] { -webkit-mask-image: linear-gradient(var(--color-white) calc(100% - 32px), transparent); mask-image: linear-gradient(var(--color-white) calc(100% - 32px), transparent); }
+.gg-phone-menu-preview[data-clipped-top] { -webkit-mask-image: linear-gradient(transparent, var(--color-white) 32px); mask-image: linear-gradient(transparent, var(--color-white) 32px); }
+.gg-phone-menu-preview[data-clipped-top][data-clipped-bottom] { -webkit-mask-image: linear-gradient(transparent, var(--color-white) 32px, var(--color-white) calc(100% - 32px), transparent); mask-image: linear-gradient(transparent, var(--color-white) 32px, var(--color-white) calc(100% - 32px), transparent); }
 .gg-phone-menu[data-ending-style] .gg-phone-menu-preview { animation: gg-phone-menu-land 150ms ease-in both; }
 
 .gg-phone-menu-reactions,
