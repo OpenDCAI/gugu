@@ -52,7 +52,7 @@ import type { InstallationReading } from '../host-dependencies/runtime/types';
  * 读侧认得的**记录格式**(一族共用一个解码器),不是 provider id:opencode 这一格也装着 mimocode。
  * provider → 格式那张表在宿主的 `locate.ts`。
  */
-export type SessionRecordHarness = 'claude' | 'codex' | 'opencode' | 'copilot' | 'hermes' | 'qwen' | 'pi';
+export type SessionRecordHarness = 'claude' | 'codex' | 'opencode' | 'copilot' | 'hermes' | 'qwen' | 'pi' | 'codebuddy';
 
 
 /**
@@ -133,6 +133,8 @@ export const RECORD_KEY_BOUNDARY_SUFFIX = '#end';
  *              上一轮最后一行的形状认(Hermes 自己的 `classify_session_status` 同一个判法)
  *   qwen     → `system/branch_checkpoint`(ACP 腿上以 `end_turn` 结束才写;终端腿没有结束记号)
  *   pi       → assistant 消息的 `stopReason`（`toolUse` 同 claude 的 `tool_use`;`aborted` = 打断）
+ *   codebuddy → 带着这一步 `message.usage` 的 assistant `message`(一步的最后一条是正文 = 没有工具要跑);
+ *              打断盘上没有记号，由下一句话关上
  */
 /** The ending message ID also identifies fragments recorded after that end. */
 export type RecordBoundary = { messageId?: string } & (
