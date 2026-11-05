@@ -130,11 +130,6 @@ it('tapping a tab slides the selection over a short transition, never while swip
   for (const rule of motionRules) expect(rule.conditionText).toContain('prefers-reduced-motion: no-preference')
 })
 
-it('light theme screenshot', async () => {
-  await mountBar('light')
-  await page.screenshot({ path: 'phone-tabbar-chats-light.png' })
-})
-
 it.each(['light', 'dark'] as const)('%s: pressing search preserves the glyph as well as the glass surface', async (theme) => {
   const { barRef } = await mountBar(theme)
   const button = document.querySelector<HTMLButtonElement>('[data-testid="phone-list-search"]')!
