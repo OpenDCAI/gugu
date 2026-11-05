@@ -132,7 +132,8 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     // 「一个 TTL 之后自愈的泄漏」续成永久泄漏。
     await platform.release(sessionId)
   })
-  setEmdashPlatformInjector((info) => platform.acpInjector(info))
+  setEmdashPlatformInjector((info) => platform.acpInjector(info),
+    async (info) => (await platform.acpPlatformModel(info)).accessSessionId)
   setEmdashPlatformRelease((sessionId, expectedAccessSessionId, intent) =>
     platform.release(sessionId, expectedAccessSessionId, intent))
   setEmdashPlatformCheckpoint((sessionId) => platform.checkpoint(sessionId))
