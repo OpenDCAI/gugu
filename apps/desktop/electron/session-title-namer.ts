@@ -1,14 +1,13 @@
 /**
- * #7337 咕咕给新会话起名。新建一条会话,侧栏先挂首轮兜底;这条会话一拿到 agent 身份,就以它的名义签一张平台票
- * (与它开会话、与语音笔记同一个签发口 `model-access issue`,按积分记在它名下),把首轮交给设置里选的模型要一个短名。
+ * #7337 咕咕给新会话起名。新建一条会话,侧栏先挂首轮兜底;会话 admit 后,复用它已经获准的
+ * chat-completions 代理给设置里的模型请求短名。模型或路由不在票内时,才以该 agent 的名义另签起名票。
  *
  * - 自动名先到先得、只起一次:harness 先起了名、或人先改了名,模型回来的那一刻 `applyTitle` 就不收(判据在落库事务里)。
  * - 预算 5 秒(签票 + 模型):过了就放弃,标题留在兜底 / harness 起的名上;不等待、不重试。显示层独立处理起名占位。
  * - 没积分、模型要会员、没登录 = 不起名,与关掉起名一样安静;这不是故障,只记 info。
  *
- * 签票必须挂在一个归当前账号的 agent 名下,而新会话的身份是建完之后才供给的 ⇒ 建会话时只记下来,
- * 等 `onSessionpageAgentProvisioned` 那一刻再起;本机身份到了之后它的云端那一发可能还在路上,签票前先等它落地
- * (与会话自己签平台票同一个约定)。5 秒预算从身份落地那一刻算。
+ * 建会话时只记下来,宿主等 channel admit / native live 后才调用。云端身份落地后,
+ * 复用现有票或例外签票与模型请求共用原来的 5 秒预算;共享票由会话自己结清。
  */
 import * as electron from 'electron'
 import type { RuntimeAuthProvider } from '@gugu/core'
@@ -55,6 +54,8 @@ export interface SessionTitleNamerDeps {
   authProvider: () => RuntimeAuthProvider | null
   /** 等这个 agent 的云端身份落地(签平台票要它);供给失败即抛。 */
   awaitAgentIdentity: (agentUserId: string) => Promise<void>
+  /** Host calls the namer after session admission; reuse only a route already allowed by its ticket. */
+  reuseSessionAccess?: (sessionId: string, modelId: string) => Promise<IssuedModelAccess | null>
   /** 设置里选的起名模型(null = 关掉了)与追加的起名要求。 */
   titleSettings: () => Promise<{ model: string | null; instructions: string }>
   /** 这条会话的标题此刻是不是首轮兜底,以及它的首轮。 */
@@ -109,6 +110,7 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
       return 'failed'
     }
 
+    let shared = false
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new Timeout()), SESSION_TITLE_TIMEOUT_MS)
     const expired = new Promise<never>((_, reject) => {
@@ -116,14 +118,13 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
     })
     // 每一处等待都与它赛跑、自己接住它的拒绝;这一条只是让「预算刚好在两处等待之间到」不变成未处理的拒绝。
     expired.catch(() => undefined)
-    const issuing = issuePlatformModelAccess({
-      authProvider,
-      agentUserId,
-      engineId: SESSION_TITLE_ENGINE_ID,
-      modelId: model,
-      protocol: SESSION_TITLE_PROTOCOL,
-      sessionId,
-    })
+    const issuing = (async () => {
+      const reused = await deps.reuseSessionAccess?.(sessionId, model)
+      if (reused) { shared = true; return reused }
+      if (controller.signal.aborted) throw new Timeout()
+      return issuePlatformModelAccess({ authProvider, agentUserId, engineId: SESSION_TITLE_ENGINE_ID,
+        modelId: model, protocol: SESSION_TITLE_PROTOCOL, sessionId })
+    })()
     let access: IssuedModelAccess | null = null
     try {
       try {
@@ -131,7 +132,7 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
       } catch (error) {
         if (error instanceof Timeout) {
           // 票在预算之后才签回来:那张票没人用,签回来就结掉。
-          void issuing.then((late) => revoke(authProvider, late)).catch(() => undefined)
+          void issuing.then((late) => { if (!shared) return revoke(authProvider, late) }).catch(() => undefined)
           return 'timeout'
         }
         const reason = modelAccessFailureReason(error)
@@ -187,7 +188,7 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
       throw error
     } finally {
       clearTimeout(timer)
-      if (access) void revoke(authProvider, access)
+      if (access && !shared) void revoke(authProvider, access)
     }
   }
 
@@ -205,7 +206,7 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
       if (createdAt !== null && now() - createdAt > PENDING_WINDOW_MS) return
       pending.set(session.id, now())
     },
-    /** 这条会话拿到了 agent 身份:刚建的就起名。返回结局(测试与日志用)。 */
+    /** 宿主已 admit 这条会话,且它有 agent 身份:刚建的就起名。返回结局(测试与日志用)。 */
     async agentProvisioned(sessionId: string, agentUserId: string): Promise<SessionTitleOutcome> {
       forgetStale()
       if (!pending.delete(sessionId)) return 'not-pending'

@@ -17,7 +17,7 @@ import type { RuntimeFork } from '../sessions/session-life-forks';
 import { localAgentForSession } from '@main/core/sessionpage/sessionpage-session-agent';
 import { acpAgentStatusBridge } from './agent-status-bridge';
 import type { EmdashSessionIdentity } from './emdash-mcp-injector';
-import { releaseEmdashPlatformSession } from './emdash-platform-injector';
+import { prepareEmdashPlatformSession, releaseEmdashPlatformSession } from './emdash-platform-injector';
 import { injectEmdashPromptDetached } from './inject-prompt';
 import {
   acpWorkerLease, callSessionStart, persistProviderSessionMissing, persistReturnedProviderSessionId,
@@ -81,6 +81,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
   let row: Row | null = null;
   let facts: Facts | null = null;
   let identity: EmdashSessionIdentity | null = null;
+  let platformPreparation: Promise<string | null> | null = null;
   // The start call while it is out: true once it admitted the channel, false when it failed. A session that closes
   // while the start is out (a resume of a record the engine no longer has closes as it refuses) is that start's
   // failure, reported by the start with its typed reason, never a bare exit that beats it.
@@ -91,6 +92,16 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
   let backlogThrough: number | null = null;
 
   const known = (): Row => { if (!row) throw new Error('ACP stage ran before identity'); return row; };
+
+  function preparePlatform(cwd: string): void {
+    if (!facts?.platformModel) return;
+    const session = known();
+    platformPreparation = prepareEmdashPlatformSession({ sessionId, ...(fork ? { sourceSessionId: fork.parentId } : {}),
+      providerId: session.providerId, projectId: session.projectId, workspaceId: session.workspaceId!, cwd,
+      lifecycle: lifecycleOf(session, fork), platformModel: facts!.platformModel, agentDisplayName: facts!.agentDisplayName });
+    // The capabilities stage owns the error. Do not turn an early issue refusal into an unhandled rejection.
+    void platformPreparation.catch(() => {});
+  }
 
   async function startInput(workspace: Workspace): Promise<StartInput> {
     const { acpStartInputFor } = await import('@main/embedded-boot');
@@ -117,6 +128,9 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         facts = await readSessionInjectionFacts({ sessionId, sourceSessionId: fork.parentId });
         const agentUserId = (await localAgentForSession(fork.parentId, process.env))?.gugu_user_id;
         if (!agentUserId) throw new Error(`Side chat ${sessionId}: its session ${fork.parentId} has no gugu identity`);
+        const cwd = row.workspaceId ? persistedWorkspacePath(row.workspaceId) : null;
+        if (!cwd) throw new Error(RETIRED_REMOTE_WORKSPACE_MESSAGE);
+        preparePlatform(cwd);
         return { kind: 'bound', agentUserId };
       }
       row = await sessionRow(sessionId);
@@ -130,6 +144,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       identity = await provisionStartIdentity({ sessionId, providerId: row.providerId, projectId: row.projectId, cwd }, lifecycleOf(row, null), facts);
       // A persisted session is never a runtime fork: no identity here means tombstoned or not provisionable.
       if (!identity) throw new Error(`Session ${sessionId} has no gugu identity and cannot be given one`);
+      preparePlatform(cwd);
       return { kind: 'bound', agentUserId: identity.guguAgentUserId };
     },
     async workspace(): Promise<WorkspaceLease> {
@@ -141,6 +156,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     },
     async capabilities(have): Promise<CapabilityGrant> {
       if (!facts) throw new Error('ACP capabilities ran before identity');
+      await platformPreparation;
       const command = await startInput(read<Workspace>(have.workspace));
       // The injector lands a still-queued first turn's gugu message; it only needs that row's text.
       const firstTurn = (fork ? forkStore : lifeStore).unaccepted(sessionId).find(row => row.turn.kind === 'chat-page-first-turn' && row.state === 'queued');
@@ -266,6 +282,11 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       if (have.process || have.channel) {
         await stopAcpSessionAndSettle((have.process ? read<Worker>(have.process) : await acpWorkerLease()).client, sessionId);
       } else if (have.platform || have.capabilities) await releaseEmdashPlatformSession(sessionId);
+      else if (platformPreparation) {
+        // The attempt can stop during workspace work. Settle only the generation this early operation owns.
+        void platformPreparation.then(generation => generation ? releaseEmdashPlatformSession(sessionId, generation) : undefined)
+          .catch(error => log.warn('early platform preparation could not settle', { sessionId, error: String(error) }));
+      }
     },
     onExit(have, cb) {
       const worker = read<Worker>(have.process);

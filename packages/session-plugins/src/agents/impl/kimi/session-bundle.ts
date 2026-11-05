@@ -205,20 +205,19 @@ export const kimiSessionBundleDescriptor = {
   platform: harnessPlatform,
   // `KIMI_CODE_HOME` 与 `CODEX_HOME` / `QWEN_HOME` 同类:用户把数据根挪过家时唯一的告知方式;它也是 `kimi login` 拿到的那份环境。
   shellEnv: { passThrough: ['KIMI_API_KEY', 'KIMI_CODE_HOME'] },
-  // 平台令牌同时在两处:咕咕自有 config.toml 的 `providers.<gugu>.api_key`(`modelConfigOverlay`)与宿主
-  // `kimi-model-env` 物化的 `KIMI_MODEL_API_KEY`。两处都只在 spawn 时读 ⇒ 到期按原形态重开。
+  // Both Kimi carriers receive the loopback endpoint key. The host rotates the upstream lease per request.
   credentialLifecycle: {
     'acp': {
-      delivery: 'child-process-env+process-config',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',
       sourceChangeSession: 'preserve',
     },
     'tui': {
-      delivery: 'child-process-env+process-config',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',

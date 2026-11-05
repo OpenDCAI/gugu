@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto'
 import { access, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { RuntimeAuthError, type AgentModelSelection, type RuntimeAuthProvider } from '@gugu/core'
+import { RuntimeAuthError, platformModelAccessEnv, type AgentModelSelection, type RuntimeAuthProvider } from '@gugu/core'
 import type { AcpPlatformInjection } from '@gugu/session-core/acp'
 import { MODEL_CONFIG_DIALECT, platformArmedEffort, type HarnessSessionSurface, type PlatformCallableRoutes } from '@gugu/session-core/agents/plugins'
 import {
@@ -52,6 +52,7 @@ import {
   settleAdoptedPlatformAccessAtExit,
   modelAccessFailureReason,
   type ModelAccessFailureReason,
+  type IssuedModelAccess,
   resolveAgentModelLaunch,
   revokePlatformModelAccess,
 } from '../model-access'
@@ -66,6 +67,7 @@ import { hostCatalog, type HostCatalog } from '../../shared/host-localization'
 import { quoteShellArg } from '../session/main/utils/shellEscape'
 
 import { proxyPlatformCredentialRequest, withinCredentialDeadline } from './platform-credential-proxy'
+import { PlatformLaunchMetadataCache, platformLaunchMetadata, type PlatformLaunchMetadata } from './platform-launch-metadata'
 
 const log = createLogger('sessionpage/platform-model')
 
@@ -108,7 +110,13 @@ const activeAccessSessions = new Map<string, {
   /** 签发时返回给宿主的完整 launch,reopen 复用 live 推理进程时原样取回(见 heldPlatformModelForSession)。 */
   launch: SessionpagePlatformModel
   observationSink?: (observation: PlatformCredentialRuntimeObservation) => void
+  issuePromise?: Promise<void>
+  issueError?: PlatformCredentialUnavailableError
+  metadata?: PlatformLaunchMetadata
 }>()
+
+let launchMetadata = new PlatformLaunchMetadataCache()
+const resolvingPlatformModels = new Map<string, Promise<SessionpagePlatformModel>>()
 
 /**
  * #6264 由宿主供给凭据的终端会话(claude 的取票脚本、回环代理)活过宿主进程重启。
@@ -154,6 +162,7 @@ let relayPersistence: RelayPersistence | null = null
  * 一直等到 restorePlatformRelaySessions 跑完 —— ❌ 靠「唤醒总在认回开跑之后」这种隐含的先后。
  */
 export function configurePlatformRelayPersistence(input: { dataDir: string; log: EndpointLog }): void {
+  launchMetadata = new PlatformLaunchMetadataCache(join(input.dataDir, 'platform-launch-metadata.json'))
   relayPersistence = {
     ports: new EndpointPorts(input.dataDir),
     secret: new PrivateJsonFile(join(input.dataDir, 'platform-relay-secret.json')),
@@ -165,6 +174,7 @@ export function configurePlatformRelayPersistence(input: { dataDir: string; log:
 
 /** Test seam. */
 export function resetPlatformRelayPersistenceForTest(): void {
+  launchMetadata = new PlatformLaunchMetadataCache()
   relayPersistence = null
   relayRestore = null
   beginRelayRestore = null
@@ -177,7 +187,7 @@ export function resetPlatformRelayPersistenceForTest(): void {
 
 function persistRelaySession(sessionId: string): void {
   const held = activeAccessSessions.get(sessionId)
-  if (!relayPersistence || !held?.credentialRoute || held.surface !== 'tui') return
+  if (!relayPersistence || !held?.accessSessionId || !held.credentialRoute || held.surface !== 'tui') return
   relayPersistence.sessions.put({
     key: sessionId,
     accessSessionId: held.accessSessionId,
@@ -309,7 +319,8 @@ async function restoreRelaySessions(input: RelayRestoreInput): Promise<RelayRest
 
 /** Current lease generation for host recovery's late-result guard. */
 export function platformCredentialGenerationForSession(sessionId: string): string | null {
-  return activeAccessSessions.get(sessionId)?.accessSessionId ?? null
+  const held = activeAccessSessions.get(sessionId)
+  return held?.accessSessionId || held?.launch.credentialGeneration || null
 }
 
 /**
@@ -422,6 +433,8 @@ async function proxyPlatformRequest(
   if (!held?.credentialRoute) throw new Error('platform credential proxy session is not active')
   const credential = async () => {
     try {
+      // An initial issue already owns the transport's deadline. It is not a failed renewal.
+      if (activeAccessSessions.get(sessionId)?.issuePromise) return await credentialForRuntimeRequest(sessionId)
       return await withinCredentialDeadline(credentialForRuntimeRequest(sessionId))
     } catch (error) {
       if (error instanceof PlatformCredentialUnavailableError) throw error
@@ -851,6 +864,10 @@ export function resetPlatformIssueBackoffsForTest(): void {
   issueBackoffs.clear()
 }
 
+export function resetPlatformLaunchMetadataForTest(): void {
+  launchMetadata = new PlatformLaunchMetadataCache()
+}
+
 /** 人点了重试(起任务页 / 私聊横幅的重试、恢复重试、「我开好了」):这条会话真去问一次,❌ 拿窗口里的旧原因作答(#7103)。 */
 export function clearPlatformIssueBackoff(sessionId: string): void {
   issueBackoffs.delete(sessionId)
@@ -903,6 +920,10 @@ async function tellCredentialRefusal(sessionId: string, error: unknown): Promise
 export async function credentialForRuntimeRequest(sessionId: string): Promise<string> {
   const held = activeAccessSessions.get(sessionId)
   if (!held?.credentialRoute) throw new Error('platform runtime credential session is not active')
+
+  await held.issuePromise
+  if (activeAccessSessions.get(sessionId) !== held) throw new Error('platform runtime credential session ended')
+  if (held.issueError) throw held.issueError
 
   if (held.rotationPromise) await held.rotationPromise
 
@@ -1331,6 +1352,8 @@ async function reissueExpiredRuntimeLease(sessionId: string): Promise<boolean> {
 export interface SessionpagePlatformModel {
   /** Non-secret model-access generation used to make teardown compare-and-release. */
   accessSessionId: string | null
+  /** Stable owner of a proxy-backed startup while its first lease is still being issued. */
+  credentialGeneration?: string
   /** Server wall-clock expiry for this generation; null when the session is not on platform quota. */
   expiresAt: string | null
   /** Provider env for this session; empty when the session is not on platform quota. */
@@ -1673,6 +1696,18 @@ type PlatformModelForSessionInput = {
  * to be in the environment, which is exactly the fallback the spec forbids.
  */
 export async function platformModelForSession(input: PlatformModelForSessionInput): Promise<SessionpagePlatformModel> {
+  const existing = resolvingPlatformModels.get(input.sessionId)
+  if (existing) return existing
+  const resolving = startPlatformModelForSession(input)
+  resolvingPlatformModels.set(input.sessionId, resolving)
+  try {
+    return await resolving
+  } finally {
+    if (resolvingPlatformModels.get(input.sessionId) === resolving) resolvingPlatformModels.delete(input.sessionId)
+  }
+}
+
+async function startPlatformModelForSession(input: PlatformModelForSessionInput): Promise<SessionpagePlatformModel> {
   // 这条会话上不了咕咕额度的一切原因都在这一处变成原因码(#7103):往上递的只有码,原文进日志。
   const platform = await resolvePlatformModelForSession(input).catch((error: unknown) => {
     throw platformAccessStartError(error, { sessionId: input.sessionId, providerId: input.providerId })
@@ -1724,19 +1759,6 @@ async function resolvePlatformModelForSession(input: PlatformModelForSessionInpu
     return NOT_ON_PLATFORM
   }
 
-  // @@@5331 平台令牌要拿公网身份行才签得出来 —— 会话启动本身不等它,但走到签令牌
-  // 这一步必须等它落地(内网身份即刻、公网身份后台落地,见 #5323)。
-  await input.awaitCloudIdentity?.(agentUserId)
-
-  // The creation composer persists its selected effort in the conversation config. Read that
-  // record here, at the shared platform injection boundary, so every surface uses the same value.
-  // Runtime-only views have no conversation row of their own and must resolve from their source.
-  const identitySessionId = input.identitySessionId ?? input.sessionId
-  // 武装哪一档要等签发之后才定:要看**这个模型**在目录里认哪些档(#6447),见下面 platformArmedEffort。
-  const recordedEffort = (await getSessions())
-    .find((session) => session.id === identitySessionId)
-    ?.effort?.trim() || null
-
   // @@@2503 先释放旧的,再签新的。反过来会自锁:同一条会话重启时,签发那一刻旧会话仍然 live 并
   // 持有它那份预留,而额度窗口是把在途预留扣掉之后算的 —— 一条会话因此会被自己上一轮挡在门外。
   // 释放是幂等的(没有记录就直接返回),所以首次启动走这里也没有额外代价。
@@ -1747,267 +1769,337 @@ async function resolvePlatformModelForSession(input: PlatformModelForSessionInpu
   // 人点的出口(起任务页与私聊横幅的重试、恢复重试、「我开好了」)先 clearPlatformIssueBackoff 再来,真去问一次(#7103)。
   const backoff = activeIssueBackoff(input.sessionId, agentUserId, input.platformModel?.modelId ?? null)
   if (backoff) throw backoff.error.cause
-  const launch = await resolveAgentModelLaunch({
-    authProvider: input.authProvider,
-    env,
-    agentUserId,
-    engineId: input.providerId,
-    providerSessionId: null,
-    sessionId: input.sessionId,
-    // undefined = 存量会话,读 agent 级 model_access(见上面 platformModel 的兼容说明)。
-    selection,
-  }).catch((error: unknown) => {
-    recordIssueFailure(input.sessionId, agentUserId, input.platformModel?.modelId ?? null, error)
-    throw error
-  })
-  issueBackoffs.delete(input.sessionId)
-  if (!launch.access) return NOT_ON_PLATFORM
-
-  // 起始推理档 = 记录里那一档 ∩ 该模型在目录里认的档 ∩ 这家引擎的词表(与 composer 能选的档同一个交集)。
-  // 不在交集里的(旧存档、换模型留下的旧档)不武装、harness 用默认 —— 原样交给 OpenCode 家族的物化器会抛错,
-  // 会话就开不起来。
-  const effortCapability = pluginRegistry.get(input.providerId)?.capabilities.effort
-  const configuredEffort = platformArmedEffort(
-    recordedEffort,
-    launch.access.reasoningEfforts,
-    effortCapability?.kind === 'selectable' ? Object.keys(effortCapability.effortOptions) : null,
-  )
-  if (recordedEffort && configuredEffort === null) {
-    log.info({
-      sessionId: input.sessionId,
-      providerId: input.providerId,
-      model: launch.access.model,
-      recordedEffort,
-      modelEfforts: launch.access.reasoningEfforts,
-    }, 'platform launch: recorded reasoning level is not one this model and harness both accept; not arming it')
-  }
-
-  const dialect = injectionDialectForEngine(input.providerId)
-
-  if (dialect && MODEL_CONFIG_DIALECT.requiresContextWindow.has(dialect)
-    && !positiveWindow(launch.access.contextWindow)) {
-    throw new Error(
-      `${input.providerId} platform model '${launch.access.model}' requires a positive contextWindow for limit.context`,
-    )
-  }
-
-  // 这家**怎么接收模型指定** = 它声明的方言。在记录令牌之前解析,钉不住模型的引擎就死在这里,
-  // 而不是等到已经开始花额度之后。
-  //
-  // 方言真值原由已退役的引擎表提供；现随插件代码编译。
-  const modelGoesToConfigFile = providerDeliversModelViaConfigFile(
-    input.providerId,
-    input.surface === 'tui' ? 'tui' : 'acp',
-  )
   const credentialLifecycle = resolveSessionpageCredentialLifecycle(
-    input.providerId,
-    input.surface === 'tui' ? 'tui' : 'acp',
+    input.providerId, input.surface === 'tui' ? 'tui' : 'acp',
   )
   const usesCredentialProxy = credentialLifecycle?.delivery === 'credential-proxy'
-  const credentialProxyRoute = usesCredentialProxy ? randomUUID() : null
-  const credentialProxyEndpoint = usesCredentialProxy ? await ensureCredentialEndpoint() : null
-  const platformProvider = credentialProxyRoute && credentialProxyEndpoint
-    ? {
-      baseUrl: `${credentialProxyEndpoint.baseUrl}/gugu-platform-relay/${credentialProxyRoute}/v1`,
-      apiKey: credentialProxyEndpoint.secret,
-    }
-    : {
-      baseUrl: `${launch.access.relayUrl.replace(/\/$/, '')}/v1`,
-      apiKey: launch.access.token,
-    }
-  // 这条会话**中途还能换到**哪些模型 —— 服务端随令牌一起算出来的那一组(这条协议下的全部平台模型)。
-  // 三家 harness 都只在启动那一刻收得到模型清单(spawn 之后学不到新端点/凭据),所以这一组必须
-  // 在这里就交给物化器,和令牌是同一份真值。❌ 不在客户端另算一份:分组只有网关知道,自己推的
-  // 那份会比令牌宽,于是界面上选得中的模型每次调用都被网关拒。
-  const switchableModels = launch.access.switchableModels.map((entry) => ({
-    id: entry.alias,
-    displayName: entry.displayName,
-    contextWindow: entry.contextWindow,
-    reasoningEfforts: entry.reasoningEfforts,
-  }))
-  // 空集合 = 服务端没报可切集合(旧版 edge function),于是这条会话退回「只有当前这一个模型」。
-  // 那是**兼容行为、不是故障**,所以❌ 不抛;但它与「功能坏了」在产品面上长得一模一样
-  // (下拉里只有一条、换过去被适配器拒),所以必须留一行 —— 否则排查要从界面一路挖到网关。
-  // 实账:2026-09-07 我自己在 mac1 上就把这个状态误判成了「id 空间不一致」,编了一套不存在的机制。
-  if (switchableModels.length === 0) {
-    // pino 风格:**先字段后消息**(同文件其余 log 调用逐字如此)。写反了 typecheck 放过、
-    // build:renderer 才红 —— 两个门吃的是不同的 tsconfig project。
-    log.info({
-      sessionId: input.sessionId,
-      providerId: input.providerId,
-      designated: launch.access.model,
-    }, 'platform switchable set is empty — server returned no switchable_models; '
-      + 'this session can only use its designated model')
-  }
-  const modelCapability = buildAcpModelCapability({
-    dialect,
-    engineId: input.providerId,
-    model: launch.access.model,
-    env,
-    ...(switchableModels.length > 0 ? { platformModels: switchableModels } : {}),
-    platformAccess: {
-      relayUrl: platformProvider.baseUrl.replace(/\/v1$/, ''),
-      token: platformProvider.apiKey,
-      contextWindow: launch.access.contextWindow,
-      reasoningEfforts: launch.access.reasoningEfforts,
-      // #6921 令牌在哪些路由上能调哪些模型 —— 服务端随令牌算出,原样交给声明(codex 据此开出图工具)。
-      callableRoutes: launch.access.callableRoutes,
-    },
-    ...(configuredEffort ? { reasoningEffort: configuredEffort } : {}),
-  })
-  /**
-   * 这条腿上的模型是不是由这一家自己的物化器写进配置文件。
-   *
-   * 是的话,宿主这边就**一个模型键都不发**:两条路带的信息不一样(配置文件那条能带上
-   * `[models.*]` 里的能力声明,环境变量那条在引擎内部合成一个临时别名、拿不到那些声明),
-   * 两条都在时赢的是环境变量那条 —— 界面上那排推理档位于是成了画上去的。
-   * ⇒ 模型这一维只能有一条投递路,判据在 `configFileModelSingleChannel.test.ts`。
-   */
-  if (modelGoesToConfigFile && !modelCapability) {
-    // 声明了「走配置文件」却连模型声明都建不出来 = 这条路一个字也送不出去,而宿主这边又
-    // 已经不发键了。响亮失败,❌ 别让会话带着「引擎自己的默认模型」冒充平台会话跑起来。
-    throw new Error(
-      `${input.providerId} 声明了模型走配置文件,却建不出模型声明(方言缺失)。`
-      + '请在 engine-injection-contract 里声明它的注入方式。',
-    )
-  }
-  const materialized = modelGoesToConfigFile
-    ? { extraArgs: [] as string[], spawnEnv: {}, settingsOverride: undefined }
-    : materializeModelCapability(modelCapability)
-  // An engine with no dialect cannot be told which model to use, and the gateway will
-  // reject every request the session makes. Refusing here is the fail-loud the spec asks
-  // for; starting it anyway would burn the user's turn on a session that cannot work.
-  //
-  // ⚠️ 「这一维交给这一家自己的物化器」是第三种成立形态,不是空注入:它不发键是**因为**
-  //    模型走的是 `modelCapability` → bundle → 配置文件那条路。这时还照旧抛,等于禁掉那条路。
-  if (
-    !modelGoesToConfigFile
-    && !materialized.extraArgs?.length
-    && !Object.keys(materialized.spawnEnv ?? {}).length
-  ) {
-    throw platformRefusal(
-      'not-routable',
-      `${input.providerId} declares no model injection dialect (engine-injection-contract); cannot pin a platform model`,
-    )
-  }
-
-  // 只有「argv 归 pty 本体」的方言才把模型参数交给可见客户端。codex 的模型 `-c` 属于 app-server,
-  // 挂到 TUI 上什么都钉不住；下面单独追加的无密钥 provider 声明只负责通过 remote TUI 的登录闸门。
-  // 这两道 gate 一起防止 clientArgs 退化成一个通用的 argv 通道。
-  // 传的是**文件路径**不是内联 JSON:那份文档里有这次会话的中转令牌,进 argv 就等于写进进程表。
-  // 写不写这份 0600 settings 文档、写了之后挂哪儿,都由这一格的注入契约说了算。两个界面都要这份
-  // 文档(理由同一个:用户 settings 的 env 块压得住进程环境),但**去处不同** —— 终端会话挂上可见
-  // 进程自己的 argv,Chat UI 把路径放进 `_meta` 交给适配器(`--settings` 对 ACP 适配器是个不认识的参数)。
-  const contract = findInjectionContract(input.providerId, input.surface)
-  // 表上没有这个引擎(插件引擎)→ 沿用改动前那条按方言判的老规矩,行为不变。
-  const legacyVisibleClientArgv = input.surface === 'tui'
-    && dialectModelArgsTargetVisibleClient(dialect)
-  const wantsSettingsDocument = contract ? needsSettingsDocument(contract) : legacyVisibleClientArgv
-  const settingsOnVisibleClientArgv = contract
-    ? settingsDocumentGoesOnVisibleClientArgv(contract)
-    : legacyVisibleClientArgv
-
-  // Claude 的 --settings 与用户 settings.json 有覆盖顺序要求，临时 override 必须保持单一文档。
-  const dynamicClaude = !usesCredentialProxy && dialect === 'provider-env' && Boolean(materialized.settingsOverride)
-  const credentialFiles = dynamicClaude
-    ? await writeSessionCredentialFiles(input.sessionId)
+  const metadataKey = currentOwnerUserId && selection?.source === 'platform'
+    ? launchMetadata.key(currentOwnerUserId, input.providerId, selection.modelId, selection.protocol)
     : null
-  const settingsDocument = wantsSettingsDocument && materialized.settingsOverride
-    ? dynamicClaude && credentialFiles
-      ? dynamicClaudeSettings(
-          input.surface === 'tui'
-            ? { ...CLAUDE_TUI_BASE_SETTINGS, ...materialized.settingsOverride }
-            : materialized.settingsOverride,
-          credentialFiles.helperCommand,
-        )
-      : input.surface === 'tui'
-        ? { ...CLAUDE_TUI_BASE_SETTINGS, ...materialized.settingsOverride }
-        : materialized.settingsOverride
-    : undefined
-  let settingsPath: string | undefined
+  const cached = usesCredentialProxy && metadataKey ? launchMetadata.get(metadataKey) : undefined
+  // Cloud identity belongs to the issue promise. A cached launch can start the harness while it lands.
+  const issuing = (async () => {
+    await input.awaitCloudIdentity?.(agentUserId)
+    const issued = await resolveAgentModelLaunch({
+      authProvider: input.authProvider!, env, agentUserId, engineId: input.providerId,
+      providerSessionId: null, sessionId: input.sessionId, selection,
+    })
+    if (issued.access && metadataKey) launchMetadata.remember(metadataKey, issued.access)
+    return issued
+  })()
+  // Materialization may itself await disk I/O before installing the route's issue waiter.
+  void issuing.catch(() => undefined)
+  let installed = false
   try {
-    settingsPath = settingsDocument ? await writeSessionSettingsFile(settingsDocument) : undefined
-  } catch (error) {
-    if (credentialFiles) {
-      await Promise.all([
-        rm(credentialFiles.credentialConfigPath, { force: true }),
-        rm(credentialFiles.helperPath, { force: true }),
-      ]).catch(() => undefined)
+    const launch: Awaited<ReturnType<typeof resolveAgentModelLaunch>> = cached && selection
+      ? {
+        selection, model: cached.model, env: {},
+        access: { ...cached, accessSessionId: '', expiresAt: '', token: '', relayUrl: '',
+          ...(selection.source === 'platform' ? { modelId: selection.modelId } : {}) },
+      }
+      : await issuing.catch((error: unknown) => {
+        recordIssueFailure(input.sessionId, agentUserId, input.platformModel?.modelId ?? null, error)
+        throw error
+      })
+    if (!launch.access) return NOT_ON_PLATFORM
+    if (!cached) issueBackoffs.delete(input.sessionId)
+
+    // The creation composer persists its selected effort in the conversation config. Read that
+    // record here, at the shared platform injection boundary, so every surface uses the same value.
+    // Runtime-only views have no conversation row of their own and must resolve from their source.
+    const identitySessionId = input.identitySessionId ?? input.sessionId
+    // 武装哪一档要等签发之后才定:要看**这个模型**在目录里认哪些档(#6447),见下面 platformArmedEffort。
+    const recordedEffort = (await getSessions())
+      .find((session) => session.id === identitySessionId)
+      ?.effort?.trim() || null
+
+    // 起始推理档 = 记录里那一档 ∩ 该模型在目录里认的档 ∩ 这家引擎的词表(与 composer 能选的档同一个交集)。
+    // 不在交集里的(旧存档、换模型留下的旧档)不武装、harness 用默认 —— 原样交给 OpenCode 家族的物化器会抛错,
+    // 会话就开不起来。
+    const effortCapability = pluginRegistry.get(input.providerId)?.capabilities.effort
+    const configuredEffort = platformArmedEffort(
+      recordedEffort,
+      launch.access.reasoningEfforts,
+      effortCapability?.kind === 'selectable' ? Object.keys(effortCapability.effortOptions) : null,
+    )
+    if (recordedEffort && configuredEffort === null) {
+      log.info({
+        sessionId: input.sessionId,
+        providerId: input.providerId,
+        model: launch.access.model,
+        recordedEffort,
+        modelEfforts: launch.access.reasoningEfforts,
+      }, 'platform launch: recorded reasoning level is not one this model and harness both accept; not arming it')
     }
+
+    const dialect = injectionDialectForEngine(input.providerId)
+
+    if (dialect && MODEL_CONFIG_DIALECT.requiresContextWindow.has(dialect)
+      && !positiveWindow(launch.access.contextWindow)) {
+      throw new Error(
+        `${input.providerId} platform model '${launch.access.model}' requires a positive contextWindow for limit.context`,
+      )
+    }
+
+    // 这家**怎么接收模型指定** = 它声明的方言。在记录令牌之前解析,钉不住模型的引擎就死在这里,
+    // 而不是等到已经开始花额度之后。
+    //
+    // 方言真值原由已退役的引擎表提供；现随插件代码编译。
+    const modelGoesToConfigFile = providerDeliversModelViaConfigFile(
+      input.providerId,
+      input.surface === 'tui' ? 'tui' : 'acp',
+    )
+    const credentialProxyRoute = usesCredentialProxy ? randomUUID() : null
+    const credentialProxyEndpoint = usesCredentialProxy ? await ensureCredentialEndpoint() : null
+    const platformProvider = credentialProxyRoute && credentialProxyEndpoint
+      ? {
+        baseUrl: `${credentialProxyEndpoint.baseUrl}/gugu-platform-relay/${credentialProxyRoute}/v1`,
+        apiKey: credentialProxyEndpoint.secret,
+      }
+      : {
+        baseUrl: `${launch.access.relayUrl.replace(/\/$/, '')}/v1`,
+        apiKey: launch.access.token,
+      }
+    if (cached) {
+      launch.env = platformModelAccessEnv(launch.access.protocol,
+        platformProvider.baseUrl.replace(/\/v1$/, ''), platformProvider.apiKey, launch.access.contextWindow)
+    }
+    // 这条会话**中途还能换到**哪些模型 —— 服务端随令牌一起算出来的那一组(这条协议下的全部平台模型)。
+    // 三家 harness 都只在启动那一刻收得到模型清单(spawn 之后学不到新端点/凭据),所以这一组必须
+    // 在这里就交给物化器,和令牌是同一份真值。❌ 不在客户端另算一份:分组只有网关知道,自己推的
+    // 那份会比令牌宽,于是界面上选得中的模型每次调用都被网关拒。
+    const switchableModels = launch.access.switchableModels.map((entry) => ({
+      id: entry.alias,
+      displayName: entry.displayName,
+      contextWindow: entry.contextWindow,
+      reasoningEfforts: entry.reasoningEfforts,
+    }))
+    // 空集合 = 服务端没报可切集合(旧版 edge function),于是这条会话退回「只有当前这一个模型」。
+    // 那是**兼容行为、不是故障**,所以❌ 不抛;但它与「功能坏了」在产品面上长得一模一样
+    // (下拉里只有一条、换过去被适配器拒),所以必须留一行 —— 否则排查要从界面一路挖到网关。
+    // 实账:2026-09-07 我自己在 mac1 上就把这个状态误判成了「id 空间不一致」,编了一套不存在的机制。
+    if (switchableModels.length === 0) {
+      // pino 风格:**先字段后消息**(同文件其余 log 调用逐字如此)。写反了 typecheck 放过、
+      // build:renderer 才红 —— 两个门吃的是不同的 tsconfig project。
+      log.info({
+        sessionId: input.sessionId,
+        providerId: input.providerId,
+        designated: launch.access.model,
+      }, 'platform switchable set is empty — server returned no switchable_models; '
+        + 'this session can only use its designated model')
+    }
+    const modelCapability = buildAcpModelCapability({
+      dialect,
+      engineId: input.providerId,
+      model: launch.access.model,
+      env,
+      ...(switchableModels.length > 0 ? { platformModels: switchableModels } : {}),
+      platformAccess: {
+        relayUrl: platformProvider.baseUrl.replace(/\/v1$/, ''),
+        token: platformProvider.apiKey,
+        contextWindow: launch.access.contextWindow,
+        reasoningEfforts: launch.access.reasoningEfforts,
+        // #6921 令牌在哪些路由上能调哪些模型 —— 服务端随令牌算出,原样交给声明(codex 据此开出图工具)。
+        callableRoutes: launch.access.callableRoutes,
+      },
+      ...(configuredEffort ? { reasoningEffort: configuredEffort } : {}),
+    })
+    /**
+     * 这条腿上的模型是不是由这一家自己的物化器写进配置文件。
+     *
+     * 是的话,宿主这边就**一个模型键都不发**:两条路带的信息不一样(配置文件那条能带上
+     * `[models.*]` 里的能力声明,环境变量那条在引擎内部合成一个临时别名、拿不到那些声明),
+     * 两条都在时赢的是环境变量那条 —— 界面上那排推理档位于是成了画上去的。
+     * ⇒ 模型这一维只能有一条投递路,判据在 `configFileModelSingleChannel.test.ts`。
+     */
+    if (modelGoesToConfigFile && !modelCapability) {
+      // 声明了「走配置文件」却连模型声明都建不出来 = 这条路一个字也送不出去,而宿主这边又
+      // 已经不发键了。响亮失败,❌ 别让会话带着「引擎自己的默认模型」冒充平台会话跑起来。
+      throw new Error(
+        `${input.providerId} 声明了模型走配置文件,却建不出模型声明(方言缺失)。`
+        + '请在 engine-injection-contract 里声明它的注入方式。',
+      )
+    }
+    const materialized = modelGoesToConfigFile
+      ? { extraArgs: [] as string[], spawnEnv: {}, settingsOverride: undefined }
+      : materializeModelCapability(modelCapability)
+    // An engine with no dialect cannot be told which model to use, and the gateway will
+    // reject every request the session makes. Refusing here is the fail-loud the spec asks
+    // for; starting it anyway would burn the user's turn on a session that cannot work.
+    //
+    // ⚠️ 「这一维交给这一家自己的物化器」是第三种成立形态,不是空注入:它不发键是**因为**
+    //    模型走的是 `modelCapability` → bundle → 配置文件那条路。这时还照旧抛,等于禁掉那条路。
+    if (
+      !modelGoesToConfigFile
+      && !materialized.extraArgs?.length
+      && !Object.keys(materialized.spawnEnv ?? {}).length
+    ) {
+      throw platformRefusal(
+        'not-routable',
+        `${input.providerId} declares no model injection dialect (engine-injection-contract); cannot pin a platform model`,
+      )
+    }
+
+    // 只有「argv 归 pty 本体」的方言才把模型参数交给可见客户端。codex 的模型 `-c` 属于 app-server,
+    // 挂到 TUI 上什么都钉不住；下面单独追加的无密钥 provider 声明只负责通过 remote TUI 的登录闸门。
+    // 这两道 gate 一起防止 clientArgs 退化成一个通用的 argv 通道。
+    // 传的是**文件路径**不是内联 JSON:那份文档里有这次会话的中转令牌,进 argv 就等于写进进程表。
+    // 写不写这份 0600 settings 文档、写了之后挂哪儿,都由这一格的注入契约说了算。两个界面都要这份
+    // 文档(理由同一个:用户 settings 的 env 块压得住进程环境),但**去处不同** —— 终端会话挂上可见
+    // 进程自己的 argv,Chat UI 把路径放进 `_meta` 交给适配器(`--settings` 对 ACP 适配器是个不认识的参数)。
+    const contract = findInjectionContract(input.providerId, input.surface)
+    // 表上没有这个引擎(插件引擎)→ 沿用改动前那条按方言判的老规矩,行为不变。
+    const legacyVisibleClientArgv = input.surface === 'tui'
+      && dialectModelArgsTargetVisibleClient(dialect)
+    const wantsSettingsDocument = contract ? needsSettingsDocument(contract) : legacyVisibleClientArgv
+    const settingsOnVisibleClientArgv = contract
+      ? settingsDocumentGoesOnVisibleClientArgv(contract)
+      : legacyVisibleClientArgv
+
+    // Claude 的 --settings 与用户 settings.json 有覆盖顺序要求，临时 override 必须保持单一文档。
+    const dynamicClaude = !usesCredentialProxy && dialect === 'provider-env' && Boolean(materialized.settingsOverride)
+    const credentialFiles = dynamicClaude
+      ? await writeSessionCredentialFiles(input.sessionId)
+      : null
+    const settingsDocument = wantsSettingsDocument && materialized.settingsOverride
+      ? dynamicClaude && credentialFiles
+        ? dynamicClaudeSettings(
+            input.surface === 'tui'
+              ? { ...CLAUDE_TUI_BASE_SETTINGS, ...materialized.settingsOverride }
+              : materialized.settingsOverride,
+            credentialFiles.helperCommand,
+          )
+        : input.surface === 'tui'
+          ? { ...CLAUDE_TUI_BASE_SETTINGS, ...materialized.settingsOverride }
+          : materialized.settingsOverride
+      : undefined
+    let settingsPath: string | undefined
+    try {
+      settingsPath = settingsDocument ? await writeSessionSettingsFile(settingsDocument) : undefined
+    } catch (error) {
+      if (credentialFiles) {
+        await Promise.all([
+          rm(credentialFiles.credentialConfigPath, { force: true }),
+          rm(credentialFiles.helperPath, { force: true }),
+        ]).catch(() => undefined)
+      }
+      throw error
+    }
+    // Codex remote TUI owns no inference, but it still runs Codex's startup auth gate. Current Codex skips
+    // that gate only when the client itself sees a custom provider declaration; OPENAI_API_KEY alone is the
+    // default-provider login input and still renders the menu. Reuse the exact secret-free provider block
+    // given to the app-server. The designated model is not carried here: the session-page Codex session
+    // pins it on the visible TUI from the same app-server argv (codexTuiModelSelectionArgs, #6264).
+    const visibleProviderArgs = contract
+      && hasCredentialSink(contract, 'visibleClient', 'providerConfigArgs')
+      ? codexPlatformProviderArgs(platformProvider, modelCapability?.platformCallableRoutes, modelCapability?.model)
+      : []
+
+    const result: SessionpagePlatformModel = {
+      accessSessionId: launch.access.accessSessionId || null,
+      ...(cached && credentialProxyRoute ? { credentialGeneration: credentialProxyRoute } : {}),
+      expiresAt: launch.access.expiresAt || null,
+      env: dynamicClaude
+        ? stripClaudeStaticCredentials(launch.env as Record<string, string>)
+        : usesCredentialProxy
+          ? credentialProxyEnv(launch.env as Record<string, string>, launch.access, platformProvider)
+          : launch.env as Record<string, string>,
+      model: launch.access.model,
+      spawnEnv: {
+        ...(materialized.spawnEnv ?? {}),
+      } as Record<string, string>,
+      clientArgs: [
+        ...(settingsPath && settingsOnVisibleClientArgv ? ['--settings', settingsPath] : []),
+        ...visibleProviderArgs,
+      ],
+      adapterArgs: input.surface === 'tui' ? [] : [...(materialized.extraArgs ?? [])],
+      settingsDocumentPath: settingsPath ?? null,
+      platformProvider,
+      contextWindow: launch.access.contextWindow ?? null,
+      reasoningEfforts: launch.access.reasoningEfforts,
+      modelCapability,
+      switchableModels,
+    }
+    if (credentialProxyRoute) credentialRoutes.set(credentialProxyRoute, input.sessionId)
+    activeAccessSessions.set(input.sessionId, {
+      accessSessionId: launch.access.accessSessionId,
+      authProvider: input.authProvider,
+      token: launch.access.token,
+      relayUrl: launch.access.relayUrl,
+      renewUntil: Date.now() + renewedLifetimeMs(),
+      settingsPath,
+      credentialConfigPath: credentialFiles?.credentialConfigPath,
+      helperPath: credentialFiles?.helperPath,
+      credentialRoute: credentialFiles?.credentialRoute ?? credentialProxyRoute ?? undefined,
+      agentUserId,
+      providerId: input.providerId,
+      modelId: selection?.source === 'platform' ? selection.modelId : launch.access.modelId,
+      protocol: selection?.source === 'platform' ? selection.protocol : launch.access.protocol,
+      surface: input.surface,
+      launch: result,
+      observationSink: input.onCredentialObservation,
+      metadata: platformLaunchMetadata(launch.access),
+    })
+    installed = true
+    const pendingHeld = activeAccessSessions.get(input.sessionId)!
+    if (cached) {
+      const issue = issuing.then(async (issued) => {
+        if (!issued.access) throw new Error('platform issue returned no access for a cached platform launch')
+        if (activeAccessSessions.get(input.sessionId) !== pendingHeld) {
+          await revokePlatformModelAccess(pendingHeld.authProvider, issued.access.accessSessionId)
+          return
+        }
+        const access = issued.access
+        pendingHeld.accessSessionId = access.accessSessionId
+        pendingHeld.token = access.token
+        pendingHeld.relayUrl = access.relayUrl
+        pendingHeld.metadata = platformLaunchMetadata(access)
+        pendingHeld.launch.accessSessionId = access.accessSessionId
+        pendingHeld.launch.expiresAt = access.expiresAt
+        issueBackoffs.delete(input.sessionId)
+        noteMembershipLocked(input.sessionId, pendingHeld, access.membershipLocked)
+        persistRelaySession(input.sessionId)
+        scheduleRenewal(input.sessionId, access.expiresAt)
+        input.onCredentialObservation?.({ generation: access.accessSessionId, source: 'lease',
+          observedAt: new Date().toISOString(), leaseExpiresAt: access.expiresAt, operation: 'issue',
+          outcome: 'success', classification: 'lease-issued' })
+      }).catch((error: unknown) => {
+        if (activeAccessSessions.get(input.sessionId) !== pendingHeld) return
+        pendingHeld.issueError = recordIssueFailure(input.sessionId, agentUserId, input.platformModel?.modelId ?? null, error).error
+      }).finally(() => {
+        if (pendingHeld.issuePromise === issue) pendingHeld.issuePromise = undefined
+      })
+      pendingHeld.issuePromise = issue
+      return result
+    }
+    // 指定的是这一档走不到的会员模型(#7092):会话照常起,调它那一轮由中转说清原因;界面据此刷新目录、挂上去路。
+    const heldNow = activeAccessSessions.get(input.sessionId)
+    if (heldNow && launch.access.membershipLocked.length) {
+      noteMembershipLocked(input.sessionId, heldNow, launch.access.membershipLocked)
+    }
+    persistRelaySession(input.sessionId)
+    input.onCredentialObservation?.({
+      generation: launch.access.accessSessionId,
+      source: 'lease',
+      observedAt: new Date().toISOString(),
+      leaseExpiresAt: launch.access.expiresAt,
+      operation: 'issue',
+      outcome: 'success',
+      classification: 'lease-issued',
+    })
+    // 会话可以跑得比一个 TTL 长,而注入进去的凭据换不了值(它在启动时就写进进程环境了)——
+    // 所以从现在起周期性地把**同一个** token 的有效期往后推,直到这条会话结束。
+    scheduleRenewal(input.sessionId, launch.access.expiresAt)
+    return result
+  } catch (error) {
+    if (installed) await releasePlatformModelForSession(input.sessionId).catch(err => {
+      log.error({ sessionId: input.sessionId, err }, 'failed platform launch could not release its lease')
+    })
+    else void issuing.then(async issued => {
+      if (issued.access) await revokePlatformModelAccess(input.authProvider!, issued.access.accessSessionId)
+    }, () => undefined).catch(err => log.error({ sessionId: input.sessionId, err }, 'failed platform launch could not settle its issue'))
     throw error
   }
-  // Codex remote TUI owns no inference, but it still runs Codex's startup auth gate. Current Codex skips
-  // that gate only when the client itself sees a custom provider declaration; OPENAI_API_KEY alone is the
-  // default-provider login input and still renders the menu. Reuse the exact secret-free provider block
-  // given to the app-server. The designated model is not carried here: the session-page Codex session
-  // pins it on the visible TUI from the same app-server argv (codexTuiModelSelectionArgs, #6264).
-  const visibleProviderArgs = contract
-    && hasCredentialSink(contract, 'visibleClient', 'providerConfigArgs')
-    ? codexPlatformProviderArgs(platformProvider, modelCapability?.platformCallableRoutes, modelCapability?.model)
-    : []
-
-  const result: SessionpagePlatformModel = {
-    accessSessionId: launch.access.accessSessionId,
-    expiresAt: launch.access.expiresAt,
-    env: dynamicClaude
-      ? stripClaudeStaticCredentials(launch.env as Record<string, string>)
-      : usesCredentialProxy
-        ? credentialProxyEnv(launch.env as Record<string, string>, launch.access, platformProvider)
-        : launch.env as Record<string, string>,
-    model: launch.access.model,
-    spawnEnv: {
-      ...(materialized.spawnEnv ?? {}),
-    } as Record<string, string>,
-    clientArgs: [
-      ...(settingsPath && settingsOnVisibleClientArgv ? ['--settings', settingsPath] : []),
-      ...visibleProviderArgs,
-    ],
-    adapterArgs: input.surface === 'tui' ? [] : [...(materialized.extraArgs ?? [])],
-    settingsDocumentPath: settingsPath ?? null,
-    platformProvider,
-    contextWindow: launch.access.contextWindow ?? null,
-    reasoningEfforts: launch.access.reasoningEfforts,
-    modelCapability,
-    switchableModels,
-  }
-  if (credentialProxyRoute) credentialRoutes.set(credentialProxyRoute, input.sessionId)
-  activeAccessSessions.set(input.sessionId, {
-    accessSessionId: launch.access.accessSessionId,
-    authProvider: input.authProvider,
-    token: launch.access.token,
-    relayUrl: launch.access.relayUrl,
-    renewUntil: Date.now() + renewedLifetimeMs(),
-    settingsPath,
-    credentialConfigPath: credentialFiles?.credentialConfigPath,
-    helperPath: credentialFiles?.helperPath,
-    credentialRoute: credentialFiles?.credentialRoute ?? credentialProxyRoute ?? undefined,
-    agentUserId,
-    providerId: input.providerId,
-    modelId: selection?.source === 'platform' ? selection.modelId : launch.access.modelId,
-    protocol: selection?.source === 'platform' ? selection.protocol : launch.access.protocol,
-    surface: input.surface,
-    launch: result,
-    observationSink: input.onCredentialObservation,
-  })
-  // 指定的是这一档走不到的会员模型(#7092):会话照常起,调它那一轮由中转说清原因;界面据此刷新目录、挂上去路。
-  const heldNow = activeAccessSessions.get(input.sessionId)
-  if (heldNow && launch.access.membershipLocked.length) {
-    noteMembershipLocked(input.sessionId, heldNow, launch.access.membershipLocked)
-  }
-  persistRelaySession(input.sessionId)
-  input.onCredentialObservation?.({
-    generation: launch.access.accessSessionId,
-    source: 'lease',
-    observedAt: new Date().toISOString(),
-    leaseExpiresAt: launch.access.expiresAt,
-    operation: 'issue',
-    outcome: 'success',
-    classification: 'lease-issued',
-  })
-  // 会话可以跑得比一个 TTL 长,而注入进去的凭据换不了值(它在启动时就写进进程环境了)——
-  // 所以从现在起周期性地把**同一个** token 的有效期往后推,直到这条会话结束。
-  scheduleRenewal(input.sessionId, launch.access.expiresAt)
-  return result
 }
 
 /**
@@ -2019,6 +2111,24 @@ async function resolvePlatformModelForSession(input: PlatformModelForSessionInpu
  */
 export function heldPlatformModelForSession(sessionId: string): SessionpagePlatformModel | null {
   return activeAccessSessions.get(sessionId)?.launch ?? null
+}
+
+/** The title request uses the existing chat-completions route only when this issued ticket allows it. */
+export async function sessionTitlePlatformAccess(sessionId: string, modelId: string): Promise<IssuedModelAccess | null> {
+  const held = activeAccessSessions.get(sessionId)
+  if (!held) return null
+  await held.issuePromise
+  if (activeAccessSessions.get(sessionId) !== held) return null
+  const metadata = held.metadata
+  const provider = held.launch.platformProvider
+  if (!metadata || !provider || held.issueError || !platformRequestsUseCredentialProxy(sessionId)) return null
+  const selected = metadata.switchableModels.find(model => model.id === modelId || model.alias === modelId)
+  const alias = selected?.alias ?? (held.modelId === modelId || metadata.model === modelId ? metadata.model : null)
+  if (!alias || metadata.membershipLocked.includes(alias) || metadata.membershipLocked.includes(modelId)) return null
+  const chatModels = metadata.callableRoutes['/v1/chat/completions'] ?? []
+  if (!chatModels.includes(alias)) return null
+  return { ...metadata, accessSessionId: held.accessSessionId, model: alias, modelId,
+    relayUrl: provider.baseUrl.replace(/\/v1$/, ''), token: provider.apiKey, expiresAt: held.launch.expiresAt! }
 }
 
 /** Host-only metadata for the Claude search tool; credentials stay in the runtime lease. */
@@ -2075,7 +2185,7 @@ export function expiredPlatformModelSessions(): string[] {
  */
 export async function checkpointPlatformModelForSession(sessionId: string): Promise<void> {
   const held = activeAccessSessions.get(sessionId)
-  if (!held) return
+  if (!held?.accessSessionId) return
   held.checkpointRequested = true
   if (held.checkpointPromise) return await held.checkpointPromise
   const pending = (async () => {
@@ -2134,7 +2244,8 @@ export async function releasePlatformModelForSession(
   // Adapter close notifications cross a worker boundary and may arrive after an explicit reconnect
   // has already rotated this conversation onto a new platform access session. A stale generation
   // owns neither the replacement token nor its settings document.
-  if (expectedAccessSessionId !== undefined && held.accessSessionId !== expectedAccessSessionId) {
+  if (expectedAccessSessionId !== undefined && held.accessSessionId !== expectedAccessSessionId
+    && held.launch.credentialGeneration !== expectedAccessSessionId) {
     log.info(
       { sessionId, heldAccessSessionId: held.accessSessionId, expectedAccessSessionId },
       '平台令牌结清被跳过:报告的那一份已经不是这条会话手里的那一份',
@@ -2174,6 +2285,7 @@ export async function releasePlatformModelForSession(
     })
   }
   if (held.credentialRoute) credentialRoutes.delete(held.credentialRoute)
+  if (!held.accessSessionId) return // An in-flight initial issue revokes itself after observing this release.
   await revokePlatformModelAccess(held.authProvider, held.accessSessionId).catch((error: unknown) => {
     // 账本那一行留着(见 model-access 的 platform-access-ledger),下次启动由结清重试;这里只负责喊出来。
     log.error(

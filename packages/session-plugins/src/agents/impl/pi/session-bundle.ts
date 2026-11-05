@@ -103,8 +103,8 @@ export const piSessionBundleDescriptor = {
     // 所以 lifecycle 声明两条腿同值。漏掉 ACP 腿会让会话页凭据闸在「从联系人进聊天」这条路上
     // 直接报 "credential lifecycle is undeclared for pi/acp"。
     'acp': {
-      delivery: 'child-process-env',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',
@@ -114,8 +114,8 @@ export const piSessionBundleDescriptor = {
       sourceChangeSession: 'preserve',
     },
     'tui': {
-      delivery: 'child-process-env',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',

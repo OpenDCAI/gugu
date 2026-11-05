@@ -35,12 +35,11 @@ export const copilotSessionBundleDescriptor = {
   nativeHome: { envVar: 'COPILOT_HOME', userPath: '.copilot', evidence: '@github/copilot:配置根整个由 COPILOT_HOME 挪走,默认 ~/.copilot' } satisfies NativeHome,
   platform: harnessPlatform,
   shellEnv: { passThrough: ['COPILOT_CLI_TOKEN'] },
-  // 平台令牌是四个 `COPILOT_PROVIDER_*` 里的 `_API_KEY`,两条腿都只在进程环境(model = process-config,
-  // 不落文件、不进 argv)。进程起来后换不了值 ⇒ 到期按原形态重开。
+  // COPILOT_PROVIDER_* points to the loopback proxy. Its endpoint key stays stable across lease rotation.
   credentialLifecycle: {
     'acp': {
-      delivery: 'child-process-env',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',
@@ -55,8 +54,8 @@ export const copilotSessionBundleDescriptor = {
       sourceChangeSession: 'replace',
     },
     'tui': {
-      delivery: 'child-process-env',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',

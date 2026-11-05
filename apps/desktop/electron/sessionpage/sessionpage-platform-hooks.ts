@@ -95,10 +95,11 @@ export function claudeAcpAdapterEnv(spawnEnv: Record<string, string>): Record<st
 }
 
 function requirePlatformAccessSessionId(platform: SessionpagePlatformModel): string {
-  if (!platform.accessSessionId) {
+  const generation = platform.credentialGeneration ?? platform.accessSessionId
+  if (!generation) {
     throw new Error('platform model launch is missing its access session id')
   }
-  return platform.accessSessionId
+  return generation
 }
 
 /** 宿主自己的注入不变量坏了:界面只说「咕咕这边出错了」(#7103),写给开发者的那句只进日志。 */
@@ -297,13 +298,13 @@ export function createSessionpagePlatformHooks(deps: SessionpagePlatformHooksDep
 
   const acpPlatformModel = async (info: SessionpagePlatformAcpInfo): Promise<SessionpagePlatformModel> => {
     const platform = await resolveAcpPlatformModel(info)
-    if (platform.accessSessionId) {
+    if (platform.credentialGeneration || platform.accessSessionId) {
       sessionTargets.set(info.sessionId, {
         sessionId: info.sessionId,
         projectId: info.projectId,
         providerId: info.providerId,
         surface: 'acp',
-        credentialGeneration: platform.accessSessionId,
+        credentialGeneration: platformCredentialGenerationForSession(info.sessionId) ?? undefined,
         expiresAt: platform.expiresAt ?? undefined,
       })
     }
@@ -487,7 +488,7 @@ export function createSessionpagePlatformHooks(deps: SessionpagePlatformHooksDep
         projectId: info.projectId,
         providerId: info.providerId,
         surface: 'tui',
-        credentialGeneration: platform.accessSessionId ?? undefined,
+        credentialGeneration: platformCredentialGenerationForSession(info.sessionId) ?? undefined,
         expiresAt: platform.expiresAt ?? undefined,
       })
       return { platform, reusedHeld: false }
@@ -507,7 +508,8 @@ export function createSessionpagePlatformHooks(deps: SessionpagePlatformHooksDep
         return
       }
       const generation = platformCredentialGenerationForSession(sessionId)
-      if (expectedAccessSessionId !== undefined && generation && generation !== expectedAccessSessionId) return
+      if (expectedAccessSessionId !== undefined && generation && generation !== expectedAccessSessionId
+        && heldPlatformModelForSession(sessionId)?.credentialGeneration !== expectedAccessSessionId) return
       if (intent === 'end') deps.onPlatformSessionEnded?.(sessionId)
       await releasePlatformModelForSession(sessionId, expectedAccessSessionId)
       if (!platformCredentialGenerationForSession(sessionId)) sessionTargets.delete(sessionId)
@@ -522,7 +524,7 @@ export function createSessionpagePlatformHooks(deps: SessionpagePlatformHooksDep
       if (target.credentialGeneration && !held) return null
       return {
         ...target,
-        credentialGeneration: held?.accessSessionId ?? undefined,
+        credentialGeneration: platformCredentialGenerationForSession(sessionId) ?? undefined,
         expiresAt: held?.expiresAt ?? undefined,
       }
     },

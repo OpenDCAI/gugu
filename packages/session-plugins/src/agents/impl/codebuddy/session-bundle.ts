@@ -51,16 +51,16 @@ export const codebuddySessionBundleDescriptor = {
   platform: harnessPlatform,
   credentialLifecycle: {
     'acp': {
-      delivery: 'process-config',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',
       sourceChangeSession: 'preserve',
     },
     'tui': {
-      delivery: 'process-config',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',

@@ -24,13 +24,13 @@ export const hermesSessionBundleDescriptor = {
   injectionMode: 'runtime',
   nativeHome: { envVar: 'HERMES_HOME', userPath: '.hermes', evidence: 'hermes_cli:HERMES_HOME,默认 ~/.hermes;serve 继承用户自己的那份(runtime/hermes-serve/serve.ts)' } satisfies NativeHome,
   platform: harnessPlatform,
-  // 令牌在桥进程环境里(`GUGU_HERMES_PLATFORM_KEY`),桥再交给 serve 的进程环境,托管层只写 `${…}` ⇒ 到期按原形态重开。
+  // The bridge passes the loopback endpoint key to serve; the gateway lease stays in the host.
   // 跨计费路(平台 ↔ 自己的模型)仍按 `replace` 起一条新的:serve 下两种会话已在同一个 HERMES_HOME 的会话库里,
   // 但「同一条会话换计费路」没量过,❌ 不凭推断声明 `preserve`。
   credentialLifecycle: {
     'acp': {
-      delivery: 'child-process-env',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',

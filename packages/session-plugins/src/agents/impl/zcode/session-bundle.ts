@@ -33,12 +33,12 @@ import { sessionContextPrompt } from '../../helpers/session-bundle';
 export const zcodeSessionBundleDescriptor = {
   injectionMode: 'runtime',
   platform: harnessPlatform,
-  // 平台令牌在桥进程环境里那份 provider 表中(桥启动时落成它自己的 0600 文件),spawn 后换不了值 ⇒ 到期按原形态重开。
+  // The provider table contains the loopback URL and endpoint key, never the gateway lease.
   // 跨计费路(平台 ↔ 用户自己的 provider)起一条新的:同一条会话换计费路没量过,❌ 不凭推断声明 `preserve`。
   credentialLifecycle: {
     'acp': {
-      delivery: 'child-process-env',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',

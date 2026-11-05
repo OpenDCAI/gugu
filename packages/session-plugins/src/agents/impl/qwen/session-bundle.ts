@@ -48,20 +48,19 @@ export const qwenSessionBundleDescriptor = {
       'QWEN_SANDBOX',
     ],
   },
-  // 平台令牌只在子进程环境里(`OPENAI_API_KEY`,两条腿同一个 `applyModelEnv`);终端腿那份 system settings
-  // 只写 `envKey` 的名字(见 `platformModelPatch`)。进程起来后换不了值 ⇒ 到期按原形态重开。
+  // OPENAI_API_KEY carries the loopback endpoint key; the proxy resolves the lease on every request.
   credentialLifecycle: {
     'acp': {
-      delivery: 'child-process-env',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',
       sourceChangeSession: 'preserve',
     },
     'tui': {
-      delivery: 'child-process-env',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',

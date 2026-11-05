@@ -34,11 +34,14 @@ const configPathOf = (helper: string): string => {
   if (!match) throw new Error(`helper has no --config: ${helper}`)
   return match[1]
 }
-const legacyHelper = vi.hoisted(() => ({ enabled: false }))
+const legacyHelper = vi.hoisted(() => ({ enabled: false, env: false }))
 vi.mock('@gugu/session-plugins/agents', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@gugu/session-plugins/agents')>()
   return { ...actual, resolveSessionpageCredentialLifecycle: (...args: Parameters<typeof actual.resolveSessionpageCredentialLifecycle>) => {
     const lifecycle = actual.resolveSessionpageCredentialLifecycle(...args)
+    if (legacyHelper.env && args[0] === 'pi' && lifecycle) {
+      return { ...lifecycle, delivery: 'child-process-env' as const, originalProcessRefresh: 'unsupported' as const }
+    }
     // Persisted pre-proxy helper sessions still need their original recovery path.
     return legacyHelper.enabled && args[0] === 'claude' && lifecycle
       ? { ...lifecycle, delivery: 'credential-helper' as const } : lifecycle
@@ -94,6 +97,9 @@ const {
   renewedLifetimeMs,
   resetPlatformIssueBackoffsForTest,
   clearPlatformIssueBackoff,
+  resetPlatformLaunchMetadataForTest,
+  credentialForRuntimeRequest,
+  sessionTitlePlatformAccess,
 } = await import('../../../../apps/desktop/electron/sessionpage/sessionpage-platform-model')
 const { ModelAccessHttpError } = await import('../../../../apps/desktop/electron/model-access')
 const { RuntimeAuthError } = await import('@gugu/core')
@@ -122,7 +128,7 @@ function platformLaunch(
   /** 目录里这个模型认的推理档(#6447);缺省给一组中性的,不影响与推理档无关的用例。 */
   reasoningEfforts: readonly string[] | null = ['low', 'medium', 'high'],
 ) {
-  resolveAgentModelLaunch.mockResolvedValue({
+  const launch = {
     selection: { source: 'platform', modelId: 'glm-5.2', protocol: 'openai-responses' },
     model,
     env: { OPENAI_BASE_URL: `${relayUrl}/v1`, OPENAI_API_KEY: token },
@@ -138,11 +144,14 @@ function platformLaunch(
       reasoningEfforts,
       switchableModels,
       membershipLocked: [],
+      callableRoutes: {} as Record<string, string[]>,
     },
-  })
+  }
+  resolveAgentModelLaunch.mockResolvedValue(launch)
+  return launch
 }
 // 签发退避按会话 id 记、跨过结清(会话重建)活着;用例共用同一个会话 id,别把上一条的窗口带过去。
-beforeEach(() => { resetPlatformIssueBackoffsForTest(); legacyHelper.enabled = false })
+beforeEach(() => { resetPlatformIssueBackoffsForTest(); resetPlatformLaunchMetadataForTest(); legacyHelper.enabled = false; legacyHelper.env = false })
 
 describe('#2503 session-page sessions carry the designated model', () => {
   beforeEach(() => {
@@ -1039,6 +1048,7 @@ describe('#2503 composer 的选择就是这个会话的决定', () => {
   })
 })
 describe('#4467 宿主退出只留 tmux 里仍在跑、凭据不经宿主供给的票', () => {
+  beforeEach(() => { legacyHelper.env = true })
   beforeEach(() => {
     vi.clearAllMocks()
     revokePlatformModelAccess.mockResolvedValue(undefined)
@@ -1811,6 +1821,90 @@ describe('#6447 平台模型的推理档逐模型到达 codex catalog', () => {
     } finally {
       await releasePlatformModelForSession(SESSION)
     }
+  })
+})
+
+describe('cached signed metadata overlaps the initial issue with harness startup', () => {
+  const input = { surface: 'cui' as const, sessionId: SESSION, providerId: 'codex', authProvider,
+    platformModel: { modelId: 'glm-5.2' } }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    agentOnThisSession()
+    getSessions.mockResolvedValue([])
+    revokePlatformModelAccess.mockResolvedValue(undefined)
+  })
+
+  async function warm() {
+    platformLaunch('glm-5.2', 60_000, 128_000, [], 'first-lease')
+    await platformModelForSession(input)
+    await releasePlatformModelForSession(SESSION)
+    revokePlatformModelAccess.mockClear()
+  }
+
+  it.each([true, false])('reuses title access only with the signed chat-completions route: %s', async (allowed) => {
+    const issued = platformLaunch('glm-5.2')
+    issued.access.callableRoutes = allowed ? { '/v1/chat/completions': ['glm-5.2'] } : {}
+    resolveAgentModelLaunch.mockResolvedValue(issued)
+    await platformModelForSession(input)
+    const access = await sessionTitlePlatformAccess(SESSION, 'glm-5.2')
+    if (allowed) {
+      expect(access?.relayUrl).toMatch(/^http:\/\/127\.0\.0\.1:/)
+      expect(access?.token).not.toBe('sk-session')
+    } else expect(access).toBeNull()
+    expect(await sessionTitlePlatformAccess(SESSION, 'different-user-choice')).toBeNull()
+    await releasePlatformModelForSession(SESSION)
+  })
+
+  it('first use waits for cloud identity, while a repeated model can start before it lands', async () => {
+    await warm()
+    const cloud = deferred<void>()
+    platformLaunch('glm-5.2', 60_000, 128_000, [], 'second-lease', 'https://relay.test', 'second-secret')
+    const platform = await platformModelForSession({ ...input, awaitCloudIdentity: () => cloud.promise })
+    expect(platform.accessSessionId).toBeNull()
+    expect(platform.credentialGeneration).toBeTruthy()
+    expect(JSON.stringify(platform)).not.toContain('second-secret')
+    const credential = credentialForRuntimeRequest(SESSION)
+    cloud.resolve()
+    await expect(credential).resolves.toBe('second-secret')
+    expect(platform.accessSessionId).toBe('second-lease')
+    await releasePlatformModelForSession(SESSION, platform.credentialGeneration)
+    expect(revokePlatformModelAccess).toHaveBeenCalledWith(authProvider, 'second-lease')
+  })
+
+  it('revokes a late first lease when its startup was stopped during issue', async () => {
+    await warm()
+    const cloud = deferred<void>()
+    platformLaunch('glm-5.2', 60_000, 128_000, [], 'late-lease')
+    const platform = await platformModelForSession({ ...input, awaitCloudIdentity: () => cloud.promise })
+    await releasePlatformModelForSession(SESSION, platform.credentialGeneration)
+    cloud.resolve()
+    await vi.waitFor(() => expect(revokePlatformModelAccess).toHaveBeenCalledWith(authProvider, 'late-lease'))
+    expect(heldPlatformModelForSession(SESSION)).toBeNull()
+  })
+
+  it('surfaces initial issue refusal at the proxy without issuing a replacement', async () => {
+    await warm()
+    const cloud = deferred<void>()
+    const platform = await platformModelForSession({ ...input, awaitCloudIdentity: () => cloud.promise })
+    resolveAgentModelLaunch.mockRejectedValueOnce(new ModelAccessHttpError('issue refused', 403, 'membership_required'))
+    cloud.resolve()
+    await expect(credentialForRuntimeRequest(SESSION)).rejects.toMatchObject({ reason: 'membership-required' })
+    expect(issuePlatformModelAccess).not.toHaveBeenCalled()
+    await releasePlatformModelForSession(SESSION, platform.credentialGeneration)
+  })
+
+  it('serves the first request with the fresh lease when signed metadata changed, and launches the next session from it', async () => {
+    await warm()
+    const cloud = deferred<void>()
+    platformLaunch('new-alias', 60_000, 128_000, [], 'changed-lease')
+    const platform = await platformModelForSession({ ...input, awaitCloudIdentity: () => cloud.promise })
+    cloud.resolve()
+    await expect(credentialForRuntimeRequest(SESSION)).resolves.toBeTruthy()
+    expect(heldPlatformModelForSession(SESSION)?.accessSessionId).toBe('changed-lease')
+    await releasePlatformModelForSession(SESSION, platform.credentialGeneration)
+    expect((await platformModelForSession(input)).model).toBe('new-alias')
+    await releasePlatformModelForSession(SESSION)
   })
 })
 

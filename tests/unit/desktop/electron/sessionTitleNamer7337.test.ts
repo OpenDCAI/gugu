@@ -35,7 +35,7 @@ let state = { fallback: true, firstUtterance: LONG as string | undefined }
 let model: string | null = 'glm-5.3-flash'
 let instructions = ''
 
-function namer() {
+function namer(overrides: Partial<Parameters<typeof createSessionTitleNamer>[0]> = {}) {
   return createSessionTitleNamer({
     authProvider: () => ({}) as never,
     awaitAgentIdentity,
@@ -43,6 +43,7 @@ function namer() {
     titleState: () => state,
     applyTitle,
     now: () => clock,
+    ...overrides,
   })
 }
 
@@ -62,6 +63,30 @@ afterEach(() => {
 })
 
 describe('起名', () => {
+  it('uses an admitted session proxy without signing or revoking its shared ticket', async () => {
+    const reuseSessionAccess = vi.fn(async () => ticket({ relayUrl: 'http://127.0.0.1:12345/gugu-platform-relay/route', token: 'local-endpoint-key' }) as never);
+    const n = namer({ reuseSessionAccess });
+    n.sessionCreated({ id: 's1' });
+    await expect(n.agentProvisioned('s1', 'agent-1')).resolves.toBe('named');
+    expect(reuseSessionAccess).toHaveBeenCalledWith('s1', 'glm-5.3-flash');
+    expect(issuePlatformModelAccess).not.toHaveBeenCalled();
+    expect(revokePlatformModelAccess).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:12345/gugu-platform-relay/route/v1/chat/completions');
+  });
+  it('keeps the title budget while waiting for a shared ticket and never revokes that late ticket', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let resolveShared: (value: never) => void = () => undefined;
+    const n = namer({ reuseSessionAccess: () => new Promise(resolve => { resolveShared = resolve; }) });
+    n.sessionCreated({ id: 's1' });
+    const outcome = n.agentProvisioned('s1', 'agent-1');
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(outcome).resolves.toBe('timeout');
+    resolveShared(ticket() as never);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(issuePlatformModelAccess).not.toHaveBeenCalled();
+    expect(revokePlatformModelAccess).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it('新建的会话拿到身份后以它的名义签票,把首轮交给设置里的模型,落下起出来的名,结掉票', async () => {
     const n = namer()
     n.sessionCreated({ id: 's1', createdAt: '2026-10-16 19:00:00' })

@@ -46,6 +46,7 @@ const {
   platformModelForSession,
   releasePlatformModelForSession,
   resetPlatformRelayPersistenceForTest,
+  resetPlatformLaunchMetadataForTest,
   withPlatformDeclaration,
 } = await import('../../../../apps/desktop/electron/sessionpage/sessionpage-platform-model')
 const { createSessionpagePlatformHooks } = await import('../../../../apps/desktop/electron/sessionpage/sessionpage-platform-hooks')
@@ -98,6 +99,7 @@ function carriesActorHeader(args: readonly string[]): boolean {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetPlatformLaunchMetadataForTest()
   vi.stubEnv('GUGU_HOME', mkdtempSync(join(tmpdir(), 'gugu-6921-')))
 })
 afterEach(async () => {

@@ -61,12 +61,11 @@ const unverifiedExtension = unverified('extension');
 export const qoderSessionBundleDescriptor = {
   injectionMode: 'runtime',
   platform: harnessPlatform,
-  // 只有终端腿拿得到平台模型(ACP 腿的注入契约 `wired: false`,信封没有 argv 载体)。令牌写在会话级
-  // 0600 BYOK settings 文档里、经 `--settings <path>` 指过去,spawn 时读一次 ⇒ 到期按原形态重开。
+  // Only TUI is wired for platform models. Its settings carry the loopback URL and stable endpoint key.
   credentialLifecycle: {
     'tui': {
-      delivery: 'process-config',
-      originalProcessRefresh: 'unsupported',
+      delivery: 'credential-proxy',
+      originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
       reopenEntry: 'host-session-reload',

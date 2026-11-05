@@ -326,6 +326,7 @@ import {
   heldPlatformModelForSession,
   expiredPlatformModelSessions,
   platformCredentialGenerationForSession,
+  sessionTitlePlatformAccess,
   platformRequestsUseCredentialProxy,
   reissueExpiredPlatformModelForSession,
   sweepStalePlatformSettingsFiles,
@@ -3860,6 +3861,12 @@ function recordDeviceSleep(sleep: { since: number; until: number; source: 'nativ
  */
 function onSessionpageSessionLive(agentUserId: string, sessionId: string, trigger = 'session-live'): void {
   kickInboxForAgent(agentUserId, trigger)
+  // ACP starts name at channel admission below. Native legs use their existing live registration.
+  if (trigger === 'session-live' && !loadEmdashBridge()?.sessionLifeStatusOf(sessionId)) {
+    void sessionTitleNamer.agentProvisioned(sessionId, agentUserId).catch(error => {
+      createLogger('session-title-namer').error({ sessionId, err: error }, 'session title: namer crashed')
+    })
+  }
   void (async () => {
     const emdash = loadEmdashBridge()
     if (!emdash) return
@@ -4236,6 +4243,7 @@ function sendSessionpageIdentityEvent(event: EventDefinition<SessionShellAgentNa
 const sessionTitleNamer = createSessionTitleNamer({
   authProvider: () => desktopAuthProvider(),
   awaitAgentIdentity: awaitSessionpageCloudIdentity,
+  reuseSessionAccess: sessionTitlePlatformAccess,
   titleSettings: async () => {
     const sessions = await appSettingsService.get('sessions')
     return { model: sessions.titleModel, instructions: sessions.titleInstructions }
@@ -4244,11 +4252,6 @@ const sessionTitleNamer = createSessionTitleNamer({
   applyTitle: applyGeneratedTitle,
 })
 sessionEvents.on('session:created', (session) => sessionTitleNamer.sessionCreated(session))
-onSessionpageAgentProvisioned((event) => {
-  void sessionTitleNamer.agentProvisioned(event.sessionId, event.agentUserId).catch((error: unknown) => {
-    createLogger('session-title-namer').error({ sessionId: event.sessionId, err: error }, 'session title: namer crashed')
-  })
-})
 
 onSessionpageAgentProvisioned((event) => {
   sendSessionpageIdentityEvent(sessionpageAgentProvisionedEvent, {
@@ -4261,7 +4264,7 @@ onSessionpageAgentProvisioned((event) => {
   if (event.renamedFrom) announceSessionpageAgentRename({ ...event, previousName: event.renamedFrom })
   // S2b 读者触发③(身份就绪):可投递 = 身份就绪 + 各腿登记好,两个边界各踢一次,后到的那一次投得出去。
   // 各腿的登记点另踢(ACP:运行时启动成功;PTY:registerLive;codex:threadId;claude:tools/list)。
-  onSessionpageSessionLive(event.agentUserId, event.sessionId)
+  onSessionpageSessionLive(event.agentUserId, event.sessionId, 'identity-provisioned')
 })
 
 /** #6396 在这条会话的对话里画「名字已被占用」那一行(见 sessionpage-rename-announcement.ts)。递不到只记一笔:名字本身已经换好了。 */
@@ -5281,6 +5284,13 @@ app.whenReady().then(async () => {
       },
     })
     sessionpagePlatformRecovery = recovery
+    emdash.onSessionLifeView((view) => {
+      if (view.kind !== 'ready') return
+      void (async () => {
+        const agentUserId = await guguAgentUserIdForSession(view.sessionId, process.env)
+        if (agentUserId) await sessionTitleNamer.agentProvisioned(view.sessionId, agentUserId)
+      })().catch(error => createLogger('session-title-namer').error({ sessionId: view.sessionId, err: error }, 'session title: namer crashed'))
+    })
     const recoveryBridge = loadEmdashBridge()
     if (!recoveryBridge) throw new Error('任务页运行时不可用，无法安装平台恢复 gate')
     recoveryBridge.setPlatformRecoveryReadyGate((sessionId, trigger) => recovery.ensureReady(sessionId, trigger))
@@ -5544,8 +5554,8 @@ app.whenReady().then(async () => {
             ...(forkPlatform?.model && Object.keys(forkPlatform.env).length > 0
               ? { platformModel: forkPlatform.model }
               : {}),
-            ...(forkPlatform?.accessSessionId
-              ? { platformAccessSessionId: forkPlatform.accessSessionId }
+            ...((forkPlatform?.credentialGeneration ?? forkPlatform?.accessSessionId)
+              ? { platformAccessSessionId: forkPlatform!.credentialGeneration ?? forkPlatform!.accessSessionId! }
               : {}),
             ...(forkCapabilities.sessionPrompt
               ? {
@@ -5876,8 +5886,8 @@ app.whenReady().then(async () => {
           ...(processConfigPlatform?.model && Object.keys(processConfigPlatform.env).length > 0
             ? { platformModel: processConfigPlatform.model }
             : {}),
-          ...(processConfigPlatform?.accessSessionId
-            ? { platformAccessSessionId: processConfigPlatform.accessSessionId }
+          ...((processConfigPlatform?.credentialGeneration ?? processConfigPlatform?.accessSessionId)
+            ? { platformAccessSessionId: processConfigPlatform!.credentialGeneration ?? processConfigPlatform!.accessSessionId! }
             : {}),
         }
       } catch (err) {
@@ -5893,7 +5903,11 @@ app.whenReady().then(async () => {
 
     // @@@2503 平台额度注入器(Chat UI / ACP 侧)—— pty 钩子的孪生。结构刻意与它一致:先按契约判这一格
     // 能不能注入,再决定复用还是重签。Claude 走会话 `_meta`;Codex/OpenCode 走会话私有适配器的 spawn env。
-    emdash.setEmdashPlatformInjector((info) => sessionpagePlatformHooks.acpInjector(info))
+    emdash.setEmdashPlatformInjector((info) => sessionpagePlatformHooks.acpInjector(info),
+      async (info: Parameters<typeof sessionpagePlatformHooks.acpPlatformModel>[0]) => {
+        const platform = await sessionpagePlatformHooks.acpPlatformModel(info)
+        return platform.credentialGeneration ?? platform.accessSessionId
+      })
     // @@@2503 会话结束 / ACP 运行时消失 → 结清令牌并删掉那份带令牌的 0600 settings 文档。
     // conversationId 为 null = 运行时整个没了,把 Chat UI 这一批全结清(终端会话那批的进程还活着,
     // 一起撤会把它们打成每轮 401)。
