@@ -61,10 +61,10 @@ import {
   initLogging,
   installConsoleBridge,
   switchLogFileForOwner,
-  writeRendererLog,
   readLogTailForFeedback,
   RENDERER_LOG_CHANNEL,
 } from './lib/logger'
+import { createRendererLogForwarder } from './local-renderer-diagnostics'
 import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
 import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
@@ -2356,9 +2356,8 @@ ipcMain.on(HOST_SYSTEM_LANGUAGES_CHANNEL, (event) => {
 })
 // @@@logging (#2382) - renderer 的日志回传到主进程,和主进程日志同流、同脱敏、同落盘:
 // 渲染侧崩在用户机器上时,`console` 只活在 devtools 里,拿不回来。
-ipcMain.handle(RENDERER_LOG_CHANNEL, (_event, payload: unknown) => {
-  writeRendererLog(payload)
-})
+const forwardRendererLog = createRendererLogForwarder({ getMetrics: () => app.getAppMetrics() })
+ipcMain.handle(RENDERER_LOG_CHANNEL, (event, payload: unknown) => forwardRendererLog(event.sender, payload))
 
 // @@@4899 用户在反馈里勾了「附带日志」才走这条。读不到就让它抛到 renderer —— 界面当场取消
 // 勾选并说明,❌ 不许悄悄附一个空的(用户以为给了线索,排查方以为用户没日志)。

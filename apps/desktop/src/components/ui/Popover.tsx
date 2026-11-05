@@ -4,6 +4,7 @@ import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import type { CSSProperties } from 'react'
 import { cn } from '@/lib/cn'
 import { popupMotion } from './variants'
+import { noteOverlayRequest } from '@/lib/localRendererDiagnostics'
 
 type ClassNameProp = { className?: string }
 
@@ -15,6 +16,12 @@ const popoverPopup = cn('box-border outline-none', popupMotion)
 
 function Portal(props: PopoverPrimitive.Portal.Props) {
   return <PopoverPrimitive.Portal {...props} />
+}
+
+function Root<Payload = unknown>({ onOpenChange, ...props }: PopoverPrimitive.Root.Props<Payload>) {
+  return <PopoverPrimitive.Root<Payload> {...props} onOpenChange={(next, details) => {
+    try { onOpenChange?.(next, details) } finally { noteOverlayRequest(details, 'app-popover', next) }
+  }} />
 }
 
 function Positioner({
@@ -61,7 +68,7 @@ function Close({
 
 /** Gugu popover composition: Base UI owns dismissal/positioning, call sites own content. */
 export const Popover = {
-  Root: PopoverPrimitive.Root,
+  Root,
   Title: PopoverPrimitive.Title,
   Description: PopoverPrimitive.Description,
   Trigger: PopoverPrimitive.Trigger,
