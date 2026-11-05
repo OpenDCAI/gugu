@@ -64,22 +64,27 @@ globalStyle(`${nativeChatAppearance} [data-chat-root]::before`, {
 const bottomComposer = `${nativeChatAppearance} [data-chat-composer-placement="bottom"]`;
 const desktopComposerColumn = `${bottomComposer} > :last-child:not([data-phone-shell] *)`;
 
-// Desktop follows the content column and covers the top corners. The phone
-// keeps its layer fade separate from the column's existing full-width glass.
-globalStyle(desktopComposerColumn, {
-  position: 'relative',
-  vars: { '--composer-edge-cover': 'var(--radius-thread)' },
+// Every visible box at the top of the composer stack draws its own fade, at its own width: the input card's comes
+// from the column, anchored to the card's top edge and covering its top corners; a band above the card (the
+// schedule tray) draws its own. A message behind is never cut into a separate sliver: beside a narrower band it
+// runs on until the card's own fade. Without a band the card's top is the column's top. The phone keeps its
+// layer fade separate from the column's existing full-width glass.
+const composerAnchor = '--gugu-session-composer';
+const composerEdgeFade = { content: '""', position: 'absolute', left: 0, right: 0, zIndex: -1, pointerEvents: 'none' } as const;
+
+globalStyle(desktopComposerColumn, { position: 'relative' });
+globalStyle(`${desktopComposerColumn} [data-slot="composer"]`, { anchorName: composerAnchor });
+globalStyle(`${desktopComposerColumn}::before`, {
+  ...composerEdgeFade,
+  top: `calc(anchor(${composerAnchor} top) - ${CHAT_COMPOSER_EDGE_FADE_PX}px)`,
+  bottom: `calc(anchor(${composerAnchor} top) - var(--radius-thread))`,
+  background: 'linear-gradient(to top, var(--chat-bg) var(--radius-thread), transparent)',
 });
 
-globalStyle(`${desktopComposerColumn}::before, ${bottomComposer}:is([data-phone-shell] *)::before`, {
-  content: '""',
-  position: 'absolute',
-  bottom: 'calc(100% - var(--composer-edge-cover, 0px))',
-  left: 0,
-  right: 0,
-  height: `calc(${CHAT_COMPOSER_EDGE_FADE_PX}px + var(--composer-edge-cover, 0px))`,
-  // Stay above the transcript within the composer's stacking context, but below the card.
-  zIndex: -1,
-  pointerEvents: 'none',
-  background: 'linear-gradient(to top, var(--chat-bg) var(--composer-edge-cover, 0px), transparent)',
+globalStyle(`${desktopComposerColumn} > [data-composer-band]`, { position: 'relative' });
+globalStyle(`${desktopComposerColumn} > [data-composer-band]::before, ${bottomComposer}:is([data-phone-shell] *)::before`, {
+  ...composerEdgeFade,
+  bottom: '100%',
+  height: CHAT_COMPOSER_EDGE_FADE_PX,
+  background: 'linear-gradient(to top, var(--chat-bg), transparent)',
 });

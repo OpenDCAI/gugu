@@ -1437,7 +1437,7 @@ const ComposerForStore = observer(function ComposerForStore({
         onApply={applyMcpSelection}
       />
       {schedules.length > 0 ? (
-        <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
+        <div data-composer-band className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
