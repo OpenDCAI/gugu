@@ -871,17 +871,38 @@ test('an image attachment is durably admitted as safe metadata and acknowledged 
 
 test('revoking OS permission after a successful phone read prevents data from reaching the chat', async () => {
   const permissionChecks = []
+  let releaseActionReports
+  const actionReports = new Promise((resolve) => { releaseActionReports = resolve })
+  let pendingActionReports = 0
   const fx = await fixture(async (_command, hooks) => {
     hooks.emit({ type: 'tool_start', name: 'phone_calendar_list' })
     hooks.emit({ type: 'tool_end', name: 'phone_calendar_list', result: { details: { ok: true } } })
     await hooks.extraTools.find((tool) => tool.name === 'message_send').execute('reply-call', { chat_id: chatId, text: 'private-calendar-fixture-9123', to_user_ids: [`user:${ownerId}`] })
     return { status: 'done', text: 'must not be delivered' }
-  }, { nativeCall: async (name, args) => { permissionChecks.push([name, args]); return { ok: false, code: 'os_permission', message: '日历系统权限已撤销' } } })
+  }, {
+    nativeCall: async (name, args) => { permissionChecks.push([name, args]); return { ok: false, code: 'os_permission', message: '日历系统权限已撤销' } },
+    prepare: ({ cloud }) => {
+      const rpc = cloud.identity.rpc
+      cloud.identity.rpc = async (name, args) => {
+        if (name === 'set_agent_runtime_state' && args.p_last_action_at) {
+          pendingActionReports++
+          await actionReports
+        }
+        return rpc(name, args)
+      }
+    },
+  })
   const messageId = randomUUID()
   fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '查询日历', content_type: 'text', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: '查询日历' }], 'revoke-in-flight')
     await until(() => fx.events.some((event) => event.type === 'turn_failed'), fx.events)
+    // Failure is emitted before runJob's finally block reports the settled state.
+    // Hold that report until the failure is observed, then wait for the real job
+    // report instead of asserting against an unrelated startup/working report.
+    assert.ok(pendingActionReports > 0)
+    releaseActionReports()
+    await until(() => fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)?.[1].p_agent_status === 'error', fx.events)
     assert.ok(permissionChecks.length > 0)
     for (const check of permissionChecks) assert.deepEqual(check, ['permissions.check', { groups: ['calendar'], requirements: [] }])
     assert.equal(fx.messages.some((message) => message.p_content.includes('private-calendar-fixture-9123')), false)
@@ -889,7 +910,8 @@ test('revoking OS permission after a successful phone read prevents data from re
     await until(() => fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)?.[1].p_agent_status === 'error', fx.events)
     const report = fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)[1]
     assert.equal(typeof report.p_last_action_at, 'string')
-  } finally { await fx.close() }
+    assert.equal(report.p_agent_status, 'error')
+  } finally { releaseActionReports(); await fx.close() }
 })
 
 test('native hostCall creation reuses clientRequestId across transports and reports a real pending group approval', async () => {

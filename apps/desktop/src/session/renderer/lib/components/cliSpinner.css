@@ -1,0 +1,27 @@
+/* The running glyph (cliSpinner.tsx): every frame stacked in a strip, a one-line window shows one,
+   80 ms per frame. A stepped transform, so the compositor turns it; pausing goes through the shared animation
+   play-state variables (window, retained surface, viewport). */
+.cli-spinner {
+  display: inline-block;
+  height: 1lh;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+.cli-spinner__strip {
+  display: flex;
+  flex-direction: column;
+  animation: cli-spinner-strip calc(80ms * var(--cli-spinner-frames)) steps(var(--cli-spinner-frames), end) infinite;
+}
+
+@keyframes cli-spinner-strip {
+  to {
+    transform: translateY(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cli-spinner__strip {
+    animation: none;
+  }
+}
