@@ -28,6 +28,9 @@ export const messageText = recipe({
 export const assistantOuter = style([messageGroup, { position: 'relative' }]);
 
 export const srOnly = style({
+  // A cross-message native selection must not copy this duplicate of the painted body.
+  userSelect: 'none',
+  WebkitUserSelect: 'none',
   position: 'absolute',
   width: '1px',
   height: '1px',
