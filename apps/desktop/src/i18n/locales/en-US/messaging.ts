@@ -429,6 +429,13 @@ export default {
     "exitWhisper": "Exit whisper mode",
     "replyUnavailable": "The original message is unavailable. Cancel the reply to send a new message.",
     "file": "File",
+    "photos": "Photos",
+    "camera": "Camera",
+    "photoCaption": "Add a caption",
+    "originalPhoto": "Original",
+    "cancelPhotos": "Cancel",
+    "sendPhotos_one": "Send",
+    "sendPhotos_other": "Send ({{count}})",
     "memberType": {
       "agent": "Agent",
       "all": "Everyone",

@@ -428,6 +428,12 @@ export default {
     "exitWhisper": "退出悄悄话",
     "replyUnavailable": "原消息不可用，取消回复后可发送新消息。",
     "file": "文件",
+    "photos": "照片",
+    "camera": "拍摄",
+    "photoCaption": "添加说明",
+    "originalPhoto": "原图",
+    "cancelPhotos": "取消",
+    "sendPhotos_other": "发送({{count}})",
     "memberType": {
       "agent": "Agent",
       "all": "全员",

@@ -247,6 +247,10 @@
         <intent>
             <action android:name="android.intent.action.SET_TIMER" />
         </intent>
+        <!-- 聊天「+」里的「拍摄」(file input 的 capture):看不见相机 App,WebView 就退回成文件选择器。 -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
     </queries>
 
     <!-- @capacitor/local-notifications declares exact-alarm scheduling. Gugu only posts right away
