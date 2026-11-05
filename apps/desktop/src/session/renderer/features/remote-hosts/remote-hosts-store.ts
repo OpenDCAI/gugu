@@ -647,8 +647,8 @@ export class RemoteHostsStore {
         else this.hosts.set(device.id, { device, link: machineLinkState(device.id), synced: false });
         // 读成离线了:这一轮重连到此为止(提示换成「离线」,不带第几次);回来之后从第一次数起。
         if (!remoteHostReachable(device)) this.dials.delete(device.id);
-        // #7199 叫醒没成之后它在别处被叫醒了(正在醒 / 醒了):那条旧的「没叫醒」不再盖住它此刻的样子。
-        if (device.cloudComputer && device.cloudComputer !== 'asleep' && this.wakes.get(device.id)?.status === 'failed') this.wakes.delete(device.id);
+        // Only confirmed awake state clears a terminal failure; repeated waking snapshots do not restart a timed-out wait.
+        if (device.cloudComputer === 'awake' && this.wakes.get(device.id)?.status === 'failed') this.wakes.delete(device.id);
       });
       if (!current) this.watch(device.id);
       else this.applyAccountProjects(device.id);
