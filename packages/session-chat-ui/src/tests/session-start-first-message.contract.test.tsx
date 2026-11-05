@@ -329,7 +329,7 @@ describe('incoming deliveries share the transcript layout', () => {
     expect(host.querySelector('[data-user-card="provider-echo"]')!.getBoundingClientRect().top).toBe(top)
   })
 
-  it('measures multiple unknown receipts with compression and a cancelled turn, without duplicating native messages', async () => {
+  it('clears delivered unknown receipts with compression and a cancelled turn, without duplicating native messages', async () => {
     const { state, host } = mount('double', { agentConversation: true, pinUserMessages: true })
     const inputs: PendingPrompt[] = ['a', 'b', 'c'].map(id => ({ id, text: incomingText(`source-${id}`, `Incoming ${id}`), received: true, delivery: { state: 'unknown', retryable: false } }))
     const history: TranscriptTurn[] = inputs.map((input, seq) => ({ id: `turn-${seq}`, seq, initiator: 'agent', items: [
@@ -339,16 +339,17 @@ describe('incoming deliveries share the transcript layout', () => {
     state.transcript.history.seed(history)
     state.session.setPendingMessages(inputs)
     state.session.setCondition({ code: 'auth-required', detail: 'sign-in-missing', label: 'Host status remains visible' })
-    await until('all unknown status lines are present', () => host.querySelectorAll('[data-send-state="unknown"]').length === 3)
+    await until('all native messages replace their unknown markers', () => host.querySelectorAll('[data-user-card]').length === 3 && !host.querySelector('[data-send-state="unknown"]'))
     expect(host.querySelectorAll('[data-user-card]')).toHaveLength(3)
     expect(host.querySelectorAll('[data-send-state="unknown"] button')).toHaveLength(0)
     expect(host.textContent).toContain('Compacting')
     expect(host.textContent).toContain('Stopped')
     expect(host.textContent).toContain('Host status remains visible')
     const rows = [...host.querySelectorAll<HTMLElement>('[data-user-card]')].map(el => el.getBoundingClientRect()).sort((a, b) => a.top - b.top)
-    for (let i = 1; i < rows.length; i++) expect(rows[i]!.top).toBeGreaterThan(rows[i-1]!.bottom + 21)
+    for (let i = 1; i < rows.length; i++) expect(rows[i]!.top).toBeGreaterThan(rows[i-1]!.bottom)
     state.session.setPendingMessages([])
-    await until('cleared custody removes only status lines', () => !host.querySelector('[data-send-state="unknown"]'))
+    await until('cleared custody preserves the native rows without a status line', () => host.querySelectorAll('[data-user-card]').length === 3 && !host.querySelector('[data-send-state="unknown"]'))
+    expect([...host.querySelectorAll<HTMLElement>('[data-user-card]')].map(el => el.getBoundingClientRect().top).sort((a, b) => a - b)).toEqual(rows.map(row => row.top))
     expect(host.querySelectorAll('[data-user-card]')).toHaveLength(3)
   })
 })
