@@ -13,9 +13,9 @@ const KINDS = ['dialog', 'alertdialog', 'popover', 'menu', 'sheet']
 /** Keep source locations, never URL queries, frame names, titles, text, or arbitrary stack strings. */
 export function diagnosticSource(value: unknown): string {
   if (typeof value !== 'string') return 'unknown'
-  value = value.slice(0, 512)
-  if (/^(?:assets\/[A-Za-z0-9_.-]+\.[cm]?js|src\/[A-Za-z0-9_./-]+\.[cm]?[jt]sx?)(?::\d+:\d+)?$/.test(value)) return value
-  const source = value.match(/(?:gugu-app:\/\/app|https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)\/(assets\/[A-Za-z0-9_.-]+\.[cm]?js|src\/[A-Za-z0-9_./-]+\.[cm]?[jt]sx?)(?::(\d+):(\d+))?/)
+  const text = value.slice(0, 512)
+  if (/^(?:assets\/[A-Za-z0-9_.-]+\.[cm]?js|src\/[A-Za-z0-9_./-]+\.[cm]?[jt]sx?)(?::\d+:\d+)?$/.test(text)) return text
+  const source = text.match(/(?:gugu-app:\/\/app|https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)\/(assets\/[A-Za-z0-9_.-]+\.[cm]?js|src\/[A-Za-z0-9_./-]+\.[cm]?[jt]sx?)(?::(\d+):(\d+))?/)
   return source ? `${source[1]}${source[2] ? `:${source[2]}:${source[3]}` : ''}` : 'unknown'
 }
 
