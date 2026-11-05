@@ -202,7 +202,23 @@ export class TranscriptAnchorIndex {
     { offset: number; remainder: Buffer; firstUuid: string | null; anchors: Set<string> }
   >();
 
+  private readonly inFlight = new Map<string, Promise<Set<string>>>();
+
   async anchorsOf(filePath: string): Promise<Set<string>> {
+    // Several session scans share this index. Serialize each file so its offset and
+    // incomplete line belong to one reader; queued callers still stat newly appended bytes.
+    const previous = this.inFlight.get(filePath);
+    const current = (previous?.catch(() => undefined) ?? Promise.resolve())
+      .then(() => this.readAnchors(filePath));
+    this.inFlight.set(filePath, current);
+    try {
+      return await current;
+    } finally {
+      if (this.inFlight.get(filePath) === current) this.inFlight.delete(filePath);
+    }
+  }
+
+  private async readAnchors(filePath: string): Promise<Set<string>> {
     let size: number;
     try {
       size = (await stat(filePath)).size;
