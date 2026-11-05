@@ -91,32 +91,13 @@ export default function App() {
   )
   const user = session.user
   const loading = session.status === 'boot-restoring'
-  // 退出登录 = 重启 app(owner 拍板 2026-08-26)。
-  // 
-  // 为什么不是「把任务运行时拆掉再装回来」:那个边界看着可拆(bootEmdashModule /
-  // disposeEmdashModule),实际是**一次性闩** —— dispose 用 `??=` 缓存 promise,第二次调
-  // 什么都不做;它也不注销 IPC handler(该文件 removeHandler 0 处命中),拆的是模块级单例,
-  // 还 closeDatabase 却没有对应的再开。硬做成可重入是这个子系统里的立项级改造。
-  // 
-  // 不重启会怎样(都实测过,不是推演):
-  //   1. 会话页整页停在骨架屏 —— 退出登录把它拆了,随后的登录没装回来,只有整页重载能救
-  //      (同账号同 localStorage,只重载:testid 7→20、骨架 20→0)
-  //   2. MCP grant 谁先 hydrate 谁盖章 —— grant 表在主进程内存里,重载渲染层碰不到它,
-  //      换回原账号也解不开,只能重启应用
-  // 
-  // 新进程把这两样一起清干净。代价是切账号会看到 app 重启一次,这是明面上的取舍。
-  const logoutAndRelaunch = async () => {
-    const result = await sessionCoordinator.logout()
-    // 只在真的登出成功后重启:失败路径会把会话恢复回来,这时候重启等于把用户踹出去。
-    if (result.success && platform.capabilities.appRelaunch) await platform.relaunchApp()
-    return result
-  }
+  // 登出之后的重启归协调器(sessionCoordinator 的 sessionEnded):登出与会话丢失是同一件事。
   const authContextValue = {
     user,
     loading,
     status: session.status,
     updateUser: sessionCoordinator.updateUser,
-    logout: logoutAndRelaunch,
+    logout: () => sessionCoordinator.logout(),
   }
   useEffect(() => {
     document.title = platform.documentTitle

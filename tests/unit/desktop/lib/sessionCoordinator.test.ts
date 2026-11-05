@@ -55,6 +55,7 @@ function harness(overrides: Partial<SessionCoordinatorDeps> = {}) {
     getPersistedSessionState: vi.fn(() => ({ bootCandidate: null, warning: null })),
     commitPersistedSession: vi.fn(async () => {}),
     clearPersistedSession: vi.fn(async () => {}),
+    sessionEnded: vi.fn(),
     subscribeAppForeground: vi.fn((listener, onError) => {
       foregroundListener = listener
       foregroundError = onError
@@ -846,5 +847,54 @@ describe('SessionCoordinator', () => {
     expect(h.deps.restoreSession).toHaveBeenCalledWith(
       expect.objectContaining({ refresh_token: 'refresh-user-a-rotated' }),
     )
+  })
+  // owner 11-05 Chole:更新重启后旧会话已被服务端注销 → 已登录界面挂上过、随即转过期 → 原地重新登录 → 会话页永远转圈。
+  // 一个进程只跑一段登录会话:它一结束(不管是用户退出还是服务端不认了),本地清理落地之后就要重启。
+  it('ends the run once cleanup lands when a shown session is lost, the same as an explicit sign-out', async () => {
+    const order: string[] = []
+    const h = harness({
+      getUser: vi.fn(async () => ({ data: { user: null }, error: { name: 'AuthApiError', status: 403, code: 'session_not_found' } })),
+      clearPersistedSession: vi.fn(async () => { order.push('persisted') }),
+      clearMirror: vi.fn(async () => { order.push('mirror') }),
+      sessionEnded: vi.fn(() => { order.push('ended') }),
+    })
+    h.coordinator.start()
+    h.fire('INITIAL_SESSION', session())
+    await flush()
+    expect(h.coordinator.getSnapshot()).toMatchObject({ status: 'expired', session: null })
+    expect(order).toEqual(['persisted', 'mirror', 'ended'])
+
+    const out = harness({
+      clearMirror: vi.fn(async () => { order.push('mirror-out') }),
+      sessionEnded: vi.fn(() => { order.push('ended-out') }),
+    })
+    out.coordinator.start()
+    await out.login(session())
+    await expect(out.coordinator.logout()).resolves.toEqual({ success: true })
+    expect(order.slice(-2)).toEqual(['mirror-out', 'ended-out'])
+  })
+  it('ends the run only for a shown session, and only after its mirror cleanup lands (retries included)', async () => {
+    const refused = harness({
+      getSession: vi.fn(async () => ({ data: { session: null }, error: { name: 'AuthApiError', status: 400, code: 'refresh_token_not_found' } })),
+      getPersistedSessionState: vi.fn(() => ({ bootCandidate: session('user-b'), warning: null })),
+    })
+    refused.coordinator.start()
+    await flush()
+    expect(refused.coordinator.getSnapshot()).toMatchObject({ status: 'expired', session: null })
+    expect(refused.deps.sessionEnded).not.toHaveBeenCalled()
+
+    vi.useFakeTimers()
+    const stuck = harness({
+      getUser: vi.fn(async () => ({ data: { user: null }, error: { name: 'AuthApiError', code: 'user_not_found' } })),
+      clearMirror: vi.fn().mockRejectedValueOnce(new Error('host unavailable')).mockResolvedValue(undefined),
+    })
+    stuck.coordinator.start()
+    stuck.fire('INITIAL_SESSION', session())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(stuck.deps.clearMirror).toHaveBeenCalledOnce()
+    expect(stuck.deps.sessionEnded).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(stuck.deps.clearMirror).toHaveBeenCalledTimes(2)
+    expect(stuck.deps.sessionEnded).toHaveBeenCalledOnce()
   })
 })

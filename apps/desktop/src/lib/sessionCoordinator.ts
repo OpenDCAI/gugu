@@ -7,6 +7,7 @@ import { publishRendererSession } from './sessionPublication'
 import { refreshSshMachines } from './sshLinkChannel'
 import { MAIN_AUTH_STORAGE_KEY, mainAuthSessionStorage, supabase } from './supabase'
 import { phoneHostAuthAvailable, phoneHostGetSession, phoneHostRefreshSession, phoneHostRestoreSession, phoneHostSignOut, setPhoneHostAuthHandoffBarrier } from './phoneHostAuth'
+import { rendererLogger } from './log'
 import { platform } from '../platform'
 import type { AuthUser } from '../store/auth'
 
@@ -27,11 +28,13 @@ export interface SessionCoordinatorDeps {
   commitPersistedSession: (session: Session, signal: AbortSignal) => Promise<void>
   clearPersistedSession: (session: Session, signal: AbortSignal) => Promise<void>
   subscribeAppForeground: (listener: () => void, onError: (error: unknown) => void) => () => void
+  /** The signed-in session this process was running ended (sign-out or loss) and its local cleanup has landed. */
+  sessionEnded: () => void
 }
 
 type RetryPurpose = 'restore' | 'validate' | 'refresh' | 'recovery' | 'terminal-storage' | 'mirror'
-type Work = { generation: number; userId?: string; accessToken?: string; refreshToken?: string }
-type TerminalPlan = { generation: number; session: Session | null; status: 'anonymous' | 'expired'; event: string }
+type Work = { generation: number; userId?: string; accessToken?: string; refreshToken?: string; endsRun?: boolean }
+type TerminalPlan = { generation: number; session: Session | null; status: 'anonymous' | 'expired'; event: string; ended: boolean }
 const RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000]
 const PROFILE_TIMEOUT_MS = 15_000
 // @@@3916 「一次 auth 操作最多等多久」由**我们自己**命名并拥有。
@@ -460,11 +463,14 @@ export class SessionCoordinator {
 
   private transitionWithoutSession(status: 'anonymous' | 'expired', event: string, session: Session | null): Promise<boolean> {
     if (this.terminalFlight) return this.terminalFlight
+    // Only a session this process published (the signed-in shell ran for it) ends a run; a boot candidate
+    // the server already refused before it was ever shown leaves nothing behind to restart.
+    const ended = this.snapshot.session !== null
     const generation = this.nextGeneration()
     // A null session is the normal initial anonymous path; there is no persisted
     // session to clean up, so publishing a cleanup warning would misclassify boot.
     if (session) this.degrade(new Error('Session cleanup pending'))
-    return this.startTerminal({ generation, session, status, event })
+    return this.startTerminal({ generation, session, status, event, ended })
   }
   private startTerminal(plan: TerminalPlan): Promise<boolean> {
     const flight = this.finishTerminal(plan)
@@ -490,7 +496,7 @@ export class SessionCoordinator {
     abortAuthSessionBoundary()
     this.deps.publishSession(plan.event, null)
     this.setSnapshot({ status: plan.status, session: null, user: null, error: this.deps.getPersistedSessionState().warning })
-    return this.setMirrorDesired(null, { generation: plan.generation }, true).then(() => true, () => false)
+    return this.setMirrorDesired(null, { generation: plan.generation, endsRun: plan.ended }, true).then(() => true, () => false)
   }
 
   private async setMirrorDesired(session: Session | null, work: Work, drainAfterStop = false,
@@ -502,7 +508,11 @@ export class SessionCoordinator {
     this.mirrorTail = task
     try {
       await task; this.resetRetry('mirror')
-      if (!session && drainAfterStop && version === this.mirrorVersion) this.setSnapshot({ ...this.snapshot, error: this.deps.getPersistedSessionState().warning })
+      if (!session && drainAfterStop && version === this.mirrorVersion) {
+        this.setSnapshot({ ...this.snapshot, error: this.deps.getPersistedSessionState().warning })
+        // 宿主镜像也清掉了(含退避重试后才清掉的):这段会话的本地收尾全部落地,才轮到结束本进程。
+        if (work.endsRun) this.deps.sessionEnded()
+      }
     }
     catch (error) {
       if (!session && drainAfterStop && version === this.mirrorVersion) {
@@ -605,6 +615,26 @@ export const sessionCoordinator = new SessionCoordinator({
   commitPersistedSession: (session, signal) => mainAuthSessionStorage.commit(session, signal),
   clearPersistedSession: (session, signal) => mainAuthSessionStorage.remove(session, signal),
   subscribeAppForeground: (listener, onError) => platform.subscribeAppForeground(listener, onError),
+  // 一个进程只跑一段登录会话:它结束(主动退出登录、或服务端已不认这份会话)= 重启 app(owner 拍板 2026-08-26
+  // 定的是退出登录;会话丢失是同一件事,只是不是用户按的)。
+  //
+  // 为什么不是「把任务运行时拆掉再装回来」:那个边界看着可拆(bootEmdashModule /
+  // disposeEmdashModule),实际是**一次性闩** —— dispose 用 `??=` 缓存 promise,第二次调
+  // 什么都不做;它也不注销 IPC handler(该文件 removeHandler 0 处命中),拆的是模块级单例,
+  // 还 closeDatabase 却没有对应的再开;会话页入口模块也只求值一次,再挂一次的外框永远等不到内容。
+  // 硬做成可重入是这个子系统里的立项级改造。
+  //
+  // 不重启会怎样(都实测过,不是推演):
+  //   1. 会话页整页停在加载动画 —— 会话结束把它拆了,随后的原地登录没装回来,只有整页重载能救
+  //      (owner 11-05 Chole:更新重启后会话已失效 → 原地重新登录 → 对话页一直转圈,完全退出重开才好)
+  //   2. MCP grant 谁先 hydrate 谁盖章 —— grant 表在主进程内存里,重载渲染层碰不到它,
+  //      换回原账号也解不开,只能重启应用
+  //
+  // 新进程把这两样一起清干净;本地会话与宿主镜像都已清掉,重启后落登录页。
+  sessionEnded: () => {
+    if (!platform.capabilities.appRelaunch) return
+    void platform.relaunchApp().catch((error) => rendererLogger('auth').error({ error }, 'relaunch after session end failed'))
+  },
 })
 setRejectedAccessTokenRecovery((rejected) => sessionCoordinator.recoverRejectedAccessToken(rejected))
 setPhoneHostAuthHandoffBarrier(sessionCoordinator.captureAuthHandoff)

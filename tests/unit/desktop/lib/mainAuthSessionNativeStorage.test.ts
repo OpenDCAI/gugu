@@ -68,6 +68,7 @@ describe('mainAuthSessionStorage native state agent', () => {
       getPersistedSessionState: mainAuthSessionStorage.getState,
       commitPersistedSession: mainAuthSessionStorage.commit,
       clearPersistedSession: mainAuthSessionStorage.remove,
+      sessionEnded: () => {},
       subscribeAppForeground: () => () => {},
     }
     const coordinator = new SessionCoordinator(deps)

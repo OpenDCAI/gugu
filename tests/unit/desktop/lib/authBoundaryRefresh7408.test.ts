@@ -31,6 +31,7 @@ function harness(refreshed: Session) {
     getPersistedSessionState: vi.fn(() => ({ bootCandidate: null, warning: null })),
     commitPersistedSession: vi.fn(async () => {}),
     clearPersistedSession: vi.fn(async () => {}),
+    sessionEnded: () => {},
     subscribeAppForeground: vi.fn(() => () => {}),
   }
   const coordinator = new SessionCoordinator(deps)

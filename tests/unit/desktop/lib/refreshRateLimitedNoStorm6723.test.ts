@@ -72,6 +72,7 @@ describe('rate-limited refresh stays bounded (#6723)', () => {
       getPersistedSessionState: () => mainAuthSessionStorage.getState(),
       commitPersistedSession: (value, signal) => mainAuthSessionStorage.commit(value, signal),
       clearPersistedSession: (value, signal) => mainAuthSessionStorage.remove(value, signal),
+      sessionEnded: () => {},
       subscribeAppForeground: () => () => {},
     })
     stopCoordinator = coordinator.start()

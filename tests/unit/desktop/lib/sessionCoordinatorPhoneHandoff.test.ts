@@ -32,6 +32,7 @@ function harness(overrides: Partial<SessionCoordinatorDeps> = {}) {
     publishSession: () => {}, writeMirror: async () => {}, clearMirror: async () => {},
     getPersistedSessionState: () => ({ bootCandidate: null, warning: null }),
     commitPersistedSession: async () => {}, clearPersistedSession: async () => {},
+    sessionEnded: () => {},
     subscribeAppForeground: () => () => {},
     ...overrides,
   }

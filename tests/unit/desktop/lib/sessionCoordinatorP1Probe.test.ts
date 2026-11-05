@@ -61,6 +61,7 @@ function harness(overrides: Partial<SessionCoordinatorDeps> = {}) {
     getPersistedSessionState: vi.fn(() => ({ bootCandidate: null, warning: null })),
     commitPersistedSession: vi.fn(async () => {}),
     clearPersistedSession: vi.fn(async () => {}),
+    sessionEnded: () => {},
     subscribeAppForeground: vi.fn((listener) => {
       foregroundListener = listener
       return vi.fn()
