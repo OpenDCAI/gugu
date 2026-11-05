@@ -278,7 +278,16 @@ export function useCreateSessionCallback({
 
     const deferFirstTurn = baseSession.type === 'acp' && files.length > 0;
     // #6264 别的机器上还没装所选的家:先在那台机器上装好再建(装不上就不建,原因说出来)。
-    void (beforeCreate ? beforeCreate() : Promise.resolve()).then(() => sessionManager.createSession(createInput, deferFirstTurn ? { deferFirstTurn: true } : undefined)).then(async () => {
+    let openedOptimistically = false;
+    void (beforeCreate ? beforeCreate() : Promise.resolve()).then(() => sessionManager.createSession(createInput, {
+      ...(deferFirstTurn ? { deferFirstTurn: true } : {}),
+      onOptimistic: () => {
+        if (!openAfterCreate) return;
+        openedOptimistically = true;
+        navigate('session', { projectId: selectedProjectId, sessionId });
+        onClose();
+      },
+    })).then(async () => {
       if (submission) submission.created = true;
       // The new-session memory never stands in the way (L11 复核 58): the session is made, its first line sent and the
       // box closed even when this computer cannot save what was picked — said in the log and in a light notice. Written
@@ -324,13 +333,12 @@ export function useCreateSessionCallback({
       if (!submission) input.setPrompt((current) => retainNewerInput(submittedPrompt, current));
       finishSubmission(submission);
       onCreated?.({ projectId: selectedProjectId, sessionId });
-      if (openAfterCreate) navigate('session', { projectId: selectedProjectId, sessionId: sessionId });
-      else {
+      if (!openAfterCreate) {
         void rpcOn(machineRegistry.machineOf(selectedProjectId) ?? null).sessionTimeline.sessionStart({ conversationId: sessionId }).then((started) => {
           if (!started.ok) log.warn('start a session nobody opens failed', { sessionId, error: started.error });
         });
       }
-      onClose();
+      if (!openedOptimistically) onClose();
     }, (error: unknown) => {
       // @@@5173 已知的建任务失败带着领域语义过来 ⇒ 成句在这里发生,给用户看的是产品文案。
       // ❌ 别再把 `createSession failed: <type>` 这种开发者诊断串铺给用户 —— 那条路上文案分岔
@@ -342,6 +350,7 @@ export function useCreateSessionCallback({
         ? error.failure
         : { kind: 'raw', detail: error instanceof Error ? error.message : String(error) };
       finishSubmission(submission, true);
+      if (openedOptimistically && !submission?.created) navigate('new-session');
       if (failure.kind !== 'harness-unavailable') setDeliveryError(failure);
       log.error(pendingMessage() ? 'send message to created session failed' : 'create session failed', error);
     }).catch((error: unknown) => {

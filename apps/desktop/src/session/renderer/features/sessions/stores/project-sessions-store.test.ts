@@ -17,7 +17,7 @@ type MockViewModel = {
 };
 
 const mocks = vi.hoisted(() => ({
-  createSession: vi.fn(),
+  createAndProvisionSession: vi.fn(),
   sessionAcquire: vi.fn(),
   sessionRelease: vi.fn(),
   getSessionsForProject: vi.fn(),
@@ -56,7 +56,7 @@ vi.mock('@renderer/lib/ipc', () => {
       getPullRequestsForSession: mocks.getPullRequestsForSession,
     },
     sessionCreate: {
-      createSession: mocks.createSession,
+      createAndProvisionSession: mocks.createAndProvisionSession,
       provisionWorkspace: mocks.provisionWorkspace,
       getProjectWorkspaces: mocks.getProjectWorkspaces,
     },
@@ -168,6 +168,9 @@ describe('ProjectSessionsStore session lifecycle', () => {
         workspaceId: 'workspace-1',
       },
     });
+    mocks.createAndProvisionSession.mockResolvedValue({ stage: 'provision', result: {
+      success: true, data: { path: '/tmp/workspace-1', workspaceId: 'workspace-1' },
+    } });
     mocks.viewStateGet.mockResolvedValue(undefined);
   });
 
@@ -178,7 +181,7 @@ describe('ProjectSessionsStore session lifecycle', () => {
   //    ❌ 不是 i18n 键名(缺键时 i18next 原样吐键),❌ 也不是 `harness-unavailable` 这种诊断串。
   it('speaks an engine-unavailable failure through the toast channel and leaves no session row', async () => {
     const manager = makeSessionManager();
-    mocks.createSession.mockResolvedValue({
+    mocks.createAndProvisionSession.mockResolvedValue({ stage: 'create', result: {
       success: false,
       error: {
         type: 'harness-unavailable',
@@ -187,7 +190,7 @@ describe('ProjectSessionsStore session lifecycle', () => {
         harnessName: 'claude',
         detail: 'harness "claude" is being replaced',
       },
-    });
+    } });
 
     await expect(
       manager.createSession({
@@ -259,10 +262,6 @@ describe('ProjectSessionsStore session lifecycle', () => {
 
   it('keeps the composer effort on the optimistic conversation used to start ACP', async () => {
     const manager = makeSessionManager();
-    mocks.createSession.mockResolvedValue({
-      success: true,
-      data: { session: makeSession({ id: 'conversation-effort' }) },
-    });
 
     await manager.createSession({
       projectId: 'project-1',
@@ -432,6 +431,41 @@ describe('ProjectSessionsStore session lifecycle', () => {
 
     await expect(manager.provisionSession(session.id)).rejects.toThrow('此刻连不上 Linux 2');
     expect(store.phase).toBe('provision-error');
+    manager.dispose();
+  });
+
+  it('publishes the optimistic row before the single RPC completes and shares its provision with an opened pane', async () => {
+    const manager = makeSessionManager();
+    let finish!: (value: unknown) => void;
+    mocks.createAndProvisionSession.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const onOptimistic = vi.fn(() => expect(manager.sessions.get('new-task')?.phase).toBe('creating'));
+    const creating = manager.createSession({ projectId: 'project-1',
+      sessionConfig: { version: '1', name: 'New task', initialSession: { id: 'new-task', provider: 'claude', initialPrompt: 'Start this task' } },
+      workspaceConfig: { workspace: { kind: 'worktree' } },
+    } as never, { onOptimistic });
+    await vi.waitFor(() => expect(onOptimistic).toHaveBeenCalledOnce());
+    const pane = manager.provisionSession('new-task');
+    finish({ stage: 'provision', result: { success: true, data: { path: '/tmp/workspace-1', workspaceId: 'workspace-1' } } });
+    await Promise.all([creating, pane]);
+    expect(mocks.createAndProvisionSession).toHaveBeenCalledOnce();
+    expect(mocks.provisionWorkspace).not.toHaveBeenCalled();
+    expect(mocks.getSessionsForProject).not.toHaveBeenCalled();
+    expect(manager.sessions.get('new-task')?.state).toBe('provisioned');
+    manager.dispose();
+  });
+
+  it('keeps a created row retryable when the combined operation reports preparation failure', async () => {
+    const manager = makeSessionManager();
+    mocks.createAndProvisionSession.mockResolvedValueOnce({ stage: 'provision-error', message: 'Workspace setup failed' });
+    await manager.createSession({ projectId: 'project-1',
+      sessionConfig: { version: '1', name: 'Task', initialSession: { id: 'new-task', provider: 'claude', initialPrompt: 'Start' } },
+      workspaceConfig: { workspace: { kind: 'worktree' } },
+    } as never);
+    expect(manager.sessions.get('new-task')?.phase).toBe('provision-error');
+    expect(manager.sessions.get('new-task')?.failure).toEqual({ kind: 'raw', detail: 'Workspace setup failed' });
+    await manager.provisionSession('new-task');
+    expect(manager.sessions.get('new-task')?.state).toBe('provisioned');
+    expect(mocks.createAndProvisionSession).toHaveBeenCalledOnce();
     manager.dispose();
   });
 });
