@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modal = vi.hoisted(() => ({ last: null as null | Record<string, (...args: unknown[]) => void> & { description?: string } }));
@@ -45,12 +46,36 @@ describe('关掉会话自己那枚页签:它还开着别的页签就问「会话
     view.layout = null;
   });
 
+  it('defaults confirmation to closing only this session and preserves its folder tabs', async () => {
+    const l = layout();
+    view.layout = l;
+    const answer = confirmCloseSessionTab('s1', ctx, { alone: true });
+    expect(modal.last).toMatchObject({ confirmLabel: 'task.closeSessionOnly', cancelLabel: 'task.closeSessionAndTabs' });
+    modal.last!.onSuccess({});
+    expect(await answer).toBe(true);
+    expect(l.closed).toEqual([]);
+  });
+
+  it('names the other tabs from their rendered strip labels rather than generic kind names', async () => {
+    const l = layout();
+    view.layout = l;
+    const strip = document.createElement('div');
+    strip.innerHTML = '<div data-tabid="side" data-tab-label="Folder"></div><div data-tabid="web" data-tab-label="README.md"></div>';
+    document.body.appendChild(strip);
+    const answer = confirmCloseSessionTab('s1', ctx, { alone: true });
+    try {
+      expect(modal.last?.description).toContain('Folder');
+      expect(modal.last?.description).toContain('README.md');
+    } finally { modal.last!.onClose(); strip.remove(); }
+    expect(await answer).toBe(false);
+  });
+
   it('会话和页签都关:先把别的页签一枚枚关掉,再关它自己', async () => {
     const l = layout();
     view.layout = l;
     const answer = confirmCloseSessionTab('s1', ctx, { alone: true });
     expect(modal.last?.description).toContain('"count":2');
-    modal.last!.onSuccess({});
+    modal.last!.onCancel();
     expect(await answer).toBe(true);
     expect(l.closed).toEqual(['side', 'web']);
   });
@@ -59,7 +84,7 @@ describe('关掉会话自己那枚页签:它还开着别的页签就问「会话
     const l = layout();
     view.layout = l;
     const only = confirmCloseSessionTab('s1', ctx, { alone: true });
-    modal.last!.onCancel();
+    modal.last!.onSuccess({});
     expect(await only).toBe(true);
     expect(l.closed).toEqual([]);
 
@@ -73,7 +98,7 @@ describe('关掉会话自己那枚页签:它还开着别的页签就问「会话
     const l = layout();
     view.layout = l;
     const answer = confirmCloseSessionTab('s1', ctx, { alone: true });
-    modal.last!.onSuccess({});
+    modal.last!.onCancel();
     modal.last!.onClose();
     expect(await answer).toBe(true);
   });

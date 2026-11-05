@@ -98,6 +98,16 @@ export class BrowserWebContentsRegistry {
     this.browserShortcuts = getBrowserShortcuts(keyboard);
   }
 
+  /** The existing native guest shortcut path, shared by browser and App surfaces. */
+  bindAppShortcuts(contents: WebContents, onCommand: (id: CommandId) => boolean, onTab?: (direction: 'next' | 'previous') => boolean): void {
+    contents.on('before-input-event', (event, input) => {
+      const direction = getElectronTabNavigationDirection(input);
+      if (direction && onTab?.(direction)) { event.preventDefault(); return; }
+      const command = getBrowserShortcutKey(input, this.browserShortcuts);
+      if (command && onCommand(command)) event.preventDefault();
+    });
+  }
+
   get registeredPartitions(): ReadonlySet<string> {
     const partitions = new Set<string>();
     for (const registered of this.sessionsByBrowserId.values()) {
@@ -271,40 +281,22 @@ export class BrowserWebContentsRegistry {
       return { action: 'deny' };
     });
 
-    webContents.on('before-input-event', (event, input) => {
-      const tabNavigationDirection = getElectronTabNavigationDirection(input);
-      if (tabNavigationDirection) {
-        const browserId = this.browserIdByWebContentsId.get(webContents.id);
-        if (browserId) {
-          event.preventDefault();
-          events.emit(tabNavigationShortcutChannel, {
-            source: { kind: 'browser', browserId },
-            direction: tabNavigationDirection,
-          });
-          return;
-        }
-      }
-
-      const commandId = getBrowserShortcutKey(input, this.browserShortcuts);
-      if (commandId === null) return;
-
+    this.bindAppShortcuts(webContents, (commandId) => {
       if (commandId !== 'session.browserCopyUrl') {
         const browserId = this.browserIdByWebContentsId.get(webContents.id);
-        if (!browserId) return;
-        event.preventDefault();
-        events.emit(browserAppShortcutChannel, {
-          source: { kind: 'browser', browserId },
-          commandId,
-        });
-        return;
+        if (!browserId) return false;
+        events.emit(browserAppShortcutChannel, { source: { kind: 'browser', browserId }, commandId });
+        return true;
       }
-
       const normalized = normalizeBrowserUrl(webContents.getURL(), { allowSearchQueries: false });
-      if (!normalized.ok || !isExternalHttpUrl(normalized.url)) return;
-      event.preventDefault();
-      copyTextThenNotify(normalized.url, () =>
-        events.emit(browserLinkCopiedChannel, { kind: 'url', url: normalized.url }),
-      );
+      if (!normalized.ok || !isExternalHttpUrl(normalized.url)) return false;
+      copyTextThenNotify(normalized.url, () => events.emit(browserLinkCopiedChannel, { kind: 'url', url: normalized.url }));
+      return true;
+    }, (direction) => {
+      const browserId = this.browserIdByWebContentsId.get(webContents.id);
+      if (!browserId) return false;
+      events.emit(tabNavigationShortcutChannel, { source: { kind: 'browser', browserId }, direction });
+      return true;
     });
 
     webContents.on('context-menu', (event, params) => {

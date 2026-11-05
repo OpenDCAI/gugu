@@ -330,12 +330,9 @@ export function DirectoryList({
       }
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      // @@@state-ladder-mix 本轮「焦点环全废」清理**刻意跳过这一处**。它不是装饰性焦点环:
-      // 叶子目录(只有文件、没有子目录)时 activeIndex = -1、没有任何行被高亮,容器这圈环是
-      // 键盘用户唯一的焦点指示(WCAG 2.4.7)。remote-directory-selector-style.test.tsx 里
-      // 「should show where focus is even when the directory has no subdirectories」就是守它的。
-      // 与 product spec「任何情况都无环」冲突,已上报 owner 裁决,未裁决前保留。
-      className="group/dirlist absolute inset-0 overflow-y-auto focus:ring-2 focus:ring-inset focus:ring-border-primary focus:outline-none"
+      // 叶子目录(只有文件、没有子目录)时 activeIndex = -1、没有任何行被高亮,容器这圈环是键盘用户唯一的
+      // 焦点指示(WCAG 2.4.7)。按 @@@focus-visible-7333 只给键盘焦点画;画在内侧,因为外偏的全局环会被滚动容器裁掉。
+      className="group/dirlist absolute inset-0 overflow-y-auto focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-primary focus-visible:outline-none"
     >
       {renderContent()}
     </div>

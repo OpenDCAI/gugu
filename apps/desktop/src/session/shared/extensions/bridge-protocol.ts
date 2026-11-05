@@ -85,7 +85,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 29: tools modules are host-confined.
 /** Tools modules opt into host confinement from this API. Final numbering follows dev at merge. */
 export const EXTENSION_TOOL_CONFINEMENT_API_VERSION = 29;
-export const EXTENSION_API_VERSION = EXTENSION_TOOL_CONFINEMENT_API_VERSION;
+// 30: source-aware page history; navigation.go(-1|1) and context navigation availability.
+export const EXTENSION_API_VERSION = 30;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -180,6 +181,10 @@ export interface ExtensionHostContext {
    * instances apart. Absent on a page nobody draws — the background page, a program.
    */
   tabId?: string;
+  /** Opaque state of this navigation page; never grants or selects a resource. */
+  viewState?: Record<string, unknown>;
+  /** Back may reveal this tab's host-recorded conversation opener; no target ids are exposed. */
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   /** A host modal's initial data, under the opener's context and existing grants. */
   modal?: { data?: unknown };
   /**
@@ -688,6 +693,7 @@ export const BRIDGE_VERBS = {
   modalKey: { needs: null, only: 'page' },
   /** Facts about where this surface sits. */
   getContext: { needs: null },
+  navigationGo: { needs: null, only: 'page' },
   showContextMenu: { needs: null, only: 'page' },
   /**
    * What the app is showing right now.
@@ -847,8 +853,11 @@ export const BRIDGE_VERBS = {
    * open read-write: the file the host handed this page needs nothing, any other `files:write` (checked in `app-files.ts`).
    */
   filesReplace: { needs: null },
-  /** Whether whoever reads may delete each file: asked as a file's menu opens, for that file (a list never carries it). */
-  filesCanDelete: { needs: 'files:read', only: 'page' },
+  /**
+   * Whether whoever reads may delete each file: asked as a file's menu opens, for that file (a list never carries it), or
+   * by a program for the files it is about to delete, all at once (the folder App's delete with item_ids).
+   */
+  filesCanDelete: { needs: 'files:read' },
   /** A chat file's kept versions, and one version's content (G2). Gated like open read-only, in `app-files.ts`. */
   filesVersions: { needs: null },
   filesReadVersion: { needs: null },

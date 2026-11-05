@@ -30,12 +30,12 @@ const nextPaint = (): Promise<void> =>
  * highlighted DOM is what the case measures, so it is produced here and checked at
  * mount as a fact rather than waited for as an event.
  */
-function warmCommandHighlight(caches: ChatCaches, item: ChatExecute): void {
+async function warmCommandHighlight(caches: ChatCaches, item: ChatExecute): Promise<void> {
   const source = createExecuteLines(item)
     .filter((line) => line.kind === 'command')
     .map((line) => line.text)
     .join('\n');
-  if (!caches.highlight(source, 'bash')) {
+  if (!(await caches.highlightWhenReady(source, 'bash'))) {
     throw new Error(`the bash highlighter produced no tokens for ${JSON.stringify(source)}`);
   }
 }
@@ -122,7 +122,7 @@ describe('Execute command wrapping contract', () => {
   it('matches the measured height to Chromium natural layout at punctuation boundaries', async () => {
     const item = executeItem('echo (alpha)[beta]{gamma};delta|epsilon&&zeta||eta');
     const caches = createChatCaches();
-    warmCommandHighlight(caches, item);
+    await warmCommandHighlight(caches, item);
     const mounted = await mountExecute(item, 306, true, 'light', caches);
 
     try {

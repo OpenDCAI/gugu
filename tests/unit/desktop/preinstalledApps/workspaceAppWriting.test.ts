@@ -60,9 +60,10 @@ const md = {
   }),
 }
 const gugu = {
+  navigation: { go: vi.fn(async (_delta: number) => true) },
   linkTo: vi.fn(async ({ file, at }: { file: { id: string }; at?: { lines: string } }) => `gugu-file://${file.id}${at ? `#${at.lines}` : ''}`),
   setTabTitle: vi.fn(async () => {}),
-  getContext: vi.fn(async () => ({ chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'plan' }, locale: 'en', capabilities: ['files:read', 'files:write'] })),
+  getContext: vi.fn(async () => ({ chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, file: { chat: 'chat-1', id: 'plan' }, locale: 'en', navigation: { canBack: true, canForward: false, backToConversation: true }, capabilities: ['files:read', 'files:write'] })),
   onContextChanged: vi.fn(() => () => {}),
   onLink: vi.fn(() => () => {}),
   dispatch: vi.fn(async (_text: string, _options: unknown) => ({ to: { chat: 'chat-1' } })),
@@ -184,7 +185,7 @@ describe('markdown redesign: the real document page', () => {
   test('M5 reading right-click offers only block links and citing, with the original line fingerprint', async () => {
     const block = paragraph()
     block.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 80, clientY: 110 }))
-    expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat'])
+    expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite'])
     menuItems()[0]!.click()
     await until('the block link is copied', () => gugu.clipboard.writeText.mock.calls.length > 0)
     expect(gugu.linkTo).toHaveBeenLastCalledWith(expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '6' }) }))
@@ -257,6 +258,13 @@ describe('markdown redesign: the real document page', () => {
 })
 
 describe('folder documents: reading', () => {
+  test('a handed file exposes its host-owned Back to conversation through the existing navigation API', async () => {
+    const back = $('page-back') as HTMLButtonElement;
+    expect(back.disabled).toBe(false);
+    expect(back.textContent).toContain('Back to conversation');
+    back.click();
+    expect(gugu.navigation.go).toHaveBeenCalledWith(-1);
+  });
   test('a document opens on its reading; a task ticked there ticks its line in the source, and only that', async () => {
     expect(document.body.dataset.mode).toBe('preview')
     const boxes = [...$('preview').querySelectorAll<HTMLInputElement>('input[type=checkbox]')]
@@ -302,7 +310,7 @@ describe('folder documents: reading', () => {
       hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
       expect($('block-controls').hidden).toBe(true)
       $('preview').querySelector('p[data-line="6-6"]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
-      expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat'])
+      expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite'])
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
       view().focus()
     } finally {

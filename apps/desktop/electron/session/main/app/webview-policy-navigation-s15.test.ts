@@ -8,11 +8,18 @@ import { describe, expect, it, vi } from 'vitest';
  */
 
 const reported = vi.hoisted(() => [] as unknown[][]);
+const nativeNavigation = vi.hoisted(() => vi.fn(() => true));
 vi.mock('electron', () => ({ app: { on: () => undefined }, webContents: { getAllWebContents: () => [] } }));
 vi.mock('@main/core/extensions/bridge-preload-path', () => ({ extensionBridgePreloadCandidates: () => [], resolveExtensionBridgePreload: () => null }));
 vi.mock('@main/core/extensions/extension-session', () => ({ extensionIdForSession: () => 'board', configuredExtensionIds: () => new Set(['board']) }));
-vi.mock('@main/core/extensions/extension-bridge', () => ({ reportBlockedNavigation: (...args: unknown[]) => void reported.push(args) }));
+vi.mock('@main/core/extensions/extension-bridge', () => ({ reportBlockedNavigation: (...args: unknown[]) => void reported.push(args), forwardSurfaceNavigation: nativeNavigation }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: () => undefined, error: () => undefined, info: () => undefined } }));
+vi.mock('@main/core/browser/browser-webcontents-registry', () => ({ browserWebContentsRegistry: {
+  bindAppShortcuts: (page: EventEmitter, onCommand: (id: string) => boolean) => page.on('before-input-event', (event, input) => {
+    const id = input.meta && input.type === 'keyDown' ? input.key === '[' ? 'app.navigateBack' : input.key === ']' ? 'app.navigateForward' : null : null;
+    if (id && onCommand(id)) event.preventDefault();
+  }),
+} }));
 
 const { governWebContents } = await import('./webview-policy');
 
@@ -43,6 +50,20 @@ async function reportsSettle(count: number): Promise<void> {
 }
 
 describe('an App page stays on its own origin (S15)', () => {
+  it('forwards native back/forward while the guest owns focus, and leaves ordinary keys alone', async () => {
+    const { page } = attachedAppPage();
+    nativeNavigation.mockClear();
+    for (const [key, delta] of [['[', -1], [']', 1]] as const) {
+      const event = { preventDefault: vi.fn() };
+      page.emit('before-input-event', event, { type: 'keyDown', key, meta: true });
+      await vi.waitFor(() => expect(nativeNavigation).toHaveBeenCalledWith(41, delta));
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+    }
+    const ordinary = { preventDefault: vi.fn() };
+    page.emit('before-input-event', ordinary, { type: 'keyDown', key: 'a' });
+    expect(ordinary.preventDefault).not.toHaveBeenCalled();
+    expect(nativeNavigation).toHaveBeenCalledTimes(2);
+  });
   it('going to another site is stopped, and the author is told — the address as the page tried it', async () => {
     const { navigate } = attachedAppPage();
     reported.length = 0;

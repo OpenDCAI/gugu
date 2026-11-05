@@ -176,8 +176,6 @@ export default {
     },
     "operationFailed": "The operation failed. Try again.",
     "pinnedMessage": "📌 One pinned message",
-    "searchMessages": "Search messages",
-    "searchNoResults": "No messages found for “{{query}}”",
     "selectedMessages": "{{count}} selected",
     "selectedMessages_one": "{{count}} selected",
     "selectedMessages_other": "{{count}} selected",
@@ -771,7 +769,6 @@ export default {
       "failed": "Not delivered",
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
-      "queued": "Waiting to be received",
       "undelivered": "instance not running, not delivered",
       "sending": "Sending",
       "stopped": "Stopped. Sends with your next message.",
@@ -820,6 +817,7 @@ export default {
     "widget": "[Widget]",
     "widgetUnavailable": { "missing": "App is not installed.", "disabled": "App is switched off.", "view": "This App view is unavailable.", "platform": "This App cannot run here." }
   },
+  "searchTrail": {"position": "“{{query}}” {{index}}/{{total}}", "positionNoWords": "{{index}}/{{total}}", "previous": "Previous", "next": "Next (⌘G)", "results": "Results", "close": "Close search"},
   "outbox": {
     "selectFileAgain": "Upload interrupted. Select the file again.",
     "sourceNotSent": "The original message was not sent. Retry it before forwarding again.",

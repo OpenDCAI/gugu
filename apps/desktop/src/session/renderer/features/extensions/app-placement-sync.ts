@@ -1,7 +1,6 @@
 import { autorun } from 'mobx';
 import type { sessionTabView } from '@renderer/features/sessions/session-tab-registry';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
-import { appPlacementStore } from './app-placement-store';
 import { installedExtensionsStore } from './installed-extensions-store';
 
 type SessionPaneLayout = ReturnType<typeof sessionTabView.createPaneLayoutStore>;
@@ -23,7 +22,7 @@ const isResident = (state: unknown): boolean => !(state as { filePath?: string }
  *
  * 收用的是强关:这不是人在关它(人关它 = 从这里拿走,见 extension-tab-provider 的 onBeforeClose),不该再改那张表。
  */
-export function startAppPlacementSync(paneLayout: SessionPaneLayout, sessionId: string): () => void {
+export function startAppPlacementSync(paneLayout: SessionPaneLayout, _sessionId: string): () => void {
   return autorun(() => {
     for (const { pane } of paneLayout.groups) {
       const doomed: string[] = [];
@@ -32,7 +31,7 @@ export function startAppPlacementSync(paneLayout: SessionPaneLayout, sessionId: 
         if (!entry || !parseExtensionTabKind(entry.kind) || !isResident(entry.state)) continue;
         const contribution = installedExtensionsStore.allTabContributions.find((c) => c.kind === entry.kind);
         if (contribution?.perSession || (entry.state as { perSession?: true } | undefined)?.perSession) continue;
-        if (contribution?.forFiles || appPlacementStore.of(entry.kind)?.sessionId !== sessionId) doomed.push(tabId);
+        if (contribution?.forFiles) doomed.push(tabId);
       }
       for (const tabId of doomed) pane.closeTab(tabId);
     }

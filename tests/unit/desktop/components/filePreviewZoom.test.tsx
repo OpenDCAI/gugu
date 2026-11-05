@@ -42,9 +42,12 @@ it('zooms the actual workspace image using its fitted geometry and retains the i
   expect(parseFloat((await draw('second.png')).style.width)).toBeCloseTo(before * 1.2)
 })
 
+// Installed only under apps/desktop: the bare name does not resolve from tests/, so a mock under it misses the product import.
+const PDFJS = '../../../../apps/desktop/node_modules/pdfjs-dist/legacy/build/pdf.mjs'
+
 it('keeps PDF zoom on its existing content control and leaves its toolbar unscaled', async () => {
   // Rendering is deliberately pending: zoom ownership must already work before the PDF library answers.
-  vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ promise: new Promise(() => {}), destroy() {} }) }))
+  vi.doMock(PDFJS, () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ promise: new Promise(() => {}), destroy() {} }) }))
   await harness.render(createElement(DocumentPreviewContent, { kind: 'pdf', content: new ArrayBuffer(0), title: 'report.pdf' }))
   const viewport = harness.container.querySelector<HTMLElement>('.document-preview-pdf-viewport')!
   viewport.tabIndex = -1; viewport.focus()
@@ -53,7 +56,7 @@ it('keeps PDF zoom on its existing content control and leaves its toolbar unscal
   expect(harness.container.querySelector('.document-preview-zoom')!.textContent).toBe('120%')
   expect((harness.container.querySelector('.document-preview-toolbar') as HTMLElement).style.zoom).toBe('')
   expect(n.contents.setZoomLevel).not.toHaveBeenCalled()
-  vi.doUnmock('pdfjs-dist/legacy/build/pdf.mjs')
+  vi.doUnmock(PDFJS)
 })
 
 it.each(['markdown', 'text'] as const)('native zoom changes %s content while the host window stays at its original scale; reset and reopen retain the type preference', async kind => {

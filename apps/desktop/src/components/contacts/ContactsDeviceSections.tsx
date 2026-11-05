@@ -2,6 +2,9 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import { Collapse } from '../ui/Collapse'
+import { ListRow } from '../ui/ListRow'
+import { displayName } from '@/lib/contactsListSort'
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { SectionLabel } from '../ui/SectionLabel'
 import { ChevronDown } from '@/lib/icons'
 import { useDevicesStore } from '../../store/devicesContext'
@@ -60,6 +63,9 @@ export function ContactsDeviceSections({
   const [openByKey, setOpenByKey] = useState<Record<string, boolean>>({})
   const isOpen = (key: string) => openByKey[key] ?? defaultOpen(key)
   const toggle = (key: string) => setOpenByKey((prev) => ({ ...prev, [key]: !(prev[key] ?? defaultOpen(key)) }))
+  const setOpen = (key: string) => (open: boolean) => setOpenByKey((prev) => ({ ...prev, [key]: open }))
+  // 展开过一次(点开,或页内查找命中时 beforematch 经 Collapse 要求展开)就一直是完整行:收起动画里看到的仍是完整行。
+  const everOpened = (key: string) => isOpen(key) || key in openByKey
 
   const titleOf = (section: ContactsDeviceSection): string => {
     if (section.scope === 'local') return t('panel.localDeviceSectionTitle')
@@ -84,9 +90,9 @@ export function ContactsDeviceSections({
             >
               {titleOf(section)}
             </SectionLabel>
-            <Collapse open={open} className="gg-c-sec-body">
-              {section.agents.map(renderAgent)}
-              {section.groups.map(renderGroup)}
+            <Collapse open={open} onOpenChange={setOpen(section.key)} className="gg-c-sec-body">
+              {everOpened(section.key) ? section.agents.map(renderAgent) : section.agents.map((c) => <FoldedRow key={c.id} name={displayName(c)} />)}
+              {everOpened(section.key) ? section.groups.map(renderGroup) : section.groups.map((g) => <FoldedRow key={g.id} name={groupDisplayName(g)} />)}
               {isPrimary ? (
                 <ContactsAgentSectionState isEmpty={empty} onCreateAgent={onCreateAgent} />
               ) : null}
@@ -106,10 +112,16 @@ export function ContactsDeviceSections({
       >
         {t('panel.groupSectionTitle')}
       </SectionLabel>
-      <Collapse open={isOpen(GROUPS_KEY)} className="gg-c-sec-body">
+      <Collapse open={isOpen(GROUPS_KEY)} onOpenChange={setOpen(GROUPS_KEY)} className="gg-c-sec-body">
         {partition.cloudGroups.map(renderGroup)}
         <ContactsGroupSectionState isEmpty={empty} onCreateGroup={onCreateGroup} />
       </Collapse>
     </>
   )
+}
+
+// @@@folded-rows - 从没展开过的段(设备段默认收起):行只留名字这一个文字节点 —— 页内查找照样搜得到(#4323 hidden="until-found"),
+// 头像 SVG、状态、悬停菜单这些重的子树等第一次展开再挂。几何与完整行同高(头像位 + 两行),命中那一下浏览器滚到的位置不偏。
+function FoldedRow({ name }: { name: string }) {
+  return <ListRow leading={<div className="h-[var(--avatar-sm)] w-[var(--avatar-sm)] shrink-0" />} title={name} subtitle={'\u00a0'} />
 }

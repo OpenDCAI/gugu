@@ -20,23 +20,23 @@ function setup() {
     TabContent: () => null,
   });
   const layout = new PaneLayoutStore(createTabRegistry([provider('file'), provider('session'), provider('acp-chat'), provider('side-chat')]), { viewId: 'task-1' });
-  const add = (kind: string, path: string, preview = false) => {
-    layout.open(kind, { path }, { preview });
+  const add = (kind: string, path: string, _preview = false) => {
+    layout.open(kind, { path }, { intent: 'newTab', from: null });
     return sessionPaneTabs(layout).find((tab) => tab.title === path)!.tab_id;
   };
   return { layout, add, confirm, dispose };
 }
 
 describe('the calling task live tabs', () => {
-  it('counts reused previews once and includes detached-window tabs', () => {
+  it('lists independent contexts and includes detached-window tabs', () => {
     const { layout, add } = setup();
     add('session', 'Conversation');
     add('file', 'draft.html', true);
     const final = add('file', 'final.html', true);
-    expect(sessionPaneTabs(layout).map((tab) => tab.title)).toEqual(['Conversation', 'final.html']);
+    expect(sessionPaneTabs(layout).map((tab) => tab.title)).toEqual(['Conversation', 'draft.html', 'final.html']);
     expect(layout.detachToWindow(final)).not.toBeNull();
     expect(sessionPaneTabs(layout)).toContainEqual({ tab_id: final, title: 'final.html', kind: 'file', closable: true });
-    expect(sessionPaneTabs(layout)).toHaveLength(2);
+    expect(sessionPaneTabs(layout)).toHaveLength(3);
     layout.dispose();
   });
 

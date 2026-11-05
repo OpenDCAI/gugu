@@ -28,7 +28,7 @@ it('paints already-read work messages while the newly opened chat history is sti
  cloud.get.mockResolvedValue({work,events:[{work_id:workId,message_id:'first-paint-result',kind:'completed',source_available:true,source_message_id:null,content:'Already known result',attachment_refs:[],from_session_id:session,to_session_id:'main',platform_received_at:'2026-10-26T08:00:00Z'}]})
  cloud.historyAll.mockReturnValue(new Promise(()=>{}))
  rememberAssistantTaskChat(owner,task)
- function Rows(){const result=useTaskChatRows([],owner,task.taskAgentId,true,'');return <div>{result.rows.map(row=><p key={row.message.id}>{row.message.content}</p>)}</div>}
+ function Rows(){const result=useTaskChatRows([],owner,task.taskAgentId,true);return <div>{result.rows.map(row=><p key={row.message.id}>{row.message.content}</p>)}</div>}
  function Page(){const read=useAssistantWorkDetail(owner,assistant,workId,session);return read.detail?<Rows/>:null}
  await harness.render(<Page/>)
  await vi.waitFor(()=>expect(harness.container.textContent).toContain('Already known result'))

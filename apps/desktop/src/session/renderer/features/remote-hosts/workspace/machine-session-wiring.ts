@@ -1,3 +1,4 @@
+import { sessionConversationTabId } from '@renderer/features/sessions/view/session-pane-policy';
 // #6264 一套工作台:看着别的机器上的一条会话时,这台电脑才有的那几件事 —— 会话视图本身与本机同一个。
 //  · 那台机器上的 agent 调 `open_in_tab` / 程序要「打开网页」:开进这条会话的工作区(remote-pane-viewer.ts)。屏上的
 //    每一条都订着,那台机器的闲置回收也认这份订阅(「有人看着」);
@@ -71,7 +72,7 @@ function sessionView(projectId: string, sessionId: string) {
 function openInBrowserTab(projectId: string, sessionId: string, url: string): boolean {
   const view = sessionView(projectId, sessionId);
   if (!view) return false;
-  view.activePane.open('browser', { initialUrl: url }, { preview: false });
+  view.activePane.open('browser', { initialUrl: url }, { intent: 'newTab' });
   return true;
 }
 
@@ -110,10 +111,10 @@ function openRequested(session: ViewedMachineSession, request: SessionpagePaneOp
   if (request.target.kind === 'browser' && !browser) return { ok: false, failure: 'no_browser' };
   const view = sessionView(session.projectId, session.sessionId);
   if (!view) return { ok: false, failure: 'open_failed' };
-  const preview = request.intent === 'preview';
+  const from = sessionConversationTabId(view.paneLayout, session.sessionId);
   // 和本机 agent 打开同一个位置:对话右边并排(spec session-page「并排」)。
-  if (request.target.kind === 'file') view.paneLayout.open('file', { path: request.target.path }, { preview, beside: true, activate: false });
-  else view.showPage(request.target.url, { preview, reload: true, beside: true, activate: false });
+  if (request.target.kind === 'file') view.paneLayout.open('file', { path: request.target.path }, { from, intent: 'navigate', activate: false });
+  else view.showPage(request.target.url, { reload: true, beside: true, activate: false });
   return { ok: true, tabs: sessionPaneTabs(view.paneLayout) };
 }
 

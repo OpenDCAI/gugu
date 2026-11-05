@@ -40,6 +40,11 @@ export type AccountRevisionSource = {
   ) => () => void
 }
 
+export type AccountRevisionScheduling = {
+  beforeRequest(signal: AbortSignal): Promise<void>
+  beforeApply(signal: AbortSignal): Promise<void>
+}
+
 type RevisionHandler = (
   operation: AccountRevisionOperation,
   transaction: ImRepositoryTransaction,
@@ -59,6 +64,7 @@ export function createAccountRevisionRuntime(
   repository: AccountImRepository,
   source: AccountRevisionSource,
   pageSize = DEFAULT_PAGE_SIZE,
+  scheduling?: AccountRevisionScheduling,
 ): AccountRevisionRuntime {
   if (!accountId) throw new Error('account revision runtime requires accountId')
   if (!Number.isSafeInteger(pageSize) || pageSize < 1) {
@@ -127,11 +133,15 @@ export function createAccountRevisionRuntime(
     const through = BigInt(readCursor())
     const signal = abortController!.signal
     while (active && generation === runGeneration && BigInt(cursor) < through) {
+      if (scheduling) await scheduling.beforeRequest(signal)
+      if (!active || generation !== runGeneration) return
       const page = await source.syncSince(cursor, pageSize, signal)
       signal.throwIfAborted()
       validatePage(page, cursor)
       if (page.operations.length === 0) throw new Error('account revision replay is empty before the committed cursor')
       const lastRevision = page.operations[page.operations.length - 1]!.revision
+      if (scheduling) await scheduling.beforeApply(signal)
+      if (!active || generation !== runGeneration) return
       await repository.transaction((transaction) => {
         if (!active || generation !== runGeneration) return
         for (const operation of page.operations) {
@@ -208,7 +218,11 @@ export function createAccountRevisionRuntime(
       while (active && generation === runGeneration && hasMore) {
         const signal = abortController?.signal
         if (!signal) return
+        if (scheduling) await scheduling.beforeRequest(signal)
+        if (!active || generation !== runGeneration) return
         const page = await source.syncSince(cursor, pageSize, signal)
+        if (!active || generation !== runGeneration) return
+        if (scheduling) await scheduling.beforeApply(signal)
         if (!active || generation !== runGeneration) return
         cursor = await applyPage(page, cursor, runGeneration)
         hasMore = page.hasMore

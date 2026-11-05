@@ -29,12 +29,19 @@ describe('an App opens a file in a target session that was not prepared', () => 
     await expect(open(home, deviceId)).resolves.toEqual({ ok: true, opened: undefined });
     const project = deviceId ? `${home}~${deviceId}` : home;
     expect(state.prepare).toHaveBeenCalledWith(project, 'target');
-    expect(state.open).toHaveBeenCalledWith(project, 'target', 'a.txt', { beside: true, ask: true });
+    expect(state.open).toHaveBeenCalledWith(project, 'target', 'a.txt', { ask: true, intent: undefined });
     expect(state.prepare.mock.invocationCallOrder[0]).toBeLessThan(state.open.mock.invocationCallOrder[0]!);
   });
   it('reports a cancelled choice only to the App caller', async () => {
     state.open.mockResolvedValueOnce(undefined);
     await expect(open()).rejects.toThrow('did not pick');
+  });
+  it('folder redesign carries intent and the source folder to a file in the same session', async () => {
+    await extensionHostActionHandlers[EXTENSION_HOST_ACTION_METHOD]!({
+      origin: { extensionId: 'workspace', sessionId: 'target', tabId: 'task-folder' },
+      action: { kind: 'openSessionFile', sessionId: 'target', projectId: 'project', deviceId: null, path: 'a.txt', ask: false, intent: 'newTab' },
+    });
+    expect(state.open).toHaveBeenCalledWith('project', 'target', 'a.txt', { ask: false, intent: 'newTab', from: 'task-folder' });
   });
   it('refuses a missing project without trying another source', async () => {
     await expect(open(null)).rejects.toThrow('no known project');

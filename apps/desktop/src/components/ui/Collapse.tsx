@@ -34,15 +34,18 @@ export interface CollapseProps {
   className?: string
   /** 面板 id,供触发按钮 `aria-controls` 指过来。 */
   id?: string
+  /** 收起着的内容被页内查找命中(`beforematch`)时,Base UI 经这里要求展开 —— 调用方把自己的展开态翻过来,
+   *  否则浏览器已经露出内容、调用方仍以为是收起的。 */
+  onOpenChange?: (open: boolean) => void
 }
 
 /**
  * auto 高度的展开/折叠。触发控件仍归调用方(各面的分组头样式不同),
  * 这里只负责"内容怎么收放"这一件事。
  */
-export function Collapse({ open, children, className, id }: CollapseProps) {
+export function Collapse({ open, children, className, id, onOpenChange }: CollapseProps) {
   return (
-    <CollapsiblePrimitive.Root open={open}>
+    <CollapsiblePrimitive.Root open={open} onOpenChange={onOpenChange}>
       {/* @@@4323-hidden-until-found - Base UI 默认 `keepMounted={false}`:收起后整棵子树从 DOM 消失。
           它替换掉的 `display:none` 是留在 DOM 里的,所以直接换会**丢掉两件事** ——
           浏览器的页内查找再也搜不到折叠分组里的联系人,以及每次展开都要把整列重新挂一遍

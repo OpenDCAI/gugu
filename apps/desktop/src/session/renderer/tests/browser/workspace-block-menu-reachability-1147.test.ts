@@ -155,7 +155,7 @@ async function openHandle(insertion = true) {
   await until('the real block menu opens', () => !byId('menu').hidden);
   expect(byId('menu').querySelectorAll(':scope > .menu-separator')).toHaveLength(1);
   const items = [...byId('menu').querySelectorAll<HTMLButtonElement>(':scope > button, :scope > .menu-group > button')];
-  expect(items.map((item) => item.textContent)).toEqual(['Insert below this paragraph ›', 'Turn into ›', 'Duplicate', 'Move up', 'Move down', 'Delete', 'Copy link to block', 'Cite in chat']);
+  expect(items.map((item) => item.textContent)).toEqual(['Insert below this paragraph ›', 'Turn into ›', 'Duplicate', 'Move up', 'Move down', 'Delete', 'Copy link to block', 'Cite']);
   if (insertion) {
     const first = items[0]!;
     const submenu = first.parentElement!.querySelector('.menu-submenu')!;
@@ -174,7 +174,7 @@ async function readMenu() {
   await pointer(box.left + 30, box.top + box.height / 2, 'mousePressed', { button: 'right', buttons: 2 });
   await pointer(box.left + 30, box.top + box.height / 2, 'mouseReleased', { button: 'right' });
   await until('reading right-click offers the existing block links', () => !byId('menu').hidden);
-  expect([...byId('menu').querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat']);
+  expect([...byId('menu').querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite']);
 }
 
 it('keeps the block through left padding, opens its menu, and changes only on another paragraph row', async () => {
@@ -544,7 +544,7 @@ it('copies the whole block link and cites that source span from the actions hand
   const first = 'First paragraph keeps its own actions.';
   await actOnParagraph(first, 'Copy link to block');
   await until('the block link reaches the clipboard', () => copied.at(-1) === 'gugu-file://reachability#3');
-  await actOnParagraph(first, 'Cite in chat');
+  await actOnParagraph(first, 'Cite');
   await until('the whole block is cited through the host', () => dispatch.mock.calls.length === 1);
   expect(dispatch.mock.calls[0]).toEqual(['', { draft: true, refs: [expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '3' }) })] }]);
 });
@@ -599,10 +599,24 @@ it('keeps reading clean and offers block links on right-click', async () => {
   await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Copy link to block')!);
   await until('the reading block link is copied', () => copied.at(-1) === 'gugu-file://reachability#3');
   await readMenu();
-  await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Cite in chat')!);
+  await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Cite')!);
   await until('reading cites the original source span', () => dispatch.mock.calls.length === 1);
   expect(dispatch.mock.calls[0]).toEqual(['', { draft: true, refs: [expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '3' }) })] }]);
   expect(file.text).toBe(text);
+});
+
+it('leaves a reading selection with its own bar when it is pressed for a menu', async () => {
+  await userEvent.click(byId('mode-preview'));
+  const box = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
+  const [x, y] = [box.left + 30, box.top + box.height / 2];
+  await pointer(x, y, 'mousePressed', { clickCount: 2 });
+  await pointer(x, y, 'mouseReleased', { clickCount: 2 });
+  await until('the pressed word is selected with its bar', () => !byId('sel-bar').hidden && !!document.getSelection()?.toString());
+  await pointer(x, y, 'mousePressed', { button: 'right', buttons: 2 });
+  await pointer(x, y, 'mouseReleased', { button: 'right' });
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(byId('menu').hidden).toBe(true);
+  expect([...byId('sel-bar').querySelectorAll('button:not(.fmt)')].map((item) => item.textContent)).toEqual(['Copy', 'Cite', '+ Keep']);
 });
 
 it('keeps every side control hidden for a read-only document, with reading links still usable', async () => {
@@ -615,7 +629,7 @@ it('keeps every side control hidden for a read-only document, with reading links
   await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Copy link to block')!);
   await until('the read-only block link is copied', () => copied.at(-1) === 'gugu-file://reachability#3');
   await readMenu();
-  await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Cite in chat')!);
+  await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Cite')!);
   await until('the read-only source span is cited', () => dispatch.mock.calls.length === 1);
   expect(file.text).toBe(text);
 });

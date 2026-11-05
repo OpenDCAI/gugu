@@ -99,9 +99,10 @@ export function ExecuteBody(props: ExecuteBodyProps) {
     let cancelled = false;
     const handle = scheduleIdle(() => {
       if (cancelled) return;
-      const result = caches.highlight(command, 'bash');
-      if (cancelled || !result) return;
-      paint(result.lines);
+      void caches.highlightWhenReady(command, 'bash').then((result) => {
+        if (cancelled || !result) return;
+        paint(result.lines);
+      });
     });
 
     onCleanup(() => {

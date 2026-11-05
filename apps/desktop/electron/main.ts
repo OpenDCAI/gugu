@@ -1,5 +1,6 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
+import { attachTabHistorySwipe } from './tab-history-swipe'
 import { startServerUsageSync } from './server/usage-sync'
 import { readStateFile, writeStateFile } from './app-state'
 import { noteExitReason } from './lib/exit-reason'
@@ -1601,6 +1602,7 @@ function createWindow(loadContents = true): void {
 
   // #7274 只在开窗那一次露面:Electron 在窗里的网页(会话浏览器页签,agent 在后台会话里打开 / 跳转网页时)画出第一帧
   // 时会再报一次 ready-to-show,`show()` 在 macOS 上会把整个咕咕拉到最前台 —— 人正在用的别的 App 就被抢走了(实测)。
+  attachTabHistorySwipe(mainWindow)
   mainWindow.once('ready-to-show', () => {
     if (!IS_TEST_MODE) {
       mainWindow?.show()

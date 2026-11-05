@@ -44,7 +44,7 @@ export function turnFailureReason(msg: NoticeRow): AgentFailureReason | null {
 }
 
 /** A row saying the host holds messages for an agent that has not taken them yet (`agentInboxReader` notAdmitted,
- * `deviceCommandRuntime` undelivered). Not drawn: only the sender's waiting messages say it, on their own bubbles (deliveryWaits). */
+ * `deviceCommandRuntime` undelivered). Not drawn: an undelivered one is said on the sender's own bubbles (deliveryWaits). */
 export function isPendingDelivery(msg: NoticeRow): boolean {
   const reason = turnFailureReason(msg)
   return reason === 'notAdmitted' || reason === 'undelivered'
@@ -55,8 +55,8 @@ export function visibleDeliveryMessages<T extends MessageItem>(messages: readonl
 }
 
 type WaitLine = Pick<MessageItem, 'id' | 'seq' | 'is_mine' | 'retracted_at' | 'thread_root_id' | 'content_type' | 'sender_user_id' | 'client_message_id' | 'readers' | 'delivery_blocks'>
-/** queued: the agent is coming. undelivered: no running instance holds it, so waiting alone will not bring it. */
-export type DeliveryWait = 'queued' | 'undelivered'
+/** undelivered: no running instance holds the agent, so waiting alone will not bring it. */
+export type DeliveryWait = 'undelivered'
 export type HeldMessage = { wait: DeliveryWait; undeliveredTo: readonly string[] }
 type Waiting = { message: WaitLine; agentId: string; rowSeq: number; wait: DeliveryWait }
 
@@ -68,7 +68,7 @@ function waitingOn(messages: readonly WaitLine[], memberReadSeqs: Readonly<Recor
     if (!msg.sender_user_id || !reason) continue
     const rows = rowsByThread.get(msg.thread_root_id ?? null) ?? new Map<string, { seq: number; wait: DeliveryWait | null }>()
     // The agent's newest row is what is true of it now.
-    if ((rows.get(msg.sender_user_id)?.seq ?? 0) < msg.seq) rows.set(msg.sender_user_id, { seq: msg.seq, wait: reason === 'undelivered' ? 'undelivered' : reason === 'notAdmitted' ? 'queued' : null })
+    if ((rows.get(msg.sender_user_id)?.seq ?? 0) < msg.seq) rows.set(msg.sender_user_id, { seq: msg.seq, wait: reason === 'undelivered' ? 'undelivered' : null })
     rowsByThread.set(msg.thread_root_id ?? null, rows)
   }
   const waiting: Waiting[] = []
@@ -93,7 +93,6 @@ export function pendingDeliveryMessageIds(messages: readonly WaitLine[], memberR
  * My messages still waiting on an agent: it has a pending-delivery row in their line that still holds one of its unread
  * messages from before the row, and this message wakes it (`wakes` = chat.message_agent_wakes, the host's own answer).
  * Reading a message takes it out; once the agent has read everything the row held, the row holds nothing more.
- * A message waiting on several agents says the one that needs the person: undelivered.
  */
 export function deliveryWaits(
   messages: readonly WaitLine[],
@@ -110,11 +109,7 @@ export function deliveryWaits(
   for (const waits of byLine.values()) {
     if (!waits.some((wait) => wait.message.seq < wait.rowSeq)) continue
     for (const { message, wait, agentId } of waits) {
-      const known = held.get(message.id)
-      held.set(message.id, {
-        wait: known?.wait === 'undelivered' ? 'undelivered' : wait,
-        undeliveredTo: wait === 'undelivered' ? [...(known?.undeliveredTo ?? []), agentId] : known?.undeliveredTo ?? [],
-      })
+      held.set(message.id, { wait, undeliveredTo: [...(held.get(message.id)?.undeliveredTo ?? []), agentId] })
     }
   }
   return held

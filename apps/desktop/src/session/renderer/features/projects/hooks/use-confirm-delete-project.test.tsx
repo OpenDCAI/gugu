@@ -56,6 +56,38 @@ afterEach(() => {
 });
 
 describe('project deletion confirmation', () => {
+  it('opens immediately while preparing, disables confirmation, and ignores a late result after cancellation', async () => {
+    let finish!: (value: unknown[]) => void;
+    mocks.list.mockReturnValue(new Promise<unknown[]>((resolve) => { finish = resolve; }));
+    let pending!: Promise<void>;
+    act(() => { pending = confirm(project); });
+    expect(modalStore.activeModalId).toBe('confirmActionModal');
+    expect(modalStore.activeModalArgs?.confirmDisabled).toBe(true);
+    const args = modalStore.activeModalArgs!;
+    await act(async () => args.onSuccess({ dontAskAgain: false, scopeChecked: false }));
+    expect(mocks.remove).not.toHaveBeenCalled();
+    act(() => args.onClose());
+    finish([]);
+    await act(async () => pending);
+    expect(modalStore.isOpen).toBe(false);
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(mocks.notice).not.toHaveBeenCalled();
+  });
+
+  it('does not replace a newer confirmation when the dependency read completes', async () => {
+    let finish!: (value: unknown[]) => void;
+    mocks.list.mockReturnValue(new Promise<unknown[]>((resolve) => { finish = resolve; }));
+    let pending!: Promise<void>;
+    act(() => { pending = confirm(project); });
+    await settle();
+    const newer = { title: 'Another action', description: 'Keep this dialog' };
+    act(() => modalStore.setModal('confirmActionModal', newer));
+    finish([]);
+    await act(async () => pending);
+    expect(modalStore.activeModalArgs).toBe(newer);
+    expect(mocks.remove).not.toHaveBeenCalled();
+  });
+
   it('wakes a resting cloud host before reading automation dependencies or requesting deletion', async () => {
     const unreachable = Object.assign(new Error('Cloud host is resting'), {code: 'unreachable'});
     mocks.wake.mockImplementation(async () => {mocks.cloud.presence = 'awake'; return true;});
@@ -73,7 +105,7 @@ describe('project deletion confirmation', () => {
     expect(mocks.notice).not.toHaveBeenCalled();
   });
 
-  it('shows the wake refusal without reading dependencies, opening confirmation, or deleting', async () => {
+  it('closes the preparing confirmation and shows a wake refusal without reading dependencies or deleting', async () => {
     mocks.wake.mockRejectedValue(new CloudComputerWakeFailed('refused', 'credits_exhausted', 'private controller diagnostics'));
     await act(async () => confirm(project));
     expect(mocks.list).not.toHaveBeenCalled();

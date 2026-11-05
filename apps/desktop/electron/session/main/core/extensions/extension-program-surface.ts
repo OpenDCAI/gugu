@@ -83,6 +83,10 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
       const given = call.files.find((file) => file.itemId === ref.id);
       if (given) return { ...scope, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId };
     }
+    // Several files at once (`files.canDelete([...])`), every one handed to this call: asked as the agent that handed them.
+    const refs = call && Array.isArray(args.refs) && args.refs.length ? args.refs.map((one) => fileRefOf(one)) : [];
+    const all = refs.map((one) => ('id' in one && !isWorkspace(one) ? call?.files.find((file) => file.itemId === one.id) : undefined));
+    if (all.length && all.every(Boolean)) return { ...scope, handed: null, asAgent: all[0]!.agentUserId };
     const place = !ref && args.place && typeof args.place === 'object' ? (args.place as { chat?: unknown }) : null;
     const chat = ref && 'chat' in ref ? ref.chat : place?.chat;
     const given = call && typeof chat === 'string' ? call.files.find((handed) => handed.chatId === chat)

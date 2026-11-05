@@ -67,6 +67,7 @@ import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
 import { ContactsProvider } from '../store/contacts'
 import { DevicesProvider } from '../store/devices'
 import { ServerLoginApproveHost } from '../mobile/server-login/ServerLoginApproveHost'
+import { PhoneMessageSearch } from '../mobile/chat/PhoneMessageSearch'
 import { AssistantShellHost } from '../components/assistant/AssistantShellHost'
 import { OwnedAgentResourcesHost } from '../components/appSlot/OwnedAgentResourcesHost'
 import { ChatSlotHost } from '../components/ChatSlotHost'
@@ -686,7 +687,7 @@ function InnerLayout({
     // up — the one on screen stays — and its panel opens it as the host resolved it, the way a link to it opens.
     const onOpenWith = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenWithDetail>).detail
-      if (detail) bringUp(detail.chatId, (chatId) => askChat(chatId, { itemId: detail.itemId, opener: detail, fromPage: true }), true)
+      if (detail) bringUp(detail.chatId, (chatId) => askChat(chatId, { itemId: detail.itemId, opener: detail, ...(detail.from ? { from: detail.from } : {}) }), true)
     }
     // A card's Open action names a chat: it comes up, and its panel opens the App (ChatAreaPanel takes it).
     const onOpenInChat = (event: Event) => {
@@ -1320,6 +1321,8 @@ export function MainLayout({
       <DevicesProvider active={effectsActive}>
         {/* 批准页的机器移除与设置共用这份设备数据。 */}
         <ServerLoginApproveHost active={effectsActive} />
+        {/* The search panel's host where the task workspace's modal is not on screen: the phone shell, or no workspace at all. */}
+        {(mobile || !platform.capabilities.sessionHost) && <PhoneMessageSearch />}
         <InnerLayout
           user={user}
           effectsActive={effectsActive}

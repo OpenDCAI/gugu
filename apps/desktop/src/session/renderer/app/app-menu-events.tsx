@@ -116,6 +116,7 @@ export function AppMenuEvents() {
     const unlisten = events.on(sessionOpenFileInPaneChannel, (request) => {
       const dispose = openHostRequestedFileInSessionWhenReady({
         ...request,
+        intent: request.intent === 'pinned' ? 'newTab' : 'navigate',
         onResult: (result) => {
           events.emit(sessionOpenFileInPaneResultChannel, {
             requestId: request.requestId,
@@ -178,6 +179,7 @@ export function AppMenuEvents() {
       }
       const dispose = openHostRequestedBrowserInSessionWhenReady({
         ...request,
+        intent: request.intent === 'pinned' ? 'newTab' : 'navigate',
         onResult: (result) => {
           acquisitions.delete(request.requestId);
           events.emit(sessionOpenBrowserInPaneResultChannel, {
@@ -208,6 +210,7 @@ export function AppMenuEvents() {
       }
       const dispose = openHostRequestedExtensionInSessionWhenReady({
         ...request,
+        intent: request.intent === 'pinned' ? 'newTab' : 'navigate',
         onResult: (result) => {
           events.emit(sessionOpenExtensionInPaneResultChannel, {
             requestId: request.requestId,

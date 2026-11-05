@@ -34,7 +34,7 @@ export function confirmOpenExternalLink(url: string, onError?: (error: unknown) 
         return;
       }
       if (choice === 'emdash-browser') {
-        sessionView?.paneLayout.open('browser', { initialUrl: normalizedUrl });
+        sessionView?.activePane.open('browser', { initialUrl: normalizedUrl }, { intent: 'navigate' });
         sessionView?.setFocusedRegion('main');
         return;
       }

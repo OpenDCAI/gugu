@@ -4,8 +4,6 @@ import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { motion, AnimatePresence } from 'framer-motion'
-import { DUR_FAST_MS, tween } from '@/styles/motion'
 import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle } from '@/lib/icons'
 import { useImPageTab } from '../lib/shellTab'
@@ -60,7 +58,7 @@ import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
 import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { TabBarAddMenu } from '../session/renderer/features/sessions/tab-bar-actions'; import { useTabsReading } from './appSlot/useTabsReading'
-import { folderItem, isFolderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeChatTab, closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { folderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { useTopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import { topicService } from '@/lib/topics'
@@ -75,10 +73,9 @@ import { ChatBlockHead } from './chat/ChatBlockHead'
 import { useMessageSelectMode } from './chat/useMessageSelectMode'
 import { IconButton } from './ui/IconButton'
 import { ChatTailNotice } from './chat/ChatTailNotice'
-import { ChatSearchControls } from './chat/ChatSearch'
 import { useChatSearch } from './chat/useChatSearch'
-import { useMessageFind } from './chat/useMessageFind'
-import { FindBar } from '@renderer/lib/ui/find-bar'
+import { SearchTrailBar } from './chat/SearchTrailBar'
+import { searchInChat } from '@renderer/features/global-search/search-session'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
 import { useChatSlotProjectName } from '../lib/shellSlots'
@@ -126,8 +123,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const surfaceTab = useImPageTab(imPage), surfaceVisible = surfaceTab === 'chats' && !hidden
   const surfaceElement = useRef<HTMLDivElement>(null)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
-  const search = useChatSearch(activeChatId, surfaceVisible, messages, surfaceElement, viewportKey)
-  const { searchMode, setSearchMode, searchQuery, setSearchQuery, isFiltering, displayedMessages } = search
+  useChatSearch(activeChatId, surfaceVisible && !!activeChatId, surfaceElement)
   const filePreviewCloseRef = useRef<() => void>(() => {})
   const { quote: quoteText, setQuote: setQuoteText, onQuote: handleQuote } = useMessageQuote(activeChatId, id => identitiesById[id ?? '']?.display_name ?? '', t('chatArea.attachment'))
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
@@ -243,17 +239,14 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const opener = useChatOpener(activeChatId)
   const inBlock = Boolean(blockHost)
   const tabs = useTabsReading(() => {
-    if (!activeChatId) return { folder: null as ChatPanelTab | null, page: null as ChatPanelTab | null, chatUp: true, infoShown: false }
+    if (!activeChatId) return { page: null as ChatPanelTab | null, chatUp: true, infoShown: false }
     const panels = panelTabsOf(activeChatId)
     const focused = focusedChatTab(activeChatId)
-    // In a block the folder is pressed while it is on screen; without a strip (the phone) while it is the page in front.
-    const folder = panels.find((tab) => isFolderItem(tab.item) && (inBlock ? tab.shown : tab.tabId === focused?.tabId)) ?? null
     const full = panels.find((tab) => panelFull(activeChatId, tab.tabId)) ?? null
     const info = infoTabOf(activeChatId)
-    return { folder, page: full, chatUp: inBlock ? !full : focused?.kind !== 'panel', infoShown: inBlock ? Boolean(info?.shown) : focused?.kind === 'info' }
+    return { page: full, chatUp: inBlock ? !full : focused?.kind !== 'panel', infoShown: inBlock ? Boolean(info?.shown) : focused?.kind === 'info' }
   }, [activeChatId, inBlock])
   const handleOpenFolder = useCallback(() => { if (activeChatId) { closeRightSurfaces(); openPanelItem(activeChatId, folderItem()) } }, [activeChatId, closeRightSurfaces])
-  const handleCloseWorkspacePanel = useCallback(() => { if (activeChatId && tabs.folder) closeChatTab(activeChatId, tabs.folder.tabId) }, [activeChatId, tabs.folder])
   // A block draws its shown tabs in the engine's slots; without a strip, one focused page covers the chat (topics too).
   const coverChat = (page: ReactNode) => mobile ? <RightPanel>{page}</RightPanel> : <div className="absolute inset-0 z-20 flex flex-col bg-[var(--bg-primary)]">{page}</div>
   const inTabs = (topicPane: ReactNode, infoPage: () => ReactNode) => !activeChatId ? null : blockHost ? <ChatTabPortals chatId={activeChatId} panel={panelContent} topic={() => topicPane} info={infoPage} /> : <ChatTabPage chatId={activeChatId} panel={(tab) => coverChat(panelContent(tab))} topic={() => topicPane} info={() => coverChat(infoPage())} />
@@ -385,23 +378,22 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     })
   }, [deleteMessage])
 
-  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const deliveryWaits = useDeliveryWaits(messages, memberReadSeqs)
+  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(messages, user?.id, activeChat?.peer_user_id, surfaceVisible); const deliveryWaits = useDeliveryWaits(messages, memberReadSeqs)
   const chatResetKey = `${activeChatId ?? ''}#${openNonce ?? 0}#${messageWindow?.viewVersion ?? 0}`
   const { scrollerEl, scrollerRef, setScrollerRef, prepareForSavedPosition, isPreservingPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
-    chatId: activeChatId, viewportKey, activationKey: activeChatId ?? '', enabled: !isFiltering, discardSaved: !!unreadEntry,
+    chatId: activeChatId, viewportKey, activationKey: activeChatId ?? '', enabled: true, discardSaved: !!unreadEntry,
     messageIds: chatListRows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
-  const find = useMessageFind({ chatId: activeChatId, messages, rows: chatListRows, rootRef: surfaceElement, listRef, scrollerRef, enabled: surfaceVisible && !mobile && !!activeChatId, search })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
-  const unreadNavigationPending = useUnreadLocatorNavigation({ activeChatId, navigationTarget, revealMessage, enabled: surfaceVisible && !isFiltering, onNavigate: () => search.setSearchMode(false), scrollerRef, setFlashMessageId, flashTimerRef })
-  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ enabled: !find.isOpen, resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending, hasNewer: !!messageWindow?.hasNewer, loading: !!messageWindow?.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
-  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: !find.isOpen && !isFiltering && !unreadNavigationPending, scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: loadOlderMessages, loadNewer: loadNewerMessages, window: messageWindow, onError: onHistoryError })
+  const unreadNavigationPending = useUnreadLocatorNavigation({ activeChatId, navigationTarget, revealMessage, enabled: surfaceVisible, scrollerRef, setFlashMessageId, flashTimerRef })
+  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending, hasNewer: !!messageWindow?.hasNewer, loading: !!messageWindow?.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
+  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: !unreadNavigationPending, scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: loadOlderMessages, loadNewer: loadNewerMessages, window: messageWindow, onError: onHistoryError })
 
   // #1708 来源消息(群右栏工作区 App 的 gugu.showMessage):不在加载段里的先按锚点载进来,再定位 + 闪烁;载不到 → fail-loud toast。
-  const showMessage = useSourceMessageReveal({ activeChatId, viewportKey, navigationTarget, enabled: surfaceVisible, ready: !isFiltering && tabs.chatUp, onNavigate: () => { setSearchMode(false); if (activeChatId && tabs.page) setPanelFull(activeChatId, tabs.page.tabId, false); else if (activeChatId && mobile) showChatOnly(activeChatId) }, rows: chatListRows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing: () => toast(t('chatArea.source.notVisible'), 'error') })
+  const showMessage = useSourceMessageReveal({ activeChatId, viewportKey, navigationTarget, enabled: surfaceVisible, ready: tabs.chatUp, onNavigate: () => { if (activeChatId && tabs.page) setPanelFull(activeChatId, tabs.page.tabId, false); else if (activeChatId && mobile) showChatOnly(activeChatId) }, rows: chatListRows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing: () => toast(t('chatArea.source.notVisible'), 'error') })
 
   const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages: listedMessages,
-    enabled: !find.isOpen && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
+    enabled: !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: returnToLatestMessages, onError: onHistoryError })
 
   const handleReaction = useCallback((messageId: string, emoji: string) => {
@@ -438,10 +430,10 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   // 群 thread panel 的运行中占位指示器(panel 内没有主线浮动条)。它和浮动条读**同一个** agent 态:
   // DM 里就是本会话那个 agent,群里挑「任一成员在跑」里的第一个来画身份(纯函数在 agentRunningStatusModels)。
   const activeAgentActivity = useMemo<AgentConversationActivity | null>(
-    () => searchMode ? null : isRoomChatSurface
+    () => isRoomChatSurface
       ? resolveGroupRunningIndicator({ chatId: activeChatId, threadRootId: threadScope.rootId, agentIds: groupAgentIds, statuses: groupAgentStatuses, identities: identitiesById })
       : null,
-    [searchMode, isRoomChatSurface, activeChatId, groupAgentIds, groupAgentStatuses, identitiesById, threadScope.rootId],
+    [isRoomChatSurface, activeChatId, groupAgentIds, groupAgentStatuses, identitiesById, threadScope.rootId],
   )
   // 每条新消息/每次会话行补丁都会重拼这张表;内容没变就沿用旧引用,否则每条可见气泡的 memo 都被打穿。
   const messageMemberProfiles = useStructurallyShared(useMemo((): Record<string, MemberProfileCardModel> => {
@@ -464,7 +456,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   }, [activeMessageProfile, messageMemberProfiles])
 
   const { readReceiptPanel, onShowReadReceipt: handleShowReadReceipt, onCloseReadReceipt } = useReadReceiptPanel({
-    chatId: activeChatId, messages: displayedMessages, memberReadSeqs, memberProfiles: messageMemberProfiles,
+    chatId: activeChatId, messages, memberReadSeqs, memberProfiles: messageMemberProfiles,
   })
   const groupSettings = useGroupChatSettings(isRoomChatSurface ? activeChatId : null, groupRoleRevision(groupCollabSnapshot), authorityRevision)
   const messageListenEditControlsFor = useListenModeEditControls({ chatId: isRoomChatSurface ? activeChatId : null, currentUserId: user?.id ?? null, settings: groupSettings.settings, onAuthorityReload: groupSettings.reload, onReload: loadGroupCollab })
@@ -477,9 +469,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     rows: chatListRows,
     messages: listedMessages,
     threeParty,
-    isFiltering,
     mobile,
-    highlight: isFiltering ? searchQuery : undefined,
     flashMessageId,
     memberReadSeqs, deliveryWaits,
     isGroupChat: isRoomChatSurface,
@@ -489,7 +479,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     onQuote: handleQuote, onShowMessage: showMessage,
     onForward: handleForward,
     onDelete: handleDelete,
-    onVisible: find.isOpen ? () => {} : handleMessageVisible,
+    onVisible: handleMessageVisible,
     onOpenMemberProfile: Object.keys(messageMemberProfiles).length > 0 ? openMessageMemberProfile : undefined,
     // @@@5856 消息 ⋯ 菜单「开话题」→ 从这条消息开一条真的话题并分栏打开。
     // 悄悄话的守卫内联在 MessageBubble(`onOpenTopic && !msg.is_whisper`,按每条消息判、那边冻结
@@ -501,7 +491,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     onOpenTopicAnchor: openTopicFromAnchor,
     agentFloodNoticeMessageId: agentFlood.noticeMessageId,
     onAgentFloodUndone: agentFlood.reload,
-    onOpenFile: openFilePreview, onOpenLocalFileLink: undefined, onMentionMember: isFiltering ? undefined : setMentionToInsert,
+    onOpenFile: openFilePreview, onOpenLocalFileLink: undefined, onMentionMember: setMentionToInsert,
     selectMode,
     selectedIds,
     onToggleSelect: toggleSelect,
@@ -510,9 +500,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     chatListRows,
     flashMessageId,
     listedMessages, threeParty,
-    isFiltering, find.isOpen,
     mobile,
-    searchQuery,
     memberReadSeqs, deliveryWaits,
     isRoomChatSurface,
     messageMemberProfiles,
@@ -571,8 +559,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
       <ChatHeaderActions
         isGroupChat={isGroupChat}
         isRoomChat={isRoomChatSurface}
-        searchMode={searchMode}
-        folderShown={tabs.folder !== null}
         infoShown={tabs.infoShown}
         showHeaderMenu={showHeaderMenu}
         mobile={mobile}
@@ -583,9 +569,8 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           onReload: loadGroupCollab,
         } : undefined}
         moreButtonRef={moreButtonRef}
-        onEnterSearchMode={() => setSearchMode(true)}
+        onSearch={() => { if (activeChatId) searchInChat(activeChatId) }}
         onOpenFolder={handleOpenFolder}
-        onCloseWorkspacePanel={handleCloseWorkspacePanel}
         onOpenInfo={(page) => { if (activeChatId) openInfoTab(activeChatId, page) }}
         onCloseInfo={() => { if (activeChatId) closeInfoTab(activeChatId) }}
         onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
@@ -603,10 +588,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
       messages={messages}
       onClose={() => closeInfoTab(activeChatId)}
       onClearMessages={clearMessages}
-      onOpenSearch={() => {
-        setSearchQuery('')
-        setSearchMode(true)
-      }}
+      onOpenSearch={() => searchInChat(activeChat.id)}
       onSetNotificationLevel={(level) => setChatNotificationLevel(activeChat.id, level)}
       onTogglePinned={(pinned) => pinChat(activeChat.id, pinned)}
       memberProfiles={drawerMemberProfiles}
@@ -676,7 +658,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           ChatBlockHead 把同一份标题和动作放进块头。 */}
       {blockHost && <ChatBlockHead host={blockHost} actions={headerActions} chat={activeChat} name={shownActiveChatName} avatar={activeChatAvatar} isAgent={peerIdentity?.type === 'agent'} identitiesById={identitiesById} />}
       {blockTabs}
-      {((!chrome && !blockHost) || searchMode) && <PaneHeader
+      {!chrome && !blockHost && <PaneHeader
         divider={!(mobile && topicSurface.topics.length > 0)} data-chat-area-header=""
         mobile={mobile}
         style={{
@@ -685,7 +667,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           // agent 单聊:小鸟比头栏高几像素,允许它探出头栏(见 tokens.css .gg-agent-header)。
           overflow: 'hidden',
         }}
-        leading={!searchMode && mobile && onBack ? (
+        leading={mobile && onBack ? (
           <IconButton
             size="lg"
             aria-label={t('chatArea.backToList')}
@@ -698,7 +680,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         /* @@@5856 这里曾有一支「话题全宽打开时顶栏画面包屑」。owner 2026-09-19 把全宽形态整个拿掉之后,
            主区永远不会是一条话题(chats_topic_source_chk 保证话题必有来源,收口会把它换成来源线 + 分栏),
            那一支就永远走不到了 ⇒ 删。面包屑本身搬进了分栏的标题块。 */
-        title={searchMode ? null : (
+        title={(
           <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
             {/* @@@1146 对话头按设计稿(.top 仅 标题+状态行,无头像;单聊点
                 名称→设置)：删除咕咕旧版 WeChat 式头像,点「名称」开会话资料抽屉(名称带 no-drag 才可点)。 */}
@@ -723,25 +705,9 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
             </span>
           </div>
         )}
-        actions={searchMode ? null : headerActions}
-      >
-        <AnimatePresence initial={false}>
-          {searchMode && (
-            /* ── Search mode ── */
-            <motion.div
-              className="window-no-drag-region"
-              key="search"
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={tween(DUR_FAST_MS)}
-              style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 'var(--spacing-sm)' }}
-            >
-              <ChatSearchControls search={search} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </PaneHeader>}{!searchMode && (isGroupChat ? <PinnedTopicTabs chatId={activeChat.id} topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} mobile={mobile} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : mobile && !chrome && !blockHost ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null)}
+        actions={headerActions}
+      />}{isGroupChat ? <PinnedTopicTabs chatId={activeChat.id} topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} mobile={mobile} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : mobile && !chrome && !blockHost ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null}
+      <SearchTrailBar chatId={activeChatId} surface={surfaceElement} enabled={surfaceVisible} />
 
       <div
         style={{
@@ -782,7 +748,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         </div>
       )}
 
-      <FindBar {...find} onSearchAll={find.searchAll} />
       {/* Message list —— 有行就画列表,与 loading 无关:加载中已有的行(盘缓存/乐观发送)照样可见,
           列表不会因为 loading 翻转被卸载重挂。骨架只在「在加载且一行都没有」时占位。 */}
       {taskChatNotice}{loadingMessages && chatListRows.length === 0 && <MessageListSkeleton delayMs={threeParty?300:0} overlay={threeParty}/>}
@@ -799,10 +764,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
            首条消息落库 rows>0 时列表正常挂载。 */
         activeAgentActivity ? (
           <div data-testid={AUTOMATION_TEST_IDS.chatMessageList} style={{ flex: 1 }} />
-        ) : searchMode && searchQuery.trim() ? (
-          <div style={{ flex: 1, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)', padding: '40px 0' }}>
-            {t('chatArea.searchNoResults', { query: searchQuery })}
-          </div>
         ) : (
           <div style={{ flex: 1, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)', padding: '40px 0' }}>
             {mobile && isGroupChat ? <PhoneProjectEmpty chatId={activeChat.id} /> : t('chatArea.noMessages')}
@@ -818,18 +779,18 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           rows={chatListRows}
           rowProps={rowProps} footer={chrome?.typing}
           initialTopMostItemIndex={openLocation()} topInset={0}
-          followTail={!find.isOpen && !unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onSeen: unreadEntry.onSeen, onJump: () => void jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
+          followTail={!unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onSeen: unreadEntry.onSeen, onJump: () => void jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
           onAtBottomChange={onAtBottomChange}
           onTotalListHeightChanged={onTotalListHeightChanged}
         />
       )}
 
-      <ChatTailNotice window={messageWindow} hidden={searchMode} onClick={pinToBottom} />
+      <ChatTailNotice window={messageWindow} onClick={pinToBottom} />
 
       {/* @@@1506 - Agent 运行状态：输入框上方的轻量浮动文字（owner #1506：无重白板，打字时也能瞥见）。群聊列出在跑的 agent（可点 → @mention）；
           单聊是运行中/思考中（流式正文仍留消息流）。运行条那一行是固定高的一行(群、agent 私聊才有),没有底,消息从它后面滚过;运行条出现、消失不改变布局。 */}
       <ChatBottomDock reserve={chatListRows.length === 0} above={isRoomChatSurface && !chrome?.hideRunningStatus && <RunningBarSlot>
-      {!searchMode && !chrome?.hideRunningStatus && (
+      {!chrome?.hideRunningStatus && (
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
         // toolCount 近似用近 5 分钟 actions.length。onTokenClick 仍 @mention。
@@ -845,10 +806,10 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         />
       )}</RunningBarSlot>}>
       {/* #2115 — 普通 ACP 回合终态失败条（运行条同槽位;重试=CAS error→pending 重排原命令,详见 Slot）。 */}
-      {!searchMode && <AgentConversationNoticeSlot sessionpageNotices={null} failureExplained={false} chatId={activeChatId} threadRootId={threadScope.rootId} profiles={messageMemberProfiles} />}
+      <AgentConversationNoticeSlot sessionpageNotices={null} failureExplained={false} chatId={activeChatId} threadRootId={threadScope.rootId} profiles={messageMemberProfiles} />
       {/* Input area — white card with rounded border floating in gray.
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
-      {selectMode ? (
+      {selectMode && (
         // Desktop selection and editing use the same ACP slot frame; phone spacing stays local.
         <div className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'transparent' : undefined, padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
           <div
@@ -878,9 +839,9 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
             </button>
           </div>
         </div>
-      ) : (
-        // ChatBottomDock owns the shared desktop frame; keep phone padding and safe area unchanged.
-        <div data-chat-composer="" className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
+      )}
+      {/* 多选态只把输入框藏起来(和切走的面同一个 hidden),不卸载:卸载 = 编辑器拆掉再建,点「多选」/「取消」都卡一下。 */}
+        <div data-chat-composer="" hidden={selectMode} className={mobile && blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ padding: mobile ? (blockHost ? undefined : '8px 8px max(8px, env(safe-area-inset-bottom))') : 0, flexShrink: 0 }}>
         {chrome?.composerHeader}
         <ChatMessageComposer
           onSend={async (content, opts) => {
@@ -894,14 +855,13 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           onQuoteConsumed={() => setQuoteText(null)}
           mentionToInsert={mentionToInsert}
           onMentionInserted={() => setMentionToInsert(null)}
-          chatId={activeChatId} hidden={!surfaceVisible}
+          chatId={activeChatId} hidden={!surfaceVisible || selectMode}
           isGroupChat={isRoomChatSurface}
           groupMembers={composerGroupMembers} currentUserId={user?.id ?? null} agentStatuses={groupAgentStatuses} messages={messages}
           whisperTarget={whisperTarget}
           onExitWhisper={() => setWhisperTarget(null)}
         />
       </div>
-      )}
       </ChatBottomDock>
 
 
@@ -926,6 +886,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
             setActiveMessageProfile(null)
             setWhisperTarget({ userId: target.id, displayName: target.displayName })
           } : undefined}
+          searchChatId={(shownMessageProfile.profile.openedFrom === 'aside' ? topicSurface.splitTopic?.chatId : activeChatId) ?? undefined}
           editControls={shownMessageProfile.editControls}
           testId={AUTOMATION_TEST_IDS.messageAvatarProfileMenu}
         />

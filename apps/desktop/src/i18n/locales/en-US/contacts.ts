@@ -367,6 +367,7 @@ export default {
     "shareUnavailable": "A Gugu ID is required to share this profile",
     "source": "Source",
     "unconfigured": "Not configured",
+    "findMessages": "Find their messages",
     "viewProfile": "View {{name}} profile",
     "whisper": "Whisper"
   },

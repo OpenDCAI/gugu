@@ -62,14 +62,12 @@ export interface TabChipProps extends Omit<ComponentPropsWithoutRef<'div'>, 'tit
    * 并排的一对里排左('start')/ 排右('end'):相接那一边不圆,两枚连成一块(照 Chrome 分屏;spec session-page「并排」)。
    * 这一对没在屏上时(用户正看着别的页签)两枚铺一层浅底,看得出是一对。
    */
-  pairRole?: 'start' | 'end';
   /** 纯文本标签;也是关闭钮 aria-label 与默认 tooltip 的底。 */
   label: string;
   /** 跟在标签后面的淡色小字(同名页签的区分路径、diff 的「工作区 / 暂存」)。窄到只剩图标时与标签一起收起。 */
   hint?: string;
   /** tooltip,默认取 label。 */
   title?: string;
-  isPreview?: boolean;
   hasError?: boolean;
   /** 前置图标槽(文件图标、扩展 mark、转圈)。 */
   preSlot?: ReactNode;
@@ -98,11 +96,9 @@ export interface TabChipProps extends Omit<ComponentPropsWithoutRef<'div'>, 'tit
 export function TabChip({
   isActive,
   isFocusedPane = true,
-  pairRole,
   label,
   hint,
   title,
-  isPreview,
   hasError,
   preSlot,
   labelSlot,
@@ -148,9 +144,6 @@ export function TabChip({
         isActive && 'session-tab-ears bg-tab-face',
         // ❌ 别改字重:34px 高的条上换 font-weight 会让标题宽度跳一下,切面板即抖。
         isActive && (isFocusedPane ? 'text-foreground' : 'text-foreground-muted'),
-        pairRole === 'start' && 'rounded-tr-none',
-        pairRole === 'end' && 'rounded-tl-none',
-        pairRole && !isActive && 'bg-row-hover',
         className
       )}
       {...rest}
@@ -175,7 +168,6 @@ export function TabChip({
           <TabTitle
             isActive={isActive}
             isFocusedPane={isFocusedPane}
-            isPreview={isPreview}
             hasError={hasError}
             maxWidth="max-w-none"
             // 关闭钮浮在标题尾巴上时,标题自己淡出(遮罩),钮下透出页签此刻的真实底色 —— 照 Chrome / VS Code。

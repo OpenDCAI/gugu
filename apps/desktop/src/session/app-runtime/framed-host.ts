@@ -36,7 +36,7 @@ export function framedHost(): GuguHost & Record<string, unknown> {
  * not there (an App tells the phone by `typeof gugu.callProgram`).
  */
 const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
-  'modal.open', 'modal.close', 'modal.key', 'onModalFocus',
+  'navigationGo', 'modal.open', 'modal.close', 'modal.key', 'onModalFocus',
   'getContext', 'showContextMenu', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'listAgents', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'linkTo', 'openLink',
   'callProgram', 'sessions.index', 'sessions.read',
@@ -56,7 +56,7 @@ const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
   'chats.list', 'chats.members', 'projects.list', 'linkTo',
   'sessions.index', 'sessions.read',
   'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.read', 'appFiles.search', 'appFiles.recent', 'appFiles.create',
-  'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
+  'appFiles.remove', 'appFiles.canDelete', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
   'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload',
 ]);
 

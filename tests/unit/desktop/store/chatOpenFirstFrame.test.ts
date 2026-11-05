@@ -12,7 +12,9 @@ const chatA = chat({ id: 'chatA', kind: 'dm', name: 'Agent A' })
 const chatB = chat({ id: 'chatB', kind: 'dm', name: 'Agent B' })
 let network = deferred<void>()
 let messagesByChat: Record<string, MessageItem[]> = { chatA: [msgA1], chatB: [msgB1] }
-const { openImRepositoryMock, revisionListeners, revisionCoordinatorMock } = vi.hoisted(() => ({
+const { openImRepositoryMock, revisionListeners, revisionCoordinatorMock, coordinatorFactory, shell } = vi.hoisted(() => ({
+  coordinatorFactory: vi.fn(),
+  shell: { native: false, visibleChat: null as string | null, foreground: null as null | (() => void) },
   openImRepositoryMock: vi.fn(),
   revisionListeners: new Map<string, Set<(operations: readonly unknown[]) => void | Promise<void>>>(),
   revisionCoordinatorMock: {
@@ -28,6 +30,17 @@ const { openImRepositoryMock, revisionListeners, revisionCoordinatorMock } = vi.
     }),
   },
 }))
+vi.mock('../../../../apps/desktop/src/lib/onScreenChat', async (original) => ({
+  ...await original<typeof import('../../../../apps/desktop/src/lib/onScreenChat')>(),
+  chatOnScreen: () => shell.visibleChat,
+}))
+vi.mock('../../../../apps/desktop/src/platform', async (original) => {
+  const actual = await original<typeof import('../../../../apps/desktop/src/platform')>()
+  return { ...actual, platform: { ...actual.platform,
+    get kind() { return shell.native ? 'capacitor' : 'web' },
+    subscribeAppForeground: (listener: () => void) => { shell.foreground = listener; return () => { shell.foreground = null } },
+  } }
+})
 import { createChatProjectionStub, chatProjectionModuleStub } from '../../../support/chatProjectionStub'
 // @@@chat-projection — 会话列表只有一个属主:冷启与增量都走投影 ⇒ 测试在**投影这一个缝**上
 const projectionStub = createChatProjectionStub()
@@ -65,7 +78,7 @@ vi.mock('../../../../apps/desktop/src/lib/imRepository', async (importOriginal) 
 // 它们是纯函数,复制一份假的只会在事件多带一个键时悄悄落后于真实现。
 vi.mock('../../../../apps/desktop/src/lib/accountRevisionCoordinator', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../apps/desktop/src/lib/accountRevisionCoordinator')>()),
-  createAccountRevisionCoordinator: () => revisionCoordinatorMock,
+  createAccountRevisionCoordinator: (...args: unknown[]) => { coordinatorFactory(...args); return revisionCoordinatorMock },
 }))
 // 消息窗落盘会顺带补发送者身份;这里不连网。
 vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', () => ({ readDisplayIdentities: async () => [] }))
@@ -101,9 +114,11 @@ function Probe() {
 }
 let select: (id: string | null) => void = () => { throw new Error('store not mounted') }
 let listActions: Pick<ChatContextValue, 'chats' | 'deleteChat'>
+let followCurrent: ChatContextValue['setFollowingTail']
 function Selector() {
   select = useChatStore('setActiveChatId').setActiveChatId
   listActions = useChatStore('chats', 'deleteChat')
+  followCurrent = useChatStore('setFollowingTail').setFollowingTail
   return null
 }
 let repository: import('../../../../apps/desktop/src/lib/imRepository').AccountImRepository
@@ -130,6 +145,10 @@ const framesOf = (chatId: string) => frames.filter((frame) => frame.activeChatId
 
 describe('打开会话的第一帧', () => {
   beforeEach(async () => {
+    shell.native = false
+    shell.visibleChat = null
+    shell.foreground = null
+    coordinatorFactory.mockClear()
     vi.mocked(topicService.archiveTopic).mockReset().mockResolvedValue(undefined)
     vi.mocked(chatService.archiveChat).mockClear()
     network = deferred<void>()
@@ -146,6 +165,121 @@ describe('打开会话的第一帧', () => {
     repository = await actual.openImRepository('user1', { adapter: createMemoryLocalSyncDb() })
     openImRepositoryMock.mockReset()
     openImRepositoryMock.mockResolvedValue(repository)
+  })
+
+  it('on native cold start, lists and the opened conversation hold the real coordinator scheduling seam', async () => {
+    shell.native = true
+    const list = deferred<unknown[]>()
+    projectionStub.hydrateImpl = () => list.promise
+    const harness = await mount()
+    const scheduling = coordinatorFactory.mock.calls[0]?.[4] as import('../../../../apps/desktop/src/lib/accountRevisionRuntime').AccountRevisionScheduling
+    expect(scheduling).toBeDefined()
+    const signal = new AbortController().signal
+    let ready = false
+    const background = scheduling.beforeRequest(signal).then(() => { ready = true })
+    try {
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(ready).toBe(false)
+      await act(async () => { list.resolve([chatA, chatB]) })
+      await background
+      expect(ready).toBe(true)
+      await act(async () => { select('chatA') })
+      ready = false
+      const apply = scheduling.beforeApply(signal).then(() => { ready = true })
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(ready).toBe(false)
+      await act(async () => { network.resolve() })
+      await apply
+      expect(ready).toBe(true)
+    } finally { network.resolve(); list.resolve([]); harness.cleanup() }
+  })
+
+  it('native resume coalesces overlapping events and reads the selected tail before account catch-up', async () => {
+    shell.native = true
+    network.resolve()
+    const harness = await mount()
+    const signal = new AbortController().signal
+    try {
+      await act(async () => { select('chatA') })
+      shell.visibleChat = 'chatA'
+      act(() => followCurrent(true))
+      await vi.waitFor(() => expect(framesOf('chatA').at(-1)?.loadingMessages).toBe(false))
+      await act(async () => { await Promise.resolve() })
+      network = deferred<void>()
+      vi.mocked(chatService.getMessages).mockClear()
+      const before = projectionStub.hydrateCalls
+      await act(async () => { shell.foreground?.(); shell.foreground?.() })
+      expect(chatService.getMessages).toHaveBeenCalledTimes(1)
+      expect(chatService.getMessages).toHaveBeenCalledWith('chatA', 'user1', 'initialLoad', 30)
+      expect(projectionStub.hydrateCalls).toBe(before)
+      const scheduling = coordinatorFactory.mock.calls[0]?.[4] as import('../../../../apps/desktop/src/lib/accountRevisionRuntime').AccountRevisionScheduling
+      let ready = false
+      const background = scheduling.beforeApply(signal).then(() => { ready = true })
+      await Promise.resolve()
+      expect(ready).toBe(false)
+      await act(async () => { network.resolve() })
+      await background
+      expect(ready).toBe(true)
+      const summaries = deferred<unknown[]>()
+      projectionStub.hydrateImpl = () => summaries.promise
+      await act(async () => { await repository.transaction(tx => tx.putSyncState('account-revision-cursor', { revision: '1' })) })
+      expect(projectionStub.hydrateCalls).toBe(before + 1)
+      ready = false
+      const rest = scheduling.beforeRequest(signal).then(() => { ready = true })
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(ready).toBe(false)
+      await act(async () => { summaries.resolve([chatA, chatB]) })
+      await rest
+      expect(ready).toBe(true)
+    } finally { network.resolve(); harness.cleanup() }
+  })
+
+  it('preserves an older reading window on native resume instead of replacing it with the tail', async () => {
+    shell.native = true
+    network.resolve()
+    const harness = await mount()
+    try {
+      await act(async () => { select('chatA') })
+      shell.visibleChat = 'chatA'
+      act(() => followCurrent(false))
+      await act(async () => { await Promise.resolve() })
+      vi.mocked(chatService.getMessages).mockClear()
+      vi.mocked(chatService.revalidateWindow).mockClear()
+      const before = framesOf('chatA').at(-1)?.messages
+      await act(async () => { shell.foreground?.() })
+      expect(chatService.getMessages).not.toHaveBeenCalled()
+      expect(chatService.revalidateWindow).toHaveBeenCalledTimes(1)
+      expect(framesOf('chatA').at(-1)?.messages).toEqual(before)
+    } finally { harness.cleanup() }
+  })
+
+  it('does not fetch a selected IM chat hidden behind another native surface on resume', async () => {
+    shell.native = true
+    network.resolve()
+    const harness = await mount()
+    try {
+      await act(async () => { select('chatA') })
+      shell.visibleChat = null
+      vi.mocked(chatService.getMessages).mockClear()
+      await act(async () => { shell.foreground?.() })
+      expect(chatService.getMessages).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
+  })
+
+  it('releases native initial priority on a failed list read', async () => {
+    shell.native = true
+    projectionStub.hydrateImpl = async () => { throw new Error('list unavailable') }
+    const harness = await mount()
+    try {
+      const scheduling = coordinatorFactory.mock.calls[0]?.[4] as import('../../../../apps/desktop/src/lib/accountRevisionRuntime').AccountRevisionScheduling
+      await scheduling.beforeRequest(new AbortController().signal)
+      expect(scheduling).toBeDefined()
+    } finally { harness.cleanup() }
+  })
+
+  it('does not add account scheduling on desktop', async () => {
+    const desktop = await mount()
+    try { expect(coordinatorFactory.mock.calls[0]?.[4]).toBeUndefined() } finally { desktop.cleanup() }
   })
 
   it('keeps a denied topic visible and removes it only after authoritative archival succeeds', async () => {

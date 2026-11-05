@@ -7,8 +7,8 @@
     "en": { "name": "Folder", "subtitle": "Shared Markdown and JSON files", "tabs": { "main": { "title": "Folder" }, "file": { "title": "Folder" } } }
   },
   "author": "咕咕",
-  "version": "0.2.69",
-  "apiVersion": 27,
+  "version": "0.2.71",
+  "apiVersion": 30,
   "platforms": ["desktop", "phone"],
   "entry": "index.html",
   "icon": "icon.png",

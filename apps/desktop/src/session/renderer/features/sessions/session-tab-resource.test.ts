@@ -12,8 +12,7 @@ function harness() {
   registry = observable.box<PageSessionsStore | undefined>(undefined, { deep: false });
   const close = vi.fn().mockResolvedValue(true);
   const resource = new SessionTabResource('conversation', {
-    tabId: 'tab', close, open: vi.fn(), pin: vi.fn(),
-  });
+    tabId: 'tab', close, open: vi.fn(), });
   const list = observable({ data: null as unknown[] | null, loading: true, error: undefined as string | undefined, load: vi.fn() }, { load: false });
   const sessions = observable.map<string, SessionStore>(undefined, { deep: false });
   const manager = { list, sessions } as unknown as PageSessionsStore;

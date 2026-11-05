@@ -17,7 +17,7 @@ const pinChat = vi.fn(async () => {})
 const setChatNotificationLevel = vi.fn(async () => {})
 const onOpenInfo = vi.fn()
 const onCloseInfo = vi.fn()
-const onEnterSearchMode = vi.fn()
+const onSearch = vi.fn()
 const onOpenFolder = vi.fn()
 let headerWidth: number
 const resizeCallbacks = new Set<ResizeObserverCallback>()
@@ -53,9 +53,9 @@ async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolea
   const chat = { id: 'chat', kind, is_pinned: options.pinned ?? false, notification_level: options.muted ? 'none' : 'all' }
   const props = {
     isGroupChat: kind === 'group', isRoomChat: kind !== 'dm', mobile: options.mobile,
-    searchMode: false, folderShown: false, infoShown: options.infoShown ?? false, showHeaderMenu: options.menu ?? false,
+    infoShown: options.infoShown ?? false, showHeaderMenu: options.menu ?? false,
     room, moreButtonRef: createRef<HTMLButtonElement>(),
-    onEnterSearchMode, onOpenFolder, onCloseWorkspacePanel: vi.fn(), onOpenInfo, onCloseInfo,
+    onSearch, onOpenFolder, onOpenInfo, onCloseInfo,
     onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(),
   }
   await renderWithAppProviders(harness, createNode('div', { 'data-chat-area-header': '' }, createNode(ChatHeaderActions, props)), {
@@ -189,7 +189,8 @@ describe('final group toolbar v4', () => {
     expect(setChatNotificationLevel).toHaveBeenCalledWith('chat', 'none')
     expect(document.querySelector('[data-testid="group-header-menu"]')).not.toBeNull()
     if (kind === 'dm') {
-      await clickElement(button('文件夹')!)
+      expect(button('文件夹'), 'a private chat has no header folder button, like a group').toBeUndefined()
+      await clickElement(menuItem('文件夹')!)
       expect(onOpenFolder).toHaveBeenCalledOnce()
     }
   })
@@ -200,7 +201,7 @@ describe('final group toolbar v4', () => {
     expect(search.getAttribute('role')).toBe('menuitem')
     expect(search.textContent).toContain('⌘F')
     await clickElement(search)
-    expect(onEnterSearchMode).toHaveBeenCalledOnce()
+    expect(onSearch).toHaveBeenCalledOnce()
   })
 
   it.each(['Enter', ' '])('keyboard %j exposes checked state and toggles existing pin/mute state off', async (key) => {

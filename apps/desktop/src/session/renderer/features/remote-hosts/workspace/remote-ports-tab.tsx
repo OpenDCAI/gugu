@@ -30,7 +30,6 @@ function RemotePortsTabDragPreview({ tab: _tab }: { tab: ResolvedTab<RemotePorts
 export const remotePortsTabProvider: TabProvider<'remote-ports', PortsState, RemotePortsResource, Record<string, never>> =
   createTabProvider({
     kind: 'remote-ports',
-    mount: 'single',
     resourceKey: (state: PortsState) => state.viewId,
     onBeforeOpen(_args: Record<string, never>, ctx: TabViewContext): PortsState {
       return { viewId: ctx.viewId };

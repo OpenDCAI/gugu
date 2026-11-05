@@ -18,13 +18,13 @@ afterEach(() => { harness?.cleanup(); vi.restoreAllMocks() })
 
 async function setup() {
   harness = createReactHarness()
-  const provider = createTabProvider({ kind: 'fixture', mount: 'multi', resourceKey: (state: { i: number }) => String(state.i),
+  const provider = createTabProvider({ kind: 'fixture', resourceKey: (state: { i: number }) => String(state.i),
     initialize: () => ({ dispose() {} }), dispose() {},
     TabContent: () => null, TabBarItem: () => null, TabBarItemDragPreview: () => null,
   })
   const layout = new PaneLayoutStore(createTabRegistry([provider]),
     { viewId: 'preview', place: { kind: 'session', sessionId: 'preview', projectId: 'preview' } })
-  for (let i = 0; i < 3; i++) layout.open('fixture', { i }, { activate: false })
+  for (let i = 0; i < 3; i++) layout.open('fixture', { i }, { intent: 'newTab', from: null, activate: false })
   const pane = layout.groups[0].pane, [a, b, c] = pane.tabOrder
   const rect = (left: number, width: number) => ({ left, right: left + width, top: 0, bottom: 40, width, height: 40 } as DOMRect)
   function Probe() {

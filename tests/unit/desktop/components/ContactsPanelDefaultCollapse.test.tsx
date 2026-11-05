@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { ContactsPanel } from '../../../../apps/desktop/src/components/ContactsPanel'
@@ -83,5 +84,26 @@ describe('ContactsPanel default section collapse', () => {
     expect(browse()?.className).toBe('contents')
     expect(devicePanels()[0].hasAttribute('data-open')).toBe(true)
     expect(otherPanels().every((p) => p.hasAttribute('data-open'))).toBe(true)
+  })
+
+  it('a folded device section mounts name-only rows; find-in-page (beforematch) opens it and mounts the full rows', async () => {
+    const agents = ['a', 'b'].map((id) => contact({ id, type: 'agent', display_name: `Agent ${id}`, owner_user_id: 'owner-1', device_id: 'laptop' }))
+    await renderWithAppProviders(harness, createNode(ContactsPanel, {}), { shellTab: 'contacts',
+      auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
+      contacts: { contacts: agents },
+      chat: { chats: [] },
+    })
+    const section = harness.container.querySelector('[data-testid="contacts-device-section"]')!
+    const panel = section.querySelector('[data-slot="collapse-panel"]')!
+    expect(panel.hasAttribute('data-closed')).toBe(true)
+    // 页内查找要搜得到:名字在 DOM 里;重的子树(行本体、头像)不在
+    expect(panel.textContent).toContain('Agent a')
+    expect(panel.querySelector('[data-contact-id]')).toBeNull()
+    expect(panel.querySelector('svg, img')).toBeNull()
+
+    await act(async () => { panel.dispatchEvent(new Event('beforematch', { bubbles: true })) })
+    expect(panel.hasAttribute('data-open')).toBe(true)
+    expect(panel.querySelector('[data-contact-id="a"]')).toBeTruthy()
+    expect(panel.querySelector('[data-contact-id="b"]')).toBeTruthy()
   })
 })

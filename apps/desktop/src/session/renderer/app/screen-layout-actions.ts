@@ -657,7 +657,7 @@ export function dropOnScreen(drop: BlockDrop, content: ScreenBlockContent): void
   }
   const paneLayout = paneLayoutOfBlock(drop.blockId);
   if (content.kind !== 'app' || !paneLayout) return;
-  paneLayout.open(content.tabKind, {}, { preview: false, target: { paneId: drop.paneId } });
+  paneLayout.open(content.tabKind, {}, { from: null, intent: 'newTab', target: { paneId: drop.paneId } });
   paneLayout.setActiveGroup(drop.paneId);
   const pane = paneLayout.groups.find((group) => group.paneId === drop.paneId)?.pane;
   if (drop.strip && pane) {

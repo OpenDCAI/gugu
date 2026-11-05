@@ -91,6 +91,19 @@ beforeEach(async () => {
 });
 
 describe('openWith(file, { tab }): its own tab, no 「打开方式」 (A2 T3/T4)', () => {
+  it.each(['navigate', 'newTab', 'beside'] as const)('folder redesign carries %s through the real desktop host', async (intent) => {
+    expect(await openWith({ ref, tab: 'explore', intent })).toMatchObject({ ok: true });
+    expect(actions()).toContainEqual(expect.objectContaining({ kind: 'openWith', detail: expect.objectContaining({ intent }) }));
+  });
+
+  it('folder redesign defaults to navigation and refuses invalid intent before opening', async () => {
+    expect(await openWith({ ref, tab: 'explore' })).toMatchObject({ ok: true });
+    expect(actions()).toContainEqual(expect.objectContaining({ kind: 'openWith', detail: expect.objectContaining({ intent: 'navigate' }) }));
+    deliver.mockClear();
+    expect(await openWith({ ref, intent: 'permanent' })).toMatchObject({ ok: false, code: 'invalid' });
+    expect(actions()).toEqual([]);
+  });
+
   it('T3: Data Lens and Office both open .xlsx — { tab: \'explore\' } opens Data Lens\'s explore, nobody is asked', async () => {
     expect(await openWith({ ref, tab: 'explore' })).toMatchObject({ ok: true });
     expect(chosen()).toEqual([lensExplore]);

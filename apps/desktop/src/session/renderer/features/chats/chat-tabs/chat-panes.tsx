@@ -14,13 +14,11 @@ import { PaneLayoutProvider } from '@renderer/features/tabs/pane-layout-context'
 import { SplitPaneHotkey } from '@renderer/features/sessions/tab-bar-actions';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
 import type { ResolvedTab } from '@renderer/features/tabs/core/tab-provider';
-import { PairSeparator } from '@renderer/features/tabs/tab-bar/pair-separator';
+import { PaneTreeView } from '@renderer/features/tabs/pane-tree-view';
 import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
-import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { chatBlockContentOf, chatLayoutOf, closeChatTab } from './chat-layouts';
-import { CHAT_PANEL_TAB_KIND, CHAT_TOPIC_TAB_KIND, CHAT_TAB_KIND, ChatTabHostContext, type ChatTabHost } from './chat-tab-providers';
-import { groupParticipantPanes } from '../group-participant-panes';
+import { chatAuxiliaryYielded, chatBlockContentOf, chatLayoutOf, closeChatTab } from './chat-layouts';
+import { CHAT_TAB_KIND, ChatTabHostContext, type ChatTabHost } from './chat-tab-providers';
 
 /**
  * A chat's block (gugu-dev#181: a project's group, a chat ⌘-clicked beside a task): one strip on the task's engine —
@@ -43,10 +41,6 @@ const LegacyChatPanes = observer(function LegacyChatPanes({
   reserveShellRestoreLane?: boolean;
 }) {
   const layout = chatLayoutOf(chatId);
-  const group = layout.groups[0]!;
-  const pair = group.pane.livePair;
-  const sideKind = pair ? group.pane.entries.get(pair.side)?.kind : undefined;
-  const sharedAuxiliaryWidth = sideKind === CHAT_TOPIC_TAB_KIND || sideKind === CHAT_PANEL_TAB_KIND;
   const host = useMemo<ChatTabHost>(() => ({
     chip,
     body,
@@ -57,13 +51,13 @@ const LegacyChatPanes = observer(function LegacyChatPanes({
   }), [chip, body, chatId, blockId]);
   // 页签右键「在新窗口打开」:除了这个对话自己那一枚,哪一枚都能单独成窗(和任务里的附页一样);它在窗里 = 把窗提到前面。
   useEffect(() => {
-    layout.setWindowOpener((tabId) => (group.pane.entries.get(tabId)?.kind === CHAT_TAB_KIND ? null : () => openChatTabInWindow(chatId, layout, tabId)));
+    layout.setWindowOpener((tabId) => (layout.groups.find(({ pane }) => pane.entries.has(tabId))?.pane.entries.get(tabId)?.kind === CHAT_TAB_KIND ? null : () => openChatTabInWindow(chatId, layout, tabId)));
     layout.setWindowRevealer(revealTabWindow);
     return () => {
       layout.setWindowOpener(null);
       layout.setWindowRevealer(null);
     };
-  }, [layout, group, chatId]);
+  }, [layout, chatId]);
   const drag = useTabDrag({
     layout,
     blockId,
@@ -71,32 +65,23 @@ const LegacyChatPanes = observer(function LegacyChatPanes({
     contentOf: (tabId) => chatBlockContentOf(chatId, tabId),
     landed: (tabId) => closeChatTab(chatId, tabId),
     // Out of the window, any but the chat's own tab opens in a window of its own.
-    openWindow: (tabId) => (group.pane.entries.get(tabId)?.kind === CHAT_TAB_KIND ? null : (at) => openChatTabInWindow(chatId, layout, tabId, at)),
+    openWindow: (tabId) => (layout.groups.find(({ pane }) => pane.entries.has(tabId))?.pane.entries.get(tabId)?.kind === CHAT_TAB_KIND ? null : (at) => openChatTabInWindow(chatId, layout, tabId, at)),
   });
   const dragging = drag.dragging;
-  // Dragged to an edge = beside the chat that way (or the other way round); no edge where two pages do not fit.
-  const edges = dragging === null ? [] : PANE_EDGES.filter((edge) => group.pane.pairSplitBlocked(dragging, edge) === null);
   return (
     <ChatTabHostContext.Provider value={host}>
       <PaneLayoutProvider paneLayout={layout}>
         <DndContext sensors={drag.sensors} collisionDetection={edgeFirst} onDragStart={drag.onDragStart} onDragMove={drag.onDragMove} onDragEnd={drag.onDragEnd} onDragCancel={drag.onDragCancel}>
-          <PaneProvider group={group} isFocusedPane={screenLayout.focusedBlockId === blockId}>
-            <SplitPaneHotkey />
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-pane-cell={group.paneId} data-chat-panes={chatId}>
-              <PaneContent
-                pairSizing={sharedAuxiliaryWidth ? {
-                  rightWidth: groupParticipantPanes.rightWidth,
-                  onResize: width => groupParticipantPanes.rememberWidth(width),
-                  onReset: () => groupParticipantPanes.rememberWidth(480),
-                } : undefined}
-                // 「+」 after the last tab: the folder and the Apps that open here, drawn by the shell (it knows them).
-                tabTrailingSlot={<ChatPartSlot chatId={chatId} part="tabs" className="flex h-full items-center" />}
-                actionsSlot={actionsSlot}
-                reserveShellRestoreLane={reserveShellRestoreLane}
-                contentOverlay={edges.length > 0 ? <PaneEdgeDropZones paneId={group.paneId} edges={edges} /> : null}
-              />
-            </div>
-          </PaneProvider>
+          <PaneTreeView layout={layout} singlePaneId={chatAuxiliaryYielded(chatId) ? layout.groups.find(({ pane }) => [...pane.entries.values()].some((entry) => entry.kind === CHAT_TAB_KIND))?.paneId : undefined} renderPane={(paneId, first, last) => {
+            const group = layout.groups.find((candidate) => candidate.paneId === paneId)!;
+            const edges = dragging === null ? [] : PANE_EDGES.filter((edge) => layout.splitBlocked(paneId, dragging, edge) === null);
+            return <PaneProvider group={group} isFocusedPane={screenLayout.focusedBlockId === blockId && layout.activePaneId === paneId}>
+              <SplitPaneHotkey />
+              <div className="h-full min-h-0 min-w-0" data-pane-cell={paneId} data-chat-panes={chatId} onPointerDown={() => layout.setActiveGroup(paneId)}>
+                <PaneContent tabTrailingSlot={<ChatPartSlot chatId={chatId} part="tabs" className="flex h-full items-center" />} actionsSlot={last ? actionsSlot : undefined} reserveShellRestoreLane={first && reserveShellRestoreLane} contentOverlay={edges.length ? <PaneEdgeDropZones paneId={paneId} edges={edges} /> : null} />
+              </div>
+            </PaneProvider>;
+          }} />
           <TabDragOverlay />
         </DndContext>
       </PaneLayoutProvider>
@@ -126,14 +111,12 @@ export const ChatTabChip = observer(function ChatTabChip({
   menu: ReactNode;
   [data: `data-${string}`]: string | undefined;
 }) {
-  const { translate } = useSessionMessages();
   const chip = <TabChip
-    isActive={tab.isActive} isFocusedPane={focused && (tab.isFocused ?? true)} pairRole={tab.pairRole}
+    isActive={tab.isActive} isFocusedPane={focused && (tab.isFocused ?? true)}
     label={label} labelSlot={labelSlot} onClick={() => host.setActiveTab(tab.tabId)}
   />;
   return (
-    <TabSlot data-tabid={tab.tabId} data-tab-pair={tab.pairRole} {...data}>
-      {tab.pairRole === 'end' ? <PairSeparator label={translate('tabs.separatePair')} onSeparate={() => host.separatePair()} /> : null}
+    <TabSlot data-tabid={tab.tabId} {...data}>
       {menu ? <ContextMenu>
         <ContextMenuTrigger className="flex h-full w-full min-w-0">{chip}</ContextMenuTrigger>
         <ContextMenuContent finalFocus={false} className="min-w-40">{menu}</ContextMenuContent>

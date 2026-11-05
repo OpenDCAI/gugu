@@ -192,7 +192,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/store/chat.tsx",
-    "count": 10
+    "count": 9
   },
   {
     "rule": "console-member",
@@ -226,13 +226,8 @@
   },
   {
     "rule": "console-member",
-    "file": "apps/desktop/src/session/renderer/features/tabs/pane-layout-store.ts",
-    "count": 1
-  },
-  {
-    "rule": "console-member",
     "file": "apps/desktop/src/session/renderer/features/tabs/pane-store.ts",
-    "count": 2
+    "count": 1
   },
   {
     "rule": "console-member",

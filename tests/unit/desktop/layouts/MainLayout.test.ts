@@ -517,6 +517,29 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-chat-new-project"]'), 'no phone 新项目 entry on the desktop').toBeNull()
   })
+  it.each(['list', 'chat'] as const)('returns from an owned phone task to the unchanged %s opener in one step', async source => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    taskRoute.remote = true
+    taskRoute.contacts = [{ id: 'task-agent', type: 'agent', owner_user_id: 'user-1' }]
+    chatStoreMock.chats = [{ id: 'original-chat', kind: 'group' }, { id: 'task-dm', kind: 'dm', peer_user_id: 'task-agent' }] as never
+    chatStoreMock.activeChatId = 'original-chat'
+    chatStoreMock.setActiveChatId.mockImplementation(id => { chatStoreMock.activeChatId = id })
+    await renderMainLayoutWithToast()
+    if (source === 'chat') await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)
+    const { openOwnedAgentEntry } = await import('../../../../apps/desktop/src/lib/ownedAgentConversation')
+    for (const method of ['header', 'native']) {
+      await act(async () => { expect(openOwnedAgentEntry('task-dm')).toBe(true) })
+      await renderMainLayoutWithToast()
+      expect(layerOpen('mobile-sessions-layer')).toBe(true)
+      if (method === 'header') await clickElement(harness.container.querySelector('[data-testid="mock-session-back"]') as HTMLElement)
+      else await nativeBack()
+      expect(layerOpen('mobile-sessions-layer')).toBe(false)
+      expect(chatStoreMock.activeChatId).toBe('original-chat')
+      expect(Boolean(harness.container.querySelector('[data-testid="mock-chat-row"]'))).toBe(source === 'list')
+      expect(harness.container.querySelector('[data-testid="mock-chat-area"]')?.getAttribute('data-hidden')).toBe(String(source !== 'chat'))
+    }
+  })
   it.each(['messages', 'contacts', 'project', 'notification'] as const)('adds one session layer from %s and returns to the retained source', async source => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
@@ -983,7 +1006,7 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false, 'resource')
-    expect(takeChatAsk('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail, fromPage: true })
+    expect(takeChatAsk('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail })
   })
 
   it('a message file request keeps its originating message for the native preview actions', async () => {

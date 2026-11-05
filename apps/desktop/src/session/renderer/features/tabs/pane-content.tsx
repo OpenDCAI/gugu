@@ -1,404 +1,111 @@
 import { useDroppable } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-  type RefObject,
-} from 'react';
-import {
-  createPaneDimensionSink,
-  PaneDimensionProvider,
-  type PaneDimensionSink,
-} from '@renderer/features/tabs/pane-dimension-provider';
-import { setDragShield } from '@renderer/lib/drag-shield';
-import { PaneContext, usePaneContext } from '../tabs/pane-context';
-import { PairPlacementContext } from './pair-placement-context';
-import { paneSlotView, sameKindSide as sameKindSideOf } from './pane-slot-view';
-import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneStore } from './pane-store';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
+import { createPaneDimensionSink, PaneDimensionProvider, type PaneDimensionSink } from './pane-dimension-provider';
+import { usePaneContext } from './pane-context';
 import { TabBar } from './tab-bar';
 import { isUnavailableTabResource, UnavailableTabContent } from './unavailable-tab';
 import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
 import { tabFullscreen, WORKSPACE_ANCHOR } from './tab-fullscreen';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 
-// 文件编辑器收字的是 `.cm-content`(可编辑时 contenteditable)。
-// 浏览器页签的网页是主进程的 view(#7274),页签里只有它的占位 `[data-browser-page]`:聚焦占位 = 把焦点交给网页。
-const CONTENT_FOCUS_SELECTOR =
-  '.cm-content, textarea:not([readonly]), webview, [data-browser-page], [contenteditable="true"]';
-
-function focusActiveContentElement(container: HTMLElement): void {
-  for (const el of container.querySelectorAll<HTMLElement>(CONTENT_FOCUS_SELECTOR)) {
-    el.focus();
-    if (document.activeElement === el) return;
-  }
-}
-
-/** The content for a single pane: tab bar + content area. */
-/**
- * 全屏的那一格:固定定位、四条边贴到工作区(ScreenFrame)上,盖住这屏所有块。用 fixed 而不是 absolute:
- * 格子在某一块的页里,absolute 的包含块是那一块,够不着块外面的锚点;fixed 的包含块是视口,锚点认得到。
- * 不换父节点 —— 终端、网页、对话都不重挂。
- */
+// 文件编辑器收字的是 `.cm-content`(可编辑时 contenteditable)。浏览器页签的网页是主进程的 view,页签里只有它的占位 `[data-browser-page]`。
+const CONTENT_FOCUS_SELECTOR = '.cm-content, textarea:not([readonly]), webview, [data-browser-page], [contenteditable="true"]';
 const FULLSCREEN_STYLE = {
-  position: 'fixed',
-  positionAnchor: WORKSPACE_ANCHOR,
-  top: 'anchor(top)',
-  bottom: 'anchor(bottom)',
-  left: 'anchor(left)',
-  right: 'anchor(right)',
+  position: 'fixed', positionAnchor: WORKSPACE_ANCHOR,
+  top: 'anchor(top)', bottom: 'anchor(bottom)', left: 'anchor(left)', right: 'anchor(right)',
   zIndex: 'var(--z-pane-fullscreen)',
 } as CSSProperties;
 
+/** One actual pane, one strip and one active navigation context. Splits belong to the layout tree. */
 export const PaneContent = observer(function PaneContent({
-  emptyState,
-  tabLeadingSlot,
-  tabTrailingSlot,
-  actionsSlot,
-  hideTabBar,
-  reserveShellRestoreLane,
-  leadingReservePx,
-  contentOverlay,
-  pairSizing,
+  emptyState, tabLeadingSlot, tabTrailingSlot, actionsSlot, hideTabBar,
+  reserveShellRestoreLane, leadingReservePx, contentOverlay,
 }: {
-  /** 页签条左端还要让出多宽(单独成窗时让开 mac 的红绿灯)。 */
-  leadingReservePx?: number;
-  /** Rendered when the pane has no open tabs (domain-specific, injected by the task view). */
   emptyState?: ReactNode;
-  /** Before the first tab, in the strip's leading gap (a block's ⋮⋮, #7052). */
   tabLeadingSlot?: ReactNode;
-  /** Rendered immediately after the last tab in the scrollable tab strip. */
   tabTrailingSlot?: ReactNode;
-  /** Rendered in the tab bar action area (domain-specific, injected by the task view). */
   actionsSlot?: ReactNode;
-  /** Hide the tab bar entirely (chat column hosts a single conversation with its own header). */
   hideTabBar?: boolean;
-  /** 这条页签条贴着主内容区左缘,要给收起态的「展开侧栏」浮动按钮让位(见 <TabStripShell>)。 */
   reserveShellRestoreLane?: boolean;
-  /** Drawn over the content region, under the tab bar (the edge drop zones while a tab is dragged, #7052). */
+  leadingReservePx?: number;
   contentOverlay?: ReactNode;
-  /** A host can share a right-hand width; ordinary task panes retain their own ratios. */
-  pairSizing?: { rightWidth: number; onResize: (width: number) => void; onReset: () => void };
 }) {
-  const paneContext = usePaneContext();
-  const { paneId, pane } = paneContext;
-  const { setNodeRef: setContentDropRef, isOver: isOverContent } = useDroppable({
-    id: `pane-content-${paneId}`,
-  });
+  const { paneId, pane, isFocusedPane } = usePaneContext();
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  useCommandProvider(useMemo(() => ({
+    scopeId: 'session-sub' as const,
+    isActive: () => isFocusedPane,
+    getCommands: () => ([-1, 1] as const).map((delta) => ({
+      id: delta === -1 ? 'app.navigateBack' as const : 'app.navigateForward' as const,
+      hideFromPalette: true,
+      execute() { const id = pane.resolvedActiveTabId; if (id) void pane.go(id, delta); },
+    })),
+  }), [pane, isFocusedPane]));
+  const { setNodeRef: dropRef, isOver } = useDroppable({ id: `pane-content-${paneId}` });
   const contentRef = useRef<HTMLDivElement | null>(null);
-
+  const setContentRef = useCallback((element: HTMLDivElement | null) => { dropRef(element); contentRef.current = element; }, [dropRef]);
   useEffect(() => {
     pane.setContentFocuser(() => {
       const container = contentRef.current;
       if (!container) return;
-      // 并排时两层都可聚焦:只在拿着焦点那一枚的那一层里找,❌ 按 DOM 顺序落进另一边(spec session-page「并排」)。
-      const active = pane.resolvedActiveTabId;
       const kind = pane.activeEntry?.kind;
-      const layer =
-        (active ? container.querySelector<HTMLElement>(`[data-pane-tab="${CSS.escape(active)}"]`) : null) ??
-        (kind ? container.querySelector<HTMLElement>(`[data-pane-layer="${CSS.escape(kind)}"]`) : null);
-      focusActiveContentElement(layer ?? container);
+      const layer = kind ? container.querySelector<HTMLElement>(`[data-pane-layer="${CSS.escape(kind)}"]`) : null;
+      for (const element of (layer ?? container).querySelectorAll<HTMLElement>(CONTENT_FOCUS_SELECTOR)) {
+        if (element.checkVisibility && !element.checkVisibility({ visibilityProperty: true })) continue;
+        element.focus();
+        if (document.activeElement === element) return;
+      }
+      container.focus();
     });
     return () => pane.setContentFocuser(null);
   }, [pane]);
 
-  const setContentRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      setContentDropRef(el);
-      contentRef.current = el;
-    },
-    [setContentDropRef]
-  );
-
-  // 每种页签一层内容、各量各的尺寸(终端按自己那一半算行列):并排时只是把两层摆到左右,❌ 换父节点 —— 换了终端、对话会整个重挂。
-  const layerSinks = useMemo(() => new Map<string, PaneDimensionSink>(), [pane]);
-  const layerSink = (kind: string): PaneDimensionSink => {
-    let sink = layerSinks.get(kind);
-    if (!sink) {
-      sink = createPaneDimensionSink();
-      layerSinks.set(kind, sink);
-    }
+  const sinks = useMemo(() => new Map<string, PaneDimensionSink>(), [pane]);
+  const sinkFor = (kind: string) => {
+    let sink = sinks.get(kind);
+    if (!sink) { sink = createPaneDimensionSink(); sinks.set(kind, sink); }
     return sink;
   };
-
-  const hasAnyTab = pane.resolvedTabs.length > 0;
-  const activeTab = pane.resolvedTabs.find((tab) => tab.isFocused ?? tab.isActive);
-  const activeKind = activeTab?.kind ?? null;
-  const unavailableActiveTab =
-    activeTab &&
-    (isUnavailableTabResource(activeTab.resource) || !pane.registry.has(activeTab.kind))
-      ? activeTab
-      : null;
-  // 并排(spec session-page「并排」):两页左右(或上下)摆开,中间一条可拖的分界。每种页签一层内容,
-  // 两页是同一种(两个文件、两个网页)时另一页单独再挂一份那种页签的内容(paneSlotView),各管各的那一枚。
-  // 页签全屏(tab-fullscreen.ts):这一格整个铺到工作区上,并排只是这一刻不画(pair 本身原样,退出就回来)。
+  const active = pane.resolvedTabs.find((tab) => tab.isActive);
+  useLayoutEffect(() => {
+    // Same-tab navigation changes the page, not its id. A retained guest must
+    // relinquish native input to the new page through the existing focuser.
+    if (isFocusedPane && shellRef.current?.contains(document.activeElement)) pane.focusActiveContent();
+  }, [pane, isFocusedPane, active?.resource]);
+  const unavailable = active && (!pane.registry.has(active.kind) || isUnavailableTabResource(active.resource)) ? active : null;
+  const kinds = [...new Set(pane.resolvedTabs.map((tab) => tab.kind))];
+  const recent = useRetainedTabs(kinds, active ? [active.kind] : []);
+  const retained = new Set([...recent, ...pane.registry.all().filter((provider) => provider.keepMounted && kinds.includes(provider.kind)).map((provider) => provider.kind)]);
   const fullscreen = tabFullscreen.isOn(pane);
-  const pair = pane.pairShown && !fullscreen ? pane.livePair : null;
-  const slots = pair ? pane.pairSlots : null;
-  const anchorKind = pair ? (pane.entries.get(pair.anchor)?.kind ?? null) : null;
-  const sideKind = pair ? (pane.entries.get(pair.side)?.kind ?? null) : null;
-  const sameKindSide = sameKindSideOf(pane);
-  // 两份格子视图跟这一格同生同灭(❌ 随那一对重建:内容挂上时就把格子记下了,换一份它看不到)。
-  const slotViews = useMemo(() => ({ rest: paneSlotView(pane, 'rest'), side: paneSlotView(pane, 'side') }), [pane]);
-  // 窗口缩窄之后存着的份额可能让一边窄过最窄 / 最矮:画的时候按此刻的大小卡住(份额本身不改,宽回来照旧)。
-  const vertical = slots?.vertical ?? false;
-  const extent = vertical ? pane.dimensions?.height : pane.dimensions?.width;
-  const minShare = extent ? Math.min(0.5, (vertical ? MIN_PANE_HEIGHT_PX : MIN_PANE_WIDTH_PX) / extent) : 0;
-  const sharedSizing = !vertical && slots?.first === pair?.anchor ? pairSizing : undefined;
-  const share = sharedSizing && extent ? 1 - sharedSizing.rightWidth / extent : pane.pairShare;
-  const split = pair ? `${(Math.min(1 - minShare, Math.max(minShare, share)) * 100).toFixed(3)}%` : null;
-  const slotStyle = (tabId: string): CSSProperties => {
-    const first = slots?.first === tabId;
-    if (!vertical) return first ? { top: 0, bottom: 0, left: 0, width: split! } : { top: 0, bottom: 0, left: split!, right: 0 };
-    return first ? { left: 0, right: 0, top: 0, height: split! } : { left: 0, right: 0, top: split!, bottom: 0 };
-  };
-  // 这种页签自己摆两页(网页):那一层铺满整格、看得到这一格的全部页签,每页摆在哪由它自己读;❌ 另起一份。
-  const selfPlacedKind =
-    sameKindSide && sideKind && pane.registry.has(sideKind) && pane.registry.get(sideKind).placesPairItself ? sideKind : null;
-  const placeInPair = (tabId: string): CSSProperties | null =>
-    slots && (tabId === slots.first || tabId === slots.second) ? slotStyle(tabId) : null;
-  /** 这一种页签那一层此刻摆的是这一对里的哪一枚(没在这一对里 = null)。 */
-  const layerTabId = (kind: string): string | null =>
-    pair ? (kind === anchorKind ? pair.anchor : kind === sideKind ? pair.side : null) : null;
-  const openKinds = [...new Set(pane.resolvedTabs.map((tab) => tab.kind))];
-  const recentKinds = useRetainedTabs(
-    openKinds,
-    pair ? [anchorKind, sideKind].filter((kind): kind is string => kind !== null) : activeKind ? [activeKind] : [],
-  );
-  const retained = new Set([...recentKinds, ...pane.registry.all().filter((def) => def.keepMounted && openKinds.includes(def.kind)).map((def) => def.kind)]);
-
-  if (!hasAnyTab) {
-    return (
-      <div ref={setContentRef} className="relative h-full">
-        {isOverContent && (
-          <div className="pointer-events-none absolute inset-0 z-20 bg-foreground/10" />
-        )}
-        {emptyState}
-        {contentOverlay}
-      </div>
-    );
-  }
-
   return (
-    <div
-      className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'}
-      style={fullscreen ? FULLSCREEN_STYLE : undefined}
-      data-tab-fullscreen={fullscreen ? '' : undefined}
-    >
-      {!hideTabBar && (
-        <TabBar
-          leadingSlot={tabLeadingSlot}
-          tabTrailingSlot={tabTrailingSlot}
-          actionsSlot={actionsSlot}
-          reserveShellRestoreLane={reserveShellRestoreLane}
-          leadingReservePx={leadingReservePx}
-        />
-      )}
-      {/* bg-tab-face 与活动页签同一个 token —— 这是「连体」成立的**前提**,不是装饰:
-          两边一旦不同色,页签底下就会出现一条色阶断层,耳朵也就无从谈起。 */}
-      <div ref={setContentRef} className="relative min-h-0 min-w-0 flex-1 bg-tab-face">
-        {/*
-         * PaneDimensionProvider is placed here (below the TabBar, not around
-         * the entire PaneContent) so its ResizeObserver only measures the
-         * content region. This ensures the TabBar height is never included in
-         * PTY grid calculations.
-         */}
+    <div ref={shellRef} className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'} style={fullscreen ? FULLSCREEN_STYLE : undefined} data-tab-fullscreen={fullscreen ? '' : undefined}
+      onMouseUp={(event) => {
+        if (event.defaultPrevented || (event.button !== 3 && event.button !== 4)) return;
+        const id = pane.resolvedActiveTabId;
+        if (!id) return;
+        event.preventDefault();
+        void pane.go(id, event.button === 3 ? -1 : 1);
+      }}>
+      {pane.resolvedTabs.length > 0 && !hideTabBar && <TabBar leadingSlot={tabLeadingSlot} tabTrailingSlot={tabTrailingSlot} actionsSlot={actionsSlot} reserveShellRestoreLane={reserveShellRestoreLane} leadingReservePx={leadingReservePx} />}
+      <div ref={setContentRef} data-pane-content="" tabIndex={-1} className="relative min-h-0 min-w-0 flex-1 bg-tab-face">
         <PaneDimensionProvider sink={pane}>
-          {isOverContent && (
-            <div className="pointer-events-none absolute inset-0 z-20 bg-foreground/10" />
-          )}
-          {pane.registry.all().filter((def) => retained.has(def.kind)).map((def) => {
-            const ContentComponent = def.TabContent;
-            const pairedTabId = layerTabId(def.kind);
-            const isActive = pair ? pairedTabId !== null : unavailableActiveTab === null && activeKind === def.kind;
-            const placesPair = def.kind === selfPlacedKind;
-            const host = def.placesPairItself ? pane : slotViews.rest;
+          {isOver && <div className="pointer-events-none absolute inset-0 z-20 bg-foreground/10" />}
+          {pane.registry.all().filter((provider) => retained.has(provider.kind)).map((provider) => {
+            const Content = provider.TabContent;
             return (
-              <ContentLayer
-                key={def.kind}
-                layerKey={def.kind}
-                kind={def.kind}
-                pane={pane}
-                host={host}
-                paneContext={paneContext}
-                tabId={placesPair ? null : pairedTabId}
-                style={pairedTabId && !placesPair ? slotStyle(pairedTabId) : { inset: 0 }}
-                visible={isActive}
-                sink={layerSink(def.kind)}
-              >
-                <PairPlacementContext.Provider value={placesPair ? placeInPair : null}>
-                  {/* 页签内容是任务页入口登记的懒组件(@@@tab-views):第一次用到时可能还在载(桌面空闲时已预热),载的那一下这一层先空着。 */}
-                  <Suspense fallback={null}>
-                    <ContentComponent host={host} ctx={pane.ctx} />
-                  </Suspense>
-                </PairPlacementContext.Provider>
-              </ContentLayer>
+              <RetainedTabContent key={provider.kind} visible={!unavailable && active?.kind === provider.kind} className="absolute inset-0" data-pane-layer={provider.kind} data-pane-layer-key={provider.kind} data-pane-tab={active?.kind === provider.kind ? active?.tabId : undefined}>
+                <PaneDimensionProvider sink={sinkFor(provider.kind)}>
+                  <Suspense fallback={null}><Content host={pane} ctx={pane.ctx} /></Suspense>
+                </PaneDimensionProvider>
+              </RetainedTabContent>
             );
           })}
-          {sameKindSide && sideKind && !selfPlacedKind ? (
-            (() => {
-              const def = pane.registry.get(sideKind);
-              const ContentComponent = def.TabContent;
-              return (
-                <ContentLayer
-                  key={`${sideKind}#side`}
-                  layerKey={`${sideKind}#side`}
-                  kind={sideKind}
-                  pane={pane}
-                  host={slotViews.side}
-                  paneContext={paneContext}
-                  tabId={sameKindSide}
-                  style={slotStyle(sameKindSide)}
-                  visible
-                  sink={layerSink(`${sideKind}#side`)}
-                >
-                  <Suspense fallback={null}>
-                    <ContentComponent host={slotViews.side} ctx={pane.ctx} />
-                  </Suspense>
-                </ContentLayer>
-              );
-            })()
-          ) : null}
-          {split ? <PairDivider pane={pane} at={split} vertical={vertical} containerRef={contentRef} sizing={sharedSizing} /> : null}
-          {unavailableActiveTab && !pair ? (
-            <UnavailableTabContent tab={unavailableActiveTab} host={pane} />
-          ) : null}
+          {unavailable && <UnavailableTabContent tab={unavailable} host={pane} />}
+          {pane.resolvedTabs.length === 0 ? emptyState : null}
         </PaneDimensionProvider>
         {contentOverlay}
       </div>
     </div>
-  );
-});
-
-/**
- * 一种页签的一层内容。并排时它摆在这一对里它那一枚的位置;点进去(或用键盘 Tab 进去)焦点就到那一枚
- * (照 Chrome:点一下非激活的那一侧它就激活)。另一页单独挂的那份(同一种页签并排时)给里面的内容换一份只露出它那一枚的格子。
- */
-const ContentLayer = observer(function ContentLayer({
-  layerKey,
-  kind,
-  pane,
-  host,
-  paneContext,
-  tabId,
-  style,
-  visible,
-  sink,
-  children,
-}: {
-  layerKey: string;
-  kind: string;
-  pane: PaneStore;
-  host: PaneStore;
-  paneContext: ReturnType<typeof usePaneContext>;
-  tabId: string | null;
-  style: CSSProperties;
-  visible: boolean;
-  sink: PaneDimensionSink;
-  children: ReactNode;
-}) {
-  const focusTab = tabId && tabId !== pane.activeTabId ? () => pane.setActiveTab(tabId) : undefined;
-  const contextValue = useMemo(
-    () => (host === pane ? null : { ...paneContext, pane: host }),
-    [host, pane, paneContext]
-  );
-  const body = <PaneDimensionProvider sink={sink}>{children}</PaneDimensionProvider>;
-  // 始终包一层(❌ 只在换了格子视图时才包):包与不包来回换,里面的内容会整个重挂(网页重新加载)。
-  return (
-    <RetainedTabContent
-      className="absolute"
-      visible={visible}
-      style={style}
-      data-pane-layer={kind}
-      data-pane-layer-key={layerKey}
-      data-pane-tab={tabId ?? undefined}
-      onPointerDownCapture={focusTab}
-      onFocusCapture={focusTab}
-    >
-      <PaneContext.Provider value={contextValue ?? paneContext}>{body}</PaneContext.Provider>
-    </RetainedTabContent>
-  );
-});
-
-/**
- * 并排两页中间那条分界(spec session-page「并排」):拖它改前一页(左 / 上)占几成,两边各守最窄 / 最矮;
- * 双击回一半一半。样子照 ResizableHandle:1px 线,两侧各 4px 好抓。
- */
-const PairDivider = observer(function PairDivider({
-  pane,
-  at,
-  vertical,
-  containerRef,
-  sizing,
-}: {
-  pane: PaneStore;
-  at: string;
-  vertical: boolean;
-  containerRef: RefObject<HTMLDivElement | null>;
-  sizing?: { onResize: (width: number) => void; onReset: () => void };
-}) {
-  const dragCleanup = useRef<(() => void) | null>(null);
-  useEffect(() => () => dragCleanup.current?.(), []);
-
-  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const container = containerRef.current;
-    if (!container || event.button !== 0) return;
-    event.preventDefault();
-    dragCleanup.current?.();
-    const handle = event.currentTarget;
-    const move = (moveEvent: PointerEvent) => {
-      const rect = container.getBoundingClientRect();
-      const extent = vertical ? rect.height : rect.width;
-      if (extent <= 0) return;
-      const min = Math.min(0.5, (vertical ? MIN_PANE_HEIGHT_PX : MIN_PANE_WIDTH_PX) / extent);
-      const ratio = vertical ? (moveEvent.clientY - rect.top) / extent : (moveEvent.clientX - rect.left) / extent;
-      const share = Math.min(1 - min, Math.max(min, ratio));
-      pane.setPairRatio(share);
-      sizing?.onResize(extent * (1 - share));
-    };
-    const end = () => {
-      if (dragCleanup.current !== end) return;
-      dragCleanup.current = null;
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', end);
-      handle.removeEventListener('pointercancel', end);
-      handle.removeEventListener('lostpointercapture', end);
-      window.removeEventListener('blur', end);
-      setDragShield(false);
-      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-    };
-    dragCleanup.current = end;
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', end);
-    handle.addEventListener('pointercancel', end);
-    handle.addEventListener('lostpointercapture', end);
-    window.addEventListener('blur', end);
-    // A webview runs in another process: capture alone cannot keep a fast drag in the host.
-    setDragShield(true);
-    try {
-      handle.setPointerCapture(event.pointerId);
-    } catch (error) {
-      end();
-      throw error;
-    }
-  };
-  return (
-    <div
-      role="separator"
-      aria-orientation={vertical ? 'horizontal' : 'vertical'}
-      data-pair-divider=""
-      className={
-        vertical
-          ? 'absolute inset-x-0 h-px -translate-y-1/2 cursor-row-resize bg-[var(--border-subtle)] after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
-          : 'absolute inset-y-0 w-px -translate-x-1/2 cursor-col-resize bg-[var(--border-subtle)] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
-      }
-      style={{ ...(vertical ? { top: at } : { left: at }), zIndex: 'var(--z-pane-divider)' }}
-      onPointerDown={onPointerDown}
-      onDoubleClick={() => { pane.setPairRatio(null); sizing?.onReset(); }}
-    />
   );
 });

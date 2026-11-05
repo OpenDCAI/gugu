@@ -28,15 +28,13 @@ function sameDeliveryBlocks(a: MessageItem['delivery_blocks'] = [], b: MessageIt
 // @@@2051 注销用户:气泡分组以「同一发送者」为条件,但注销者 sender_user_id 全是 null → 裸 `===` 让
 // null===null 把不同注销者错误合组(后条头像/名被隐藏)。匿名化已失去稳定身份 → null sender 强制断组。
 export function computeGroupedWithPrev(params: {
-  isFiltering: boolean
   showTimeDivider: boolean
   prevMsg: MessageItem | null
   msg: MessageItem
   prevIsThreadRoot: boolean
 }): boolean {
-  const { isFiltering, showTimeDivider, prevMsg, msg, prevIsThreadRoot } = params
+  const { showTimeDivider, prevMsg, msg, prevIsThreadRoot } = params
   return (
-    !isFiltering &&
     !showTimeDivider &&
     !!prevMsg &&
     msg.sender_user_id !== null &&

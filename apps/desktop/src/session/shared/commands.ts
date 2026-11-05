@@ -484,6 +484,15 @@ export const COMMANDS = defineCommands({
     ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
+  'app.findNext': {
+    capture: true,
+    label: 'Next Search Result',
+    description: 'Go to the next message of the search the chat was opened from',
+    category: 'Navigation',
+    defaultHotkey: 'Mod+G',
+    ignoreWhenCodeEditorFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
   'chat.rename': {
     label: 'Rename Group',
     description: 'Rename the focused group',

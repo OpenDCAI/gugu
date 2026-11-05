@@ -7,7 +7,7 @@ import { setAssistantProjectHosts } from '@renderer/features/projects/assistant-
 // 机器离线时,它的项目和会话照样列在侧栏里(项目清单照账号上记着的那份 #113,会话照会话目录的底稿)、标离线,❌ 从侧栏消失;
 // 连上之后原地换成此刻的。
 // 项目只在用到时挂(projectManager.ensureMounted),列出 ❌ 挂。
-import { comparer, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
+import { comparer, computed, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
 import { deviceMachines } from '@gugu/core/shared/deviceMachines';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { SessionHostClient } from '@shared/lib/ipc/session-host-client';
@@ -124,6 +124,21 @@ export type CloudScope = { state: 'asleep' | 'waking' | 'wake-failed'; failure: 
 /** #7199 这一端叫醒云电脑这件事走到哪了:在叫 / 没叫醒(带原因)。叫醒了就不再记。 */
 export type CloudWake = { status: 'waking' } | { status: 'failed'; failure: CloudComputerWakeFailure };
 
+/** 一台机器上的会话,已经换成本机认得的 id(machine-routing 的边界换名),并按会话 id 索引。 */
+type MachineSessions = { sessions: readonly SessionpageSessionSummary[]; byId: ReadonlyMap<string, SessionpageSessionSummary> };
+
+// @@@inbound-at-ingest — 换名在数据进来时做一次(目录换了一份 / 设备读数换了,见 directorySessions / digestSessions),
+// ❌ 每次读都把整台机器的会话深拷贝一遍:
+// 侧栏的计算每次 presence 推送都会读,agent 一多,那份深拷贝就是推送的主要开销(实测 100 个 agent 时每次推送 1.4 ms)。
+function machineSessions(deviceId: string, raw: readonly SessionpageSessionSummary[]): MachineSessions {
+  const sessions = machineCodec(deviceId).inbound(raw);
+  return { sessions, byId: new Map(sessions.map((session) => [session.conversationId, session])) };
+}
+
+function ingestDirectory(directory: Readonly<Record<string, DeviceSessions>>): Readonly<Record<string, MachineSessions>> {
+  return Object.fromEntries(Object.entries(directory).map(([deviceId, entry]) => [deviceId, machineSessions(deviceId, entry.sessions)]));
+}
+
 export class RemoteHostsStore {
   /** deviceId → 这台机器此刻的读数。 */
   readonly hosts = observable.map<string, RemoteHostState>();
@@ -159,10 +174,12 @@ export class RemoteHostsStore {
   constructor() {
     makeAutoObservable<
       RemoteHostsStore,
-      'bridge' | 'linkOffs' | 'projectPromises' | 'accountSeenLive' | 'stopDevices' | 'started' | 'listSyncs'
+      'bridge' | 'linkOffs' | 'projectPromises' | 'accountSeenLive' | 'stopDevices' | 'started' | 'listSyncs' | 'directorySessions' | 'digestSessions'
     >(this, {
       bridge: observable.ref,
       directory: observable.ref,
+      directorySessions: computed,
+      digestSessions: computed,
       listSyncs: false,
       linkOffs: false,
       projectPromises: false,
@@ -182,6 +199,7 @@ export class RemoteHostsStore {
       label: (deviceId) => this.device(deviceId)?.label ?? null,
       homeDir: (deviceId) => this.homeDir(deviceId),
       sessionsOf: (deviceId) => this.sessionsOf(deviceId),
+      session: (deviceId, conversationId) => this.session(deviceId, conversationId),
       isAssistantHome: (deviceId) => this.device(deviceId)?.assistantHome === true,
       projectGroupOf: (projectId) => projectGroupsStore.chatIdOf(projectId),
       connected: (deviceId) => this.connectionState(deviceId) === 'connected',
@@ -327,10 +345,29 @@ export class RemoteHostsStore {
    * (心跳摘要,与手机同一条,见 deviceSessionsOf)。不是 live 的读数 ❌ 冒充此刻(行上「在跑」不算数)。
    */
   sessionsOf(deviceId: string): { sessions: readonly SessionpageSessionSummary[]; live: boolean } {
+    const { listed, live } = this.listedOn(deviceId);
+    return { sessions: listed?.sessions ?? [], live };
+  }
+
+  /** 那台机器上的一条会话(按会话 id 取,与 sessionsOf 同一份);没有 = null。 */
+  session(deviceId: string, conversationId: string): SessionpageSessionSummary | null {
+    return this.listedOn(deviceId).listed?.byId.get(conversationId) ?? null;
+  }
+
+  /** 目录里每台机器的会话,换名后的那份:目录换一份时派生一次。 */
+  private get directorySessions(): Readonly<Record<string, MachineSessions>> {
+    return ingestDirectory(this.directory);
+  }
+
+  /** 没有对过账的目录时读的那份:机器心跳摘要里的会话,换名后的;设备读数换了时派生一次。 */
+  private get digestSessions(): ReadonlyMap<string, MachineSessions> {
+    return new Map([...this.hosts].map(([deviceId, { device }]) => [deviceId, machineSessions(deviceId, sessionListFromDigest(device.sessionDigest, device.isOnline).sessions)]));
+  }
+
+  private listedOn(deviceId: string): { listed: MachineSessions | undefined; live: boolean } {
     const entry = this.directory[deviceId];
-    if (entry && !entry.cached) return { sessions: machineCodec(deviceId).inbound(entry.sessions), live: this.hosts.get(deviceId)?.link === 'open' };
-    const device = this.device(deviceId);
-    return { sessions: machineCodec(deviceId).inbound(sessionListFromDigest(device?.sessionDigest, device?.isOnline).sessions), live: false };
+    if (entry && !entry.cached) return { listed: this.directorySessions[deviceId], live: this.hosts.get(deviceId)?.link === 'open' };
+    return { listed: this.digestSessions.get(deviceId), live: false };
   }
 
   /** #7199 所有别的机器上会话目录里的会话,带是哪台、是不是此刻的读数(助理 App 找它的子 agent 用)。 */

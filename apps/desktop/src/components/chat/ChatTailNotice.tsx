@@ -3,9 +3,9 @@ import type { HistoryWindow } from '@/store/chatHistoryWindow'
 import { COLOR_ACCENT, COLOR_ON_ACCENT } from './chatPresentation'
 
 /** The existing new-message/return-latest control, backed by the shared tail policy. */
-export function ChatTailNotice({ window, hidden, onClick }: { window?: HistoryWindow; hidden: boolean; onClick: () => void }) {
+export function ChatTailNotice({ window, onClick }: { window?: HistoryWindow; onClick: () => void }) {
   const { t } = useTranslation('messaging')
-  if (hidden || !((window?.newMessageCount ?? 0) > 0 || window?.hasNewer)) return null
+  if (!((window?.newMessageCount ?? 0) > 0 || window?.hasNewer)) return null
   return (
         <div
           onClick={onClick}

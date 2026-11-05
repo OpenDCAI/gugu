@@ -1,0 +1,135 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { createTabProvider, createTabRegistry } from './core/tab-provider-registry';
+import { PaneLayoutStore } from './pane-layout-store';
+import { accountTabPlacementMemory, type TabPlacementMemory } from './tab-placement-memory';
+
+const layouts: PaneLayoutStore[] = [];
+afterEach(() => layouts.splice(0).forEach((layout) => layout.dispose()));
+
+function setup(memory: TabPlacementMemory = { read: () => undefined, write() {} }) {
+  const provider = (kind: string) => createTabProvider({
+    kind,
+    conversation: kind === 'conversation',
+    resourceKey: (state: { path: string }) => state.path,
+    initialize: () => ({ dispose() {} }),
+    dispose() {},
+    TabBarItem: () => null,
+    TabBarItemDragPreview: () => null,
+    TabContent: () => null,
+  });
+  const layout = new PaneLayoutStore(createTabRegistry([provider('conversation'), provider('file'), provider('folder')]), { viewId: 'companion' }, undefined, { placementMemory: memory });
+  layouts.push(layout);
+  layout.open('conversation', { path: 'conversation' }, { from: null, intent: 'newTab' });
+  const conversation = layout.focusedPane.resolvedActiveTabId!;
+  const conversationPane = layout.focusedPane;
+  const open = (path: string, intent: 'navigate' | 'newTab' | 'beside' = 'navigate') => layout.open('file', { path }, { from: conversation, intent });
+  return { layout, conversation, conversationPane, open };
+}
+
+describe('a conversation explicitly owns its companion pane', () => {
+  it('focuses the already-open beside file when the folder opens it again without adding a pane or tab', () => {
+    const { layout, conversation, open } = setup({ read: () => 'beside', write() {} });
+    const folder = layout.open('folder', { path: '/' }, { from: conversation, intent: 'newTab' })!;
+    open('README.md');
+    const side = layout.focusedPane;
+    const existing = side.resolvedActiveTabId!;
+    const before = layout.groups.map(({ pane }) => [...pane.tabOrder]);
+    const tree = JSON.stringify(layout.layout);
+    const reopened = layout.open('file', { path: 'README.md' }, { from: folder, intent: 'navigate' });
+    expect(reopened).toBe(existing);
+    expect(layout.focusedPane).toBe(side);
+    expect(layout.groups.map(({ pane }) => [...pane.tabOrder])).toEqual(before);
+    expect(JSON.stringify(layout.layout)).toBe(tree);
+  });
+
+  it('a companion file returns to its actual conversation without discarding either tab', async () => {
+    const { layout, conversation, conversationPane, open } = setup();
+    const file = open('report-e2e.md')!;
+    const companion = layout.focusedPane;
+    const order = layout.groups.map(({ pane }) => [...pane.tabOrder]);
+    expect(companion.entries.get(file)?.openerTabId).toBe(conversation);
+    expect(companion.canGo(file, -1)).toBe(true);
+    await expect(companion.go(file, -1)).resolves.toBe(true);
+    expect(layout.focusedPane).toBe(conversationPane);
+    expect(conversationPane.resolvedActiveTabId).toBe(conversation);
+    expect(layout.groups.map(({ pane }) => [...pane.tabOrder])).toEqual(order);
+  });
+  it('reuses one pane and one navigation context, clears a closed companion and recreates it', () => {
+    const { layout, conversation, conversationPane, open } = setup();
+    open('A.md');
+    const firstPane = layout.focusedPane;
+    const tabId = firstPane.resolvedActiveTabId!;
+    const companion = conversationPane.entries.get(conversation)?.companionPaneId;
+    expect(layout.groups).toHaveLength(2);
+    expect(companion).toBe(layout.activePaneId);
+    open('B.md');
+    expect(layout.groups).toHaveLength(2);
+    expect(firstPane.tabOrder).toEqual([tabId]);
+    expect(firstPane.entries.get(tabId)?.state).toEqual({ path: 'B.md' });
+    firstPane.go(tabId, -1);
+    expect(firstPane.entries.get(tabId)?.state).toEqual({ path: 'A.md' });
+    layout.closePane(companion!);
+    expect(conversationPane.entries.get(conversation)?.companionPaneId).toBeUndefined();
+    open('C.md');
+    expect(layout.groups).toHaveLength(2);
+    expect(layout.activePaneId).not.toBe(companion);
+  });
+
+  it('keeps a moved conversation intact when its former companion becomes its own pane', () => {
+    const { layout, conversation, conversationPane, open } = setup();
+    open('A.md');
+    const companion = layout.focusedPane;
+    layout.moveTab(conversation, layout.groups.find((group) => group.pane === conversationPane)!.paneId, layout.activePaneId);
+    expect(companion.entries.get(conversation)?.kind).toBe('conversation');
+    expect(companion.entries.get(conversation)?.companionPaneId).not.toBe(layout.activePaneId);
+    open('never-opened.md');
+    expect(companion.entries.get(conversation)?.kind).toBe('conversation');
+    expect(companion.entries.get(conversation)?.state).toEqual({ path: 'conversation' });
+    expect(layout.focusedPane.entries.get(layout.focusedPane.resolvedActiveTabId!)?.state).toEqual({ path: 'never-opened.md' });
+    expect(layout.focusedPane).not.toBe(companion);
+  });
+
+  it('degrades into a new tab when narrow and does not split on widening', () => {
+    const { layout, conversationPane, open } = setup();
+    conversationPane.setDimensions(390, 620);
+    const tree = JSON.stringify(layout.layout);
+    open('A.md');
+    expect(layout.groups).toHaveLength(1);
+    expect(conversationPane.tabOrder).toHaveLength(2);
+    conversationPane.setDimensions(1280, 900);
+    expect(JSON.stringify(layout.layout)).toBe(tree);
+    expect(layout.groups).toHaveLength(1);
+  });
+
+  it('new-tab intent overrides a remembered beside placement', () => {
+    const { layout, conversationPane, open } = setup({ read: () => 'beside', write() {} });
+    open('A.md', 'newTab');
+    expect(layout.groups).toHaveLength(1);
+    expect(conversationPane.tabOrder).toHaveLength(2);
+  });
+
+  it('a remembered separate placement suppresses conversation splitting', () => {
+    const { layout, conversationPane, open } = setup({ read: () => 'separate', write() {} });
+    open('A.md');
+    expect(layout.groups).toHaveLength(1);
+    expect(conversationPane.tabOrder).toHaveLength(2);
+  });
+});
+
+it('persists only the shape, isolates accounts and does no storage work during construction', () => {
+  const values = new Map<string, string>();
+  let account = 'A';
+  let reads = 0;
+  const storage = { getItem: (key: string) => { reads++; return values.get(key) ?? null; }, setItem: (key: string, value: string) => { values.set(key, value); } };
+  const memory = accountTabPlacementMemory(() => account, () => storage);
+  expect(reads).toBe(0);
+  memory.write('folder:/docs', 'separate');
+  account = 'B';
+  expect(memory.read('folder:/docs')).toBeUndefined();
+  memory.write('folder:/docs', 'beside');
+  account = 'A';
+  expect(memory.read('folder:/docs')).toBe('separate');
+  const restarted = accountTabPlacementMemory(() => account, () => storage);
+  expect(restarted.read('folder:/docs')).toBe('separate');
+  expect([...values.values()].map((value) => JSON.parse(value))).toEqual([{ 'folder:/docs': 'separate' }, { 'folder:/docs': 'beside' }]);
+});

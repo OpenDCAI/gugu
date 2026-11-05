@@ -80,6 +80,6 @@ export function AssistantWorkTaskWindow({ownerId,request}:{ownerId:string;reques
 function CloudTaskTranscript({mobile,request,events}:{mobile:boolean;request:AssistantTaskChat;events:Parameters<typeof assistantWorkExchanges>[0]}){
  const {toast}=useToast()
  const preview=useMessageFilePreview({mobile,visible:true,closeRightSurfaces:()=>{},toast,onForward:()=>{}})
- const rows=taskChatRows([],assistantWorkExchanges(events,request.workId!),request,'')
+ const rows=taskChatRows([],assistantWorkExchanges(events,request.workId!),request)
  return <><div className="assistant-task-cloud-history" data-testid="task-cloud-history">{rows.map(row=>row.type==='task-exchange'?<TaskExchangeBubble key={row.message.id} message={row.message} recipientUserId={row.recipientUserId} mobile={mobile} onOpenFile={file=>preview.open(file)}/>:null)}</div>{preview.panel}</>
 }

@@ -201,8 +201,8 @@ function Probe() {
   useEffect(() => { if (reportVisible) for (const row of messages) markMessageVisible(row) }, [messages, markMessageVisible])
   const rows = useMemo(() => messages.map(message => ({ type: 'message' as const, message })), [messages])
   const noop = () => undefined
-  const rowProps: MessageListRowProps = { rows, messages, isFiltering: false, mobile: false,
-    highlight: undefined, flashMessageId: null, memberReadSeqs: {}, deliveryWaits: new Map(),
+  const rowProps: MessageListRowProps = { rows, messages, mobile: false,
+    flashMessageId: null, memberReadSeqs: {}, deliveryWaits: new Map(),
     isGroupChat: false, threeParty: undefined, memberProfiles: {}, onVisible: markMessageVisible,
     onReaction: noop, onShowReadReceipt: undefined, onQuote: noop, onForward: noop, onDelete: noop,
     onOpenMemberProfile: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,

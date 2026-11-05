@@ -264,7 +264,7 @@ const DiffContentPreview = observer(function DiffContentPreview({
       resourcePath: href,
     });
     if (!target) return false;
-    pane.open('file', { path: target }, { preview: false });
+    pane.open('file', { path: target }, { intent: 'navigate' });
     return true;
   };
 

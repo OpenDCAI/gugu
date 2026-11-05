@@ -42,7 +42,6 @@ export function openSessionInSessionWhenReady({
   projectId,
   sessionId,
   timeout = 10_000,
-  preview = false,
   onlyIfNoTabs = false,
   host,
   onReady,
@@ -69,10 +68,19 @@ export function openSessionInSessionWhenReady({
       if (!session) return;
       const paneLayout = getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId)?.paneLayout;
       if (!onlyIfNoTabs || !paneLayout?.groups.some((g) => g.pane.tabOrder.length > 0)) {
+        const existing = paneLayout?.groups.flatMap((group) => [...group.pane.entries.values()]
+          .filter((entry) => entry.kind === sessionTabKind(session.data.runtime) && (entry.state as { sessionId?: string } | null)?.sessionId === sessionId)
+          .map((entry) => ({ group, entry })))[0];
+        if (existing) {
+          paneLayout!.setActiveGroup(existing.group.paneId);
+          existing.group.pane.setActiveTab(existing.entry.tabId);
+          onReady?.();
+          return;
+        }
         paneLayout?.open(
           sessionTabKind(session.data.runtime),
           { sessionId, ...(host ? { projectId, ownerSessionId: sessionId } : {}) },
-          { preview }
+          { from: null, intent: 'newTab' }
         );
       }
       onReady?.();

@@ -38,13 +38,13 @@ function normalizeTabDescriptor(
 ): TabDescriptor {
   const persistedKind = (tab as { kind: string }).kind;
   if (persistedKind !== 'extension' && !isBuiltInTabKind(persistedKind)) {
-    const { kind: extensionKind, tabId, isPreview, returnTo, ...state } = tab as unknown as TabDescriptor & {
+    const { kind: extensionKind, tabId, history, companionPaneId, openerTabId, isPreview: _isPreview, returnTo: _returnTo, ...state } = tab as unknown as TabDescriptor & {
       kind: string;
       tabId: string;
       isPreview: boolean;
       [key: string]: unknown;
     };
-    return { kind: 'extension', extensionKind, tabId, isPreview, state, ...(returnTo ? { returnTo } : {}) };
+    return { kind: 'extension', extensionKind, tabId, state, ...(history ? { history } : {}), ...(companionPaneId ? { companionPaneId } : {}), ...(openerTabId ? { openerTabId } : {}) };
   }
   if (tab.kind === 'file' && !tab.isExternal) {
     return { ...tab, path: resolveWorkspacePath(workspacePath, tab.path) };
@@ -84,7 +84,6 @@ function migrateLegacyTabs(aggregate: SessionViewSnapshot | undefined): TabGroup
               kind: 'session' as const,
               tabId: crypto.randomUUID(),
               sessionId: id,
-              isPreview: false,
             })),
             activeTabId: undefined,
           },

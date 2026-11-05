@@ -49,7 +49,7 @@ import type {
   ExtensionHostActionResult,
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
-import { fileRefOf, folderOf, isWorkspace, openWithTabOf, placeKey, placeOf, projectWorkspace, sessionIdOf, sessionWorkspace, workspaceSession, workspaceTarget, type AppFileEntry, type AppFileRef, type AppPlace, type AppWhere, type WorkspacePlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, folderOf, isWorkspace, openWithIntentOf, openWithTabOf, placeKey, placeOf, projectWorkspace, sessionIdOf, sessionWorkspace, workspaceSession, workspaceTarget, type AppFileEntry, type AppFileRef, type AppPlace, type AppWhere, type WorkspacePlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
@@ -88,6 +88,8 @@ interface SurfaceBinding {
   conversation: string | null;
   widget?: AppWhere['widget'];
   tabId: string;
+  viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   /**
    * #6387 Which of the extension's declared tabs this surface draws. A banner a tab
    * posts opens this tab on click — `tabId` alone is a runtime handle and says nothing
@@ -319,6 +321,8 @@ export interface ExtensionErrorRecord {
     itemId: string | null;
     sessionId: string | null;
     tabId: string;
+  viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   };
 }
 const ERROR_RECORD_MAX = 50;
@@ -567,6 +571,8 @@ export async function bindExtensionSurface(input: {
   webContentsId: number;
   extensionId: string;
   tabId: string;
+  viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   tabKind: string;
   /** Set only when the tab was opened for a file of its workspace this extension claimed. */
   filePath?: string;
@@ -622,6 +628,8 @@ export async function bindExtensionSurface(input: {
     conversation,
     ...(input.widget ? { widget: structuredClone(input.widget) } : {}),
     tabId: input.tabId,
+    viewState: input.viewState,
+    navigation: input.navigation,
     tabName,
     filePath,
     itemId: input.itemId ?? null,
@@ -804,6 +812,8 @@ export async function retargetExtensionSurface(input: {
   opening?: PreparedChatFile;
   webContentsId: number;
   tabId: string;
+  viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   filePath?: string;
   itemId?: string;
 } & Partial<AppWhere>): Promise<void> {
@@ -835,6 +845,8 @@ export async function retargetExtensionSurface(input: {
   binding.workspace = workspace;
   binding.conversation = conversation;
   binding.tabId = input.tabId;
+  binding.viewState = input.viewState;
+  binding.navigation = input.navigation;
   binding.filePath = filePath;
   binding.itemId = input.itemId ?? null;
   binding.opening = input.opening;
@@ -994,6 +1006,13 @@ export function updateExtensionSurfaceLayout(
 ): void {
   const binding = bindings.get(webContentsId);
   if (!binding) return;
+  // A hidden <webview> can keep native keyboard focus after its DOM element blurs.
+  // Return it only to that guest's bound embedder; never raise another window.
+  if (!metrics.visible && binding.embedderId !== null) {
+    const guest = webContents.fromId(webContentsId);
+    const embedder = webContents.fromId(binding.embedderId);
+    if (guest && !guest.isDestroyed() && guest.isFocused?.() && guest.hostWebContents?.id === binding.embedderId && embedder && !embedder.isDestroyed()) embedder.focus();
+  }
   const unchanged =
     binding.metrics.visible === metrics.visible &&
     binding.metrics.width === metrics.width &&
@@ -1061,6 +1080,13 @@ function requireHost(): ExtensionBridgeHost {
 }
 
 /** Sends one action to the renderer that draws this surface: a tab of a task, or a slot in no task (`sessionId` null). */
+/** Native guest shortcuts use the same host-stamped own-tab action as navigation.go. */
+export async function forwardSurfaceNavigation(webContentsId: number, delta: -1 | 1): Promise<void> {
+  const binding = bindings.get(webContentsId);
+  if (!binding || binding.modal || binding.widget || binding.embedderId === null) return;
+  await deliver(binding, { kind: 'navigateTab', delta });
+}
+
 function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<ExtensionHostActionResult> {
   return requireHost().deliver(
     {
@@ -1247,6 +1273,8 @@ function contextFor(binding: SurfaceBinding, workspace: ExtensionWorkspace | und
   const file = handedFileOf(binding);
   return {
     apiVersion: EXTENSION_API_VERSION,
+    ...(binding.navigation ? { navigation: binding.navigation } : {}),
+    ...(binding.viewState ? { viewState: structuredClone(binding.viewState) } : {}),
     tabId: binding.tabId,
     ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
     ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, ...(contextHasMembers(binding) ? { members: drawnIn.members } : {}) } } : {}),
@@ -1633,6 +1661,11 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       await deliver(modal.binding, { kind: 'focusAppModalClose', id: modal.id });
       return undefined;
     }
+    case 'navigationGo': {
+      if (args.delta !== -1 && args.delta !== 1) throw Object.assign(new Error('Navigation delta must be -1 or 1'), { code: 'invalid' });
+      const result = await deliver(thePage(caller), { kind: 'navigateTab', delta: args.delta });
+      return !!result && typeof result === 'object' && 'navigated' in result && result.navigated;
+    }
     case 'getContext':
       if (!binding) return contextOutside(extensionId);
       // Through API 26, the members come with the first answer. Newer Apps ask for them explicitly. An unread chat is said (the
@@ -1991,6 +2024,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         const ask = (args as { ask?: unknown }).ask === true;
         const peek = (args as { peek?: unknown }).peek === true;
         const tab = openWithTabOf(args);
+        const intent = openWithIntentOf(args);
         const ref = fileRefOf(args.ref);
         // Ordinary opens show an authorized live replica before refreshing metadata; an explicit tab must first claim it.
         const opened = !ask && !peek && !args.at && !isWorkspace(ref) && 'id' in ref && shown.operator.kind === 'person'
@@ -2002,7 +2036,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         const current = opened.length === 1 ? opened[0] : undefined;
         const present = () => current && current[1].conversation ? deliver(shown, {
           kind: 'openChatFile', chatId: current[1].conversation, itemId: current[1].itemId!,
-          onlyIfOpen: `${current[1].extensionId}.${current[1].tabName}`,
+          onlyIfOpen: `${current[1].extensionId}.${current[1].tabName}`, intent,
         }) : undefined;
         let resumed = tab === undefined ? await present() : undefined;
         let target: Awaited<ReturnType<typeof files.openWithTarget>>;
@@ -2016,7 +2050,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
           throw error;
         }
         if (tab !== undefined && target.kind !== 'chat') throw Object.assign(new Error('openWith tab is only available for chat files'), { code: 'invalid' });
-        if (target.kind === 'session') return void (await deliver(shown, { kind: 'openSessionFile', ...target.target }));
+        if (target.kind === 'session') return void (await deliver(shown, { kind: 'openSessionFile', ...target.target, intent, ...(args.viewState && typeof args.viewState === 'object' && !Array.isArray(args.viewState) ? { viewState: structuredClone(args.viewState as Record<string, unknown>) } : {}) }));
         if (target.kind === 'peek') return void (await deliver(shown, { kind: 'peek', target: target.target }));
         const choice = tab === undefined
           ? files.openerChoice(target.target.typedName, ask)
@@ -2026,7 +2060,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         const { chatId, itemId } = target.target;
         const place = placeFor(choice, (args as { at?: unknown }).at);
         if (place) deliverToOpeningPage(place.candidate.extensionId, placeLink(place.candidate, place.at, itemId), { chat: chatId }, itemId);
-        const detail = { ...target.target, choice, ...(resumed ? { background: true } : {}) };
+        const detail = { ...target.target, choice, intent, ...(args.viewState && typeof args.viewState === 'object' && !Array.isArray(args.viewState) ? { viewState: structuredClone(args.viewState as Record<string, unknown>) } : {}), ...(resumed ? { background: true } : {}) };
         if (peek) return void (await deliver(shown, { kind: 'peek', target: { kind: 'chat', detail } }));
         await deliver(shown, { kind: 'openWith', detail });
         return undefined;

@@ -5,6 +5,7 @@ import {
   type AccountRevisionOperation,
   type AccountRevisionRuntime,
   type AccountRevisionSource,
+  type AccountRevisionScheduling,
 } from './accountRevisionRuntime'
 import { ingestAccountMessage, imSelectors, type AccountImRepository, type ImRepositoryTransaction } from './imRepository'
 import { rendererLogger } from './log'
@@ -183,8 +184,9 @@ export function createAccountRevisionCoordinator(
     recover: (messageId: string) => Promise<MessageItem | null>
     notify: (message: MessageItem) => Promise<void>
   },
+  scheduling?: AccountRevisionScheduling,
 ): AccountRevisionCoordinator {
-  const runtime: AccountRevisionRuntime = createAccountRevisionRuntime(accountId, repository, source)
+  const runtime: AccountRevisionRuntime = createAccountRevisionRuntime(accountId, repository, source, undefined, scheduling)
   // 一个 registration = 一个 consumer 认领的 event 集合。barrier 只问「这个 event 有人认领吗」,
   // 派发按 registration 而不是按 event 分组 —— 认领了 k 类 event 的 consumer 得到**一次**调用。
   // R3 — 每个 registration 各自记账:它已经成功消费了哪些 revision、连续失败几次、退避到什么时候。

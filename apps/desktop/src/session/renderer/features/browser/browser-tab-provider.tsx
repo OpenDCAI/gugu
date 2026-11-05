@@ -34,7 +34,6 @@ export const browserTabProvider: TabProvider<
   kind: 'browser',
   resourceKey: (s: BrowserState) => s.browserId,
   // 两个网页并排:两页都在这一层里各摆一边,❌ 另一页单独挂一份(挪过去 = 重新加载)。
-  placesPairItself: true,
   isPersistent: (s: BrowserState) => !s.ephemeral,
 
   // No mount: multi. Each open creates a fresh browser session.

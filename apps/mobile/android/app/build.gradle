@@ -20,9 +20,16 @@ if (!(guguTier in ["production", "beta"])) {
     throw new GradleException("Unknown GUGU_TIER '${guguTier}' — 安卓只出 production / beta 两种包")
 }
 def guguIsBeta = guguTier == "beta"
+// A bare "node" resolves through the PATH the shared Gradle daemon was started with, not this build's:
+// a daemon started from a shell without node fails every build it serves later. The wrapper
+// (scripts/build/android-gradle-build.sh) passes its node's absolute path.
+def guguNode = providers.gradleProperty("guguNode").getOrNull()
+if (!guguNode || !new File(guguNode).isAbsolute()) {
+    throw new GradleException("guguNode is not an absolute node path — build through scripts/build/android-gradle-build.sh")
+}
 def guguLinkScheme = providers.exec {
     workingDir rootProject.file("../../..")
-    commandLine "node", "--input-type=module", "-e", "import { guguLinkScheme } from './packages/core/src/shared/ui/linkScheme.mjs'; console.log(guguLinkScheme({tier: process.env.GUGU_TIER, devLaunch: false}))"
+    commandLine guguNode, "--input-type=module", "-e", "import { guguLinkScheme } from './packages/core/src/shared/ui/linkScheme.mjs'; console.log(guguLinkScheme({tier: process.env.GUGU_TIER, devLaunch: false}))"
 }.standardOutput.asText.get().trim()
 def guguApplicationId = guguIsBeta ? "app.gugu.chat.beta" : "app.gugu.chat"
 def guguAppLabel = guguIsBeta ? "咕咕 Beta" : "咕咕"
@@ -75,7 +82,7 @@ if (!guguMarketRoot?.startsWith("https://") || !guguMarketRoot.endsWith("/")) {
 def guguRepoRoot = rootProject.file("../../..")
 def guguDbHost = providers.exec {
     workingDir guguRepoRoot
-    commandLine "node", "scripts/build/build-env-preflight.mts", "--print-host"
+    commandLine guguNode, "scripts/build/build-env-preflight.mts", "--print-host"
 }.standardOutput.asText.get().trim()
 if (!(guguDbHost ==~ /^[A-Za-z0-9.-]+(:\d+)?$/)) {
     throw new GradleException("build-env-preflight --print-host 没给出库主机(收到 '${guguDbHost}')")

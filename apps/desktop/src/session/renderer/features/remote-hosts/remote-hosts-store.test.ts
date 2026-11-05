@@ -458,7 +458,7 @@ describe('#7158 gugu.showSession: the row the task list draws for another machin
     const before = sidebarStore.machines;
     sidebarStore.machines = {
       machineOf: (id) => machineRegistry.machineOf(id), label: () => null, homeDir: () => null,
-      sessionsOf: (id) => store.sessionsOf(id),
+      sessionsOf: (id) => store.sessionsOf(id), session: (id, conversationId) => store.session(id, conversationId),
     };
     try {
       expect(store.listedProject('live-task')).toBe(`${home}~home-live`);
@@ -491,6 +491,7 @@ describe('#7158 gugu.showSession: the row the task list draws for another machin
       label: () => null,
       homeDir: () => null,
       sessionsOf: (deviceId) => store.sessionsOf(deviceId),
+      session: (deviceId, conversationId) => store.session(deviceId, conversationId),
     };
     try {
       expect(store.listedProject('s-far')).toBe('p-far');

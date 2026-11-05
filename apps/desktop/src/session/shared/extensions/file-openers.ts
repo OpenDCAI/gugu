@@ -154,10 +154,11 @@ export type OpenerChoice =
   | { kind: 'choose'; suffix: string; candidates: FileOpenerCandidate[] };
 
 /**
- * A file's name as a person reads it (摩擦单 F39): without the suffix it is claimed by — `friday-dinner` for
- * `friday-dinner.vote.json` claimed as `.vote.json`. The file list and the 「用 X 打开」 picker say it the same way (F73).
+ * Keep the stored file name, including generic extensions. Only a compound App-document suffix is hidden
+ * (摩擦单 F39): `friday-dinner.vote.json` claimed as `.vote.json` reads `friday-dinner` on every surface (F73).
  */
 export function displayNameOf(fileName: string, claimedSuffix: string): string {
+  if (!claimedSuffix.startsWith('.') || !claimedSuffix.slice(1).includes('.')) return fileName;
   const shortened = fileName.toLowerCase().endsWith(claimedSuffix.toLowerCase()) ? fileName.slice(0, -claimedSuffix.length) : '';
   return shortened || fileName;
 }

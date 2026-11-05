@@ -181,7 +181,6 @@ export class FileTabResource implements TabResource {
 
   /** Pins the tab once the user edits it. */
   onFirstEdit(): void {
-    this._handle?.pin();
   }
 
   /**

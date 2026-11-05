@@ -28,9 +28,9 @@ let dropContext: ReturnType<typeof useDndContext>;
 const records: { node: Element; animation: Animation }[] = [];
 let orderAtDrop: string[] = [];
 const provider = createTabProvider({
-  kind: 'motion-fixture', mount: 'single', resourceKey: (state: { id: string }) => state.id,
+  kind: 'motion-fixture', resourceKey: (state: { id: string }) => state.id,
   initialize: (entry) => ({ label: entry.state.id, dispose() {} }), dispose() {}, TabContent: () => null,
-  TabBarItem: ({ tab, host }) => <div className="contents"><DraggableTab id={tab.tabId} pairRole={tab.pairRole}>
+  TabBarItem: ({ tab, host }) => <div className="contents"><DraggableTab id={tab.tabId}>
     <TabChip data-tabid={tab.tabId} label={tab.resource.label} isActive={tab.isActive}
       onClick={() => host.setActiveTab(tab.tabId)} />
   </DraggableTab></div>,
@@ -52,7 +52,7 @@ function Strip() {
     <DropContext />
     <PaneContext.Provider value={{ paneId: layout.groups[0].paneId, pane: pane(), isFocusedPane: true }}>
       <div style={{ width: 800, display: 'flex', flexDirection: 'column' }}><TabBar /></div>
-      <button onClick={() => layout.open('motion-fixture', { id: 'New' }, { beside: true, activate: false })}>open beside</button>
+      <button onClick={() => layout.open('motion-fixture', { id: 'New' }, { intent: 'newTab', from: null, activate: false })}>open beside</button>
       <button onClick={() => pane().closeTab(id('Middle'))}>close middle</button>
     </PaneContext.Provider><TabDragOverlay />
   </DndContext></PaneLayoutProvider>;
@@ -62,9 +62,8 @@ async function mount(extraTabs = 0) {
   harness = createReactHarness();
   harness.container.className = 'gugu-skin emlight';
   harness.container.style.cssText = 'position:fixed;left:20px;top:20px';
-  layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'motion', place: { kind: 'session', sessionId: 'motion', projectId: 'motion' } }, undefined, { singleStrip: true });
-  for (const name of ['Anchor', 'Old', 'Middle', 'Incoming', 'Last', ...Array.from({ length: extraTabs }, (_, i) => `Extra ${i}`), ...(extraTabs ? ['Far'] : [])]) layout.open('motion-fixture', { id: name }, { activate: false });
-  layout.setPairAnchor(() => ({ paneId: layout.groups[0].paneId, tabId: id('Anchor') }));
+  layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'motion', place: { kind: 'session', sessionId: 'motion', projectId: 'motion' } }, undefined, {});
+  for (const name of ['Anchor', 'Old', 'Middle', 'Incoming', 'Last', ...Array.from({ length: extraTabs }, (_, i) => `Extra ${i}`), ...(extraTabs ? ['Far'] : [])]) layout.open('motion-fixture', { id: name }, { from: null, intent: 'newTab' });
   await act(() => pane().setActiveTab(id('Anchor')));
   const original = Element.prototype.animate;
   vi.spyOn(Element.prototype, 'animate').mockImplementation(function (this: Element, ...args) {
@@ -81,22 +80,16 @@ afterEach(async () => {
   await cdp().send('Emulation.setEmulatedMedia', { features: [] });
 });
 
-it('only inserts the new side tab, slides displaced neighbors once, and leaves the anchor and last tab in place', async () => {
+it('selecting an existing side tab keeps every tab in place without movement', async () => {
   await page.viewport(1280, 800); await mount();
-  await act(() => pane().splitBeside(id('Old'), 'right')); await settled(); records.length = 0;
+  await act(() => pane().setActiveTab(id('Old'))); await settled(); records.length = 0;
   const beforeOrder = [...pane().tabOrder], before = lefts();
   await userEvent.click(node('Incoming').querySelector<HTMLElement>('[data-tabid]')!);
-  expect(pane().tabOrder.filter(tabId => tabId !== id('Incoming'))).toEqual(beforeOrder.filter(tabId => tabId !== id('Incoming')));
-  expect(pane().tabOrder.slice(0, 3)).toEqual([id('Anchor'), id('Incoming'), id('Old')]);
+  expect(pane().tabOrder).toEqual(beforeOrder);
   const moving = records.filter(r => r.node.classList.contains('session-tab-slot'));
-  expect(moving.map(r => r.node)).toEqual(expect.arrayContaining([node('Incoming'), node('Old'), node('Middle')]));
-  expect(new Set(moving.map(r => r.node)).size).toBe(moving.length);
-  for (const { animation } of moving) {
-    expect(animation.effect!.getTiming().duration).toBe(DUR_MED_MS);
-    expect(animation.effect!.getTiming().easing).toBe(`cubic-bezier(${EASE.join(', ')})`);
-  }
+  expect(moving).toEqual([]);
   await settled();
-  for (const name of ['Anchor', 'Last']) {
+  for (const name of ['Anchor', 'Old', 'Middle', 'Incoming', 'Last']) {
     expect(node(name).getBoundingClientRect().left).toBeCloseTo(before.get(id(name))!, 3);
     expect(moving.some(r => r.node === node(name))).toBe(false);
   }
@@ -112,6 +105,10 @@ it('opening and closing also animate tabs whose index stays the same while their
   await userEvent.click(page.getByRole('button', { name: 'close middle', exact: true }));
   expect(pane().tabOrder.indexOf(id('Old'))).toBe(index);
   expect(records.some(r => r.node === node('Old'))).toBe(true);
+  for (const { animation } of records.filter(r => r.node.classList.contains('session-tab-slot'))) {
+    expect(animation.effect!.getTiming().duration).toBe(DUR_MED_MS);
+    expect(animation.effect!.getTiming().easing).toBe(`cubic-bezier(${EASE.join(', ')})`);
+  }
   await settled();
   expect(node('Old').getBoundingClientRect().left).not.toBe(left);
 });
@@ -180,21 +177,23 @@ it('skips movement for reduced motion while retaining the new order', async () =
   await page.viewport(1280, 800);
   await cdp().send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   await mount();
-  await act(() => pane().splitBeside(id('Old'), 'right')); records.length = 0;
+  await act(() => pane().setActiveTab(id('Old'))); records.length = 0;
+  const before = [...pane().tabOrder];
   await act(() => pane().setActiveTab(id('Incoming')));
-  expect(pane().tabOrder.slice(0, 2)).toEqual([id('Anchor'), id('Incoming')]);
+  expect(pane().tabOrder).toEqual(before);
   expect(records).toHaveLength(0);
 });
 
 
-it('reveals the final position when an offscreen tab moves beside the anchor', async () => {
+it('reveals an offscreen tab in place when it becomes the side page', async () => {
   await page.viewport(1280, 800); await mount(20);
-  await act(() => pane().splitBeside(id('Old'), 'right')); await settled();
+  await act(() => pane().setActiveTab(id('Old'))); await settled();
+  const before = [...pane().tabOrder];
   await until('the overflow picker appears', () => !!harness.container.querySelector('[data-tabstrip-overflow] button'));
   await userEvent.click(harness.container.querySelector<HTMLElement>('[data-tabstrip-overflow] button')!);
   await userEvent.click(page.getByRole('menuitem', { name: 'Far', exact: true }));
   await settled();
-  expect(pane().tabOrder.slice(0, 2)).toEqual([id('Anchor'), id('Far')]);
+  expect(pane().tabOrder).toEqual(before);
   const viewport = strip().getBoundingClientRect(), tab = node('Far').getBoundingClientRect();
   expect(tab.left).toBeGreaterThanOrEqual(viewport.left);
   expect(tab.right).toBeLessThanOrEqual(viewport.right);

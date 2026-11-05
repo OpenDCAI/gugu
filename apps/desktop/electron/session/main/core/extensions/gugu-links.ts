@@ -45,12 +45,16 @@ export async function openLink(raw: string | OpenTarget, groupParticipantRequest
         (await import('@main/core/sessions/session-orchestration')).revealExtensionTabInSession({ ...target, sessionId: sessionId }),
       openApp: async (extensionId, tab, chatId) => {
         const opened = await actInWindow({ kind: 'openApp', extensionId, tab, ...(chatId ? { chatId } : {}) });
-        if (!opened) throw new Error('The window did not return where the App opened');
+        if (!opened || (typeof opened === 'object' && 'navigated' in opened)) throw new Error('The window did not return where the App opened');
         return opened;
       },
       resourceChat: async (chatId) => (await import('./app-files')).resourceChatOf(chatId),
       // The account shell resolves the assistant's task records first; desktop Markdown and OS links both come here.
-      openResource: (target) => actInWindow({ kind: 'openLinkTarget', target }),
+      openResource: async (target) => {
+        const result = await actInWindow({ kind: 'openLinkTarget', target });
+        if (result && typeof result === 'object' && 'navigated' in result) throw new Error('Unexpected navigation response');
+        return result;
+      },
       bringUp: async (session) => {
         if (await sessionHere(session.sessionId)) await opening?.ensureReady(session.sessionId);
         await bridge.bringSessionUp({ ...session, ...(groupParticipantRequestId ? { groupParticipantRequestId } : {}) });

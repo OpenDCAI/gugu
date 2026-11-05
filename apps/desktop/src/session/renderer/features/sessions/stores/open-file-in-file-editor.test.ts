@@ -178,10 +178,10 @@ describe('task file preview routing', () => {
     await openFileInSessionEditor('project-1', 'session-1', '/Volumes/SSD/report.pdf');
 
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Volumes/SSD/report.pdf', external: true },
-        { preview: false }
+        { from: null, intent: 'navigate' }
       )
     );
   });
@@ -264,10 +264,10 @@ describe('task file preview routing', () => {
     await openFileInSessionEditor('project-1', 'session-1', '~/gugu-linktest/b.md');
 
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Users/tester/gugu-linktest/b.md', external: true },
-        { preview: false }
+        { from: null, intent: 'navigate' }
       )
     );
     // 展开发生在拼工作区之前:fileExists 永远不该收到带 ~ 的路径。
@@ -280,10 +280,10 @@ describe('task file preview routing', () => {
 
     // 不展开的话会拿字面 `~/…` 开外部页签,而 readExternalFile 只收绝对路径,必出坏页签。
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Users/tester/gugu-linktest/b.md', external: true },
-        { preview: false }
+        { from: null, intent: 'navigate' }
       )
     );
   });
@@ -305,10 +305,10 @@ describe('task file preview routing', () => {
     await openFresh('project-1', 'session-1', '~/gugu-linktest/b.md');
     // 第二次必须已经展开 —— rejected promise 被 cache 住的话这一步还是 toast。
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Users/tester/gugu-linktest/b.md', external: true },
-        { preview: false }
+        { from: null, intent: 'navigate' }
       )
     );
   });
@@ -319,10 +319,10 @@ describe('task file preview routing', () => {
     await openFileInSessionEditor('project-1', 'session-1', '/Volumes/SSD/report.pdf');
 
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/Volumes/SSD/report.pdf', external: true },
-        { preview: false }
+        { from: null, intent: 'navigate' }
       )
     );
   });
@@ -347,10 +347,10 @@ describe('task file preview routing', () => {
     await openExternalFilePath('project-1', 'session-1', '/u/task-attachments/session-1/a1-notes.md');
 
     await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'file',
         { path: '/u/task-attachments/session-1/a1-notes.md', external: true },
-        { preview: false }
+        { from: null, intent: 'navigate' }
       )
     );
     expect(mocks.openPath).not.toHaveBeenCalled();
@@ -370,7 +370,7 @@ describe('task file preview routing', () => {
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
         'sheets.grid',
         { filePath: '/repo/data/report.csv' },
-        { preview: false }
+        { from: null, intent: 'navigate', activate: undefined }
       )
     );
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
@@ -385,7 +385,7 @@ describe('task file preview routing', () => {
 
     makeFileLinkHandlers('project-1', 'session-1').onOpenFile('论文/a.pdf', { page: '4', h: 'h1' });
 
-    await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('paper-club.reader', { filePath: '/repo/论文/a.pdf' }, { preview: false }));
+    await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('paper-club.reader', { filePath: '/repo/论文/a.pdf' }, { from: null, intent: 'navigate', activate: undefined }));
     const [args] = mocks.sessionFilePlace.mock.calls[0]!;
     expect(args).toEqual({ sessionId: 'session-1', filePath: '/repo/论文/a.pdf', extensionId: 'paper-club', tabKind: 'paper-club.reader', at: { page: '4', h: 'h1' } });
     // What crosses IPC clones: a candidate holding the App's manifest did not (#7521's `app`).
@@ -406,11 +406,11 @@ describe('task file preview routing', () => {
     expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
   });
 
-  it('uses the same active-pane preview chain for task chat and conversation handlers', async () => {
+  it('uses the same source-aware layout path for task chat and conversation handlers', async () => {
     await openFileInSessionEditor('project-1', 'session-1', 'docs/readme.md');
     makeFileLinkHandlers('project-1', 'session-1').onOpenFile('docs/guide.md');
 
-    await vi.waitFor(() => expect(mocks.activePaneOpen).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledTimes(2));
     expect(mocks.fileExists).toHaveBeenNthCalledWith(
       1,
       'project-1',
@@ -423,17 +423,17 @@ describe('task file preview routing', () => {
       'workspace-1',
       '/repo/docs/guide.md'
     );
-    expect(mocks.activePaneOpen).toHaveBeenNthCalledWith(
+    expect(mocks.paneLayoutOpen).toHaveBeenNthCalledWith(
       1,
       'file',
       { path: '/repo/docs/readme.md' },
-      { preview: false }
+      { from: null, intent: 'navigate', activate: undefined }
     );
-    expect(mocks.activePaneOpen).toHaveBeenNthCalledWith(
+    expect(mocks.paneLayoutOpen).toHaveBeenNthCalledWith(
       2,
       'file',
       { path: '/repo/docs/guide.md' },
-      { preview: false }
+      { from: null, intent: 'navigate', activate: undefined }
     );
   });
 
@@ -448,8 +448,20 @@ describe('task file preview routing', () => {
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
       'file',
       { path: '/repo/src/index.ts' },
-      { preview: false, beside: true }
+      { from: null, intent: 'navigate', activate: undefined }
     );
+    expect(mocks.activePaneOpen).not.toHaveBeenCalled();
+  });
+
+  it.each(['newTab', 'beside'] as const)('keeps the external-file source and explicit %s intent while stat changes focus', async (intent) => {
+    const view = mocks.getSessionPageStore().viewModel;
+    view.activePane.resolvedActiveTabId = 'source-tab';
+    mocks.statExternalFile.mockImplementationOnce(async () => {
+      view.activePane.resolvedActiveTabId = 'another-tab';
+      return { success: true, data: { exists: true, isDirectory: false } };
+    });
+    await openFileInSessionEditor('project-1', 'session-1', '/tmp/other.md', { from: 'source-tab', intent });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('file', { path: '/tmp/other.md', external: true }, { from: 'source-tab', intent });
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
   });
 
@@ -461,17 +473,17 @@ describe('task file preview routing', () => {
     // 工作区外那支是 fire-and-forget(openSessionFile 里 `void openExternalFilePath`),外部 stat
     // 又多了一跳 —— 同步断言会跟第一次 open 赛跑,必须等它落地。
     // 同一条外部预览回退;从对话里点开的那次开在对话旁边(spec session-page「并排」)。
-    await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledTimes(1));
-    expect(mocks.activePaneOpen).toHaveBeenCalledTimes(1);
-    expect(mocks.activePaneOpen).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledTimes(2));
+    expect(mocks.activePaneOpen).not.toHaveBeenCalled();
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
       'file',
       { path: '/tmp/Application Support/note.md', external: true },
-      { preview: false }
+      { from: null, intent: 'navigate' }
     );
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
       'file',
       { path: '/tmp/Application Support/note.md', external: true },
-      { preview: false, beside: true }
+      { from: null, intent: 'navigate', activate: undefined }
     );
   });
 
@@ -482,7 +494,7 @@ describe('task file preview routing', () => {
       sessionId: 'session-1',
       path: '/tmp/Application Support/note.md',
       external: true,
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
     });
 
@@ -494,7 +506,7 @@ describe('task file preview routing', () => {
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
       'file',
       { path: '/tmp/Application Support/note.md', external: true },
-      { preview: true, beside: true, activate: false }
+      { from: null, intent: 'navigate', activate: false }
     );
     dispose();
   });
@@ -505,13 +517,13 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       url: 'https://www.baidu.com/',
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
     });
 
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true }));
     // showPage: the page opens in the browser cell, or the tab already showing it is brought back (workspace-view-model).
-    expect(mocks.showPage).toHaveBeenCalledWith('https://www.baidu.com/', { preview: true, reload: true, beside: true, activate: false });
+    expect(mocks.showPage).toHaveBeenCalledWith('https://www.baidu.com/', { intent: 'navigate', reload: true, beside: true, activate: false });
     // The counter-example that lets the assertion above mean something: routing a page
     // through the file branch would still have opened a tab and still reported success.
     expect(mocks.activePaneOpen).not.toHaveBeenCalledWith(
@@ -534,7 +546,7 @@ describe('task file preview routing', () => {
     mocks.ensurePage.mockResolvedValue({ success: true });
     const onResult = vi.fn();
     const dispose = openHostRequestedBrowserInSessionWhenReady({
-      projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'pinned',
+      projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'newTab',
       acquire: { browserId: 'original', createIfMissing: false, deadline: Date.now() + 9_000 }, onResult,
     });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'original', created: false }));
@@ -547,7 +559,7 @@ describe('task file preview routing', () => {
     mocks.getSessionPageStore().viewModel.paneLayout.groups = [];
     const onResult = vi.fn();
     const dispose = openHostRequestedBrowserInSessionWhenReady({
-      projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'pinned',
+      projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'newTab',
       acquire: { createIfMissing: false, deadline: Date.now() + 9_000 }, onResult,
     });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: false, error: expect.stringContaining('browser_navigate') }));
@@ -564,7 +576,7 @@ describe('task file preview routing', () => {
     mocks.registerBrowser.mockResolvedValue({ success: true });
     mocks.ensurePage.mockResolvedValue({ success: true });
     const onResult = vi.fn();
-    const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'pinned',
+    const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'newTab',
       acquire: { createIfMissing: false, deadline: Date.now() + 9_000 }, onResult });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'focused', created: false }));
     expect(mocks.showPage).not.toHaveBeenCalled();
@@ -574,7 +586,7 @@ describe('task file preview routing', () => {
   it('#7323 expired acquisition never creates a page, and a failed first navigation rolls back only its new tab', async () => {
     const view = mocks.getSessionPageStore().viewModel;
     const onResult = vi.fn();
-    openHostRequestedBrowserInSessionWhenReady({ projectId: 'p', sessionId: 's', url: 'https://a.test/', intent: 'pinned',
+    openHostRequestedBrowserInSessionWhenReady({ projectId: 'p', sessionId: 's', url: 'https://a.test/', intent: 'newTab',
       acquire: { createIfMissing: true, deadline: Date.now() - 1 }, onResult });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: false, error: expect.stringContaining('timed out') }));
     expect(mocks.showPage).not.toHaveBeenCalled();
@@ -587,7 +599,7 @@ describe('task file preview routing', () => {
     });
     mocks.registerBrowser.mockResolvedValue({ success: true });
     mocks.ensurePage.mockResolvedValue({ success: false, error: 'page unavailable' });
-    openHostRequestedBrowserInSessionWhenReady({ projectId: 'p', sessionId: 's', url: 'https://a.test/', intent: 'pinned',
+    openHostRequestedBrowserInSessionWhenReady({ projectId: 'p', sessionId: 's', url: 'https://a.test/', intent: 'newTab',
       acquire: { createIfMissing: true, deadline: Date.now() + 9_000 }, onResult });
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: false, error: expect.stringContaining('page unavailable') }));
     expect(closeTab).toHaveBeenCalledExactlyOnceWith('new-tab');
@@ -605,7 +617,7 @@ describe('task file preview routing', () => {
     // 只有第一次是新开的(宿主据此只把它记一次产出)。
     for (const created of [true, false]) {
       const onResult = vi.fn();
-      const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'pinned',
+      const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'newTab',
         acquire: { createIfMissing: true, deadline: Date.now() + 9_000 }, onResult });
       await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'new', created }));
       dispose();
@@ -624,7 +636,7 @@ describe('task file preview routing', () => {
     let registered!: (result: { success: boolean }) => void;
     mocks.registerBrowser.mockImplementationOnce(() => new Promise((resolve) => { registered = resolve; }));
     const onResult = vi.fn();
-    const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'pinned',
+    const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'newTab',
       acquire: { createIfMissing: true, deadline: Date.now() + 9_000 }, onResult });
     await vi.waitFor(() => expect(registered).toBeDefined());
     dispose();
@@ -651,7 +663,7 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-2',
       url: 'https://example.com/',
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
       timeout: 1_000,
     });
@@ -660,7 +672,7 @@ describe('task file preview routing', () => {
     expect(onResult).toHaveBeenCalledWith({ success: true });
     expect(mocks.mountProject).toHaveBeenCalledWith('project-1');
     expect(mocks.provisionSession).toHaveBeenCalledWith('session-2');
-    expect(mocks.showPage).toHaveBeenCalledWith('https://example.com/', { preview: true, reload: true, beside: true, activate: false });
+    expect(mocks.showPage).toHaveBeenCalledWith('https://example.com/', { intent: 'navigate', reload: true, beside: true, activate: false });
     dispose();
   });
 
@@ -671,12 +683,12 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       tabKind: 'notes.board',
-      intent: 'pinned',
+      intent: 'newTab',
       onResult,
     });
 
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true }));
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('notes.board', {}, { preview: false, beside: true, activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('notes.board', {}, { from: null, intent: 'newTab', activate: false });
     // `activePane.open` is typed to built-in kinds, so routing an extension through it
     // could not name this tab at all — that is why this one goes through the layout.
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
@@ -690,7 +702,7 @@ describe('task file preview routing', () => {
         projectId: 'project-1',
         sessionId: 'session-1',
         tabKind: 'computer-use.preview',
-        intent: 'pinned',
+        intent: 'newTab',
         ifAbsent: true,
         onResult,
       });
@@ -698,7 +710,7 @@ describe('task file preview routing', () => {
     const disposeFirst = open(first);
     await vi.waitFor(() => expect(first).toHaveBeenCalledWith({ success: true }));
     // Beside the conversation, and the tab the person is looking at stays in front.
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('computer-use.preview', {}, { preview: false, beside: true, activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('computer-use.preview', {}, { from: null, intent: 'newTab', activate: false });
 
     mocks.paneLayoutOpen.mockClear();
     mocks.openKinds.push('computer-use.preview');
@@ -722,13 +734,13 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       tabKind: 'fresh.panel',
-      intent: 'pinned',
+      intent: 'newTab',
       onResult,
     });
 
     await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true }));
     expect(mocks.registerInstalledExtensionTabs).toHaveBeenCalledTimes(1);
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('fresh.panel', {}, { preview: false, beside: true, activate: false });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('fresh.panel', {}, { from: null, intent: 'newTab', activate: false });
     dispose();
   });
 
@@ -740,7 +752,7 @@ describe('task file preview routing', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       tabKind: 'never-installed.panel',
-      intent: 'pinned',
+      intent: 'newTab',
       onResult,
     });
 
@@ -765,7 +777,7 @@ describe('task file preview routing', () => {
       sessionId: 'session-1',
       path: '/repo/session-1/data/report.csv',
       external: false,
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
     });
 
@@ -777,7 +789,7 @@ describe('task file preview routing', () => {
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
       'sheets.grid',
       { filePath: '/repo/session-1/data/report.csv' },
-      { preview: true, beside: true, activate: false }
+      { from: null, intent: 'navigate', activate: false }
     );
     // The counter-example: the built-in editor must not also have opened it.
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
@@ -804,7 +816,7 @@ describe('task file preview routing', () => {
       expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
       args.onSuccess({ tabKind: 'tables.main', always: false });
       await opening;
-      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('tables.main', { filePath: '/repo/data/report.csv' }, { preview: false });
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('tables.main', { filePath: '/repo/data/report.csv' }, { from: null, intent: 'navigate', activate: undefined });
       expect(mocks.activePaneOpen).not.toHaveBeenCalled();
     });
 
@@ -812,7 +824,7 @@ describe('task file preview routing', () => {
       twoClaims();
       const onResult = vi.fn();
       const dispose = openHostRequestedFileInSessionWhenReady({
-        projectId: 'project-1', sessionId: 'session-1', path: '/repo/session-1/data/report.csv', external: false, intent: 'preview', onResult,
+        projectId: 'project-1', sessionId: 'session-1', path: '/repo/session-1/data/report.csv', external: false, intent: 'navigate', onResult,
       });
       await vi.waitFor(() => expect(mocks.showModal).toHaveBeenCalledTimes(1));
       mocks.showModal.mock.calls[0]![1].onClose();
@@ -826,10 +838,10 @@ describe('task file preview routing', () => {
       twoClaims();
       mocks.openWithDefaults = { 'session:.csv': 'tables.main' };
       await openFileInSessionEditor('project-1', 'session-1', 'data/report.csv');
-      await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('tables.main', { filePath: '/repo/data/report.csv' }, { preview: false }));
+      await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('tables.main', { filePath: '/repo/data/report.csv' }, { from: null, intent: 'navigate', activate: undefined }));
       mocks.openWithDefaults = { 'session:.csv': 'builtin' };
       await openFileInSessionEditor('project-1', 'session-1', 'data/other.csv');
-      await vi.waitFor(() => expect(mocks.activePaneOpen).toHaveBeenCalled());
+      await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('file', { path: '/repo/data/other.csv' }, { from: null, intent: 'navigate', activate: undefined }));
       expect(mocks.showModal).not.toHaveBeenCalled();
     });
   });
@@ -841,7 +853,7 @@ describe('task file preview routing', () => {
       sessionId: 'session-1',
       path: '/repo/session-1/src/index.ts',
       external: false,
-      intent: 'preview',
+      intent: 'navigate',
       onResult,
     });
 
@@ -851,7 +863,7 @@ describe('task file preview routing', () => {
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
       'file',
       { path: '/repo/session-1/src/index.ts' },
-      { preview: true, beside: true, activate: false }
+      { from: null, intent: 'navigate', activate: false }
     );
     dispose();
   });

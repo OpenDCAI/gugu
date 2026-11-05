@@ -166,6 +166,7 @@ function ChatRightPanelBody({ activeChat, initialPage, onClose, onClearMessages,
             setActiveProfile(null)
             onWhisper(target)
           } : undefined}
+          searchChatId={activeChat.id}
           testId={AUTOMATION_TEST_IDS.chatDrawerProfileMenu}
         />
       ) : null}

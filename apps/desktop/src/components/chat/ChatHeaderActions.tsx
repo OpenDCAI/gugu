@@ -25,8 +25,6 @@ import { useStripNarrow } from '../../session/renderer/features/tabs/tab-strip-n
 interface ChatHeaderActionsProps {
   isGroupChat: boolean
   isRoomChat: boolean
-  searchMode: boolean
-  folderShown: boolean
   infoShown: boolean
   showHeaderMenu: boolean
   mobile?: boolean
@@ -37,9 +35,8 @@ interface ChatHeaderActionsProps {
     onReload: () => Promise<void>
   }
   moreButtonRef: RefObject<HTMLButtonElement | null>
-  onEnterSearchMode: () => void
+  onSearch: () => void
   onOpenFolder: () => void
-  onCloseWorkspacePanel: () => void
   onOpenInfo: (page?: 'main' | 'members') => void
   onCloseInfo: () => void
   onToggleHeaderMenu: () => void
@@ -47,8 +44,8 @@ interface ChatHeaderActionsProps {
 }
 
 export const ChatHeaderActions = observer(function ChatHeaderActions({
-  isGroupChat, isRoomChat, folderShown, infoShown, showHeaderMenu, mobile, room, moreButtonRef,
-  onEnterSearchMode, onOpenFolder, onCloseWorkspacePanel, onOpenInfo, onCloseInfo, onToggleHeaderMenu, onCloseHeaderMenu,
+  isGroupChat, isRoomChat, infoShown, showHeaderMenu, mobile, room, moreButtonRef,
+  onSearch, onOpenFolder, onOpenInfo, onCloseInfo, onToggleHeaderMenu, onCloseHeaderMenu,
 }: ChatHeaderActionsProps) {
   const { t } = useTranslation('messaging')
   const { activeChatId } = useChatStore('activeChatId')
@@ -71,8 +68,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
         <Users className="text-[var(--faint-fg)]" />{memberCount}
       </Button>
       {wideGroup && <span aria-hidden className="mx-1 h-4 border-s border-[var(--border)]" />}
-    </> : <IconButton on={folderShown || undefined} title={folderName} aria-label={folderName} aria-pressed={folderShown}
-      onClick={() => folderShown ? onCloseWorkspacePanel() : onOpenFolder()}><Folder /></IconButton>}
+    </> : null}
     {groupId && <>
       <DropdownMenu.Root key={groupId} modal={false} onOpenChange={(open) => { if (open) { onCloseHeaderMenu(); closePopup() } }}>
         <DropdownMenu.Trigger data-testid={AUTOMATION_TEST_IDS.groupMenuTopics} aria-label={t('history.tabs.topics')}
@@ -97,10 +93,10 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           <MenuItem onClick={() => openPopup('apps')} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>
           <MenuSeparator />
         </>}
-        <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onEnterSearchMode} icon={<Search size={16} />} shortcut={isRoomChat ? '⌘F' : undefined}>
+        <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onSearch} icon={<Search size={16} />} shortcut={isRoomChat ? '⌘F' : undefined}>
           {t(isRoomChat ? 'header.searchHistory' : 'header.searchChat')}
         </MenuItem>
-        {isRoomChat && <MenuItem onClick={onOpenFolder} icon={<Folder size={16} />}>{folderName}</MenuItem>}
+        <MenuItem onClick={onOpenFolder} icon={<Folder size={16} />}>{folderName}</MenuItem>
         <MenuSeparator />
         <ChatDetailsMenuItems isGroupChat={isGroupChat} onOpenInfo={() => isGroupChat ? onOpenInfo('main') : onOpenInfo()} />
         <MenuSeparator />

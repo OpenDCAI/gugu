@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// 主人 10-05「我发现私聊也是得有面板的呀」:私聊和群、话题一样有自己的工作区和右栏。页头的「工作区」按钮私聊也有 ——
-// 桌面和手机都在页头(手机私聊图标少,不收进 ⋯);手机群聊照旧收进 ⋯。对照(父提交):私聊页头没有这颗按钮,⋯ 里也没有。
+// 主人 10-05「我发现私聊也是得有面板的呀」:私聊和群、话题一样有自己的文件夹和右栏。
+// 主人 11-05:私聊的文件夹入口和群同一个位置、同一个图标 —— 都在 ⋯ 里(页签条「+」里也有),页头不再单放一颗按钮。
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
@@ -16,33 +16,32 @@ afterEach(() => { harness.cleanup() })
 const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: boolean }, onOpenFolder = vi.fn()) =>
   renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     ...props,
-    searchMode: false,
-    folderShown: false,
     infoShown: false,
-    showHeaderMenu: false,
+    showHeaderMenu: true,
     moreButtonRef: createRef<HTMLButtonElement>(),
-    onEnterSearchMode: vi.fn(),
+    onSearch: vi.fn(),
     onOpenFolder,
-    onCloseWorkspacePanel: vi.fn(),
     onOpenInfo: vi.fn(),
     onCloseInfo: vi.fn(),
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
-  }), { chat: { activeChatId: 'c', chats: [{ id: 'c', kind: props.isGroupChat ? 'group' : 'dm' }] as never } }) // the button's name: useChatFolderName
-const workspaceButton = () => document.querySelector<HTMLElement>('button[aria-label="文件夹"], button[aria-label="群文件夹"]')
+  }), { chat: { activeChatId: 'c', chats: [{ id: 'c', kind: props.isGroupChat ? 'group' : 'dm' }] as never } }) // the item's name: useChatFolderName
+const headerButton = () => harness.container.querySelector<HTMLElement>('button[aria-label="文件夹"], button[aria-label="群文件夹"]')
+const menuItem = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === name)
 
-describe('a private chat has the folder (workspace) button in its header', () => {
-  it.each([false, true])('mobile=%s: it is there, and opens the folder in the panel', async (mobile) => {
+describe('a private chat reaches its folder where a group does', () => {
+  it.each([false, true])('mobile=%s: no header button; the ⋯ item opens the folder in the panel', async (mobile) => {
     const onOpen = vi.fn()
     await header({ isGroupChat: false, isRoomChat: false, mobile }, onOpen)
-    expect(workspaceButton()).not.toBeNull()
-    expect(workspaceButton()!.getAttribute('aria-label'), 'owner 10-11: a private chat\'s is 文件夹').toBe('文件夹')
-    await clickElement(workspaceButton()!)
+    expect(headerButton()).toBeNull()
+    expect(menuItem('文件夹'), "owner 10-11: a private chat's is 文件夹").toBeDefined()
+    await clickElement(menuItem('文件夹')!)
     expect(onOpen).toHaveBeenCalledTimes(1)
   })
 
-  it('a group on the phone keeps it in ⋯, not in the header (five icons squeeze the name)', async () => {
-    await header({ isGroupChat: true, isRoomChat: true, mobile: true })
-    expect(workspaceButton()).toBeNull()
+  it.each([false, true])('mobile=%s: a group has the same ⋯ item and no header button', async (mobile) => {
+    await header({ isGroupChat: true, isRoomChat: true, mobile })
+    expect(headerButton()).toBeNull()
+    expect(menuItem('群文件夹')).toBeDefined()
   })
 })

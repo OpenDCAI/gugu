@@ -1195,9 +1195,6 @@ input::placeholder {
   30% { transform: translateY(-2px); opacity: 1; }
 }
 .gg-receive-dot { animation: gg-receive-wave 1.05s ease-in-out infinite; }
-.gg-message-receiving { flex-shrink: 0; display: block; opacity: .56; }
-.gg-receive-dot:nth-of-type(2) { animation-delay: 140ms; }
-.gg-receive-dot:nth-of-type(3) { animation-delay: 280ms; }
 @media (prefers-reduced-motion: reduce) {
   .gg-ring-march { animation: none; }
   .gg-receive-dot { animation: none; }
@@ -1585,6 +1582,10 @@ body.barcode-scanner-active #root {
    指针一移到钮上，行自身的 :hover 就假掉、底色闪一下；由外层 host 接管补上。
    pinned/selected 用 :not() 显式让开，别靠特异度赛跑去猜谁赢。 */
 @media (hover: hover) { .gg-row-host:hover > .gg-row:not([data-selected]):not([data-pinned]) { background: var(--hover); } }
+/* @@@contacts-offscreen-rows 通讯录分段里的行:屏幕外的跳过布局与绘制(content-visibility),页内查找照样搜得到。
+   auto 记住画过的实际高度,没画过的按 60px(一行头像 + 两行字)占位。paint containment 会裁掉框外的东西:
+   键盘焦点环画在框外 4px(outline 2 + offset 2),用 overflow-clip-margin 让出来,外观不变。 */
+.gg-c-sec-body .gg-row-host, .gg-c-sec-body > div > .gg-row { content-visibility: auto; contain-intrinsic-size: auto 60px; overflow-clip-margin: 4px; }
 
 /* Ghost 图标钮:导航轨/composer 图标/消息工具条/关闭钮。「开」态挂 data-on。
    图标色只在 faint-fg → muted-fg → fg 三档内移动,不引入色相。 */

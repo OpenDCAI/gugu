@@ -59,6 +59,7 @@ let remembered: Record<string, string> = {}
 let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let opened: ReturnType<typeof vi.fn>
+let peeked: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
 Object.defineProperty(navigator, 'userActivation', { value: { isActive: false }, configurable: true })
 
@@ -72,10 +73,11 @@ beforeEach(() => {
   posted = vi.fn()
   Object.defineProperty(frame.contentWindow!, 'postMessage', { value: posted, configurable: true })
   opened = vi.fn()
+  peeked = vi.fn()
   host = hostAppFrame(
     frame,
     { extensionId: 'data-lens', tabId: 'card-1', tabName: 'card', chatId: CHAT, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light', widget: { messageId: 'message-1', data: {}, senderId: 'sender-1' } },
-    { showMessage: vi.fn(), showSession: vi.fn(), openWith: opened, chrome: vi.fn() } as never,
+    { showMessage: vi.fn(), showSession: vi.fn(), openWith: opened, peek: peeked, chrome: vi.fn() } as never,
   )
 })
 afterEach(() => {
@@ -96,7 +98,52 @@ const ref = { chat: CHAT, id: SALES }
 const choices = () => opened.mock.calls.map(([detail]) => (detail as { choice: unknown }).choice)
 const lensExplore = { kind: 'one', candidate: expect.objectContaining({ extensionId: 'data-lens', tabKind: 'data-lens.explore' }) }
 
+it('a phone page with no own history cannot turn Back into a jump to its opener', async () => {
+  host?.dispose()
+  const navigate = vi.fn(async () => true)
+  host = hostAppFrame(frame, {
+    extensionId: 'data-lens', tabId: 'own-page', tabName: 'explore', chatId: CHAT,
+    capabilities: ['files:read'], locale: 'en-US', themeMode: 'light',
+    navigation: { canBack: false, canForward: false },
+  }, { showMessage: vi.fn(), showSession: vi.fn(), openWith: opened, peek: peeked, chrome: vi.fn(), navigate } as never)
+  expect(await call('navigationGo', { delta: -1, tabId: 'another-page' })).toMatchObject({ ok: true, value: false })
+  expect(navigate).not.toHaveBeenCalled()
+})
+
+it('the phone page accepts only a valid delta into an available own history', async () => {
+  host?.dispose()
+  const navigate = vi.fn(async () => true)
+  host = hostAppFrame(frame, {
+    extensionId: 'data-lens', tabId: 'own-page', tabName: 'explore', chatId: CHAT,
+    capabilities: ['files:read'], locale: 'en-US', themeMode: 'light',
+    navigation: { canBack: true, canForward: false },
+  }, { showMessage: vi.fn(), showSession: vi.fn(), openWith: opened, peek: peeked, chrome: vi.fn(), navigate } as never)
+  expect(await call('navigationGo', { delta: 'back' })).toMatchObject({ ok: false, code: 'invalid' })
+  expect(navigate).not.toHaveBeenCalled()
+  expect(await call('navigationGo', { delta: -1 })).toMatchObject({ ok: true, value: true })
+  expect(navigate).toHaveBeenCalledExactlyOnceWith(-1)
+})
+
 describe('the phone: openWith(file, { tab }) opens its own tab (A2 T9)', () => {
+  it.each(['navigate', 'newTab', 'beside'] as const)('folder redesign carries %s through the real phone host', async (intent) => {
+    expect(await call('filesOpenWith', { ref, tab: 'explore', intent })).toMatchObject({ ok: true })
+    expect(opened).toHaveBeenCalledWith(expect.objectContaining({ intent, choice: lensExplore }))
+  })
+
+  it.each(['navigate', 'newTab', 'beside'] as const)('keeps %s when opening beside the phone page', async (intent) => {
+    expect(await call('filesOpenWith', { ref, tab: 'explore', intent, peek: true })).toMatchObject({ ok: true })
+    expect(peeked).toHaveBeenCalledWith({ kind: 'chat', detail: expect.objectContaining({ intent, choice: lensExplore }) })
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  it('folder redesign defaults to navigation and refuses an invalid intent before opening', async () => {
+    expect(await call('filesOpenWith', { ref, tab: 'explore' })).toMatchObject({ ok: true })
+    expect(opened).toHaveBeenCalledWith(expect.objectContaining({ intent: 'navigate' }))
+    opened.mockClear()
+    expect(await call('filesOpenWith', { ref, intent: 'permanent' })).toMatchObject({ ok: false, code: 'invalid' })
+    expect(opened).not.toHaveBeenCalled()
+  })
+
   it('T9/T3: both Apps open .xlsx — its own explore opens, nobody is asked', async () => {
     expect(await call('filesOpenWith', { ref, tab: 'explore' })).toMatchObject({ ok: true })
     expect(choices()).toEqual([lensExplore])

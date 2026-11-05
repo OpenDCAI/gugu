@@ -97,8 +97,8 @@ export const acpChatTabProvider: TabProvider<
   AcpChatOpenArgs
 > = createTabProvider({
   kind: 'acp-chat',
-  pairRank: 0,
-  mount: 'single',
+  conversation: true,
+
   resourceKey: (s: AcpChatState) => s.sessionId,
 
   onBeforeOpen: (args: AcpChatOpenArgs): AcpChatState | null => {

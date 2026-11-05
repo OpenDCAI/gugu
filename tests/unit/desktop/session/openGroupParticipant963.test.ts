@@ -8,7 +8,7 @@ const ready = observable.box(false);
 vi.mock('@renderer/features/sessions/session-pane-ready', () => ({ sessionPaneReady: () => () => ready.get() }));
 vi.mock('@renderer/features/sessions/stores/session-selectors', async (importOriginal) => ({
   ...await importOriginal<typeof import('@renderer/features/sessions/stores/session-selectors')>(),
-  getSessionView: () => ({ paneLayout: { groups: [{ pane: { tabOrder: state.tabs } }], open: state.open } }),
+  getSessionView: () => ({ paneLayout: { groups: [{ pane: { tabOrder: state.tabs, entries: new Map() } }], open: state.open } }),
   getSessionPageStore: () => undefined,
 }));
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({
@@ -57,7 +57,7 @@ describe('authorized focus notification to participant workspace', () => {
     const request = groupParticipantRequests.prepare(source.chatId, target);
     disposers.push(openRequestedGroupParticipant(target, request.requestId)!);
     runInAction(() => ready.set(true));
-    expect(state.open).toHaveBeenCalledExactlyOnceWith('acp-chat', { sessionId: 'a' }, { preview: false });
+    expect(state.open).toHaveBeenCalledExactlyOnceWith('acp-chat', { sessionId: 'a' }, { from: null, intent: 'newTab' });
     expect(screenLayout.sessions.map(one => one.sessionId)).toEqual(['a']);
   });
 

@@ -1,7 +1,7 @@
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { reaction } from 'mobx';
 import { observer } from 'mobx-react-lite';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   modalRegistry,
   type ModalPosition,
@@ -28,6 +28,13 @@ const POSITION_CLASSES: Record<ModalPosition, string> = {
 
 export const ModalRenderer = observer(function ModalRenderer() {
   const pageLayer = useUiPortalContainer();
+  const portalContainer = modalStore.portalContainer ?? pageLayer;
+  const [portal, setPortal] = useState({ container: portalContainer, revision: 0 });
+  if (portal.container !== portalContainer) {
+    // A portal move destroys its popup DOM. Reset the dialog's transition/focus owner too:
+    // an interrupted exit must not remount retained content with open=false in the new surface.
+    setPortal({ container: portalContainer, revision: portal.revision + 1 });
+  }
   const entry = (
     modalStore.activeModalId
       ? modalRegistry[modalStore.activeModalId as keyof typeof modalRegistry]
@@ -124,8 +131,8 @@ export const ModalRenderer = observer(function ModalRenderer() {
   }, []);
 
   return (
-    <Dialog open={modalStore.isOpen} onOpenChange={handleOpenChange}>
-      <DialogPortal container={modalStore.portalContainer ?? pageLayer}>
+    <Dialog key={portal.revision} open={modalStore.isOpen} onOpenChange={handleOpenChange}>
+      <DialogPortal container={portalContainer}>
         <DialogOverlay />
         <DialogPrimitive.Popup
           ref={popupRef}

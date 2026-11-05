@@ -276,7 +276,7 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(harness.container.querySelector('[data-running-bar-slot]')).toBeNull()
   })
 
-  it('keeps the agent avatar, title, folder and More in the block strip without a second content header', async () => {
+  it('keeps the agent avatar, title and More (with the folder) in the block strip without a second content header', async () => {
     const slot = document.body.appendChild(document.createElement('div'))
     installShellSlots()
     let folder: string | undefined
@@ -286,12 +286,14 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
       expect(title.querySelector('[data-agent]'), 'the tab keeps the agent avatar').not.toBeNull()
       expect(header(), 'the strip is the only header').toBeNull()
       expect(actions.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).not.toBeNull()
-      await clickElement(actions.querySelector<HTMLElement>('button[aria-label="文件夹"]')!)
+      expect(actions.querySelector('button[aria-label="文件夹"]'), 'the folder is in More, as in a group').toBeNull()
+      await clickElement(actions.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)!)
+      await clickElement([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === '文件夹')!)
       const shown = shownPanelTab('group-1')!
       folder = shown.tabId
       expect(isFolderItem(shown.item)).toBe(true)
       await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', folder!), slot) })
-      expect(slot.querySelector('[data-testid="group-app-slot"]'), 'the folder button opens its real tab').not.toBeNull()
+      expect(slot.querySelector('[data-testid="group-app-slot"]'), 'the folder item opens its real tab').not.toBeNull()
     } finally {
       await act(async () => {
         if (folder) { readShellSlots()?.setSlot(chatTabSlotKey('group-1', folder), null); closeChatTab('group-1', folder) }

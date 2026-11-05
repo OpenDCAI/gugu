@@ -60,7 +60,7 @@ function activeFileToDiffPayload(
 export const diffTabProvider: TabProvider<'diff', DiffPayload, DiffTabResource, DiffOpenArgs> =
   createTabProvider({
     kind: 'diff',
-    mount: 'single',
+
     resourceKey: diffResourceKey,
 
     onBeforeOpen(args: DiffOpenArgs, ctx: TabViewContext): DiffPayload | null {

@@ -20,7 +20,7 @@ describe('following the tail is derived from the at-bottom level', () => {
   async function setup() {
     const setFollowingTail = vi.fn()
     const isAtBottomRef = { current: false }
-    const input = { enabled: true, resetKey: 'chat-1#0#1', unreadNavigationPending: true, hasNewer: false, loading: false, preserving: false }
+    const input = { resetKey: 'chat-1#0#1', unreadNavigationPending: true, hasNewer: false, loading: false, preserving: false }
     let onAtBottomChange: (atBottom: boolean) => void = () => {}
     function Probe() {
       onAtBottomChange = useFollowingTail({ ...input, isPreservingPosition: () => input.preserving, isAtBottomRef, setFollowingTail }).onAtBottomChange
@@ -39,20 +39,6 @@ describe('following the tail is derived from the at-bottom level', () => {
     await view.render() // no second report: the reader never moved
     expect(view.setFollowingTail).toHaveBeenLastCalledWith(true)
     expect(view.isAtBottomRef.current).toBe(true)
-  })
-
-  it('keeps the loaded window off the tail while find owns the scroll, then resumes from its current level', async () => {
-    const view = await setup()
-    view.input.unreadNavigationPending = false
-    await view.render()
-    expect(view.setFollowingTail).toHaveBeenLastCalledWith(true)
-    view.input.enabled = false
-    await view.render()
-    expect(view.setFollowingTail).toHaveBeenLastCalledWith(false)
-    expect(view.isAtBottomRef.current).toBe(false)
-    view.input.enabled = true
-    await view.render()
-    expect(view.setFollowingTail).toHaveBeenLastCalledWith(true)
   })
 
   it('stays off the tail when the gate opens but the reader is not at the bottom (control)', async () => {
@@ -136,6 +122,79 @@ describe('the newer page is requested from the at-bottom level, not only from sc
     await view.render()
     expect(view.loadNewer).not.toHaveBeenCalled()
     expect(view.loadOlder).not.toHaveBeenCalled()
+  })
+})
+
+describe('pagination does not measure layout when no page can be requested', () => {
+  async function setup({ hasNewer = false, loadNewerPresent = true, loading = false, atBottom = true, firstSeq = 11, scrollTop = 10_000 } = {}) {
+    const scrollHeight = vi.fn(() => 11_503)
+    const clientHeight = vi.fn(() => 776)
+    const scroller = document.createElement('div')
+    Object.defineProperties(scroller, { scrollHeight: { get: scrollHeight }, clientHeight: { get: clientHeight } })
+    scroller.scrollTop = scrollTop
+    const loadOlder = vi.fn(async () => {})
+    const loadNewer = vi.fn(async () => {})
+    const window: HistoryWindow = { chatId: 'chat-1', messages: [{ id: 'm-first', seq: firstSeq }] as HistoryWindow['messages'],
+      firstItemIndex: HISTORY_START_INDEX, hasOlder: firstSeq !== 1, hasNewer, loading: loading ? 'newer' : null,
+      change: 'reset', navigation: 'reset', navigationVersion: 0, viewVersion: 1, newMessageCount: 0, latestSeen: 200 }
+    function Probe() {
+      useChatHistoryPagination({ resetKey: 'chat-1#0#1', messages: window.messages, enabled: true, scroller, atBottom,
+        loadOlder: () => loadOlder(), loadNewer: loadNewerPresent ? () => loadNewer() : undefined, window })
+      return null
+    }
+    const render = () => harness.render(createNode(Probe))
+    await render()
+    return { window, render, scrollHeight, clientHeight, loadOlder, loadNewer, scroller }
+  }
+
+  it('does not synchronously read dimensions on incoming tail updates when there is no newer page', async () => {
+    const view = await setup()
+    for (let seq = 12; seq < 22; seq++) {
+      view.window.messages = [...view.window.messages, { id: `m${seq}`, seq } as HistoryWindow['messages'][number]]
+      await view.render()
+    }
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    expect(view.clientHeight).not.toHaveBeenCalled()
+    expect(view.loadNewer).not.toHaveBeenCalled()
+    expect(view.loadOlder).not.toHaveBeenCalled()
+  })
+
+  it('does not measure a bottom check without a newer-page loader', async () => {
+    const view = await setup({ hasNewer: true, loadNewerPresent: false })
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    expect(view.clientHeight).not.toHaveBeenCalled()
+  })
+
+  it('does not measure while a page is already loading', async () => {
+    const view = await setup({ hasNewer: true, loading: true })
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    expect(view.clientHeight).not.toHaveBeenCalled()
+  })
+
+  it('requests a newer page when it becomes available under a reader already at the bottom', async () => {
+    const view = await setup({ scrollTop: 10_727 })
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    view.window.hasNewer = true
+    await view.render()
+    expect(view.loadNewer).toHaveBeenCalledOnce()
+    expect(view.scrollHeight).toHaveBeenCalled()
+  })
+
+  it('does not measure a scroll when both ends are exhausted', async () => {
+    const view = await setup({ firstSeq: 1, atBottom: false })
+    await act(async () => { view.scroller.dispatchEvent(new Event('scroll')) })
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    expect(view.clientHeight).not.toHaveBeenCalled()
+    expect(view.loadOlder).not.toHaveBeenCalled()
+    expect(view.loadNewer).not.toHaveBeenCalled()
+  })
+
+  it('still requests an older page at the physical top even when no newer page exists', async () => {
+    const view = await setup({ atBottom: false, scrollTop: 0 })
+    await act(async () => { view.scroller.dispatchEvent(new Event('scroll')) })
+    expect(view.loadOlder).toHaveBeenCalledOnce()
+    expect(view.loadNewer).not.toHaveBeenCalled()
+    expect(view.scrollHeight).toHaveBeenCalled()
   })
 })
 

@@ -55,6 +55,11 @@ const STRINGS = {
     noMatch: '没有文件名含「{q}」的文件。',
     denied: '这个 App 没有读取{folder}的权限。',
     openWith: '用别的 App 打开',
+    openNewTab: '在新页签打开',
+    back: '文件夹',
+    backToConversation: '返回对话',
+    historyForward: '前进',
+    openBeside: '在旁边打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
     storedTextReadOnly: '这个文件按原样存着，在这里只能看，不能改。',
@@ -83,7 +88,6 @@ const STRINGS = {
     moveBlockDown: '下移',
     deleteBlock: '删除',
     copyBlockLink: '复制这一块的链接',
-    citeBlock: '引用到聊天',
     insertHeading: '标题',
     insertList: '列表',
     insertTodo: '待办',
@@ -111,7 +115,6 @@ const STRINGS = {
     lines: '第 {first}–{last} 行',
     placeMoved: '引用的那几行挪到了{lines}',
     placeGone: '引用的那几行之后改过了：这里是它们原来的位置',
-    back: '文件',
     failed: '出错了：{e}',
     you: '你',
     justNow: '刚刚',
@@ -242,6 +245,11 @@ const STRINGS = {
     noMatch: 'No file name contains “{q}”.',
     denied: 'This App may not read this folder.',
     openWith: 'Open with another App',
+    openNewTab: 'Open in new tab',
+    back: 'Folder',
+    backToConversation: 'Back to conversation',
+    historyForward: 'Forward',
+    openBeside: 'Open beside',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
     storedTextReadOnly: 'This file is kept as it was stored: you can read it here, not change it.',
@@ -270,7 +278,6 @@ const STRINGS = {
     moveBlockDown: 'Move down',
     deleteBlock: 'Delete',
     copyBlockLink: 'Copy link to block',
-    citeBlock: 'Cite in chat',
     insertHeading: 'Heading',
     insertList: 'List',
     insertTodo: 'To-do',
@@ -298,7 +305,6 @@ const STRINGS = {
     lines: 'Lines {first}–{last}',
     placeMoved: 'The cited lines moved: {lines}',
     placeGone: 'The cited lines changed since: this is where they were',
-    back: 'Files',
     failed: 'Something went wrong: {e}',
     you: 'You',
     justNow: 'just now',
@@ -531,6 +537,19 @@ function markdownSupport(cm) {
 async function applyContext(ctx) {
   const previous = state.ctx
   state.ctx = ctx
+  const restored = !previous || previous.file?.id !== ctx.file?.id || previous.tabId !== ctx.tabId ? ctx.viewState : undefined
+  if (restored) {
+    if (['chat', 'workspace'].includes(restored.root)) state.root = restored.root
+    state.folder = typeof restored.folder === 'string' ? restored.folder : null
+    state.filter = typeof restored.filter === 'string' ? restored.filter : ''
+    if (KINDS.includes(restored.kind)) state.kind = restored.kind
+    if (SORTS.includes(restored.sort)) state.sort = restored.sort
+    if (restored.filters && typeof restored.filters === 'object') state.filters = restored.filters
+    state.picked = new Set(Array.isArray(restored.picked) ? restored.picked.filter((id) => typeof id === 'string') : [])
+    state.selecting = restored.selecting === true
+    state.pickFrom = typeof restored.pickFrom === 'string' ? restored.pickFrom : null
+    $('filter').value = state.filter
+  }
   state.t = stringsFor(ctx.locale, ctx.chat)
   document.documentElement.lang = isZh(ctx.locale) ? 'zh-CN' : 'en'
   renderChrome()
@@ -553,14 +572,15 @@ async function applyContext(ctx) {
     // The root on screen is the same place still (its conversation arrived, say): the person stays where they are.
     const stays = !!previous && state.root === shown && shown !== null && shownPlace(previous) === shownPlace(ctx) && !!previous.file === !!ctx.file
     if (!stays) {
-      state.folder = null
+      if (!restored) state.folder = null
       state.listed = new Set()
       state.entries = []
     }
     if (stays) renderList()
     if (!stays && inGroup && canRead() && !ctx.file) {
       state.showAppData = false
-      await refreshList(true)
+      await refreshList(!restored)
+      if (restored && Number.isFinite(restored.scrollTop)) $('file-list').scrollTop = restored.scrollTop
     }
   }
   // The host hands this page a file when it picked this App for it (真源 §2.6: a click goes to the host,
@@ -588,6 +608,16 @@ function renderChrome() {
     Promise.resolve(gugu.setTabTitle(title)).catch(() => {})
   }
   $('filter').placeholder = t.filter
+  $('search-toggle').title = t.filter
+  $('search-toggle').setAttribute('aria-label', t.filter)
+  const back = state.ctx?.navigation?.backToConversation ? t.backToConversation : t.back
+  $('page-back-label').textContent = back
+  $('page-back').title = back
+  $('page-back').setAttribute('aria-label', back)
+  $('page-back').disabled = !state.ctx?.navigation?.canBack
+  $('page-forward').disabled = !state.ctx?.navigation?.canForward
+  $('page-forward').title = t.historyForward
+  $('page-forward').setAttribute('aria-label', t.historyForward)
   $('select-files').textContent = state.selecting || state.picked.size ? t.pickDone : t.pick
   renderTools()
   $('new-label').textContent = t.new
@@ -1351,9 +1381,25 @@ const offline = (entry) => entry.storedOn?.online === false && !entry.keep
 
 // A press on a file: the host picks the App that opens it and says why if it cannot now. Whether the machine that keeps
 // it is on is read afresh then, never from the list as it was loaded: the list is read again to show it.
-function openFile(entry) {
+async function navigate(delta) {
+  try { return await gugu.navigation.go(delta) }
+  catch (error) { showBanner(fmt(state.t.failed, { e: error.message }), 'error'); return false }
+}
+window.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented || event.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+  if (event.key !== '[' && event.key !== ']') return
+  event.preventDefault()
+  void navigate(event.key === '[' ? -1 : 1)
+})
+window.addEventListener('mouseup', (event) => {
+  if (event.button !== 3 && event.button !== 4) return
+  event.preventDefault()
+  void navigate(event.button === 3 ? -1 : 1)
+})
+
+function openFile(entry, intent = 'navigate') {
   if (entry.storedOn) void refreshList()
-  return openInHost(entry)
+  return openInHost(entry, false, intent)
 }
 
 // A cloud copy kept for a while (entry.keep.expiresAt): how long it has left, faint (owner 10-28) — the day it goes on hover.
@@ -1442,6 +1488,7 @@ function listItem(entry, now = new Date(Date.now())) {
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
   open.onclick = (event) => (folder ? enterFolder(entry.id) : pressFile(entry, event))
+  open.onauxclick = (event) => { if (!folder && event.button === 1) { event.preventDefault(); pressFile(entry, event) } }
   if (!folder) pickable(li, entry)
   if (offline(entry)) li.dataset.offline = ''
   // Files carry the same resource link outside this App; folder moves stay inside it.
@@ -1498,6 +1545,7 @@ function gridItem(entry, now) {
   }
   open.append(mark, Object.assign(document.createElement('span'), { className: 'file-name', textContent: shownName(entry) }))
   open.onclick = (event) => pressFile(entry, event)
+  open.onauxclick = (event) => { if (event.button === 1) { event.preventDefault(); pressFile(entry, event) } }
   li.append(open)
   pickable(li, entry)
   const keep = keepMark(entry, now)
@@ -1568,7 +1616,7 @@ function rowMenu(li, entry, canDelete = false) {
   const groups = []
   if (folder) groups.push([open], change, remove)
   else {
-    const navigation = [open]
+    const navigation = [open, { text: t.openNewTab, run: () => openFile(entry, 'newTab') }, { text: t.openBeside, run: () => openFile(entry, 'beside') }]
     if (entry.sourceMessageIds?.length) navigation.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds.at(-1)) })
     const detail = { text: t.details, run: () => showDetails(entry) }
     const select = { text: t.pick, run: () => { state.selecting = true; pick(entry.id, 'toggle') } }
@@ -1696,9 +1744,10 @@ async function copyLink(entry, at) {
 // claim in the chat, or the person's "always use it" (真源 §2.6). When that is this App (.md, plain .json)
 // the host hands the file back as context.file and applyContext opens it; nothing opens inline on a click.
 // `ask`: "Open with another App" — the host's picker, every App that opens this file, this one included.
-async function openInHost(entry, ask = false) {
+async function openInHost(entry, ask = false, intent = 'navigate') {
   try {
-    await (ask ? gugu.files.openWith(entry, { ask: true }) : gugu.files.openWith(entry))
+    const viewState = { root: state.root, folder: state.folder, filter: state.filter, kind: state.kind, sort: state.sort, filters: state.filters, picked: [...state.picked], selecting: state.selecting, pickFrom: state.pickFrom, scrollTop: $('file-list').scrollTop }
+    await gugu.files.openWith(entry, { intent, viewState, ...(ask ? { ask: true } : {}) })
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   }
@@ -2458,13 +2507,17 @@ function blockMenu() {
 function blockLinks(current, pick) {
   return [
     [state.t.copyBlockLink, blockAction(() => { const p = pick(); return copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) })],
-    [state.t.citeBlock, blockAction(() => cite(current, [pick()], state.held))],
+    [state.t.cite, blockAction(() => cite(current, [pick()], state.held))],
   ]
 }
 
 function readBlockMenu(event) {
   const current = state.current
   if (document.body.dataset.mode !== 'preview' || current?.file.type !== 'text' || current.previewPending) return
+  // While text is selected here, a press belongs to the selection: its bar (Copy, Cite, ＋ Keep) is its one menu. A
+  // phone's long-press selects a word and then sends this event, which would open the block's menu over that bar.
+  const picked = document.getSelection()
+  if (picked && !picked.isCollapsed && $('preview').contains(picked.anchorNode)) return event.preventDefault()
   let block = event.target.closest('[data-line]')
   const root = $('preview').firstElementChild
   if (!block || !root?.contains(block)) return
@@ -2874,7 +2927,7 @@ function toggleMenu(anchor, items, context = {}) {
 }
 
 // ─── 多选 ───────────────────────────────────────────────────────────────────
-// Ctrl/⌘ picks, Shift picks a range, and a frame picks rows across the list's empty space. The phone's explicit selection
+// Explicit checkboxes pick, Shift picks a range, and a frame picks rows across the list's empty space. The phone's explicit selection
 // mode shows a separate checkbox column; a long press opens the same row menu. While anything is
 // picked a press picks too. What is picked can be downloaded at once, made temporary or kept, and found in the chat one
 // message after another. Folders are not picked; a change of folder, kind or filter lets go of all.
@@ -2894,12 +2947,13 @@ function pickable(li, entry) {
   if (state.picked.has(entry.id)) li.classList.add('picked')
 }
 
-// A press on a file: with Shift, the run to it; with Ctrl/⌘ — or while anything is picked — it is picked or let go; else it opens.
+// Explicit open gestures win; Shift selects a range and an unmodified press toggles while selection is active.
 function pressFile(entry, event) {
+  if (event?.altKey || event?.ctrlKey || event?.metaKey || event?.button === 1) return openFile(entry, event.altKey ? 'beside' : 'newTab')
   if (event?.shiftKey) return pick(entry.id, 'range')
-  if (event?.ctrlKey || event?.metaKey || state.picked.size || state.selecting) return pick(entry.id, 'toggle')
+  if (state.picked.size || state.selecting) return pick(entry.id, 'toggle')
   state.pickFrom = entry.id
-  return openFile(entry)
+  return openFile(entry, event?.altKey ? 'beside' : event?.ctrlKey || event?.metaKey || event?.button === 1 ? 'newTab' : 'navigate')
 }
 
 function pick(id, how) {
@@ -3182,6 +3236,9 @@ function start() {
       renderList()
     }
   }
+  $('search-toggle').onclick = () => { const input = $('filter'); input.hidden = !input.hidden; $('search-toggle').setAttribute('aria-expanded', String(!input.hidden)); if (!input.hidden) input.focus() }
+  $('page-back').onclick = () => navigate(-1)
+  $('page-forward').onclick = () => navigate(1)
   $('new-doc').onclick = () => toggleMenu($('new-doc'), [[state.t.newDoc, createDoc], [state.t.newFolder, createFolder]])
   $('upload').onclick = $('empty-upload').onclick = () => uploadFiles()
   $('move-cancel').onclick = closeMoveDialog
