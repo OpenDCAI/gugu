@@ -52,6 +52,23 @@ describe('shared initial dependency inventory', () => {
   });
 });
 
+it('coalesces reprobes after concurrent PATH invalidation', async () => {
+  vi.resetModules();
+  const { localDependencyManager: manager, ensureAgentDependenciesProbed: ensureProbed } =
+    await import('./dependency-managers');
+  const inventory = Promise.withResolvers<void>();
+  vi.spyOn(manager, 'get').mockReturnValue({ status: 'available' } as DependencyState);
+  vi.spyOn(manager, 'isPathResolutionConsistent').mockResolvedValue(false);
+  const probeAll = vi.spyOn(manager, 'probeAll').mockReturnValue(inventory.promise);
+  const first = ensureProbed(manager);
+  const second = ensureProbed(manager);
+  await vi.waitFor(() => expect(probeAll).toHaveBeenCalled());
+  const calls = probeAll.mock.calls.length;
+  inventory.resolve();
+  await Promise.all([first, second]);
+  expect(calls).toBe(1);
+});
+
 describe('offered dependency inventory', () => {
   it.each(['0', '1'])('uses the same offer gate as the list (unsupported=%s)', async (unsupported) => {
     vi.stubEnv('GUGU_SHOW_UNSUPPORTED_AGENTS', unsupported);

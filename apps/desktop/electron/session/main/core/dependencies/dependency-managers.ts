@@ -164,6 +164,13 @@ export async function ensureAgentDependenciesProbed(
     if (await agentPathsStillConsistent(manager)) return;
   }
 
+  // Another caller may have started the inventory while this caller awaited PATH validation.
+  const revalidated = agentProbePromises.get(manager);
+  if (revalidated) {
+    await revalidated;
+    return;
+  }
+
   const promise = manager.probeAll().finally(() => {
     agentProbePromises.delete(manager);
     // 本轮刚把当前上架的每一行重新量过,紧接着再扫一轮 PATH 只是重复劳动。
