@@ -6,7 +6,7 @@ import { QUICK_CHAT_CHANNELS } from '../../../../apps/desktop/src/lib/quickChatI
 const native = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   register: vi.fn(),
-  owners: new Set<{ enabled: boolean; owned: boolean; onChange: (owned: boolean) => void }>(),
+  owners: new Set<{ enabled: boolean; owned: boolean; foreground: boolean; onChange: (owned: boolean) => void }>(),
   send: vi.fn(),
   writeFileSync: vi.fn(),
 }))
@@ -18,11 +18,11 @@ vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: (
 vi.mock('../../../../apps/desktop/electron/quick-chat-shortcut-owner', () => ({
   quickChatOwnerPort: () => 12345,
   createQuickChatShortcutOwner: ({ onChange }: { onChange: (owned: boolean) => void }) => {
-    const candidate = { enabled: false, owned: false, onChange }
+    const candidate = { enabled: false, owned: false, foreground: false, onChange }
     native.owners.add(candidate)
     const elect = () => {
       const held = [...native.owners].find((item) => item.enabled && item.owned)
-      const winner = held ?? [...native.owners].find((item) => item.enabled)
+      const winner = [...native.owners].findLast((item) => item.enabled && item.foreground) ?? held ?? [...native.owners].find((item) => item.enabled)
       for (const item of native.owners) {
         const next = item === winner
         if (next !== item.owned) { item.owned = next; item.onChange(next) }
@@ -30,6 +30,7 @@ vi.mock('../../../../apps/desktop/electron/quick-chat-shortcut-owner', () => ({
     }
     return {
       owns: () => candidate.owned,
+      setForeground(next: boolean) { candidate.foreground = next; elect() },
       setEnabled(next: boolean) { candidate.enabled = next; elect() },
       dispose() { candidate.enabled = false; elect(); native.owners.delete(candidate) },
     }
@@ -37,7 +38,7 @@ vi.mock('../../../../apps/desktop/electron/quick-chat-shortcut-owner', () => ({
 }))
 vi.mock('electron', () => ({
   app: { getPath: () => '/test-profile', on: vi.fn(), focus: vi.fn() },
-  BrowserWindow: class {},
+  BrowserWindow: class { static getFocusedWindow() { return null } },
   globalShortcut: { register: native.register, unregister: vi.fn() },
   ipcMain: { handle: (name: string, handler: (...args: unknown[]) => unknown) => native.handlers.set(name, handler) },
   screen: {

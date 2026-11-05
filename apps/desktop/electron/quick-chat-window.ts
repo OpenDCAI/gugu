@@ -214,7 +214,9 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
     const main = mainWindow()
     const mainFocused = !!main && !main.isDestroyed() && main.isFocused()
     if (!mainFocused) cancelPending()
-    owner.setEnabled(!quitting && enabled && (!!win && !win.isDestroyed() || mainFocused))
+    const appFocused = mainFocused || !!win && !win.isDestroyed() && win.isFocused() || BrowserWindow.getFocusedWindow() !== null
+    owner.setForeground(appFocused)
+    owner.setEnabled(!quitting && enabled && (!!win && !win.isDestroyed() || appFocused))
   }
 
   if (supported) {

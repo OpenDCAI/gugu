@@ -50,6 +50,58 @@ describe('Quick Chat cross-profile shortcut owner', () => {
     for (const { onError } of candidates) expect(onError).not.toHaveBeenCalled()
   })
 
+  it('hands the shortcut to the newly foreground instance even when B already has an auxiliary window', async () => {
+    const port = await freePort()
+    const b = candidate(port)
+    b.owner.setForeground(true)
+    b.owner.setEnabled(true)
+    await acquired(b.owner)
+    b.owner.setForeground(false)
+    // A is a normal eligible follower. B remains alive with its ready aux.
+    const a = candidate(port)
+    a.owner.setForeground(true)
+    a.owner.setEnabled(true)
+    await acquired(a.owner)
+    expect(b.owner.owns()).toBe(false)
+    expect(b.onChange.mock.calls.map(([value]) => value)).toEqual([true, false])
+    a.owner.setForeground(false)
+    b.owner.setForeground(true)
+    await acquired(b.owner)
+    expect(a.owner.owns()).toBe(false)
+    expect(a.onError).not.toHaveBeenCalled()
+    expect(b.onError).not.toHaveBeenCalled()
+  })
+
+  it('keeps global availability outside Gugu and never registers two owners during a focus handoff', async () => {
+    const port = await freePort()
+    const active = new Set<string>()
+    const overlaps: string[][] = []
+    const make = (name: string) => {
+      const owner = createQuickChatShortcutOwner({ port, onError: (error) => { throw error }, onChange(owned) {
+        if (owned) active.add(name); else active.delete(name)
+        if (active.size > 1) overlaps.push([...active])
+      } })
+      owners.push(owner)
+      return owner
+    }
+    const a = make('A')
+    const b = make('B')
+    b.setForeground(true)
+    b.setEnabled(true)
+    await acquired(b)
+    b.setForeground(false)
+    expect(b.owns()).toBe(true)
+    a.setEnabled(true)
+    a.setForeground(true)
+    await acquired(a)
+    expect(b.owns()).toBe(false)
+    a.setForeground(false)
+    expect(a.owns()).toBe(true)
+    b.setForeground(true)
+    await acquired(b)
+    expect(overlaps).toEqual([])
+  })
+
   it('does not resurrect a disabled contender after a pending listen or connect', async () => {
     const port = await freePort()
     const a = candidate(port)

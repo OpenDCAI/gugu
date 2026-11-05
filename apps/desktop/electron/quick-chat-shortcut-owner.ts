@@ -2,26 +2,28 @@ import { createHash } from 'node:crypto'
 import { createConnection, createServer, type Server, type Socket } from 'node:net'
 import { userInfo } from 'node:os'
 
-const HELLO = 'gugu-quick-chat-owner/1\n'
+const HELLO = 'gugu-quick-chat-owner/1'
 
 // Stable across channels/profiles, scoped to the OS user and accelerator. A
-// foreign listener fails closed; choosing a second port could create two owners.
+// foreign listener fails closed; a second endpoint could create two owners.
 export function quickChatOwnerPort(accelerator: string): number {
-  const user = userInfo()
-  const hash = createHash('sha256').update(`${user.uid}:${user.username}:${accelerator}`).digest()
+  const user = process.getuid?.() ?? userInfo().username
+  const hash = createHash('sha256').update(`${user}:${accelerator}`).digest()
   return 49152 + hash.readUInt16BE(0) % 16384
 }
 
 export type QuickChatShortcutOwner = {
   setEnabled: (enabled: boolean) => void
+  setForeground: (foreground: boolean) => void
   owns: () => boolean
   dispose: () => void
 }
 
-/** Kernel-exclusive listener, not a PID file or a focus-delay heuristic.
- * Followers never register the native accelerator. A recognised owner's socket
- * closes on disable/exit/crash, waking contenders to acquire the same listener.
- * The listener carries only a version marker, never keys, commands or user data.
+/** Only the kernel listener's owner registers the native accelerator. A newly
+ * foreground instance can request a handoff: unregister/release first, grant
+ * the requester, then reconnect followers AFTER its listener is ready. Existing
+ * connections remain open during that gap, so background followers cannot race
+ * the foreground requester. No timer chooses a focus target or opens a window.
  */
 export function createQuickChatShortcutOwner({ port, onChange, onError }: {
   port: number
@@ -29,19 +31,23 @@ export function createQuickChatShortcutOwner({ port, onChange, onError }: {
   onError: (error: Error) => void
 }): QuickChatShortcutOwner {
   let enabled = false
+  let foreground = false
   let disposed = false
   let epoch = 0
   let owned = false
   let server: Server | null = null
   let peer: Socket | null = null
+  let yielding: Socket | null = null
+  let pendingFocus: Socket | null = null
   const followers = new Set<Socket>()
   const change = (next: boolean) => {
     if (owned === next) return
     owned = next
     onChange(next)
   }
+  const current = (request: number) => enabled && !disposed && request === epoch
   const clear = () => {
-    // Unregister before another process can acquire the released endpoint.
+    yielding = pendingFocus = null
     change(false)
     const previous = server
     server = null
@@ -51,30 +57,72 @@ export function createQuickChatShortcutOwner({ port, onChange, onError }: {
     for (const socket of followers) socket.destroy()
     followers.clear()
   }
-  const current = (request: number) => enabled && !disposed && request === epoch
+  const yieldTo = (socket: Socket) => {
+    if (!owned || yielding || socket.destroyed) return
+    yielding = socket
+    pendingFocus = null
+    // Native unregistration is synchronous and precedes releasing the endpoint.
+    change(false)
+    const previous = server
+    server = null
+    previous?.close()
+    socket.write('GRANT\n')
+  }
+  const finishYield = (socket: Socket, request: number) => {
+    if (yielding !== socket) return
+    yielding = null
+    for (const follower of followers) follower.destroy()
+    followers.clear()
+    // The recipient either owns the listener now, or failed/exited and we must
+    // recover it. All contenders still pass through the same kernel exclusion.
+    if (current(request)) contend(request)
+  }
 
-  const contend = (request: number, connectionRaces = 0) => {
+  const contend = (request: number, connectionRaces = 0, grant?: Socket) => {
     if (!current(request)) return
     const listener = createServer((socket) => {
       if (!current(request)) { socket.destroy(); return }
       followers.add(socket)
       socket.on('error', () => socket.destroy())
-      socket.once('close', () => followers.delete(socket))
-      // Keep the connection open as a lifetime notification.
-      socket.write(HELLO)
+      socket.once('close', () => {
+        followers.delete(socket)
+        if (pendingFocus === socket) pendingFocus = null
+        finishYield(socket, request)
+      })
+      let buffer = ''
+      socket.on('data', (data: Buffer) => {
+        if (!current(request)) return
+        buffer += data.toString('utf8')
+        if (buffer.length > 128) { socket.destroy(); return }
+        for (let end; (end = buffer.indexOf('\n')) !== -1;) {
+          const line = buffer.slice(0, end)
+          buffer = buffer.slice(end + 1)
+          if (line === 'FOCUS') {
+            pendingFocus = socket
+            if (!foreground) yieldTo(socket)
+          } else if (line === 'BLUR' && pendingFocus === socket) pendingFocus = null
+          else if (line === 'READY') finishYield(socket, request)
+          else if (line !== 'BLUR') { socket.destroy(); return }
+        }
+      })
+      socket.write(`${HELLO}\n`)
       socket.unref()
     })
     server = listener
     listener.unref()
     listener.once('error', (error: NodeJS.ErrnoException) => {
-      if (server === listener) { server = null; change(false) }
+      if (server !== listener) return
+      server = null
+      change(false)
+      grant?.destroy()
       if (!current(request)) return
       if (error.code !== 'EADDRINUSE') { onError(error); return }
       const socket = createConnection({ host: '127.0.0.1', port })
       peer = socket
       socket.unref()
       let identified = false
-      let greeting = ''
+      let granted = false
+      let buffer = ''
       let retryableClose = true
       socket.setTimeout(2000, () => {
         if (!current(request)) return
@@ -84,15 +132,24 @@ export function createQuickChatShortcutOwner({ port, onChange, onError }: {
       })
       socket.on('data', (data: Buffer) => {
         if (!current(request)) { socket.destroy(); return }
-        greeting += data.toString('utf8')
-        if (HELLO.startsWith(greeting) && greeting !== HELLO) return
-        if (greeting === HELLO) {
-          identified = true
-          socket.setTimeout(0)
-        } else {
-          retryableClose = false
-          onError(new Error('Quick Chat shortcut endpoint is occupied by another service'))
-          socket.destroy()
+        buffer += data.toString('utf8')
+        if (buffer.length > 128) { retryableClose = false; socket.destroy(); return }
+        for (let end; (end = buffer.indexOf('\n')) !== -1;) {
+          const line = buffer.slice(0, end)
+          buffer = buffer.slice(end + 1)
+          if (!identified && line === HELLO) {
+            identified = true
+            socket.setTimeout(0)
+            if (foreground) socket.write('FOCUS\n')
+          } else if (identified && line === 'GRANT' && !granted) {
+            granted = true
+            contend(request, 0, socket)
+          } else {
+            retryableClose = false
+            onError(new Error('Quick Chat shortcut endpoint is occupied by another service'))
+            socket.destroy()
+            return
+          }
         }
       })
       socket.on('error', (error: NodeJS.ErrnoException) => {
@@ -102,20 +159,27 @@ export function createQuickChatShortcutOwner({ port, onChange, onError }: {
       })
       socket.once('close', () => {
         if (peer === socket) peer = null
-        if (!current(request)) return
-        // An owner may exit between EADDRINUSE and connect. Retry that race
-        // finitely; never busy-loop against an unknown service on this port.
+        if (!current(request) || granted) return
         if (identified || (retryableClose && connectionRaces < 2)) contend(request, connectionRaces + 1)
       })
     })
     listener.once('listening', () => {
       if (!current(request)) { listener.close(); return }
       change(true)
+      if (grant && !grant.destroyed) { grant.write('READY\n'); grant.end() }
+      if (!foreground && pendingFocus) yieldTo(pendingFocus)
     })
     listener.listen({ host: '127.0.0.1', port, exclusive: true })
   }
   return {
     owns: () => owned,
+    setForeground(next) {
+      if (disposed || foreground === next) return
+      foreground = next
+      if (next) pendingFocus = null
+      peer?.write(next ? 'FOCUS\n' : 'BLUR\n')
+      if (!next && pendingFocus) yieldTo(pendingFocus)
+    },
     setEnabled(next) {
       if (disposed || enabled === next) return
       enabled = next

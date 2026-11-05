@@ -6,7 +6,7 @@ import { QUICK_CHAT_CHANNELS } from '../../../../apps/desktop/src/lib/quickChatI
 const native = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   register: vi.fn(),
-  owners: new Set<{ enabled: boolean; owned: boolean; onChange: (owned: boolean) => void }>(),
+  owners: new Set<{ enabled: boolean; owned: boolean; foreground: boolean; onChange: (owned: boolean) => void }>(),
   appEvents: new Map<string, Array<(...args: unknown[]) => void>>(),
   send: vi.fn(),
 }))
@@ -15,11 +15,11 @@ vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: (
 vi.mock('../../../../apps/desktop/electron/quick-chat-shortcut-owner', () => ({
   quickChatOwnerPort: () => 12345,
   createQuickChatShortcutOwner: ({ onChange }: { onChange: (owned: boolean) => void }) => {
-    const candidate = { enabled: false, owned: false, onChange }
+    const candidate = { enabled: false, owned: false, foreground: false, onChange }
     native.owners.add(candidate)
     const elect = () => {
       const held = [...native.owners].find((item) => item.enabled && item.owned)
-      const winner = held ?? [...native.owners].find((item) => item.enabled)
+      const winner = [...native.owners].findLast((item) => item.enabled && item.foreground) ?? held ?? [...native.owners].find((item) => item.enabled)
       for (const item of native.owners) {
         const next = item === winner
         if (next !== item.owned) { item.owned = next; item.onChange(next) }
@@ -27,6 +27,7 @@ vi.mock('../../../../apps/desktop/electron/quick-chat-shortcut-owner', () => ({
     }
     return {
       owns: () => candidate.owned,
+      setForeground(next: boolean) { candidate.foreground = next; elect() },
       setEnabled(next: boolean) { candidate.enabled = next; elect() },
       dispose() { candidate.enabled = false; elect(); native.owners.delete(candidate) },
     }
@@ -34,7 +35,7 @@ vi.mock('../../../../apps/desktop/electron/quick-chat-shortcut-owner', () => ({
 }))
 vi.mock('electron', () => ({
   app: { getPath: () => '/test-profile', on: (name: string, fn: (...args: unknown[]) => void) => { native.appEvents.set(name, [...(native.appEvents.get(name) ?? []), fn]) }, focus: vi.fn() },
-  BrowserWindow: class {},
+  BrowserWindow: class { static getFocusedWindow() { return null } },
   globalShortcut: { register: native.register, unregister: vi.fn() },
   ipcMain: { handle: (name: string, handler: (...args: unknown[]) => unknown) => native.handlers.set(name, handler) },
   screen: {
@@ -229,4 +230,15 @@ describe('#255 pending intent and native registration lifetime', () => {
     expect(native.register).not.toHaveBeenCalled()
     expect(native.handlers.get(QUICK_CHAT_CHANNELS.state)!({})).toMatchObject({ supported: false, enabled: false, registered: false })
   })
+})
+
+
+it('#255 hands the shortcut from a background ready B to the newly focused A', () => {
+  const b = setup()
+  const a = setup()
+  a.main.focused = true
+  for (const fn of native.appEvents.get('browser-window-focus') ?? []) fn({}, a.main)
+  for (const [, callback] of native.register.mock.calls) callback()
+  expect(b.child.show).not.toHaveBeenCalled()
+  expect(a.child.show).toHaveBeenCalledOnce()
 })
