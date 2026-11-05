@@ -2,6 +2,7 @@ import { messageForUser } from '@/lib/userFacingError';
 import './phone-memory.css'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { formatCalendarDate } from '@/i18n/format'
 import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
@@ -21,7 +22,7 @@ const log = rendererLogger('mobile/assistant')
 
 function useFormatAt() {
   const { i18n } = useTranslation('assistant')
-  return (at: number) => new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at)
+  return (at: number) => formatCalendarDate(at, i18n.language)
 }
 
 /**

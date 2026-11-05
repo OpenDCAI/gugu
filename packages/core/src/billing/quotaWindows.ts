@@ -1,6 +1,6 @@
 // 平台额度的领域模型:只有推导,没有取数、没有渲染。
 //
-// 积分是唯一的货币,而且**一个积分就是一美元的模型牌价用量**(官方计价口径)。
+// 积分金额的单位与价格版本由服务端定义；这里不按币种或固定倍率换算。
 // 充值、赠送、邀请返利都进同一个 billing.user_credits.balance_credits;每一次模型用量按积分
 // 从同一个余额扣走(billing.charge_usage,由 model_access_settle 调用)。
 //
@@ -14,15 +14,17 @@
 // 政策的每一个数字都来自服务端(档位字段在 billing.quota_plans,积分刻度在 billing.pricing_settings),
 // 客户端不许内置其中任何一个 —— 周期长度、周期积分、积分刻度都会变,运营改一次配置不该要发一版客户端。
 
-/** 服务端 billing.current_quota_windows() 一行的原样投影(#2675 起由客户端自读,不再经转发)。 */
+import { maxCreditAmount, requireCreditAmount, subtractCreditAmounts, type CreditAmount } from './creditAmount'
+
+/** The billing read projection; v2 monetary fields retain exact decimal text. */
 export interface QuotaWindows {
   plan_id: string
-  period_credits: number
-  period_used: number
+  period_credits: CreditAmount
+  period_used: CreditAmount
   period_started_at: string
   period_ends_at: string
   /** 已发出但尚未结算的预留,窗口和余额都要扣。 */
-  outstanding_credits: number
+  outstanding_credits: CreditAmount
   /**
    * 积分刻度:1 美元上游用量折多少积分。全系统唯一来源是 billing.pricing_settings 的那一行。
    *
@@ -30,19 +32,19 @@ export interface QuotaWindows {
    * 进度条不需要刻度(它只喂「合多少美元」那一句文案),所以额度视图必须在没有它的时候
    * 照常工作:把一句文案的缺失升级成「用户看不到自己还剩多少额度」是不可接受的。
    */
-  credits_per_usd: number | null
+  credits_per_usd: CreditAmount | null
 }
 
 /** 一个窗口在这一刻允许什么。画条用的几何(比例)属于 renderer,不在这里。 */
 export interface SpendWindow {
   /** 已结算并计入本窗口的用量。 */
-  used: number
+  used: CreditAmount
   /** 已发出、尚未结算的预留。 */
-  held: number
+  held: CreditAmount
   /** 本窗口的上限。 */
-  limit: number
+  limit: CreditAmount
   /** 还能花的:上限扣掉已用和预留,不会为负。 */
-  remaining: number
+  remaining: CreditAmount
   /** 窗口长度(小时),由服务端两个时间戳算出,不写死。 */
   hours: number
   /** 本窗口恢复容量的时刻。 */
@@ -50,13 +52,6 @@ export interface SpendWindow {
 }
 
 const MILLIS_PER_HOUR = 3_600_000
-
-function requireFiniteNumber(value: number, what: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`额度配置不可用：${what} 不是有效数值（${String(value)}）`)
-  }
-  return value
-}
 
 function requireInstant(value: string, what: string): Date {
   const at = new Date(value)
@@ -78,7 +73,8 @@ function requireInstant(value: string, what: string): Date {
  */
 export function periodUsdFor(windows: Pick<QuotaWindows, 'period_credits' | 'credits_per_usd'>): number | null {
   const scale = windows.credits_per_usd
-  if (scale === null || !Number.isFinite(scale) || scale <= 0) return null
+  // v2's compatibility field does not define a new USD conversion for displayed credits.
+  if (typeof scale !== 'number' || typeof windows.period_credits !== 'number' || !Number.isFinite(scale) || scale <= 0) return null
   return windows.period_credits / scale
 }
 
@@ -90,21 +86,21 @@ export function windowHours(startedAt: string, endsAt: string): number {
 }
 
 export function deriveSpendWindow(input: {
-  used: number
-  held: number
-  limit: number
+  used: CreditAmount
+  held: CreditAmount
+  limit: CreditAmount
   startedAt: string
   endsAt: string
   freesAt: string
 }): SpendWindow {
-  const used = requireFiniteNumber(input.used, '窗口已用')
-  const held = requireFiniteNumber(input.held, '窗口预留')
-  const limit = Math.max(0, requireFiniteNumber(input.limit, '窗口上限'))
+  const used = requireCreditAmount(input.used, '窗口已用')
+  const held = requireCreditAmount(input.held, '窗口预留')
+  const limit = maxCreditAmount(0, requireCreditAmount(input.limit, '窗口上限'))
   return {
     used,
     held,
     limit,
-    remaining: Math.max(0, limit - used - held),
+    remaining: maxCreditAmount(0, subtractCreditAmounts(subtractCreditAmounts(limit, used), held)),
     hours: windowHours(input.startedAt, input.endsAt),
     freesAt: requireInstant(input.freesAt, '窗口恢复时刻'),
   }
@@ -119,7 +115,7 @@ export function deriveSpendWindow(input: {
 export function quotaSpendWindows(
   windows: QuotaWindows,
 ): { period: SpendWindow } {
-  const held = requireFiniteNumber(windows.outstanding_credits, '预留积分')
+  const held = requireCreditAmount(windows.outstanding_credits, '预留积分')
   return {
     period: deriveSpendWindow({
       used: windows.period_used,

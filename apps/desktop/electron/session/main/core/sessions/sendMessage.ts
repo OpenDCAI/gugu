@@ -42,6 +42,8 @@ export interface SendSessionMessageParams {
   sessionId: string;
   clientMessageId: string;
   text: string;
+  /** Original task-page payload, before provider-specific file text is prepared. */
+  sourceInput?: { text: string; files?: SessionMessageDelivery['files']; attachments?: SessionMessageDelivery['attachments'] };
   kind?: 'ordinary' | 'session-direct';
   /** Only session_spawn's first delegation may use the durable startup outbox exception. */
   queuedStartupDelegation?: boolean;
@@ -94,11 +96,13 @@ function messageMetadata(
   kind: SendSessionMessageParams['kind'],
   state: MessageReceiptState,
   nativeReceiptId?: string,
+  sourceInput?: SendSessionMessageParams['sourceInput'],
 ): string {
   return JSON.stringify({
     kind: kind === 'session-direct' ? 'session-direct' : 'ordinary-message',
     state,
     ...(nativeReceiptId ? { nativeReceiptId } : {}),
+    ...(sourceInput ? { sourceInput } : {}),
   });
 }
 
@@ -106,6 +110,7 @@ function parseMessageMetadata(raw: string | null): {
   kind: string;
   state: MessageReceiptState;
   nativeReceiptId?: string;
+  sourceInput?: SendSessionMessageParams['sourceInput'];
 } | null {
   if (!raw) return null;
   // 认不得就回 null，由调用方各自决定 —— 投递路径当场抛，启动认领
@@ -122,7 +127,7 @@ function parseMessageMetadata(raw: string | null): {
     || !['queued', 'dispatching', 'accepted', 'failed', 'outcome-unknown'].includes(String(value.state))
     || (value.nativeReceiptId !== undefined && typeof value.nativeReceiptId !== 'string')
   ) return null;
-  return value as { kind: string; state: MessageReceiptState; nativeReceiptId?: string };
+  return value as { kind: string; state: MessageReceiptState; nativeReceiptId?: string; sourceInput?: SendSessionMessageParams['sourceInput'] };
 }
 
 type AcceptedMessageReceipt = {
@@ -243,7 +248,7 @@ function persistDispatchState(
         text: pending.text,
       }, pending.kind);
       tx.update(messages)
-        .set({ metadata: messageMetadata(pending.kind, state) })
+        .set({ metadata: messageMetadata(pending.kind, state, undefined, parseMessageMetadata(existing.metadata)?.sourceInput) })
         .where(eq(messages.id, pending.id))
         .run();
     } else {
@@ -309,7 +314,7 @@ function persistAcceptedMessage(
       text: pending.text,
     }, pending.kind);
     tx.update(messages)
-      .set({ metadata: messageMetadata(pending.kind, 'accepted', receipt.nativeReceiptId) })
+      .set({ metadata: messageMetadata(pending.kind, 'accepted', receipt.nativeReceiptId, parseMessageMetadata(existing.metadata)?.sourceInput) })
       .where(eq(messages.id, pending.id))
       .run();
     tx.update(sessions)
@@ -341,7 +346,7 @@ function persistFailedMessage(
       .all();
     if (!row?.config) throw new Error('session not found');
     const existing = tx
-      .select({ id: messages.id })
+      .select({ id: messages.id, metadata: messages.metadata })
       .from(messages)
       .where(eq(messages.id, pending.id))
       .limit(1)
@@ -357,7 +362,7 @@ function persistFailedMessage(
       }).run();
     } else {
       tx.update(messages)
-        .set({ metadata: messageMetadata(pending.kind, 'failed') })
+        .set({ metadata: messageMetadata(pending.kind, 'failed', undefined, parseMessageMetadata(existing.metadata)?.sourceInput) })
         .where(eq(messages.id, pending.id))
         .run();
     }
@@ -379,7 +384,7 @@ function persistFailedMessage(
 
 /** Record a successfully injected direct message in the recipient timeline, never in its outbox. */
 function persistDeliveredSessionDirect(
-  params: { sessionId: string },
+  params: { sessionId: string; sourceInput?: SendSessionMessageParams['sourceInput'] },
   message: { id: string; text: string },
   nativeReceiptId?: string,
 ): void {
@@ -390,7 +395,7 @@ function persistDeliveredSessionDirect(
       content: message.text,
       sender: 'user',
       timestamp: new Date().toISOString().replace('T', ' ').replace('Z', ''),
-      metadata: messageMetadata('session-direct', 'accepted', nativeReceiptId),
+      metadata: messageMetadata('session-direct', 'accepted', nativeReceiptId, params.sourceInput),
     }).run();
   });
   sessionDirectAccepted(params.sessionId, message);
@@ -430,7 +435,7 @@ export function recordFailedSessionDirectMessage(
 
 /** Keep a gate-rejected session-direct message in the recipient's existing inbox projection. */
 async function enqueuePendingSessionDirectMessage(
-  params: { projectId: string; sessionId: string; clientMessageId: string },
+  params: { projectId: string; sessionId: string; clientMessageId: string; sourceInput?: SendSessionMessageParams['sourceInput'] },
   text: string,
 ): Promise<void> {
   await serialize(enqueueOperations, params.sessionId, async () => {
@@ -453,7 +458,7 @@ async function enqueuePendingSessionDirectMessage(
         sessionId: params.sessionId,
         content: pending.text,
         sender: 'user',
-        metadata: messageMetadata('session-direct', 'queued'),
+        metadata: messageMetadata('session-direct', 'queued', undefined, params.sourceInput),
         timestamp: new Date().toISOString().replace('T', ' ').replace('Z', ''),
       }).run()
       tx.update(sessions)
@@ -658,7 +663,7 @@ async function sendMessageOnce(
       );
     }
     persistDeliveredSessionDirect(
-      { sessionId: params.sessionId },
+      { sessionId: params.sessionId, sourceInput: params.sourceInput },
       { id: clientMessageId, text },
       receipt.nativeReceiptId,
     );
@@ -707,7 +712,7 @@ async function sendMessageOnce(
         sessionId: params.sessionId,
         content: text,
         sender: 'user',
-        metadata: messageMetadata(params.kind, 'queued'),
+        metadata: messageMetadata(params.kind, 'queued', undefined, params.sourceInput),
       }).run();
       tx.update(sessions)
         .set({ config: enqueue.config })

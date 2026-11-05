@@ -12,13 +12,10 @@ vi.mock('../../../../apps/desktop/src/lib/firstRun', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/lib/billing', async importOriginal => ({
   ...(await importOriginal<typeof import('../../../../apps/desktop/src/lib/billing')>()),
-  getMembership: async () => {
-    if (control.failed) throw new Error('membership offline')
-    return { tier: 'max', expiresAt: new Date('2026-11-29T00:00:00Z') }
-  },
   useSpendingPower: () => ({
+    membership: control.failed ? null : { tier: 'max', expiresAt: new Date('2026-11-29T00:00:00Z') },
     power: { spendable: 176, periodCredits: 176, walletCredits: 0, held: 0 },
-    balanceError: null, windowsError: null, activityRevision: 0,
+    balanceError: control.failed ? 'membership offline' : null, windowsError: null, activityRevision: 0,
     windows: { period_credits: 176, period_used: 0, period_started_at: '2026-10-30T00:00:00Z', period_ends_at: '2026-11-29T00:00:00Z', outstanding_credits: 0, credits_per_usd: 1 },
   }),
 }))

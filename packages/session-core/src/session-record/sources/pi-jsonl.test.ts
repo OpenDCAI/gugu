@@ -49,6 +49,28 @@ function collect(source: SessionRecordSource) {
 }
 
 describe('pi jsonl 记录源', () => {
+  it.each([
+    ['400: {"message":"咕咕积分不足。private-provider-body","code":"credits_exhausted"}', true],
+    ['400: {"error":{"message":"Gugu credits exhausted. private-provider-body","code":"credits_exhausted"}}', true],
+    ['400: {"message":"咕咕积分不足。private-provider-body","code":"no_credits"}', false],
+    ['400: {"message":"private-provider-body","code":"credits_exhausted"}', false],
+    ['private-provider-body credits_exhausted 咕咕积分', false],
+    ['500: {"message":"private-provider-body","code":"upstream_error"}', false],
+  ])('只保留真实 Pi 网关耗尽信号，不透出错误原文: %s', async (errorMessage, exhausted) => {
+    const { root, file, id } = await stage('pi-session-error.jsonl');
+    const rows = (await readFile(file, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    const failed = rows.findIndex(row => row.message?.stopReason === 'error');
+    rows[failed].message.errorMessage = errorMessage;
+    await writeFile(file, rows.slice(0, failed + 1).map(row => JSON.stringify(row)).join('\n') + '\n');
+    const timeline = await createSessionTimeline(createPiJsonlSource({ harness: 'pi', providerSessionId: id, roots: [root] }), { sessionId: 'credit-pi' });
+    disposers.push(() => timeline.dispose());
+    const snapshot = timeline.getSnapshot();
+    expect(snapshot.turns.at(-1)?.outcome).toEqual({ kind: 'error', reason: 'prompt_failed', ...(exhausted ? {
+      detail: '{"error":{"code":"credits_exhausted","message":"Gugu credits"}}',
+    } : {}) });
+    expect(JSON.stringify(snapshot)).not.toContain('private-provider-body');
+  });
+
   it('preserves the native fixture event and transcript projection', async () => {
     const { root, id } = await stage('pi-session-aborted.jsonl');
     const { entries, started } = collect(createPiJsonlSource({ harness: 'pi', providerSessionId: id, roots: [root] }));

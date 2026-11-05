@@ -1,9 +1,9 @@
-/** Package paths, explicit reclamation and read-only compatibility with deployed version pins. */
+/** Package paths, explicit reclamation and compatibility with deployed version pins. */
 import fs from 'node:fs'
 import path from 'node:path'
 import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 
-/** Deployed supervisors wrote this pin; new runs retain its rollback package during migration. */
+/** Verified installation outcomes project this pin for legacy readers and rollback reclamation. */
 export const VERSION_PIN_FILE = 'server-version.json'
 /** `gugu-server match-version` 为已发布桌面保留的机器可读行。 */
 export const MATCH_MARK = '__GUGU_MATCH__'

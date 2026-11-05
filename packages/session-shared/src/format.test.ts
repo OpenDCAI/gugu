@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   differenceInCalendarDays,
   formatCalendarDay,
   formatCalendarDate,
+  formatDate,
   formatRelativeTime,
   formatRelativeTimeParts,
   toLocalDateTimeInput,
@@ -98,5 +99,55 @@ describe('calendar day: one style for lists, separators and the chat day boundar
   });
   it('an invalid time is drawn as such, not hidden', () => {
     expect(formatCalendarDay('not a time', 'zh-CN', { now })).toBe('Invalid Date');
+  });
+});
+
+describe('Intl formatter caching', () => {
+  it('reuses one RelativeTimeFormat/NumberFormat per locale and options', () => {
+    const yesterday = { now: new Date(nowMs + 86_400_000) };
+    // 先热身:缓存是模块级的,命中之后不该再有构造。
+    formatRelativeTimeParts(nowMs - 180_000, 'zh-CN', words, { mode: 'compact', addSuffix: true, nowMs });
+    formatRelativeTimeParts(nowMs - 180_000, 'zh-CN', words, { mode: 'compact', addSuffix: false, nowMs });
+    formatCalendarDay(nowMs, 'zh-CN', yesterday);
+    const relative = vi.spyOn(Intl, 'RelativeTimeFormat');
+    const numbers = vi.spyOn(Intl, 'NumberFormat');
+    try {
+      formatRelativeTimeParts(nowMs - 180_000, 'zh-CN', words, { mode: 'compact', addSuffix: true, nowMs });
+      formatRelativeTimeParts(nowMs - 180_000, 'zh-CN', words, { mode: 'compact', addSuffix: false, nowMs });
+      formatCalendarDay(nowMs, 'zh-CN', yesterday);
+      expect(relative).not.toHaveBeenCalled();
+      expect(numbers).not.toHaveBeenCalled();
+    } finally {
+      relative.mockRestore();
+      numbers.mockRestore();
+    }
+  });
+
+  it('reuses an explicitly zoned date formatter without constructing more instances', () => {
+    const options = { timeZone: 'UTC' };
+    formatDate(nowMs, options, 'zh-CN');
+    const dateTime = vi.spyOn(Intl, 'DateTimeFormat');
+    try {
+      for (let i = 0; i < 50; i += 1) formatDate(nowMs + i, options, 'zh-CN');
+      expect(dateTime).not.toHaveBeenCalled();
+    } finally {
+      dateTime.mockRestore();
+    }
+  });
+
+  it('a zone change swaps the formatter even when the current offset matches', () => {
+    const previous = process.env.TZ;
+    try {
+      const instant = Date.UTC(2026, 6, 4, 4, 30); // 利马 7 月 3 日 23:30、纽约 7 月 4 日 00:30
+      process.env.TZ = 'America/Lima';
+      const lima = formatDate(instant, { dateStyle: 'short' }, 'en-US');
+      process.env.TZ = 'America/New_York';
+      const newYork = formatDate(instant, { dateStyle: 'short' }, 'en-US');
+      expect(lima).toBe('7/3/26');
+      expect(newYork).toBe('7/4/26');
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
   });
 });

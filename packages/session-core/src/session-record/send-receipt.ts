@@ -5,7 +5,8 @@ export function sendReceipt(raw: unknown): Record<string, unknown> | null {
   const value = raw as Record<string, unknown>;
   if (value.isError === true || value.ok === false || value.status === 'error' || value.status === 'failed') return null;
   if (typeof value.message_id === 'string' || Array.isArray(value.recipients)) return value;
-  if (Array.isArray(value.content)) for (const block of value.content) {
+  const content = Array.isArray(raw) ? raw : value.content;
+  if (Array.isArray(content)) for (const block of content) {
     if (block?.type === 'text') { const result = sendReceipt(block.text); if (result) return result; }
   }
   return null;

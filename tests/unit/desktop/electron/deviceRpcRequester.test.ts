@@ -35,6 +35,31 @@ function fakeNetwork() {
 }
 
 describe('device RPC requester', () => {
+  it.each(['reply', 'abort', 'closed'])('retains a durable admission through timeout and releases it on %s', async finish => {
+    vi.useFakeTimers()
+    try {
+      const net = fakeNetwork()
+      const recover = vi.fn()
+      const requester = createDeviceRpcRequester({ userId: async () => 'owner', newRequestId: () => 'original', openPipe: async (...args) => ({ ...await net.openPipe(...args), recover }) })
+      const controller = new AbortController()
+      let result: unknown = 'pending'
+      const pending = requester.call('phone', 'taskhost.call', {}, { timeoutMs: 12_000, retainReplyOnTimeout: true, signal: controller.signal })
+        .then(value => { result = value }, error => { result = error })
+      await vi.advanceTimersByTimeAsync(31_000)
+      expect(result).toBe('pending')
+      expect(recover).toHaveBeenCalledTimes(1)
+      expect(net.opened[0]!.sent).toHaveLength(2)
+      expect(net.opened[0]!.sent[0]).toEqual(net.opened[0]!.sent[1])
+      if (finish === 'reply') net.opened[0]!.handlers.onMessage({ payload: { type: 'taskhost.call:reply', request_id: 'original', error: { code: 'same-code', message: 'late refusal', admission: 'rejected' } } })
+      else if (finish === 'abort') controller.abort(new Error('aborted'))
+      else net.opened[0]!.handlers.onClosed(new Error('closed'))
+      await pending
+      if (finish === 'reply') expect(result).toMatchObject({ error: { admission: 'rejected' } })
+      else expect(result).toBeInstanceOf(Error)
+      expect(vi.getTimerCount()).toBe(0)
+      requester.closeAll()
+    } finally { vi.useRealTimers() }
+  })
   it('sends the envelope on the device channel and resolves with the matching reply only', async () => {
     const net = fakeNetwork()
     let n = 0

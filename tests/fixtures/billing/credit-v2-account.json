@@ -1,0 +1,41 @@
+{
+  "membership": [
+    {
+      "plan_id": "default",
+      "tier_key": "free",
+      "fx_asof_date": "2026-11-04",
+      "period_hours": 720,
+      "fx_source_url": "https://www.chinamoney.com.cn/r/cms/www/chinamoney/data/fx/ccpr.json",
+      "fx_cny_per_usd": "6.71800000",
+      "period_credits": "0.00000000",
+      "balance_credits": "0.00000000",
+      "gateway_currency": "CNY",
+      "monthly_price_cny": "0.00000000",
+      "credit_unit_version": 2,
+      "fx_published_at_utc": "2026-11-04T01:15:00+00:00",
+      "gateway_price_version": 2,
+      "topup_credits_per_cny": "1.00000000",
+      "subscription_expires_at": null,
+      "active_credit_unit_version": 2
+    }
+  ],
+  "quota": [
+    {
+      "plan_id": "default",
+      "period_used": "0.00000000",
+      "fx_asof_date": "2026-11-04",
+      "fx_source_url": "https://www.chinamoney.com.cn/r/cms/www/chinamoney/data/fx/ccpr.json",
+      "fx_cny_per_usd": "6.71800000",
+      "period_credits": "0.00000000",
+      "period_ends_at": "2026-12-04T20:05:12.10205+00:00",
+      "credits_per_usd": "1.00000000",
+      "gateway_currency": "CNY",
+      "period_started_at": "2026-11-04T20:05:12.10205+00:00",
+      "credit_unit_version": 2,
+      "fx_published_at_utc": "2026-11-04T01:15:00+00:00",
+      "outstanding_credits": "0.00000000",
+      "gateway_price_version": 2,
+      "active_credit_unit_version": 2
+    }
+  ]
+}

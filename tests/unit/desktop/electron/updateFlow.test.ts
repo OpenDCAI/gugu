@@ -32,6 +32,7 @@ function rig(options: { busyAgents?: () => number | null; confirmInterrupt?: (co
   const downloads: string[] = []
   const handOffs: string[] = []
   let status: UpdateStatus = 'idle'
+  let state: UpdateStatusPayload = { success: true, status, updateInfo: null }
   let stagedVersion: string | null = null
   const statuses: UpdateStatus[] = []
 
@@ -68,9 +69,10 @@ function rig(options: { busyAgents?: () => number | null; confirmInterrupt?: (co
       },
     },
     enabled: true,
-    getStatus: () => status,
+    getState: () => state,
     emit: (payload: UpdateStatusPayload) => {
       if (!updateStateAdvances(status, payload.status)) return
+      state = payload
       status = payload.status
       statuses.push(payload.status)
       if (payload.status === 'downloaded') stagedVersion = (payload.updateInfo as { version: string }).version

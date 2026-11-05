@@ -2,7 +2,10 @@
 // #7348 新账号的第一次打开(product spec):认识你 → 认识咕咕 → 开通咕咕;老账号 / 走完的直接进主界面;
 // 进度读不到如实说 + 重试,❌ 当新账号重走,❌ 当走完放行。
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, typeInto, waitForCondition } from '../../../support/testHarness'
+import { StartupMotionBoundary } from '../../../../apps/desktop/src/components/StartupMotionBoundary'
+import { discardStartupMotion, startStartupMotion } from '../../../../apps/desktop/src/lib/startup-motion'
 
 const io = vi.hoisted(() => ({
   firstRunDoneHere: vi.fn((_userId: string) => false),
@@ -45,6 +48,37 @@ afterEach(() => {
 })
 
 describe('first run gate (#7348)', () => {
+  it('continues cold-start motion only through the initial read, then uses the ordinary loader on retry', async () => {
+    const boot = document.createElement('div')
+    boot.setAttribute('data-gugu-boot', '')
+    boot.style.color = 'rgb(26, 28, 31)'
+    boot.style.backgroundColor = 'white'
+    document.body.append(boot)
+    const frame = startStartupMotion()!.frame
+    let fail!: (error: Error) => void
+    let finish!: (value: { stage: string; occupation: null }) => void
+    io.readFirstRunProgress.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject }))
+    io.readFirstRunProgress.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const harness = createReactHarness()
+    try {
+      await renderWithAppProviders(harness, createNode(StartupMotionBoundary, {},
+        createNode(FirstRunGate, { user }, createNode('div', { 'data-testid': 'main-product' }))), { auth: user })
+      expect(document.querySelector('[data-gugu-boot] iframe')).toBe(frame)
+      expect(byTestId(harness.container, 'loading-indicator')).toBeNull()
+      await act(async () => { fail(new Error('progress temporarily unavailable')) })
+      await waitForCondition(() => !!byTestId(harness.container, 'first-run-unreadable'), 'initial read failed honestly')
+      await waitForCondition(() => !document.querySelector('[data-gugu-boot]'), 'startup ends at the first actionable screen')
+      await clickElement(byTestId(harness.container, 'first-run-retry')!)
+      expect(byTestId(harness.container, 'loading-indicator')).not.toBeNull()
+      expect(document.querySelector('[data-gugu-boot]')).toBeNull()
+      await act(async () => { finish({ stage: 'done', occupation: null }) })
+      await waitForCondition(() => !!byTestId(harness.container, 'main-product'), 'retry completes without another startup')
+    } finally {
+      harness.cleanup()
+      discardStartupMotion()
+    }
+  })
+
   it('does not mount the desktop harness installer on web or phone', async () => {
     io.readFirstRunProgress.mockResolvedValue({ stage: 'done', occupation: null })
     const harness = await renderGate()

@@ -78,6 +78,8 @@ export type TabManagerSnapshot = {
     sideTabId: string;
     share?: number;
     sideAt?: 'left' | 'right' | 'top' | 'bottom';
+    /** 用户亲手摆过(拖到边上、右键向哪边分):有它才记 sideAt;没有 = 读回来照位次摆。 */
+    userPlaced?: true;
   };
   /**
    * 用户拆开过的那几类页签(按页签类型各记各的):开在对话旁边的同一类不再自动并排,直到他自己再把这一类分屏。
@@ -187,6 +189,7 @@ export type SidebarSessionSortBy = 'created-at' | 'updated-at';
 export type SidebarSnapshot = {
   expandedProjectIds?: string[];
   expandedSessionIds?: string[];
+  idleExpandedProjectIds?: string[];
   projectOrder?: string[];
   sessionOrderByProject?: Record<string, string[]>;
   sessionSortBy?: SidebarSessionSortBy;

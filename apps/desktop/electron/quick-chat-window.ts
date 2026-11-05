@@ -66,6 +66,14 @@ function centeredOnCursorDisplay(): Rectangle {
 export type QuickChat = { auxWindow: SpecialAuxWindow; hide: () => void }
 
 /**
+ * 拖动一扇窗时,`moved` / `resized` 每秒能来几十次。每一个都往磁盘写一次位置,等于把
+ * 主进程的事件循环按住做几十次文件系统往返(拖动时整个 app 都跟着卡)。
+ *
+ * 所以:拖动期间只留最新的那份位置,这么多毫秒最多写一次。
+ */
+const REMEMBER_BOUNDS_DELAY_MS = 300
+
+/**
  * 装上快速聊天(一个进程一次)。`mainWindow` 取此刻的主窗(小窗由它的渲染层开、显隐要告诉它);
  * `focusMain` 把主窗叫到前面;`supported = false`(server 模式)= 不注册快捷键,状态如实说做不了。
  */
@@ -78,20 +86,58 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
       return {}
     }
   }
+  // 这份文件只有这一个模块读写,所以内存里留一份就是它此刻的样子。
+  // 读回来一次,之后不必每次写之前都再读一遍磁盘。
+  let savedState: Saved = read()
   const write = (patch: Saved) => {
+    savedState = { ...savedState, ...patch }
     try {
-      writeFileSync(file, JSON.stringify({ ...read(), ...patch }))
+      writeFileSync(file, JSON.stringify(savedState))
     } catch {
       // 记不住就照默认;下次再记。
     }
   }
   const accelerator = quickChatAccelerator(process.platform)
-  let enabled = supported && read().enabled !== false
+  let enabled = supported && savedState.enabled !== false
   let registered = false
   let win: BrowserWindow | null = null
   let pendingShow = false
   let pinned = false
   let placing = false
+
+  // 拖动期间攒下来的最新位置;过一会儿才写下去。
+  let pendingBounds: Rectangle | null = null
+  let rememberTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** 把攒下的位置写下去(没攒下就什么都不做)。 */
+  const flushRememberBounds = () => {
+    if (rememberTimer) {
+      clearTimeout(rememberTimer)
+      rememberTimer = null
+    }
+    if (!pendingBounds) return
+    const bounds = pendingBounds
+    pendingBounds = null
+    write({ bounds })
+  }
+
+  /**
+   * 记下最新位置,过一会儿再写下去。
+   *
+   * 拖动时 `moved` / `resized` 每秒能来几十次,每一个都直接写盘,等于把主进程的事件循环
+   * 按住做几十次文件系统往返(拖动时整个 app 都跟着卡)。
+   *
+   * 所以拖动期间只留最新的那个位置,每 `REMEMBER_BOUNDS_DELAY_MS` 最多写一次:
+   * - 拖得很久也不会一个字都不写(每隔一会儿落一次盘,崩了也不至于丢位置);
+   * - 拖完之后,最后一个位置一定会在 300ms 内落盘(定时器在,不是靠「拖到结束」触发)。
+   */
+  const scheduleRememberBounds = (child: BrowserWindow) => {
+    if (child.isDestroyed()) return
+    pendingBounds = child.getBounds()
+    // 已经在等落盘了:这一轮里后来的位置只更新 pendingBounds,不推迟落盘时间。
+    if (rememberTimer) return
+    rememberTimer = setTimeout(flushRememberBounds, REMEMBER_BOUNDS_DELAY_MS)
+  }
 
   const tellMain = (channel: string, payload?: unknown) => {
     const main = mainWindow()
@@ -101,7 +147,9 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
 
   const show = () => {
     if (!win || win.isDestroyed()) return
-    const saved = read().bounds
+    // 位置可能还攒着没落盘:先写下去,免得下次出来时用的是拖动前的旧位置。
+    flushRememberBounds()
+    const saved = savedState.bounds
     placing = true
     win.setBounds(saved ? clampToDisplay(saved) : centeredOnCursorDisplay())
     placing = false
@@ -113,6 +161,8 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
     win.focus()
   }
   const hide = () => {
+    // 收起之前把位置落盘:用户拖到一半失焦收起是很常见的操作,下次出来该在拖到的地方。
+    flushRememberBounds()
     if (!win || win.isDestroyed() || !win.isVisible()) return
     win.hide()
   }
@@ -150,6 +200,8 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
     register()
     app.on('will-quit', () => {
       if (registered) globalShortcut.unregister(accelerator)
+      // 退出前把还没写的位置写下去,别把用户最后拖到的位置丢了。
+      flushRememberBounds()
     })
   }
 
@@ -181,6 +233,8 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
       hide()
     })
     child.on('closed', () => {
+      // 真关(主窗重载)时位置还没落盘的话,现在就写下去。
+      flushRememberBounds()
       if (win === child) {
         win = null
         tellMain(QUICK_CHAT_CHANNELS.visibility, false)
@@ -192,7 +246,7 @@ export function installQuickChat({ mainWindow, focusMain, supported }: { mainWin
     const remember = () => {
       if (placing || child.isDestroyed()) return
       pinned = true
-      write({ bounds: child.getBounds() })
+      scheduleRememberBounds(child)
     }
     child.on('moved', remember)
     child.on('resized', remember)

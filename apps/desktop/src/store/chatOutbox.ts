@@ -281,6 +281,8 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       if (disposed) throw new Error('outbox scope disposed')
       const operationEpoch = epoch
       // Preserve creation order across durable reload even when clicks share a millisecond.
+      // 恢复时读到过一个解析不出的时间戳 ⇒ 先把它拉回可用的数,再照常单调自增。
+      if (!Number.isFinite(lastEnqueuedAt)) lastEnqueuedAt = 0
       lastEnqueuedAt = Math.max(deps.now?.() ?? Date.now(), lastEnqueuedAt + 1)
       const staged: OutboxRecord = { ...record, enqueuedAt: new Date(lastEnqueuedAt).toISOString(), attempts: 0, state: record.state === 'uploading' ? 'uploading' : 'pending', updatedAt: new Date(deps.now?.() ?? Date.now()).toISOString() }
       // enqueue 以落盘为提交点,字面执行「先落盘再可投递」:落盘成功前记录不进内存队列,并发中的
@@ -391,7 +393,9 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       if (!isActive(operationEpoch)) return []
       const restored: OutboxRecord[] = []
       for (const row of rows) {
-        lastEnqueuedAt = Math.max(lastEnqueuedAt, Date.parse(row.enqueuedAt))
+        const enqueuedAt = Date.parse(row.enqueuedAt)
+        // 盘上那一格只校验了「是字符串」;解析不出的时间戳不许变成 NaN 传染给此后每一次 enqueue。
+        if (Number.isFinite(enqueuedAt)) lastEnqueuedAt = Math.max(lastEnqueuedAt, enqueuedAt)
         // 死在投递中的 'sending' 行视同 pending 重投(幂等键兜底,双发机制性不可能)
         const interrupted = row.state === 'uploading' && row.operation?.kind !== 'nativeAttachment'
         const state = interrupted ? 'failed' : row.operation?.kind === 'nativeAttachment' && row.state !== 'failed' ? 'uploading' : row.state === 'sending' ? 'pending' : row.state

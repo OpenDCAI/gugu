@@ -2,7 +2,10 @@ package app.gugu.chat;
 
 import android.net.Uri;
 import android.util.Log;
+import android.view.ViewGroup;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceError;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 
@@ -31,10 +34,45 @@ public class AppOriginsClient extends BridgeWebViewClient {
     private static final String TAG = "GuguAppOrigins";
 
     private final Bridge bridge;
+    private final StartupSurface startup;
 
     public AppOriginsClient(Bridge bridge) {
+        this(bridge, null);
+    }
+
+    AppOriginsClient(Bridge bridge, StartupSurface startup) {
         super(bridge);
         this.bridge = bridge;
+        this.startup = startup;
+    }
+
+    @Override
+    public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+        if (startup != null && request.isForMainFrame()) startup.fail("main_document_failed");
+        super.onReceivedError(view, request, error);
+    }
+
+    @Override
+    public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+        if (startup != null && request.isForMainFrame()) startup.fail("main_document_http_failed");
+        super.onReceivedHttpError(view, request, response);
+    }
+
+    @Override
+    public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+        if (startup != null && startup.ownsStartup()) {
+            startup.fail("startup_renderer_failed");
+            if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
+            view.destroy();
+            return true;
+        }
+        return super.onRenderProcessGone(view, detail);
+    }
+
+    @Override
+    public void onPageCommitVisible(WebView view, String url) {
+        StartupTrace.mark("page_commit_visible");
+        super.onPageCommitVisible(view, url);
     }
 
     @Override

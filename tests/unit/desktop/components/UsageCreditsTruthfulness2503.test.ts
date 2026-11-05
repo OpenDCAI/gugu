@@ -13,32 +13,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageCredits } from '../../../../apps/desktop/src/components/usage/UsageCredits'
 import { createNode, createReactHarness, renderWithAppProviders, typeInto } from '../../../support/testHarness'
 
-// billing 模块拆开后,会走网络的读取分别落在 balance / quota / usage 三个数据访问面;
-// 领域推导与共享订阅点保持真实,替换的只有网络那一层。
-vi.mock('../../../../apps/desktop/src/lib/billing/balance', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../apps/desktop/src/lib/billing/balance')>()),
-  getCreditsBalance: vi.fn(),
-}))
-vi.mock('../../../../apps/desktop/src/lib/billing/quota', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../apps/desktop/src/lib/billing/quota')>()),
-  getQuotaWindows: vi.fn(),
-}))
+// Keep the shared store and components real; replace only the v2 network batch boundary.
+vi.mock('../../../../apps/desktop/src/lib/billing/v2/runtime', () => ({ readCreditV2Account: vi.fn() }))
+import { readCreditV2Account } from '../../../../apps/desktop/src/lib/billing/v2/runtime'
+import { creditDecimal } from '@gugu/core/billing/creditAmount'
+import type { QuotaWindows } from '@gugu/core/billing'
 vi.mock('../../../../apps/desktop/src/lib/usage/cloud', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../apps/desktop/src/lib/usage/cloud')>()),
   fetchLedgerPage: vi.fn(),
 }))
-import { getCreditsBalance } from '../../../../apps/desktop/src/lib/billing/balance'
-import { getQuotaWindows } from '../../../../apps/desktop/src/lib/billing/quota'
 import { fetchLedgerPage, type LedgerRow } from '../../../../apps/desktop/src/lib/usage/cloud'
+
+// Keep the real card, totals and format callback; the chart canvas is irrelevant to amount text.
+vi.mock('@visactor/react-vchart', () => ({ VChart: () => null }))
 
 const ledger = (rows: LedgerRow[]) => ({ rows, total: rows.length })
 const RANGE = { from: '2026-08-25', to: '2026-09-23', days: 30 }
 const props = { credits: { status: 'ready' as const, value: [] }, range: RANGE }
-vi.mock('../../../../apps/desktop/src/lib/billing/membership', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../apps/desktop/src/lib/billing/membership')>()),
-  getMembership: vi.fn(),
-}))
-import { getMembership, type Membership } from '../../../../apps/desktop/src/lib/billing/membership'
+import type { Membership } from '../../../../apps/desktop/src/lib/billing/membership'
 
 vi.mock('../../../../apps/desktop/src/platform', async importOriginal => {
   const original = await importOriginal<typeof import('../../../../apps/desktop/src/platform')>()
@@ -61,7 +53,7 @@ function membership(overrides: Partial<Membership> = {}): Membership {
   }
 }
 
-function windows(overrides: Partial<Awaited<ReturnType<typeof getQuotaWindows>>> = {}) {
+function windows(overrides: Partial<QuotaWindows> = {}) {
   const now = Date.now()
   return {
     plan_id: 'pro',
@@ -75,15 +67,34 @@ function windows(overrides: Partial<Awaited<ReturnType<typeof getQuotaWindows>>>
   }
 }
 
+function account(options: { balance?: string; windows?: QuotaWindows; member?: Membership; balanceError?: Error; windowsError?: Error } = {}): Awaited<ReturnType<typeof readCreditV2Account>> {
+  const member = options.member ?? membership({ expiresAt: new Date(Date.now() + 40 * 24 * hour) })
+  const d = (value: string | number) => creditDecimal(String(value))
+  return {
+    balance: options.balanceError ? null : d(options.balance ?? '570'),
+    windows: options.windowsError ? null : options.windows ?? windows(),
+    plan: options.balanceError ? null : {
+      planId: member.planId, tierKey: member.tier, expiresAt: member.expiresAt?.toISOString() ?? null,
+      monthlyPriceCny: d(member.monthlyPriceCny), periodCredits: d(member.periodCredits),
+      balanceCredits: d(options.balance ?? '570'), topupCreditsPerCny: d(member.topupCreditsPerCny), periodHours: member.periodHours,
+    },
+    meta: { credit_unit_version: 2, active_credit_unit_version: 2, gateway_price_version: 2, gateway_currency: 'CNY',
+      fx_cny_per_usd: d('6.718'), fx_source_url: 'https://example.test/rate', fx_asof_date: '2026-11-04', fx_published_at_utc: '2026-11-04T07:00:00Z' },
+    balanceError: options.balanceError ?? null, windowsError: options.windowsError ?? null,
+  }
+}
+
 const flush = () => act(async () => {
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
 })
 
-async function render() {
+async function render(credits?: number) {
   const harness = createReactHarness()
   await renderWithAppProviders(
     harness,
-    createNode(UsageCredits, props),
+    createNode(UsageCredits, credits === undefined ? props : { ...props, credits: { status: 'ready', value: [{
+      day: RANGE.from, model: 'display-fixture', credits, inputTokens: 0, outputTokens: 0, requests: 1,
+    }] } }),
     { auth: { id: 'u1', email: 'u@e.com', nickname: 'U' } },
   )
   await flush()
@@ -102,13 +113,36 @@ beforeEach(() => {
   vi.clearAllMocks()
   queryClient.clear()
   // 余额不再由调用方以 prop 传进来:面板与侧栏、设置页读同一个共享订阅点。
-  vi.mocked(getCreditsBalance).mockResolvedValue(570)
-  vi.mocked(getQuotaWindows).mockResolvedValue(windows())
+  vi.mocked(readCreditV2Account).mockResolvedValue(account())
   vi.mocked(fetchLedgerPage).mockResolvedValue(ledger([]))
-  vi.mocked(getMembership).mockResolvedValue(membership({ expiresAt: new Date(Date.now() + 40 * 24 * hour) }))
 })
 
 describe('#2503 用量与订阅积分的诚实性', () => {
+  it('keeps tiny available, reserved, period and wallet credits visible in the shared subscription row', async () => {
+    vi.mocked(readCreditV2Account).mockResolvedValue(account({ balance: '0.0001', windows: windows({ period_credits: creditDecimal('0.0004'), period_used: creditDecimal('0.0001'), outstanding_credits: creditDecimal('0.0001') }) }))
+    const harness = await renderMembership()
+    try {
+      for (const field of ['subscription-credits-balance', 'subscription-period-credits', 'subscription-wallet-credits']) {
+        expect(harness.container.querySelector(`[data-testid="${field}"]`)?.textContent?.trim()).toBe('<0.01')
+      }
+      expect(harness.container.querySelector('.subscription-credit-summary')?.textContent).toContain('预留 <0.01')
+      expect(harness.container.querySelector('[data-testid="subscription-period"]')?.textContent).toContain('/ <0.01')
+    } finally { harness.cleanup() }
+  })
+
+  it('shows the same nonzero tiny amount in the consumption total and ledger', async () => {
+    vi.mocked(fetchLedgerPage).mockResolvedValue(ledger([{
+      id: 'tiny', model: 'display-fixture', agent_user_id: null, credits_charged: 0.0001,
+      input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_creation_tokens: 0,
+      created_at: new Date().toISOString(),
+    }]))
+    const harness = await render(0.0001)
+    try {
+      expect(harness.container.querySelector('[data-testid="usage-consumption"]')?.textContent).toContain('<0.01')
+      expect(harness.container.querySelector('[data-field="cost"]')?.textContent).toBe('<0.01')
+    } finally { harness.cleanup() }
+  })
+
   it('#986 用量只保留消耗与流水，撤余额卡、邀请和五项总统计', async () => {
     const harness = await render()
     try {
@@ -164,14 +198,13 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   })
 
   it('用量流水不依赖已经移到订阅的额度读取', async () => {
-    vi.mocked(getQuotaWindows).mockRejectedValue(new Error('quota unavailable'))
+    vi.mocked(readCreditV2Account).mockResolvedValue(account({ windowsError: new Error('quota unavailable') }))
     vi.mocked(fetchLedgerPage).mockResolvedValue(ledger([
       { id: 'e1', model: 'glm-5.2-codex', agent_user_id: null, credits_charged: 7,
         input_tokens: 100, output_tokens: 20, cache_read_tokens: 0, cache_creation_tokens: 0, created_at: new Date().toISOString() },
     ]))
     const harness = await render()
     try {
-      expect(getQuotaWindows).not.toHaveBeenCalled()
       expect(document.body.textContent).toContain('glm-5.2-codex')
     } finally {
       harness.cleanup()
@@ -199,7 +232,7 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   })
 
   it('订阅卡周期耗尽仍显示不过期积分与真实总额', async () => {
-    vi.mocked(getQuotaWindows).mockResolvedValue(windows({ period_used: 45 }))
+    vi.mocked(readCreditV2Account).mockResolvedValue(account({ windows: windows({ period_used: 45 }) }))
     const harness = await renderMembership()
     try {
       expect(document.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.trim()).toBe('570')
@@ -211,8 +244,7 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   })
 
   it('订阅卡两个池子都空时显示真实零，充值仍可达', async () => {
-    vi.mocked(getCreditsBalance).mockResolvedValue(0)
-    vi.mocked(getQuotaWindows).mockResolvedValue(windows({ period_used: 45 }))
+    vi.mocked(readCreditV2Account).mockResolvedValue(account({ balance: '0', windows: windows({ period_used: 45 }) }))
     const harness = await renderMembership()
     try {
       expect(document.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.trim()).toBe('0')
@@ -249,15 +281,12 @@ describe('#2503 用量与订阅积分的诚实性', () => {
     try {
       expect(document.querySelector('[data-testid="usage-credits-balance"]')).toBeNull()
       expect(document.querySelector('a[data-testid="membership-open-web"]')).toBeNull()
-      expect(getMembership).not.toHaveBeenCalled()
-      expect(getCreditsBalance).not.toHaveBeenCalled()
-      expect(getQuotaWindows).not.toHaveBeenCalled()
     } finally { harness.cleanup() }
   })
 
   it.each(['balance', 'quota'] as const)('订阅卡 %s 读取失败保留原因，不把未知合计画成零', async source => {
-    if (source === 'balance') vi.mocked(getCreditsBalance).mockRejectedValue(new Error('balance unavailable'))
-    else vi.mocked(getQuotaWindows).mockRejectedValue(new Error('quota unavailable'))
+    if (source === 'balance') vi.mocked(readCreditV2Account).mockResolvedValue(account({ balanceError: new Error('balance unavailable') }))
+    else vi.mocked(readCreditV2Account).mockResolvedValue(account({ windowsError: new Error('quota unavailable') }))
     const harness = await renderMembership()
     try {
       expect(document.querySelector('.subscription-error')?.textContent).toContain(`${source} unavailable`)
@@ -278,7 +307,7 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   })
 
   it('会员行免费档不编造到期日', async () => {
-    vi.mocked(getMembership).mockResolvedValue(membership({ planId: 'default', tier: 'free', expiresAt: null }))
+    vi.mocked(readCreditV2Account).mockResolvedValue(account({ member: membership({ planId: 'default', tier: 'free', expiresAt: null }) }))
     const harness = await renderMembership()
     try {
       const row = document.querySelector('[data-testid="subscription-row-gugu"]')!
@@ -288,7 +317,7 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   })
 
   it.each(['free', 'max'] as const)('设备领满时，只有确认 Free 会员才显示免费额度提示（%s）', async tier => {
-    vi.mocked(getMembership).mockResolvedValue(membership({ tier }))
+    vi.mocked(readCreditV2Account).mockResolvedValue(account({ member: membership({ tier }) }))
     const harness = await renderMembership()
     try {
       const text = harness.container.querySelector('[data-testid="subscription-row-gugu"]')!.textContent ?? ''
@@ -297,7 +326,7 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   })
 
   it('会员档位正在读取时，不用设备领满提示冒充已确认 Free', async () => {
-    vi.mocked(getMembership).mockReturnValue(new Promise(() => {}))
+    vi.mocked(readCreditV2Account).mockReturnValue(new Promise(() => {}))
     const harness = await renderMembership()
     try {
       const row = harness.container.querySelector('[data-testid="subscription-row-gugu"]')!
@@ -307,12 +336,12 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   })
 
   it('会员行回到前台后重读网页刚开通的档位', async () => {
-    vi.mocked(getMembership).mockResolvedValue(membership({ planId: 'default', tier: 'free', expiresAt: null }))
+    vi.mocked(readCreditV2Account).mockResolvedValue(account({ member: membership({ planId: 'default', tier: 'free', expiresAt: null }) }))
     const harness = await renderMembership()
     try {
       const badge = () => document.querySelector('.subscription-plan-badge')?.textContent
       expect(badge()).toBe('Free')
-      vi.mocked(getMembership).mockResolvedValue(membership({ expiresAt: new Date(Date.now() + 30 * 24 * hour) }))
+      vi.mocked(readCreditV2Account).mockResolvedValue(account({ member: membership({ expiresAt: new Date(Date.now() + 30 * 24 * hour) }) }))
       await act(async () => { window.dispatchEvent(new Event('focus')) })
       await flush()
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
@@ -321,7 +350,7 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   })
 
   it('会员行读取失败不能冒充免费档', async () => {
-    vi.mocked(getMembership).mockRejectedValue(new Error('membership down'))
+    vi.mocked(readCreditV2Account).mockResolvedValue(account({ balanceError: new Error('membership down') }))
     const harness = await renderMembership()
     try {
       const row = document.querySelector('[data-testid="subscription-row-gugu"]')!
@@ -334,9 +363,9 @@ describe('#2503 用量与订阅积分的诚实性', () => {
   it('额度还没回来时占位,不是整段消失(状态覆盖:loading)', async () => {
     // 面板打开 → 余额下面空一块 → 条突然弹出。下面「动态」一直有「加载中…」,
     // 同一个面板不能两套规矩。
-    type Windows = Awaited<ReturnType<typeof getQuotaWindows>>
-    let release: (w: Windows) => void = () => {}
-    vi.mocked(getQuotaWindows).mockReturnValue(new Promise<Windows>((resolve) => { release = resolve }))
+    type Account = Awaited<ReturnType<typeof readCreditV2Account>>
+    let release: (w: Account) => void = () => {}
+    vi.mocked(readCreditV2Account).mockReturnValue(new Promise<Account>((resolve) => { release = resolve }))
     const harness = createReactHarness()
     try {
       await renderWithAppProviders(
@@ -347,7 +376,7 @@ describe('#2503 用量与订阅积分的诚实性', () => {
       await flush()
       expect(document.querySelector('[data-testid="subscription-credits-loading"]')).not.toBeNull()
 
-      release(windows())
+      release(account())
       await flush()
       expect(document.querySelector('[data-testid="subscription-credits-loading"]')).toBeNull()
       expect(document.querySelectorAll('[role="meter"]')).toHaveLength(1)

@@ -85,6 +85,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
   // while the start is out (a resume of a record the engine no longer has closes as it refuses) is that start's
   // failure, reported by the start with its typed reason, never a bare exit that beats it.
   let starting: Promise<boolean> | null = null;
+  let stopping = false;
   // The rows already waiting when this run's channel was admitted (a backlog: a recovery, a start after a failure).
   // Each is a turn of its own, as the person sent it; only input arriving into a running turn steers it.
   let backlogThrough: number | null = null;
@@ -213,9 +214,10 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         // A delivery into a harness that takes input at its next tool call steers the running turn, unless the
         // sender asked to queue or it is a person's own DM (moved here from the old ACP delivery target, #4708).
         const backlog = backlogThrough !== null && pending.seq <= backlogThrough;
-        const steerIfBusy = !backlog && !delivery?.queue && !isHumanDmDelivery(pending.message.text)
-          && declaredInjectionTiming(resolveSessionpageSessionIntegration(known().providerId, 'acp')) === 'next-tool-call';
+        const steerIfBusy = delivery?.steerIfBusy || (!backlog && !delivery?.queue && !isHumanDmDelivery(pending.message.text)
+          && declaredInjectionTiming(resolveSessionpageSessionIntegration(known().providerId, 'acp')) === 'next-tool-call');
         sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
+          clientMessageId: pending.message.id,
           sentAt: pending.sentAt,
           ...(origin ? { origin } : {}),
           ...(steerIfBusy ? { steerIfBusy: true } : {}),
@@ -229,7 +231,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         const render = read<Capabilities>(have.capabilities).injection.firstTurn;
         if (!render) throw new Error(`Session ${sessionId}: the first turn's gugu message did not land in this attempt`);
         const turn = renderFirstTurn(pending.message.text, render);
-        sent = await injectEmdashPromptDetached(sessionId, turn.text, { origin: turn.origin, sentAt: pending.sentAt, ...attachments });
+        sent = await injectEmdashPromptDetached(sessionId, turn.text, { clientMessageId: pending.message.id, origin: turn.origin, sentAt: pending.sentAt, ...attachments });
         break;
       }
     }
@@ -237,6 +239,10 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     // taken (#552). Any other refusal throws: the prompt may have reached the worker, so it is the owner's exit (unknown).
     if (sent.outcome === 'missing') return { result: 'channel-lost', cause: { name: 'AcpSessionMissing', message: 'The ACP runtime has no such session' } };
     if (sent.outcome === 'declined') return { result: 'rejected-before-admission', cause: { name: 'AdmissionDeclined', message: 'The ACP runtime declined the prompt' } };
+    void sent.completion.then(result => {
+      if (result.success || result.error.code === 'CANCELLED' || (stopping && result.error.code === 'DISCONNECTED')) return;
+      log.error('ACP prompt completion failed', { sessionId, requestId: sent.turnId, error: result.error });
+    });
     return { result: 'accepted', nativeReceiptId: sent.turnId ?? null };
   }
 
@@ -256,6 +262,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       return admission;
     },
     async teardown(have) {
+      stopping = true;
       if (have.process || have.channel) {
         await stopAcpSessionAndSettle((have.process ? read<Worker>(have.process) : await acpWorkerLease()).client, sessionId);
       } else if (have.platform || have.capabilities) await releaseEmdashPlatformSession(sessionId);
@@ -294,4 +301,3 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     },
   };
 }
-

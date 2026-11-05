@@ -31,10 +31,29 @@ export function initProcessLogging(options: InitProcessLoggingOptions): Logger {
       pid: process.pid,
       ...options.bindings,
     },
-    destination: options.destination ?? { write: (line) => writeLogSync(2, line) },
+    destination: options.destination ?? parentStderrDestination(),
   });
 
   installAsyncLogContext();
   setRootLogger(logger);
   return logger;
+}
+
+function parentStderrDestination(): pinoLib.DestinationStream {
+  let disconnected = false;
+  const destination = {
+    write(message: string): void {
+      if (!disconnected) writeLogSync(2, message);
+    },
+    destroy(): void {
+      // The synchronous writer has no queued stream to drain. Invalidate its
+      // destination so shutdown logging cannot write to the parent's closed pipe.
+      disconnected = true;
+    },
+  };
+  process.once('disconnect', () => destination.destroy());
+  // A fork can lose its parent while its modules are still being loaded.
+  if (process.connected === false) destination.destroy();
+
+  return destination;
 }

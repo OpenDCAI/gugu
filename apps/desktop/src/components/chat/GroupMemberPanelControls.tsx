@@ -6,7 +6,7 @@ import { chatService } from '../../lib/chat'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { groupAgentDisplayStatus } from '../../lib/groupAgentStatus'
 import { useShownAgentStatus } from './useAgentsOnCloudComputer'
-import { canEditAgentListenMode, canInviteHumansToGroup, isProjectGroupChat } from '../../lib/groupMemberPermissions'
+import { canEditAgentListenMode, groupInviteAccess } from '../../lib/groupMemberPermissions'
 import type { DisplayIdentity } from '../../lib/displayIdentity'
 import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { MemberProfileCardModel, MemberProfileChatTarget, MemberProfileEditControls } from '../MemberProfileCard'
@@ -40,7 +40,6 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
   onWhisper?: (target: MemberProfileChatTarget) => void
 }) {
   const { t } = useTranslation('messaging')
-  const viewerRole = settings?.my_role ?? null
   const viewerIsManager = settings?.can_manage === true
   const isGroup = chatKind === 'group'
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -140,10 +139,7 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
   const menuProfile = menu ? profileOf(menu.memberId) : null
 
   // 项目群不拉人类进来:「邀请」还在(加自己的 agent),人类那一页换成原因。
-  const projectGroup = isProjectGroupChat(chatId)
-  const canInvite = isGroup && !projectGroup && canInviteHumansToGroup(settings)
-  // 普通成员在不许邀人的群里仍能加自己的 Agent(picker 的 Agent 页签);所以只要是群成员就给入口。
-  const showInvite = isGroup && Boolean(viewerRole)
+  const { projectGroup, canInviteHumans: canInvite, showInvite } = groupInviteAccess(chatId, chatKind, settings)
 
   // 新建一个 Agent 直接进这个群:谁都能把自己的 Agent 加进群(同上),所以入口跟「邀请」一起给。
   // 桌面上群输入框的「新任务」就是这件事(gugu-dev#181),这里只留给手机。

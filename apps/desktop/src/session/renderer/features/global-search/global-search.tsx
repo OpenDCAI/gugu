@@ -1,5 +1,9 @@
+import { IdentityPlaceholder } from '@/components/IdentityPlaceholder'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
-import { FileText, Info, Search, X } from '@/lib/icons'
+import { observer } from 'mobx-react-lite'
+import { Avatar } from '@/components/Avatar'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
+import { FileText, Search, X } from '@/lib/icons'
 import { useChatSummaries } from '@/lib/chatSummariesBridge'
 import { followLink } from '@/lib/guguLinks'
 import { UI_EVENTS } from '@/lib/uiEvents'
@@ -13,6 +17,22 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { cn } from '@renderer/utils/utils'
 import { updateSearchSession, useSearchSession, type SearchChip, type SearchFacet } from './search-session'
 import { instant, SEARCH_LIMIT, useGlobalSearch, type SearchHit } from './use-global-search'
+import { sessionAgentBindings } from '../sessions/stores/session-agent-bindings'
+
+const ResultAvatar = observer(function ResultAvatar({ hit, name }: { hit: SearchHit; name: string }) {
+  const system = hit.kind === 'message' && hit.sender === null
+  const file = hit.kind === 'message' && hit.file
+  const senderId = hit.kind === 'message' ? (system || file ? '' : hit.senderId ?? '')
+    : hit.role === 'assistant' ? sessionAgentBindings.bindingFor(hit.taskId)?.agentUserId ?? '' : ''
+  const identity = useAvatarIdentity(senderId)
+  return system ? <IdentityPlaceholder className="mt-1" /> : (
+    <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[length:var(--font-caption)] font-medium text-foreground/55">
+      {file ? <FileText size={11} /> : senderId
+        ? <Avatar name={identity?.display_name ?? name} avatarUrl={identity?.avatar} seed={senderId} size={20} isAgent={identity?.type === 'agent'} still />
+        : Array.from(name)[0]}
+    </span>
+  )
+})
 
 function Highlighted({ text, query }: { text: string; query: string }): ReactNode {
   const parts: ReactNode[] = []
@@ -168,16 +188,13 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
             </button>}
             {group.hits.map((hit) => {
               const isSelected = hit.id === selected?.id
-              const system = hit.kind === 'message' && hit.sender === null
               const sender = hit.kind === 'message' ? hit.sender ?? translate('globalSearch.system') : translate(hit.role === 'assistant' ? 'globalSearch.agent' : 'globalSearch.you')
               return (
                 <button type="button" role="option" aria-selected={isSelected} data-selected={isSelected} key={hit.id}
                   onMouseMove={() => { if (!isSelected) updateSearchSession({ selectedId: hit.id }) }}
                   onClick={() => open(hit)}
                   className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left outline-none', isSelected && 'bg-foreground/[0.06]')}>
-                  <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[length:var(--font-caption)] font-medium text-foreground/55">
-                    {system ? <Info size={11} /> : hit.kind === 'message' && hit.file ? <FileText size={11} /> : Array.from(sender)[0]}
-                  </span>
+                  <ResultAvatar hit={hit} name={sender} />
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-2 text-sm leading-5 text-foreground/85"><Highlighted text={hit.text} query={view.query} /></span>
                     <span className="mt-1 flex items-center gap-2 text-xs text-foreground/40">

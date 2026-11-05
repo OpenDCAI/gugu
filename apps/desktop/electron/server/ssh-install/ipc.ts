@@ -25,6 +25,8 @@ import { oneLineInstallCommand, parseSshCommand, SHARED_CONTROL_PERSIST, type Ss
 import { InstallRun, runSshInstall } from './runner'
 import { readSshConfigHosts } from './ssh-config-hosts'
 import { cloudMintGrant, systemSpawnSsh } from './system'
+import { cloudExistingDevice } from './existing-device'
+import { safeSshText } from './existing-account'
 import { installGuguKeyWithPassword, withGuguIdentity } from '../ssh-key-install'
 import type { SshMachine } from '../ssh-machines'
 
@@ -116,6 +118,14 @@ export function registerServerSshInstallIpc(options: {
           mintGrant: cloudMintGrant(options.getAuth),
           desktopDownload: (request) => downloadServerOnDesktop({ ...request, dir: packageDir }),
           currentUserId: async () => (await options.getAuth())?.userId ?? null,
+          existingDevice: cloudExistingDevice(options.getAuth, options.channel === 'stable' ? 'production' : options.channel),
+          rememberExistingDevice: async (deviceId, userId) => {
+            const auth = await options.getAuth()
+            if (abort.signal.aborted || auth?.userId !== userId) throw new Error('The desktop account changed or the operation was cancelled before saving the SSH connection')
+            options.rememberMachine({ deviceId, ownerUserId: userId, destination: target.destination,
+              ...(target.port !== undefined ? { port: target.port } : {}),
+              ...(target.options?.length ? { options: target.options } : {}), display: target.display, addedAt: new Date().toISOString() })
+          },
           controlPath,
           ...(keepConnection ? { controlPersist: SHARED_CONTROL_PERSIST } : {}),
           downloadBase: base,
@@ -148,7 +158,7 @@ export function registerServerSshInstallIpc(options: {
             log.warn({ err: error instanceof Error ? error.message : String(error) }, '记不下这台机器的 SSH 直连映射')
           }
         }
-        remember(target.options)
+        if (!result?.alreadySignedIn) remember(target.options)
         // 「下次免密」:整件事做成了、答密码时勾了,才去装钥匙(复用还开着的那条连接;装不上不改装机结果)。
         // 装好并验证过,才把钥匙关联到这台机器(再记一次,只多一个 IdentityFile)。
         const keyRequest = prompts.takeKeyRequest()
@@ -174,7 +184,7 @@ export function registerServerSshInstallIpc(options: {
       } catch (error) {
         // 走到这里的只有本机这头的准备工作出错(建目录、开 askpass);四步本身的失败 runSshInstall 自己记。
         if (!run.snapshot().finished) {
-          const detail = error instanceof Error ? error.message : String(error)
+          const detail = safeSshText(error instanceof Error ? error.message : String(error))
           run.appendLog(detail)
           run.update((draft) => {
             draft.steps[0].status = 'failed'

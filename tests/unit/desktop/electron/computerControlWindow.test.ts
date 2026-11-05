@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computerBarBounds, resolveComputerWindow } from '../../../../apps/desktop/electron/device-actions/computer-control-placement'
 import { createComputerControlWindow } from '../../../../apps/desktop/electron/device-actions/computer-control-window'
 import { createComputerControl } from '../../../../apps/desktop/electron/device-actions/computer-control'
+import { computerControlWindowReaders } from '../../../../apps/desktop/electron/device-actions/computer-control-foreground'
 import { createComputerFamily } from '../../../../apps/desktop/electron/device-actions/families/computer'
 import type { ActionRunContext } from '../../../../apps/desktop/electron/device-actions/catalog'
 
@@ -98,32 +99,137 @@ describe('window-relative computer indicator', () => {
     control.dispose()
   })
 
-  it('refuses unresolved App input before the driver runs when no foreground Stop control can be attached', async () => {
+  it('executes unresolved App input even when no foreground Stop control can be attached', async () => {
     const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows: async () => result(), strings, onStop: vi.fn(), onResume: vi.fn() })
     const control = createComputerControl({ view: bar })
-    const callTool = vi.fn()
+    const callTool = vi.fn(async (_name: string) => result())
     const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
     const family = createComputerFamily(null)
-    expect(await family.actions.find(a => a.name === 'computer.type_text')!.run({ app: 'Notes', text: 'test' }, ctx)).toHaveProperty('code', 'execution_failed')
-    expect(callTool).not.toHaveBeenCalled()
+    expect(await family.actions.find(a => a.name === 'computer.type_text')!.run({ app: 'Notes', text: 'test' }, ctx)).toHaveProperty('ok', true)
+    expect(callTool.mock.calls.filter(([name]) => name === 'type_text')).toHaveLength(1)
     expect(native.windows).toHaveLength(0)
     control.dispose()
   })
 
-  it('waits for the foreground indicator to finish loading before unresolved App input reaches the driver', async () => {
+  it.each(['Gugu', 'desktop'] as const)('launches before attaching when the foreground is %s, then targets the launched app for clicks', async foreground => {
+    const callTool = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      if (name === 'list_apps') return { structuredContent: { apps: foreground === 'Gugu' ? [{ pid: 4242, active: true }] : [] } }
+      if (name === 'list_windows' && args.pid === 4242) return result()
+      if (name === 'launch_app') {
+        expect(native.windows).toHaveLength(0)
+        expect(readForegroundWindow).not.toHaveBeenCalled()
+        return { structuredContent: { pid: 7, name: 'Calculator', bundle_id: 'com.apple.calculator', windows: [window()], launch_state: { requested: true, process_running: true, window_ready: true } } }
+      }
+      return result({ ...window(), app_name: 'Calculator' })
+    })
+    const readers = computerControlWindowReaders(() => ({ callTool }) as never)
+    const readForegroundWindow = vi.fn(readers.readForegroundWindow)
+    const bar = createComputerControlWindow({ ...readers, readForegroundWindow, strings, onStop: () => control.stop(), onResume: () => control.resume() })
+    const control = createComputerControl({ view: bar })
+    const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
+    const family = createComputerFamily(null)
+    expect(await family.actions.find(a => a.name === 'computer.launch_app')!.run({ name: 'Calculator' }, ctx)).toHaveProperty('ok', true)
+    await vi.advanceTimersByTimeAsync(0)
+    for (const name of ['1', '2', '3']) {
+      expect(await family.actions.find(a => a.name === 'computer.click')!.run({ app: 'Calculator', role: 'button', name }, ctx)).toHaveProperty('ok', true)
+    }
+    await vi.advanceTimersByTimeAsync(0)
+    expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(3)
+    expect(readForegroundWindow).not.toHaveBeenCalled()
+    expect(native.windows[0]!.moveAbove).toHaveBeenLastCalledWith('window:11:0')
+    const stop = native.windows[0]!.webContents.on.mock.calls.find(([name]) => name === 'will-navigate')![1]
+    stop({ preventDefault: vi.fn() }, 'gugu-computer-bar:stop')
+    expect(await family.actions.find(a => a.name === 'computer.click')!.run({ app: 'Calculator', role: 'button', name: '4' }, ctx)).toHaveProperty('code', 'revoked')
+    stop({ preventDefault: vi.fn() }, 'gugu-computer-bar:resume')
+    expect(await family.actions.find(a => a.name === 'computer.click')!.run({ app: 'Calculator', role: 'button', name: '4' }, ctx)).toHaveProperty('ok', true)
+    control.dispose()
+  })
+
+  it.each(['tool/args', 'shorthand'] as const)('attaches a whole native batch (%s) to its per-step window without consulting the foreground', async shape => {
+    const readForegroundWindow = vi.fn(async () => null)
+    const bar = createComputerControlWindow({ readForegroundWindow, readWindows: async () => result(window()), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const control = createComputerControl({ view: bar })
+    const callTool = vi.fn(async (_name: string, _args: Record<string, unknown>) => result({ ...window(), app_name: 'Calculator' }))
+    const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
+    const args = { steps: ['1', '2', '3'].map(name => {
+      const args = { target: { kind: 'window', pid: 7, window_id: 11 }, role: 'button', name }
+      return shape === 'tool/args' ? { tool: 'click', args } : { click: args }
+    }), delay_ms: 100 }
+    expect(await createComputerFamily(null).actions.find(a => a.name === 'computer.run_steps')!.run(args, ctx)).toHaveProperty('ok', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(readForegroundWindow).not.toHaveBeenCalled()
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(1)
+    expect(callTool).toHaveBeenCalledWith('run_steps', expect.objectContaining(args), expect.anything())
+    expect(native.windows[0]!.moveAbove).toHaveBeenLastCalledWith('window:11:0')
+    control.dispose()
+  })
+
+  it('dispatches a mixed-window batch unchanged even when attachment fails', async () => {
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows: async () => result(), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const control = createComputerControl({ view: bar })
+    const callTool = vi.fn(async (_name: string) => result())
+    const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
+    const args = { steps: [11, 12].map(window_id => ({ click: { pid: 7, window_id, x: 1, y: 1 } })) }
+    expect(await createComputerFamily(null).actions.find(a => a.name === 'computer.run_steps')!.run(args, ctx)).toHaveProperty('ok', true)
+    expect(callTool.mock.calls.filter(([name]) => name === 'run_steps')).toHaveLength(1)
+    expect(callTool).toHaveBeenLastCalledWith('run_steps', expect.objectContaining(args), expect.anything())
+    control.dispose()
+  })
+
+  it('dispatches a targetless first click and keeps read-only listing outside indicator handling', async () => {
+    const readForegroundWindow = vi.fn(async () => null)
+    const bar = createComputerControlWindow({ readForegroundWindow, readWindows: async () => result(), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const control = createComputerControl({ view: bar })
+    const callTool = vi.fn(async () => result(window()))
+    const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
+    const family = createComputerFamily(null)
+    expect(await family.actions.find(a => a.name === 'computer.click')!.run({ x: 1, y: 2 }, ctx)).toHaveProperty('ok', true)
+    expect(callTool).toHaveBeenCalledExactlyOnceWith('click', expect.objectContaining({ x: 1, y: 2 }), expect.anything())
+    const foregroundReads = readForegroundWindow.mock.calls.length
+    expect(await family.actions.find(a => a.name === 'computer.list_windows')!.run({}, ctx)).toHaveProperty('ok', true)
+    expect(callTool).toHaveBeenLastCalledWith('list_windows', expect.objectContaining({ session: expect.any(String) }), expect.anything())
+    expect(readForegroundWindow).toHaveBeenCalledTimes(foregroundReads)
+    control.dispose()
+  })
+
+  it.each(['Gugu', 'desktop'] as const)('passes targetless input to native validation with %s in front without inventing a target', async foreground => {
+    const readForegroundWindow = async () => foreground === 'Gugu' ? { pid: 4242, windowId: 42, bounds: window().bounds } : null
+    const bar = createComputerControlWindow({ readForegroundWindow, readWindows: async () => result(), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const control = createComputerControl({ view: bar })
+    // Native macOS default window scope rejects bare pixel coordinates. This
+    // fixture checks that the wrapper preserves that result, not Stop placement.
+    const nativeMessage = 'click: x,y given with no pid/window_id, but scope is "window".'
+    const callTool = vi.fn(async () => ({ isError: true, content: [{ type: 'text' as const, text: nativeMessage }], structuredContent: { code: 'desktop_scope_disabled' } }))
+    const ctx = { deps: { platform: 'darwin', computerControl: control, selfApp: () => ({ pids: new Set([4242]), names: new Set(['Gugu']) }), cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
+    const click = createComputerFamily(null).actions.find(a => a.name === 'computer.click')!
+    expect(await click.run({ x: 1, y: 2 }, ctx)).toMatchObject({ code: 'execution_failed', message: expect.stringContaining('First use computer.launch_app or computer.list_windows') })
+    expect(callTool).toHaveBeenCalledExactlyOnceWith('click', { x: 1, y: 2, session: expect.any(String) }, expect.anything())
+    // Known Gugu targets still stop before native dispatch, independently of
+    // whether its indicator could attach to the foreground.
+    expect(await click.run({ pid: 4242, window_id: 42, x: 1, y: 2 }, ctx)).toMatchObject({ code: 'invalid_args', message: expect.stringContaining('咕咕 itself') })
+    expect(callTool).toHaveBeenCalledTimes(1)
+    control.dispose()
+  })
+
+  it('executes input while its indicator is still loading', async () => {
     let loaded!: () => void
     native.load = new Promise<void>((resolve) => { loaded = resolve })
-    const bar = createComputerControlWindow({ readForegroundWindow: async () => ({ pid: 7, windowId: 11, bounds: window().bounds }), readWindows: async () => result(), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => ({ pid: 7, windowId: 11, bounds: window().bounds }), readWindows: async () => result(window()), strings, onStop: vi.fn(), onResume: vi.fn() })
     const control = createComputerControl({ view: bar })
-    const callTool = vi.fn(async () => { expect(native.windows[0]!.visible).toBe(true); return result() })
+    const callTool = vi.fn(async (name: string) => {
+      if (name === 'list_windows') return result(window())
+      return result()
+    })
     const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
     const family = createComputerFamily(null)
     const pending = family.actions.find(a => a.name === 'computer.type_text')!.run({ app: 'Notes', text: 'test' }, ctx)
     await vi.advanceTimersByTimeAsync(0)
-    expect(callTool).not.toHaveBeenCalled()
-    loaded()
     expect(await pending).toHaveProperty('ok', true)
-    expect(callTool).toHaveBeenCalledOnce()
+    expect(native.windows[0]!.visible).toBe(false)
+    loaded()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(native.windows[0]!.visible).toBe(true)
+    expect(callTool.mock.calls.filter(([name]) => name === 'type_text')).toHaveLength(1)
     control.dispose()
   })
 

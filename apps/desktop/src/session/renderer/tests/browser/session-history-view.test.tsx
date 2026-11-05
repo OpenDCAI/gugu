@@ -129,10 +129,6 @@ vi.mock('@renderer/features/sessions/restore-session-flow', () => ({
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ ensureProjectLoaded: mocks.ensureProjectLoaded }),
 }));
-// Sidebar controls belong to the workspace shell, outside this history panel's IPC fixture.
-vi.mock('@renderer/features/sidebar/sidebar-list-switch', () => ({
-  SidebarListLayoutButton: () => null,
-}));
 // 节头的 agent 图标:真 AgentIcon 会把 agent store / 导航那整张图拉进来,这里只判「画了几个、id 对不对」。
 vi.mock('@renderer/lib/components/agent-icon', () => ({
   AgentIcon: ({ id }: { id: string }) => <span data-testid="agent-icon" data-agent-id={id} />,
@@ -390,9 +386,9 @@ describe('会话历史(按目录分节)核心合同', () => {
       'archived', 'active', 'not-imported', 'not-imported',
     ]);
     expect(list.getByText('派出 2 个子任务', { exact: false }).all()).toHaveLength(0);
-    // 第二行是模板写法的绝对时间(「2026年8月20日，19:46」)。
+    // 第二行是绝对时间,年份总写(「2026年8月20日 19:46」,与界面其它日期同一种写法)。
     expect(screen.getByTestId('session-history-row').first().element().querySelector('time')?.textContent).toMatch(
-      /^\d{4}年\d{1,2}月\d{1,2}日，\d{1,2}:\d{2}$/
+      /^\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}$/
     );
     // 状态不另贴标签(动作钮就是状态),行上也没有勾选框。
     expect(list.getByText('已归档', { exact: true }).all()).toHaveLength(0);

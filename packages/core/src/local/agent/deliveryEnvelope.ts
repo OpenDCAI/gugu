@@ -915,7 +915,8 @@ export function identityShown(guguIds: Map<string, GuguIdentity>, userId: string
 // @@@reply-preview - the deliver notification is the agent's only window into the replied-to message.
 function replyPreview(content: string): string {
   const collapsed = content.replace(/\s+/g, ' ').trim()
-  return collapsed.length > 140 ? `${collapsed.slice(0, 140)}…` : collapsed
+  const chars = [...collapsed]
+  return chars.length > 140 ? `${chars.slice(0, 140).join('')}…` : collapsed
 }
 
 // @@@deliver-timestamp - format the current time in a human-readable, timezone-aware

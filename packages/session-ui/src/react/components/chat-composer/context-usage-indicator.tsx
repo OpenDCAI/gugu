@@ -3,6 +3,7 @@ import { Popover } from '@session-ui/react/primitives/popover';
 import { cx } from '@session-ui/styles/utilities/cx';
 import * as styles from './chat-composer.css';
 import { useMessages } from '../../localization/message-provider';
+import { formatTokenCount } from '@gugu/session-shared/format';
 
 // ── Data type ─────────────────────────────────────────────────────────────────
 
@@ -16,10 +17,9 @@ export interface ContextUsage {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
-  return String(n);
+/** 千/兆的进位判据与压缩行、模型 tooltip 同一份(session-shared);这里只是沿用旧名。 */
+export function formatTokens(n: number): string {
+  return formatTokenCount(n);
 }
 
 export function providerCostForRoute(

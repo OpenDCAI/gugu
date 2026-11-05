@@ -83,17 +83,22 @@ export function acpLoginView(state: AuthStatusModelState): AcpLoginView {
 }
 
 /**
- * 协议登录「这一趟成了」—— 比 `loginAttemptSucceeded` 多一个条件:**这一趟已经收尾**(`login` 清空)。
+ * 协议登录「这一趟成了」—— 两条路,任一条成立即可:
  *
- * 为什么要多这一条:想「重新登录」的人本来就是 authenticated,而协议登录等浏览器期间登录态会因为
- * 备用链接那一格变化而重发 —— 只看 `authenticated` 的话,弹窗会在他还没去浏览器点的时候就自己关掉。
- * 运行时在这一趟结束、重读到 authenticated 时才把 `login` 清成 null(`updateStatus`),那一刻才算数。
+ *  · 厂商自己对 `authenticate` 回了成功(`login.outcome = succeeded`)。这是一手读数:CodeBuddy 要等
+ *    浏览器那边登完、会话落盘才回包。只靠下面那条的话,登录态判不出(`unknown`)的家 —— 定制品牌、
+ *    读不到凭据文件 —— 浏览器里登完了,弹窗还一直停在「等浏览器」,登录闸也不刷新。
+ *  · 重读到 `authenticated` **且这一趟已经收尾**(`login` 清空)。只看 `authenticated` 不够:想「重新登录」
+ *    的人本来就是 authenticated,而等浏览器期间登录态会因为备用链接那一格变化而重发 —— 弹窗会在他还没去
+ *    浏览器点的时候就自己关掉。运行时在这一趟结束、重读到 authenticated 时才把 `login` 清成 null。
  */
 export function acpLoginAttemptSucceeded(
   state: AuthStatusModelState,
   progress: LoginAttemptProgress
 ): boolean {
-  return loginAttemptSucceeded(state, progress) && state.login === null;
+  if (!progress.sawInitialReading) return false;
+  if (state.login?.transport === 'acp-authenticate' && state.login.outcome?.kind === 'succeeded') return true;
+  return state.status.kind === 'authenticated' && state.login === null;
 }
 
 /**

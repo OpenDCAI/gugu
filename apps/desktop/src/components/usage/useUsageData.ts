@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CreditUsageDay, UsageDay } from '@gugu/core/shared/usage/dailyUsage'
 import { fetchCreditDays, fetchUsageDays, fetchUsageDevices, type UsageDevice } from '../../lib/usage/cloud'
+import { useSpendingPower } from '../../lib/billing/useSpendingPower'
 import { HEATMAP_DAYS, addDays, localDay } from '../../lib/usage/derive'
 import { canSyncLocalUsage, syncLocalUsage } from '../../lib/usage/sync'
 
@@ -84,16 +85,18 @@ export function useUsageData({ userId, deviceId, wantPreviousYear }: { userId: s
 /** Account credit consumption is independent of the activity device filter. */
 export function useCreditData(userId: string | null): { today: string; credits: Loadable<CreditUsageDay[]> } {
   const [today] = useState(() => localDay(new Date()))
-  const [credits, setCredits] = useState<Loadable<CreditUsageDay[]>>({ status: 'loading' })
+  const { creditVersion, activityRevision } = useSpendingPower(userId ? { id: userId } : null)
+  const [state, setState] = useState<{ key: string | null; credits: Loadable<CreditUsageDay[]> }>({ key: null, credits: { status: 'loading' } })
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const from = yearFrom(today)
+  const key = JSON.stringify([userId, creditVersion, activityRevision, from, today, timeZone])
   useEffect(() => {
     if (!userId) return
     let alive = true
     fetchCreditDays(from, today, timeZone)
-      .then((value) => { if (alive) setCredits({ status: 'ready', value }) })
-      .catch((e: unknown) => { if (alive) setCredits({ status: 'error', error: message(e) }) })
+      .then((value) => { if (alive) setState({ key, credits: { status: 'ready', value } }) })
+      .catch((e: unknown) => { if (alive) setState({ key, credits: { status: 'error', error: message(e) } }) })
     return () => { alive = false }
-  }, [userId, from, today, timeZone])
-  return { today, credits }
+  }, [key, userId, from, today, timeZone])
+  return { today, credits: userId && state.key === key ? state.credits : { status: 'loading' } }
 }

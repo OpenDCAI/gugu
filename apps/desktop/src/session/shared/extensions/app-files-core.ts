@@ -81,6 +81,9 @@ export interface FileSurface {
    * relay's connection acting as the agent, so the service stamps what the program writes as the agent's.
    */
   asAgent?: string | null;
+  /** A program's existing host-stamped call owns its cancellable read snapshots. */
+  callId?: string;
+  signal?: AbortSignal;
 }
 
 export interface FilesPlatform {
@@ -91,7 +94,7 @@ export interface FilesPlatform {
   publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>,
     options?: { next?: { itemId: string; expectedVersion: number } }): Promise<ItemRow | null>;
   /** Delegates to the one file resolver; localOnly performs no cloud lookup or byte read. */
-  resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number }): Promise<ResolvedFile | null>;
+  resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number; signal?: AbortSignal }): Promise<ResolvedFile | null>;
   /** The signed-in account; throw `AppFileError('failed', …)` when there is none. */
   account(): Promise<{ token: string; userId: string }>;
   hasCapability(extensionId: string, capability: 'files:read' | 'files:write'): boolean;
@@ -657,7 +660,7 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 export function createAppFiles(platform: FilesPlatform) {
   type ReadSnapshot = { pageId: number; extensionId: string; itemId: string; needs: Grant['needs']; actor: string | null; leases: number; active: number; file?: Promise<FileHandle>; timer?: ReturnType<typeof setTimeout> };
   const snapshots = new Map<string, ReadSnapshot>();
-  const snapshotKey = (surface: FileSurface, itemId: string, version: number) => JSON.stringify([surface.pageId, surface.extensionId, surface.asAgent ?? null, itemId, version]);
+  const snapshotKey = (surface: FileSurface, itemId: string, version: number) => JSON.stringify([surface.pageId, surface.extensionId, surface.asAgent ?? null, surface.callId ?? null, itemId, version]);
   const staleVersion = () => new AppFileError('stale-version', 'This file version is no longer available. Open the file again to read its current version.');
   const disposeSnapshot = (key: string, entry: ReadSnapshot): Promise<void> => {
     clearTimeout(entry.timer);
@@ -673,6 +676,7 @@ export function createAppFiles(platform: FilesPlatform) {
     entry.timer.unref?.();
   };
   const snapshot = (surface: FileSurface, itemId: string, version: number): ReadSnapshot => {
+    surface.signal?.throwIfAborted();
     const key = snapshotKey(surface, itemId, version);
     let entry = snapshots.get(key);
     if (!entry) {
@@ -680,6 +684,8 @@ export function createAppFiles(platform: FilesPlatform) {
       platform.sync.pageFor(surface.pageId, surface.extensionId);
       entry = { pageId: surface.pageId, extensionId: surface.extensionId, itemId, needs: null, actor: surface.asAgent ?? null, leases: 0, active: 0 };
       snapshots.set(key, entry);
+      const held = entry;
+      surface.signal?.addEventListener('abort', () => { held.leases = 0; void disposeSnapshot(key, held); }, { once: true });
     }
     entry.needs = itemId === surface.itemId ? null : has(surface.extensionId, 'files:read') ? 'files:read' : 'files:write';
     touch(key, entry);
@@ -701,7 +707,7 @@ export function createAppFiles(platform: FilesPlatform) {
     try { return local.revision; } finally { await local.dispose(); }
   }
   async function fileFor(surface: FileSurface, ref: ChatFileRef, version?: number, localOnly = false): Promise<FileHandle | null> {
-    const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly });
+    const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly, ...(surface.signal ? { signal: surface.signal } : {}) });
     if (!file && localOnly) return null;
     if (!file) throw new AppFileError('failed', 'Verified file resolver is not installed');
     if (file.status !== 'ready') throw new AppFileError('not-found', `The file has no bytes${version === undefined ? '' : ` for version ${version}`}`);

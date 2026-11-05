@@ -23,10 +23,57 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  * Edge-to-edge leaves them transparent over the window's background, so the tone is that background plus the icons'
  * light/dark. The page's theme is the one truth (`<html data-theme>`, host-theme.ts) and the shell cannot ask it: the
  * page tells it on every change (`syncTone`), as it tells the desktop's main process its window tone (@@@window-tone).
- * Until it does — the launch — the shell is the product's default, light. The colors are tokens.css `--bg`.
+ * The native startup mirror remembers the last preference until the page tells it again.
+ * With no OS mirror (first install/upgrade), the launch freezes the actual system tone until real content.
  */
 @CapacitorPlugin(name = "GuguShellChrome")
 public class MobileShellChrome extends Plugin {
+    @PluginMethod
+    public void startupClock(PluginCall call) {
+        call.resolve(new JSObject().put("elapsedMs", StartupTrace.now()));
+    }
+
+    @PluginMethod
+    public void startupContext(PluginCall call) {
+        getActivity().runOnUiThread(() -> call.resolve(((MainActivity) getActivity()).startup().context()));
+    }
+
+    @PluginMethod
+    public void startupFrame(PluginCall call) {
+        String kind = call.getString("kind");
+        if (!"motion".equals(kind) && !"content".equals(kind)) { call.reject("invalid startup frame kind"); return; }
+        getActivity().runOnUiThread(() -> {
+            StartupSurface startup = ((MainActivity) getActivity()).startup();
+            if ("content".equals(kind)) startup.contentReady(call.getString("attemptId"), getBridge().getWebView(), call);
+            else startup.frame(call.getString("attemptId"), getBridge().getWebView(), call);
+        });
+    }
+
+    @PluginMethod
+    public void startupReactCommit(PluginCall call) {
+        getActivity().runOnUiThread(() -> ((MainActivity) getActivity()).startup()
+                .reactCommit(call.getString("attemptId"), call));
+    }
+
+    @PluginMethod
+    public void startupContentReady(PluginCall call) {
+        getActivity().runOnUiThread(() -> ((MainActivity) getActivity()).startup()
+                .contentReady(call.getString("attemptId"), getBridge().getWebView(), call));
+    }
+
+    @PluginMethod
+    public void startupTiming(PluginCall call) {
+        if (BuildConfig.DEBUG) android.util.Log.d("GuguStartup", "web_timing elapsedMs=" + StartupTrace.now()
+                + " web=" + call.getObject("timing", new JSObject()));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void startupFailed(PluginCall call) {
+        getActivity().runOnUiThread(() -> ((MainActivity) getActivity()).startup()
+                .fail(call.getString("attemptId"), "web_module_or_brand_failed", call));
+    }
+
     private View keyboardRoot;
     private ViewTreeObserver keyboardObserver;
     private Boolean keyboardVisible;
@@ -107,9 +154,15 @@ public class MobileShellChrome extends Plugin {
     public void syncTone(PluginCall call) {
         String tone = call.getString("tone");
         if (!"light".equals(tone) && !"dark".equals(tone)) { call.reject("tone must be light or dark"); return; }
+        String preference = call.getString("preference");
+        // Old Web bundles sent tone only. Keep the entry compatible without inventing a preference.
+        if (preference != null && !StartupTheme.validPreference(preference)) { call.reject("preference must be light, dark or system"); return; }
+        boolean saved = preference == null || StartupTheme.persist(getContext(), preference, tone);
         getActivity().runOnUiThread(() -> {
-            applyTo(getActivity().getWindow(), "dark".equals(tone));
-            call.resolve();
+            if (destroyed) { call.reject("startup activity was destroyed"); return; }
+            ((MainActivity) getActivity()).startup().syncTone(preference, tone);
+            if (saved) call.resolve();
+            else call.reject("startup theme could not be saved");
         });
     }
 }

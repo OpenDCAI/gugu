@@ -624,10 +624,6 @@ export const usageTokenFileCache = sqliteTable('usage_token_file_cache', {
   data: text('data').notNull(),
 });
 
-// `session_attachments` (#5269) stays in the database, read and written by nothing since task attachments became files
-// of the agent's DM folder (P3): a rollback to a release before that still finds it. Dropped once no such release is a
-// rollback target.
-
 export const editorBuffers = sqliteTable(
   'editor_buffers',
   {

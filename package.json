@@ -47,7 +47,7 @@
     "i18n:lint": "i18next-cli lint",
     "i18n:status": "i18next-cli status",
     "gate:bake": "node scripts/build/build-env-preflight.mts --verify-dist",
-    "lint": "pnpm preflight:node && concurrently --group --timings --max-processes 8 --names eslint,console-usage-check,error-outlet-check,user-copy-leak-check,check-session-shell-port,check-case-collisions,check-file-url-paths,check-contract-producers,check-session-chat-ui-geometry,check-ui-visual-spec,check-css-parses,gen-icons,ci-spec-coverage,theme-color-check 'pnpm lint:eslint' 'node scripts/checks/console-usage-check.mts --root apps/desktop/src --root apps/desktop/electron --root apps/desktop/shared --root apps/desktop/session-tooling --root packages/core' 'node scripts/checks/error-outlet-check.mjs --root apps/desktop/electron --root packages' 'node scripts/checks/user-copy-leak-check.mts --root apps/desktop/src --root apps/desktop/electron --root packages' 'node scripts/checks/check-session-shell-port.mjs' 'node scripts/checks/check-case-collisions.mjs' 'node scripts/checks/check-file-url-paths.mjs' 'node scripts/checks/check-contract-producers.mjs' 'node scripts/checks/check-session-chat-ui-geometry.mjs' 'node scripts/checks/check-ui-visual-spec.mts' 'node scripts/checks/check-css-parses.mjs' 'node scripts/build/gen-icons.mjs --check' 'node scripts/ci/ci-spec-coverage.mts' 'node scripts/checks/theme-color-check.mjs'",
+    "lint": "pnpm lint:source && pnpm lint:spec-coverage",
     "lint:eslint": "node scripts/checks/eslint-cached.mts . --ext .ts,.tsx,.js,.cjs,.mjs,.mts --report-unused-disable-directives --max-warnings 0",
     "lint:spec-coverage": "node scripts/ci/ci-spec-coverage.mts",
     "postinstall": "pnpm session:db:setup && node scripts/build/ensure-electron-binary.mjs",
@@ -75,11 +75,12 @@
     "session:test:migrations": "vitest run --project session-migrations",
     "test": "vitest run --project gugu-integration",
     "test:browser": "vitest run --project session-browser --project session-chat-ui-browser",
-    "test:unit": "pnpm preflight:node && vitest run --project gugu --project tooling --project session-packages --project session-main --project session-chat-ui --project session-chat-ui-browser",
+    "test:unit": "pnpm preflight:node && vitest run --project gugu --project tooling --project session-packages --project session-main --project session-chat-ui",
     "test:unit:mutation:worker-attribution": "tsx scripts/test-infra/vitest-worker-attribution-mutation.ts",
     "typecheck": "pnpm preflight:node && tsgo --noEmit",
     "build:mise": "node scripts/build/build-mise-bundle.mjs",
-    "build:frpc": "node scripts/build/build-frpc-bundle.mjs"
+    "build:frpc": "node scripts/build/build-frpc-bundle.mjs",
+    "lint:source": "pnpm preflight:node && concurrently --group --timings --max-processes 8 --names eslint,console-usage-check,error-outlet-check,user-copy-leak-check,check-session-shell-port,check-case-collisions,check-file-url-paths,check-contract-producers,check-session-chat-ui-geometry,check-ui-visual-spec,check-css-parses,gen-icons,theme-color-check 'pnpm lint:eslint' 'node scripts/checks/console-usage-check.mts --root apps/desktop/src --root apps/desktop/electron --root apps/desktop/shared --root apps/desktop/session-tooling --root packages/core' 'node scripts/checks/error-outlet-check.mjs --root apps/desktop/electron --root packages' 'node scripts/checks/user-copy-leak-check.mts --root apps/desktop/src --root apps/desktop/electron --root packages' 'node scripts/checks/check-session-shell-port.mjs' 'node scripts/checks/check-case-collisions.mjs' 'node scripts/checks/check-file-url-paths.mjs' 'node scripts/checks/check-contract-producers.mjs' 'node scripts/checks/check-session-chat-ui-geometry.mjs' 'node scripts/checks/check-ui-visual-spec.mts' 'node scripts/checks/check-css-parses.mjs' 'node scripts/build/gen-icons.mjs --check' 'node scripts/checks/theme-color-check.mjs'"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@1.6.2",
@@ -120,6 +121,7 @@
     "@capacitor-mlkit/barcode-scanning": "^8.1.0",
     "@capacitor/android": "^8.3.3",
     "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "8.0.5",
     "@capacitor/cli": "^8.3.3",
     "@capacitor/clipboard": "8.0.1",
     "@capacitor/core": "^8.3.3",

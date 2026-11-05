@@ -113,3 +113,34 @@ describe('活设置:provider 确认之后才写回会话记录', () => {
     expect(recorded()).toEqual([]);
   });
 });
+
+describe('model setting recovery stays beside the model control', () => {
+  it('returns the adapter rejection as a recoverable model result', async () => {
+    const data = { kind: 'model-unavailable' as const, requestedValue: 'retired-model' };
+    const store = makeStore({ success: false, error: { type: 'set_config_failed', cause: { name: 'RequestError', message: 'unknown model: retired-model', data } } });
+    expect(await store.setModel('retired-model')).toEqual(data);
+    expect(store.modelSettingError).not.toContain('kind=');
+    expect(store.modelSettingError).toContain('unknown model: retired-model');
+  });
+
+  it('preserves a specific model failure while saving an independent permission', async () => {
+    const store = makeStore({ success: false, error: { type: 'set_config_failed', cause: { name: 'Error', message: 'unknown model: retired-model; local Codex offers model-a' } } });
+    expect(await store.setModel('retired-model')).toBeNull();
+    expect(store.modelSettingError).toContain('unknown model: retired-model');
+    const session = store.session!;
+    vi.mocked(session.setModeOption).mockResolvedValue({ success: true, data: { status: 'applied', effectiveValue: 'default', channel: 'acp-mode' } });
+    await store.setMode('default');
+    expect(recorded()).toEqual([[store.sessionId, { dimension: 'permission', modeId: 'default' }]]);
+    expect(store.modelSettingError).toContain('unknown model: retired-model');
+    vi.mocked(session.setModelOption).mockResolvedValue({ success: true, data: { status: 'applied', effectiveValue: 'model-a', channel: 'acp-config-option' } });
+    expect(await store.setModel('model-a')).toEqual({ kind: 'applied', effectiveValue: 'model-a' });
+    expect(store.modelSettingError).toBeNull();
+  });
+
+  it('keeps a rejected transport request visible instead of losing its reason', async () => {
+    const store = makeStore({ success: false, error: new Error('unused') });
+    vi.mocked(store.session!.setModelOption).mockRejectedValue(new Error('Model catalog is unavailable on this device'));
+    await store.setModel('model-a');
+    expect(store.modelSettingError).toContain('Model catalog is unavailable on this device');
+  });
+});

@@ -15,9 +15,10 @@ vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => ({ setModelOption }),
 }));
 
-const toasts: Array<{ title: string }> = [];
+type FailureToast = { title: string; description?: string; variant?: string };
+const toasts: FailureToast[] = [];
 vi.mock('@renderer/lib/hooks/use-toast', () => ({
-  toast: (arg: { title: string }) => {
+  toast: (arg: FailureToast) => {
     toasts.push(arg);
   },
 }));
@@ -102,6 +103,23 @@ describe('#6552 choosing while the session starts', () => {
     expect(await store.setModel('model-b')).toBeNull();
     expect(store.model).toBeNull();
     expect(toasts.some((t) => t.title === translateSessionMessage('acpFailure.changeSetting'))).toBe(true);
+    expect(toasts).toEqual([{
+      title: translateSessionMessage('acpFailure.changeSetting'),
+      description: 'session did not start',
+      variant: 'destructive',
+    }]);
+  });
+
+  it('启动选择请求抛错也撤回所选,并保留具体原因', async () => {
+    setModelOption.mockRejectedValue(new Error('startup transport rejected'));
+    const store = makeStore({ starting: true });
+    expect(await store.setModel('model-b')).toBeNull();
+    expect(store.model).toBeNull();
+    expect(toasts).toEqual([{
+      title: translateSessionMessage('acpFailure.changeSetting'),
+      description: 'startup transport rejected',
+      variant: 'destructive',
+    }]);
   });
 
   it('不在起(没有开场在飞):❌ 不交给运行时,交回「按这个模型重开」(不拿 not connected 拦)', async () => {

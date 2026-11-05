@@ -109,6 +109,13 @@ export default {
     }
   },
   "credits": {
+    "v2": {
+      "not-active": "The new credit pricing is not active in this environment yet.",
+      "unknown": "The current credit version or account balance could not be confirmed.",
+      "account-changed": "The signed-in account changed. Refresh to read its credits.",
+      "not-installed": "This environment does not have the new credit read interface installed.",
+      "inconsistent": "Credit version information is missing or inconsistent. Refresh and try again."
+    },
     "activity": "Activity",
     "activityEmpty": "No usage activity yet.",
     "activityError": "Usage activity is unavailable: {{error}}",
@@ -556,6 +563,8 @@ export default {
         "serverTooOld": "Gugu server on that machine is too old to sign in from the desktop.",
         "versionCheckFailed": "Couldn't read the Gugu server version on that machine. Stopped. See details.",
         "loginFailed": "Sign-in didn't finish. Try again.",
+        "accountMismatch": "That machine is signed in as {{server}}, not your account {{current}}. To add it, sign out of Gugu on that machine first, or use another system user.",
+        "accountMismatchUnknownCurrent": "That machine is signed in as {{server}}, a different account. To add it, sign out of Gugu on that machine first, or use another system user.",
         "cloudUnreachable": "That machine can't reach Gugu. Allow outbound HTTPS or set a proxy, then retry.",
         "machineLimit": "Machine limit reached.",
         "agentsRunning": "Agents are running on that machine. It updates once they're idle.",
@@ -905,6 +914,9 @@ export default {
     "unknownStatus": "Unknown redemption status: {{status}}"
   },
   "lowBalance": {
+    "remaining_one": "{{credits}} credit left",
+    "remaining_other": "{{credits}} credits left",
+    "topUp": "Top up",
     "description": "Add credits to avoid interrupting cloud agent conversations.",
     "later": "Later",
     "recharge": "Add credits",

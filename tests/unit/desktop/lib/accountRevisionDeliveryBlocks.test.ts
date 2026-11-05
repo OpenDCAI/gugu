@@ -49,6 +49,8 @@ describe('archived-agent delivery revisions', () => {
     })
     const line: ChatLine = {
       userId: 'viewer', chatId: () => 'chat-1', maxSeqOf: () => 2, getMessageSnapshotEpoch: () => 0,
+      readCommittedMessage: id => repository.snapshot().message.find(row => row.id === id)?.value,
+      noteCommittedMessages: vi.fn(),
       applyMessagesSnapshot: vi.fn(), healMessageGap: vi.fn(), revalidateWindowOverlays: revalidate,
       setMessagesAndCache: (update) => cache.update('chat-1', update),
       persistWindowToLocalSync: vi.fn(), setThreadMessages: vi.fn(),

@@ -25,9 +25,18 @@ describe('pinch zoom', () => {
     expect(pinchZoom(there, 50, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)).toBeCloseTo(1, 10);
   });
 
+  it('moves one 1.2× step per mouse-wheel notch and keeps small trackpad deltas continuous', () => {
+    expect(pinchZoom(1, -120, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)).toBeCloseTo(1.2, 10);
+    expect(pinchZoom(1.2, 120, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)).toBeCloseTo(1, 10);
+    expect(pinchZoom(1, -4, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)).toBeCloseTo(Math.exp(0.04), 10);
+  });
+
   it('stays within the limits however far the gesture goes', () => {
-    expect(pinchZoom(1, -100_000, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)).toBe(DOCUMENT_MAX_ZOOM);
-    expect(pinchZoom(1, 100_000, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)).toBe(DOCUMENT_MIN_ZOOM);
+    let zoom = 1;
+    for (let i = 0; i < 20; i++) zoom = pinchZoom(zoom, -100_000, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM);
+    expect(zoom).toBe(DOCUMENT_MAX_ZOOM);
+    for (let i = 0; i < 20; i++) zoom = pinchZoom(zoom, 100_000, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM);
+    expect(zoom).toBe(DOCUMENT_MIN_ZOOM);
   });
 
   it('brings the same point of the image back under the pointer, wherever the image moved', () => {

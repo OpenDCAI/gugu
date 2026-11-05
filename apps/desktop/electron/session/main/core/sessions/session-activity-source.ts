@@ -40,6 +40,19 @@ export async function readCurrentActivityInput(sessionId: string): Promise<Retur
   } finally { await replica.dispose(); }
 }
 
+/** Exact runtime turn identity for a host-authored notification; never infer it from a timestamp. */
+export async function readCurrentTurnIdentity(sessionId: string): Promise<string | undefined> {
+  const client = await peekAcpRuntimeClient();
+  if (!client) throw new Error('The sending native runtime is unavailable');
+  const replica = new ReplicaState<TranscriptTurn | null>(client.session.state({ sessionId }, 'activeTurn'), { schema: transcriptTurnSchema.nullable() });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([replica.ready, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('The sending native turn could not be read')), 5_000); })]);
+    const turn = replica.current();
+    return turn && !turn.outcome && turn.endedAt === undefined ? turn.id : undefined;
+  } finally { clearTimeout(timer); await replica.dispose(); }
+}
+
 export function currentAssistantWorkInput(turn:TranscriptTurn|null):string|undefined {
   if(!turn||turn.outcome||turn.endedAt!==undefined)return undefined
   const inputs=turn.items.filter(item=>item.kind==='message'&&item.role==='user')

@@ -9,7 +9,6 @@
 // (#6470);端口字段全部必填,哪条线少接一个 sink 就编译不过,再加一类线级事件也只改这一处。
 import type { Dispatch, SetStateAction } from 'react'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/messageItem'
 import { advanceMemberReadSeq, agentReaderUserId, applyDeliveryReceipt } from '@gugu/core/shared/ui/messageState'
 import { chatService } from './chat'
 import { UI_EVENTS } from './uiEvents'
@@ -44,6 +43,9 @@ export type ChatLine = RealtimeMessageMutators & MemberReadSeqsStore & {
   /** 这条线此刻显示哪条 chat(null = 没开)。事件时刻读,所以换线不必重挂订阅。 */
   chatId: () => string | null
   maxSeqOf: (chatId: string) => number
+  readCommittedMessage: (messageId: string) => MessageItem | undefined
+  hasMessageGap?: (chatId: string) => boolean
+  noteCommittedMessages: (chatId: string, messages: readonly MessageItem[]) => void
   getMessageSnapshotEpoch: (chatId: string) => number
   /** readSeqs 为 null = 载荷里没有水位信息,别动成员已读表(空表会被当成「没有其他成员」把圆环全抹掉)。 */
   applyMessagesSnapshot: (chatId: string, msgs: MessageItem[], readSeqs: Record<string, number> | null, epoch: number) => void
@@ -171,30 +173,22 @@ function applyDeliveryRevisions(line: ChatLine): AccountRevisionListener {
   }
 }
 
-// @@@5649 新消息直接从事件载荷进窗口:sync_since 已把 message_created 的消息行(messages_view 同形)带回,这条线
-// 把它追加到窗口即可,❌ 不再为一条新消息跑「断线补洞」(4 路并行读 + 覆盖层重验证,dev 中继下 3 s)。
-// 仍走补洞的几种情况,每种都是「载荷不足以单独落地」:迁移前旧行 / 行已删(含对我删除)/ 话题回复与话题根(主线之外
-// 还要连话题快照与摘要一起补,#1588)/ 窗口已验证尾与来行之间有缺口(交错入站,#4439 同源)。
-type ArrivedMessageRow = RawMessageRow & { deleted_at?: unknown; deleted_for_user_ids?: unknown; is_imported_history_root?: unknown }
+// Account ingestion already committed complete rows and published the shared
+// cache. A line only requests the existing repair for missing rows, threads or
+// unverified coverage; it does not decode and persist the same arrival again.
 function applyMessageCreatedRevisions(line: ChatLine): AccountRevisionListener {
   return async (operations) => {
     const chatId = line.chatId()
     if (!chatId) return
     const arrivals = operations.map((operation) => readMessageCreatedRevision(operation.payload)).filter((arrival) => arrival.chatId === chatId)
     if (arrivals.length === 0) return
-    const epoch = line.getMessageSnapshotEpoch(chatId)
-    const items: MessageItem[] = []
-    for (const { message } of arrivals) {
-      const row = message as ArrivedMessageRow | null
-      const deletedForMe = Array.isArray(row?.deleted_for_user_ids) && row.deleted_for_user_ids.includes(line.userId)
-      const standalone = row && !row.deleted_at && !deletedForMe && !row.thread_root_id && row.is_thread_root !== true && row.is_imported_history_root !== true
-      const item = standalone ? messageItemFromRow(row, line.userId) : null
-      if (!item || item.seq < 1) return line.healMessageGap(chatId, true)
-      items.push(item)
+    for (const arrival of arrivals) {
+      const item = line.readCommittedMessage(arrival.messageId)
+      if (!item || item.thread_root_id || item.is_thread_root) return line.healMessageGap(chatId, true)
     }
-    items.sort((a, b) => a.seq - b.seq)
-    const verifiedTail = line.maxSeqOf(chatId)
-    if (verifiedTail > 0 && items[0]!.seq > verifiedTail + 1) return line.healMessageGap(chatId, true)
-    line.applyMessagesSnapshot(chatId, items, null, epoch)
+    if (line.hasMessageGap?.(chatId)) return line.healMessageGap(chatId, true)
+    line.noteCommittedMessages(chatId, arrivals.map(arrival => line.readCommittedMessage(arrival.messageId)!))
+    // The account transaction already persisted these rows. The shared cache
+    // subscription publishes them; no second decode or window write is needed.
   }
 }

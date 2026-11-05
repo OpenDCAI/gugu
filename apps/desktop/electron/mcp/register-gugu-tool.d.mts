@@ -18,5 +18,5 @@ export declare function registerGuguTool(
   server: McpServer,
   def: GuguToolRegistration,
   run: (args: Record<string, unknown>, signal: AbortSignal) => Promise<GuguToolResult>,
-  track: <T>(work: Promise<T>, toolName?: string) => Promise<T>,
+  track: <T>(work: Promise<T>, toolName?: string, requestId?: string | number) => Promise<T>,
 ): void

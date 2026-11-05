@@ -35,6 +35,8 @@ import { mentionOptionStatusProps } from './agentMentionStatusModels'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
 import { usePhoneNewTask } from '../../mobile/chat/PhoneNewTask'
+import { useGroupMentionHint } from './useGroupMentionHint'
+import './group-mention-hint.css'
 export type { ComposerAttachAction } from './ComposerAttachButton'
 export type { ChatMessageComposerProps } from './chatComposerModels'
 
@@ -75,7 +77,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const projectName = useChatSlotProjectName()
   const takenOver = useComposerVerbTakeover(chatId)
   const { contacts } = useContactsStore()
-  const { chats, writeDraft, registerDraftEditor } = useChatStore('chats', 'writeDraft', 'registerDraftEditor')
+  const { chats, identitiesById, writeDraft, registerDraftEditor } = useChatStore('chats', 'identitiesById', 'writeDraft', 'registerDraftEditor')
   // 手机项目群的「新任务」(电脑上是 ComposerVerbs 换上会话页那一侧的框;手机就地换成新任务的框)。
   const phoneTask = usePhoneNewTask({ chatId, enabled: mobile && isMain && !!isGroupChat, clear: () => writeDraft(chatId, '') })
   const projectMembers = useProjectGroupMembers()
@@ -94,7 +96,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   }, [members, renderSessionMentionIcon])
   const localProvider = useMemo(() => createLocalSessionMentionProvider({ creationToolsByEngine: byEngine }), [byEngine])
   const decorate = useCallback((item: MentionItem): MentionItem => ({ ...item,
-    annotation: isGroupChat && !members.some((member) => `aid:${member.id}` === item.label) ? t('composer.notInGroup') : undefined,
+    annotation: isGroupChat && !members.some((member) => `aid:${member.id}` === item.label) ? t('composer.notInGroup') : item.annotation,
   }), [isGroupChat, members, t])
   const mentionProvider = useMemo(() => ({
     allowSpaces: true,
@@ -105,7 +107,8 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       return rankMentionCandidates(members, query, { chatId, currentUserId, messages, participantIds, projectMemberIds,
         replyToMessageId: quoteContent?.messageId, now: Date.now() }).map((member): MentionItem => ({
         id: member.type === 'all' ? MENTION_ALL_USER_ID : member.id,
-        label: member.name, name: member.name, kind: 'custom', role: member.type === 'all' ? undefined : member.type,
+        label: member.rawName ? `aid:${member.id}` : member.name, name: member.rawName ?? member.name, kind: 'custom', role: member.type === 'all' ? undefined : member.type,
+        annotation: member.rawName ? member.name.slice(member.rawName.length).trim() : undefined,
         optionLabel: <span {...mentionOptionStatusProps(member, agentStatuses)}><AgentMentionOptionLabel member={member} status={agentStatuses[member.id]} /></span>,
       }))
     },
@@ -114,7 +117,8 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       if (file) return { id: target, label: target, name: label, kind: 'file',
         description: file.version === undefined ? label : `${label} · ${t('filePill.picked', { version: file.version })}` }
       if (!target.startsWith('aid:')) return null
-      return decorate({ id: target, label: target, name: label, role: 'agent', kind: 'custom' })
+      const member = members.find(candidate => `aid:${candidate.id}` === target)
+      return decorate({ id: target, label: target, name: member?.rawName ?? member?.name ?? label, role: member?.type === 'human' ? 'human' : 'agent', kind: 'custom', annotation: member?.rawName ? member.name.slice(member.rawName.length).trim() : undefined })
     },
     async resolveSession(id: string) {
       const item = await localProvider.resolveSession(id)
@@ -131,9 +135,10 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   useLayoutEffect(() => registerDraftEditor(chatId ?? null, () => editorApiRef.current), [chatId, registerDraftEditor])
   useEffect(() => {
     if (!mentionToInsert) return
-    editorApiRef.current?.insertMention({ id: mentionToInsert.id, label: mentionToInsert.name, name: mentionToInsert.name, kind: 'custom' })
+    const member = members.find(candidate => candidate.id === mentionToInsert.id)
+    editorApiRef.current?.insertMention({ id: mentionToInsert.id, label: member?.rawName ? `aid:${mentionToInsert.id}` : mentionToInsert.name, name: member?.rawName ?? member?.name ?? mentionToInsert.name, kind: 'custom' })
     onMentionInserted?.()
-  }, [mentionToInsert, onMentionInserted])
+  }, [mentionToInsert, onMentionInserted, members])
   useEffect(() => {
     // Automatic selection quotes leave the browser's handles and Copy toolbar in charge of focus.
     if (quoteContent && !(mobile && quoteContent.selectionId)) scheduleComposerFocus('quote-attached', { target: () => inputRef.current })
@@ -158,12 +163,17 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     const userId = member.type === 'all' ? MENTION_ALL_USER_ID : member.id
     setMentionTargets((picks) => picks.some((pick) => pick.userId === userId) ? picks : [...picks, { userId, displayName: member.name }])
   }
+  // Aside candidates also include invitees from the source line; only actual topic members may be recalled.
+  const recallMembers = members.filter((member) => !identitiesById[member.id]?.removed_at && (surface !== 'aside' || participantIds?.includes(member.id)))
+  const { hint, ...hintEvents } = useGroupMentionHint({ accountId: currentUserId, chatId, members: recallMembers, text,
+    enabled: !mobile && !!isGroupChat && !props.conversation && !disabled && !sending && !hidden && !takenOver && !whisperTarget,
+    editor: editorApiRef, input: inputRef })
   const editorOptions = { inputTestId: surface === 'aside' ? AUTOMATION_TEST_IDS.chatComposerAside : AUTOMATION_TEST_IDS.chatComposer,
-    inputRef: receiveInput, clearOnSubmit: false, enterBehavior: mobile ? 'newline' as const : 'submit' as const }
+    inputRef: receiveInput, clearOnSubmit: false, enterBehavior: mobile ? 'newline' as const : 'submit' as const, emptyHint: hint }
   const Composer = props.conversation ? AgentConversationComposer : ChatComposer
   return <ThemeProvider theme={theme} target="documentElement">
     <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
-      <div title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-sending={sending} hidden={hidden || takenOver}>
+      <div {...hintEvents} title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-sending={sending} hidden={hidden || takenOver}>
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
         <ChatComposerContextBands {...deliveryProps} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
@@ -173,7 +183,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
         <Composer {...props.conversation} key={chatId} editorApiRef={editorApiRef} editorOptions={editorOptions} mobile={mobile}
           disabled={disabled} disabledPlaceholder={placeholder ?? disabledReason} canSubmit={!sending && (!!text.trim() || attachments.length > 0)}
           placeholder={props.conversation ? undefined : phoneTask.placeholder ?? (whisperTarget ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName }) : placeholder ?? (mobile && isGroupChat ? t('composer.mobilePlaceholder') : projectName && !mobile ? t('composer.projectGroupPlaceholder', { name: projectName }) : t('composer.placeholder')))}
-          onInputChange={setText} onSubmitWhileWorking={props.conversation ? value => { void handleSend(value) } : undefined} onSubmit={(value) => { void (phoneTask.active ? phoneTask.send(value) : handleSend(value)) }} onMentionInsert={onMentionInsert}
+          onInputChange={setText} onSubmitWhileWorking={props.conversation ? handleSend : undefined} onSubmit={value => phoneTask.active ? phoneTask.send(value) : handleSend(value)} onMentionInsert={onMentionInsert}
           mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon} dataDropTypes={dataDropTypes} onDataDropped={onDataDropped}
           onFilesDropped={enqueueFiles} onImageFilesDropped={enqueueFiles}
           attachments={composerAttachments} onAttachmentsChange={(next) => { const kept = attachments.filter((file) => next.some((item) => item.id === file.id)); revokeAttachmentPreviewUrls(attachments.filter((file) => !kept.includes(file))); setAttachments(kept) }}

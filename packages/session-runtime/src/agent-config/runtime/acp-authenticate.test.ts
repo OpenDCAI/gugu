@@ -13,11 +13,13 @@ import { runAcpAuthenticate } from './acp-authenticate';
  *  · hang    —— authenticate 永不回包(等 OAuth 回调的形状),记下自己的 pid
  *  · die     —— initialize 之前就退出
  *  · notify  —— 登录链接只走协议通知 `_codebuddy.ai/authUrl {authUrl, provider}`(CodeBuddy 的形状),stderr 一个字都不打
+ * GIT_BASH_NOTE=1:一起动就往 stderr 打 CodeBuddy 在 Windows 上缺 Git Bash 时的那段提示(2.179.3 原文)。
  */
 const FAKE = `
 const fs = require('node:fs');
 const mode = process.env.MODE; const log = process.env.LOG;
 fs.appendFileSync(log, JSON.stringify({ pid: process.pid, browser: process.env.BROWSER ?? null }) + '\\n');
+if (process.env.GIT_BASH_NOTE === '1') process.stderr.write('\\nNote: Git Bash not detected. CodeBuddy Code will use PowerShell for shell commands.\\nTo enable Git Bash features, install Git for Windows (https://git-scm.com/downloads/win)\\n');
 if (mode === 'die') process.exit(3);
 let buf = '';
 process.stdin.on('data', (d) => {
@@ -45,11 +47,11 @@ const dir = mkdtempSync(join(tmpdir(), 'acp-authenticate-test-'));
 const script = join(dir, 'fake-acp.cjs');
 writeFileSync(script, FAKE);
 
-function spawnSpec(mode: string, log: string) {
+function spawnSpec(mode: string, log: string, extraEnv: Record<string, string> = {}) {
   return {
     command: process.execPath,
     args: [script],
-    env: { PATH: process.env.PATH ?? '', MODE: mode, LOG: log },
+    env: { PATH: process.env.PATH ?? '', MODE: mode, LOG: log, ...extraEnv },
     cwd: dir,
   };
 }
@@ -95,6 +97,26 @@ describe('runAcpAuthenticate', () => {
     expect(outcome).toEqual({ kind: 'succeeded' });
     // 通知在回包之前、同一根 stdout 上,按顺序读到 ⇒ 回包到时链接已经交出。
     expect(urls).toEqual(['https://copilot.tencent.com/login?platform=CLI&state=s1']);
+  });
+
+  it.each([
+    ['notify', 'https://copilot.tencent.com/login?platform=CLI&state=s1'],
+    ['ok', 'https://accounts.google.com/o/oauth2/v2/auth?state=abc'],
+  ])('启动期 stderr 里的 Git Bash 提示链接不算登录链接(%s)', async (mode, loginUrl) => {
+    const urls: string[] = [];
+    const urlSurfaced = deferred();
+    const outcome = await runAcpAuthenticate({
+      spawn: spawnSpec(mode, join(dir, `git-bash-${mode}.log`), { GIT_BASH_NOTE: '1' }),
+      methodId: 'internal',
+      signal: new AbortController().signal,
+      onUrl: (url) => {
+        urls.push(url);
+        urlSurfaced.resolve();
+      },
+    });
+    expect(outcome).toEqual({ kind: 'succeeded' });
+    await awaitPending('login link surfaced through onUrl', urlSurfaced.promise);
+    expect(urls).toEqual([loginUrl]);
   });
 
   it('authenticate 回错误 ⇒ failed,带上厂商原话', async () => {

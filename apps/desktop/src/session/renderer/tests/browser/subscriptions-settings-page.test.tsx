@@ -8,12 +8,14 @@
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { SessionSettingsContent } from '@renderer/features/settings/components/SettingsPage';
 import { GuguSubscriptionRow } from '@renderer/features/settings/subscriptions/GuguSubscriptionRow';
 import { queryClient } from '@renderer/lib/query-client';
 import { setLocalePreference } from '@/i18n';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
+import { modalStore } from '@renderer/lib/modal/modal-store';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
 
@@ -56,6 +58,8 @@ const control = vi.hoisted(() => ({
   selected: '',
   connections: [] as HarnessConnection[],
   codex: false,
+  signedOut: false,
+  expired: false,
   rejectSelect: false,
   selectMessage: 'Switch failed',
   selectBusy: null as { providerId: string; count: number } | null,
@@ -72,17 +76,13 @@ vi.mock('@/lib/billing', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/billing')>()),
   formatCredits: (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value),
   quotaWindowViews: () => ({ period: { hours: 744, limit: 4, remaining: 3.2 - control.held, freesAt: new Date('2026-11-01T00:00:00Z') } }),
-  getMembership: async () => {
-    if (control.membershipError) throw new Error('offline');
-    return { tier: 'free', expiresAt: null };
-  },
-  useSpendingPower: () => ({ power: { spendable: 8.2 - control.held, periodCredits: 3.2, walletCredits: 5, held: control.held },
-    balanceError: null, windowsError: null, activityRevision: 0,
+  useSpendingPower: () => ({ membership: control.membershipError ? null : { tier: 'free', expiresAt: null }, power: { spendable: 8.2 - control.held, periodCredits: 3.2, walletCredits: 5, held: control.held },
+    balanceError: control.membershipError ? 'offline' : null, windowsError: null, activityRevision: 0,
     windows: { plan_id: 'free', period_credits: 4, period_used: 0.8, period_started_at: '2026-10-01T00:00:00Z', period_ends_at: '2026-11-01T00:00:00Z', outstanding_credits: control.held, credits_per_usd: 1 } }),
   refreshSpendingPower: () => {},
 }));
 vi.mock('@renderer/lib/stores/use-agent-auth-status', () => ({
-  useAgentAuthStatus: () => ({ auth: { status: { kind: 'authenticated', account: 'me@example.test' }, login: null }, refresh: async () => {} }),
+  useAgentAuthStatus: () => ({ auth: { status: control.signedOut ? { kind: 'unauthenticated', ...(control.expired ? { reason: 'expired' } : {}) } : { kind: 'authenticated', account: 'me@example.test' }, login: null }, refresh: async () => {} }),
   useAgentAuthStatuses: () => ({ auths: [], refresh: async () => {} }),
   useExpiredAgentIds: () => new Set(),
 }));
@@ -92,7 +92,7 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
     listConnections: async () => control.connectionsError
       ? { success: false, error: { message: 'Connections offline' } }
       : { success: true, data: [...control.connections] },
-    refreshAuthStatus: async () => ({ success: true, data: { kind: 'authenticated', account: 'me@example.test' } }),
+    refreshAuthStatus: async () => ({ success: true, data: control.signedOut ? { kind: 'unauthenticated', ...(control.expired ? { reason: 'expired' } : {}) } : { kind: 'authenticated', account: 'me@example.test' } }),
     createConnection: async (input: Record<string, unknown>) => {
       control.created = input;
       const connection: HarnessConnection = { id: 'api-1', kind: 'api-key', name: 'Saved API', endpoint: input.endpoint as string | undefined, current: false };
@@ -112,7 +112,7 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
     },
     readSubscription: async () => {
       if (control.hold) await control.hold;
-      return { success: true, data: { payer: 'subscription', plan: 'Claude Max 20x' } };
+      return { success: true, data: control.signedOut ? { payer: 'not-signed-in' } : { payer: 'subscription', plan: 'Claude Max 20x' } };
     },
     readSubscriptionUsage: async ({ connectionId }: { connectionId?: string }) => ({
       success: true,
@@ -143,6 +143,8 @@ beforeEach(() => {
   control.created = null;
   control.selected = '';
   control.codex = false;
+  control.signedOut = false;
+  control.expired = false;
   control.rejectSelect = false;
   control.selectMessage = 'Switch failed';
   control.selectBusy = null;
@@ -165,11 +167,84 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  modalStore.closeModal();
   setLocalePreference('en-US');
   window.removeEventListener('error', onError);
   root.unmount();
   host.remove();
   layer.remove();
+});
+
+it.each(['claude', 'codex'])('an unsigned native %s connection preserves selection of a saved API', async provider => {
+  control.codex = true;
+  control.signedOut = true;
+  control.connections.push({ id: 'saved-api', kind: 'api-key', name: 'Saved API', current: false });
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the harness connection action is ready', () => !!host.querySelector(`[data-testid="subscription-switch-${provider}"]`));
+  (host.querySelector(`[data-testid="subscription-switch-${provider}"]`) as HTMLButtonElement).click();
+  await until('the connection action opens', () => !!layer.querySelector('.subscription-connection-form, [data-testid="connection-saved-api"]'));
+  expect(layer.querySelector('.subscription-connection-form')).toBeNull();
+  await until('the saved API can be selected', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled') === false);
+  await userEvent.click(page.getByTestId('connection-use-saved-api'));
+  await until('the existing API is selected', () => control.selected === 'saved-api');
+  expect(control.created).toBeNull();
+  expect(thrown).toEqual([]);
+});
+
+it.each(['claude', 'codex'])('an expired saved %s account preserves its sign-in menu', async provider => {
+  control.codex = true;
+  control.signedOut = true;
+  control.expired = true;
+  control.connections = [{ id: 'expired-account', kind: 'account', name: 'Saved account', current: true }];
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the harness connection action is ready', () => !!host.querySelector(`[data-testid="subscription-switch-${provider}"]`));
+  (host.querySelector(`[data-testid="subscription-switch-${provider}"]`) as HTMLButtonElement).click();
+  await until('the connection action opens', () => !!layer.querySelector('.subscription-connection-form, [data-testid="connection-expired-account"]'));
+  expect(layer.querySelector('.subscription-connection-form')).toBeNull();
+  await userEvent.hover(page.getByRole('menuitem', { name: 'Options for Saved account', exact: true }));
+  const signIn = page.getByRole('menuitem', { name: 'Sign in', exact: true });
+  await expect.element(signIn).toBeVisible();
+  await untilStable('the saved account sign-in menu settles', () => {
+    const { x, y, width, height } = signIn.element().getBoundingClientRect();
+    return { x, y, width, height };
+  });
+  await userEvent.click(signIn);
+  expect(modalStore.activeModalId).toBe('agentSignInModal');
+  expect(modalStore.activeModalArgs).toMatchObject({ providerId: provider, connectionId: 'expired-account' });
+  expect(control.created).toBeNull();
+  expect(thrown).toEqual([]);
+});
+
+it.each(['claude', 'codex'])('an unsigned native %s connection can be added in place without the library sign-in dead end', async provider => {
+  control.codex = true;
+  control.signedOut = true;
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the unconfigured harness has an action', () => !!host.querySelector(`[data-testid="subscription-switch-${provider}"]`));
+  const action = host.querySelector<HTMLButtonElement>(`[data-testid="subscription-switch-${provider}"]`)!;
+  expect(action.textContent).toContain('Switch connection');
+  expect(host.textContent).not.toContain('Library');
+  action.click();
+  await until('the existing CLI connection is offered', () => !!layer.querySelector('[data-testid="connection-native"]'));
+  expect(layer.querySelector('[data-testid="connection-native"] [aria-haspopup="menu"]')).toBeNull();
+  await userEvent.click(page.getByTestId('subscription-add-connection'));
+  await until('the existing connection form opens in Settings', () => !!layer.querySelector('.subscription-connection-form'));
+  expect(layer.querySelector('[role="dialog"]')?.textContent).toContain(`Add a ${provider === 'codex' ? 'Codex' : 'Claude Code'} connection`);
+  expect(layer.querySelector('form')?.closest('[aria-hidden="true"], [inert]')).toBeNull();
+  expect(control.created).toBeNull();
+  expect(thrown).toEqual([]);
+});
+
+it.each(['claude', 'codex'])('an empty %s connection list opens Add connection directly', async provider => {
+  control.codex = true;
+  control.signedOut = true;
+  control.connections = [];
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the empty connection list has an add action', () => host.querySelector(`[data-testid="subscription-switch-${provider}"]`)?.textContent === 'Add connection');
+  (host.querySelector(`[data-testid="subscription-switch-${provider}"]`) as HTMLButtonElement).click();
+  await until('the existing connection form opens directly', () => !!layer.querySelector('.subscription-connection-form'));
+  expect(layer.querySelector('[role="menu"]')).toBeNull();
+  expect(control.created).toBeNull();
+  expect(thrown).toEqual([]);
 });
 
 it('draws a harness row with its plan, both quota windows without an extra query button outside the task page tree', async () => {
@@ -241,7 +316,7 @@ it('adds a third-party API and explicitly switches the connection without openin
 });
 
 
-it.each([390, 720])('Gugu credits fit a %s px settings container with a prominent total and compact recharge action', async width => {
+it.each([390, 720, 1120])('Gugu credits fit a %s px settings container with a prominent total and compact recharge action', async width => {
   host.style.cssText = `width: ${width}px; container: gg-settings / inline-size`;
   root.render(<GuguSubscriptionRow />);
   await until('the Gugu balances render', () => host.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.includes('8.2') ?? false);
@@ -250,6 +325,13 @@ it.each([390, 720])('Gugu credits fit a %s px settings container with a prominen
   await untilStable('the credit layout is measured', () => quotas.map(q => q.getBoundingClientRect().top).join(','));
   const period = quotas[0].getBoundingClientRect();
   const wallet = quotas[1].getBoundingClientRect();
+  const walletLabel = quotas[1].querySelector('span')!;
+  const walletCredits = quotas[1].querySelector('strong')!;
+  expect(walletLabel.textContent).toMatch(/^(不过期积分|Non-expiring credits)$/);
+  const labelRect = walletLabel.getBoundingClientRect();
+  const creditsRect = walletCredits.getBoundingClientRect();
+  expect(creditsRect.left - labelRect.right).toBeCloseTo(8, 0);
+  expect(Math.abs(creditsRect.top - labelRect.top)).toBeLessThan(8);
   const total = row.querySelector<HTMLElement>('[data-testid="subscription-credits-balance"]')!;
   expect(parseFloat(getComputedStyle(total).fontSize)).toBeGreaterThan(parseFloat(getComputedStyle(quotas[0].querySelector('strong')!).fontSize));
   expect(total.getBoundingClientRect().bottom).toBeLessThanOrEqual(period.top);

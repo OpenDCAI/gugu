@@ -21,6 +21,7 @@ import type {
 } from '../../../src/lib/serverSshInstall'
 import { SERVER_SSH_INSTALL_LOG_LINES, SERVER_SSH_INSTALL_STEPS } from '../../../src/lib/serverSshInstall'
 import type { DesktopPackage } from './desktop-download'
+import { existingIdentityScript, parseExistingIdentity, safeSshText, sshAccountLabel, type ExistingDeviceLookup } from './existing-account'
 import {
   archFromUname,
   buildSshArgs,
@@ -98,6 +99,10 @@ export type SshInstallDeps = {
   desktopDownload: DesktopDownload
   /** 桌面此刻登着的账号 id(看它是不是已经登在那台机器上);不知道时 null。 */
   currentUserId: () => Promise<string | null>
+  /** Resolve an existing row only; never create an identity or issue a login grant. */
+  existingDevice?: ExistingDeviceLookup
+  /** Persist a same-account SSH mapping before reporting that it was claimed. */
+  rememberExistingDevice?: (deviceId: string, userId: string) => Promise<void>
   /** ControlMaster 套接字路径;null = 不复用连接(Windows)。 */
   controlPath: string | null
   /** 复用连接收尾后留多久;用的是这台机器那条共享连接时一直留着('yes'),装完直接开终端不用再输密码。 */
@@ -192,7 +197,7 @@ export class InstallRun {
 
   /** 往「查看详情」里追加一段原始输出(去颜色码、去我们自己的机器可读行),只留最后若干行。 */
   appendLog(chunk: string): void {
-    const lines = logLines(chunk)
+    const lines = logLines(safeSshText(chunk))
     if (!lines.length) return
     this.update((draft) => {
       draft.log.push(...lines)
@@ -211,7 +216,7 @@ function describeMachine(probe: ProbeResult, currentUserId: string | null): Serv
     hostname: probe.hostname,
     user: probe.user,
     installedVersion: probe.installedVersion,
-    others: signedIn.filter((account) => account.userId !== currentUserId).map((account) => account.email ?? account.userId),
+    others: signedIn.filter((account) => account.userId !== currentUserId).map(sshAccountLabel),
     alreadySignedIn: currentUserId !== null && signedIn.some((account) => account.userId === currentUserId),
   }
 }
@@ -237,6 +242,7 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
       limit: { kind: 'total' | 'idle'; ms: number }
       timeoutReason: ServerSshInstallFailureReason
       onStdout?: (chunk: string) => void
+      sensitiveOutput?: boolean
     },
   ): Promise<SshRunResult> => {
     if (deps.signal.aborted) throw new StepFailure('cancelled')
@@ -267,12 +273,12 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
         signal: call.signal,
         onStdout: (chunk) => {
           activity()
-          run.appendLog(chunk)
+          if (!options.sensitiveOutput) run.appendLog(chunk)
           options.onStdout?.(chunk)
         },
         onStderr: (chunk) => {
           activity()
-          run.appendLog(chunk)
+          if (!options.sensitiveOutput) run.appendLog(chunk)
           if (!authenticated && isAuthenticatedLine(chunk)) {
             authenticated = true
             markConnected()
@@ -319,7 +325,7 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
   }
 
   const probe = async (limit: { kind: 'total' | 'idle'; ms: number }, timeoutReason: ServerSshInstallFailureReason): Promise<ProbeResult> => {
-    const result = await ssh(probeScript(), { limit, timeoutReason })
+    const result = await ssh(probeScript(), { limit, timeoutReason, sensitiveOutput: true })
     const parsed = parseProbeOutput(result.stdout)
     // 认证通过、脚本也跑了,却读不到标记:对方的登录脚本把我们的脚本吞了或改了(`exec zsh`、往 stdin 读东西)。
     if (!parsed) throw new StepFailure('shellStartup', lastLines(`${result.stdout}\n${result.stderr}`))
@@ -348,7 +354,8 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
     let found = await probe({ kind: 'total', ms: timeouts.connect }, 'connectTimeout')
     markConnected() // ssh 没打「Authenticated to」(老版本 / Windows)时,拿到结果就算连上了。
     current = 'detect'
-    const userId = await deps.currentUserId().catch(() => null)
+    const userId = await deps.currentUserId()
+    if (!userId) throw new StepFailure('notSignedIn')
     run.update((draft) => {
       draft.machine = describeMachine(found, userId)
     })
@@ -364,7 +371,8 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
 
     // Check the OS user's account before an installer or service command can change the installation.
     if (found.accounts.some(account => account.userId !== userId)) {
-      throw new StepFailure('loginFailed', 'This system user is already signed in to another Gugu account. Sign out first or use another system user.')
+      const server = found.accounts.filter(account => account.userId !== userId).map(sshAccountLabel).join(', ')
+      throw new StepFailure('accountMismatch', `This system user is already signed in to another Gugu account (${server}). Sign out on that server or use another system user.`, { accountMismatch: { server } })
     }
 
     // A version signal is not consent to restart work through the fallback installer.
@@ -501,6 +509,30 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
     current = 'login'
     run.setStep('login', { status: 'running' })
     run.appendLog('── 登录 ──')
+    if (found.accounts.some(account => account.userId === userId)) {
+      const readIdentity = async () => {
+        const reply = await ssh(existingIdentityScript(), { limit: { kind: 'total', ms: timeouts.step }, timeoutReason: 'timeout', sensitiveOutput: true })
+        if (reply.code !== 0) throw new StepFailure('loginFailed', `Could not read the existing server identity (exit ${reply.code}): ${lastLines(`${reply.stdout}\n${reply.stderr}`)}`)
+        return parseExistingIdentity(reply.stdout, userId)
+      }
+      const identity = await readIdentity()
+      if (!deps.existingDevice || !deps.rememberExistingDevice) throw new StepFailure('loginFailed', 'Existing server identity lookup is unavailable')
+      if (await deps.currentUserId() !== userId) throw new StepFailure('notSignedIn', 'The desktop account changed while adding this machine')
+      const deviceId = await deps.existingDevice({ userId, machineId: identity.machineId, signal: deps.signal })
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(deviceId)) throw new StepFailure('loginFailed', 'The existing device ID is empty or invalid')
+      const verified = await readIdentity()
+      if (verified.machineId !== identity.machineId) throw new StepFailure('loginFailed', 'The server installation changed while adding this machine')
+      if (await deps.currentUserId() !== userId) throw new StepFailure('notSignedIn', 'The desktop account changed while adding this machine')
+      deps.signal.throwIfAborted()
+      await deps.rememberExistingDevice(deviceId, userId)
+      deps.signal.throwIfAborted()
+      run.setStep('login', { status: 'skipped', skippedBecause: 'alreadySignedIn' })
+      run.update(draft => {
+        draft.result = { userId, deviceId, email: verified.email ? sshAccountLabel({ userId, email: verified.email }) : null, others: [], hostname: found.hostname, alreadySignedIn: true }
+        draft.finished = true
+      })
+      return run.snapshot()
+    }
     if (!found.supportsGrant) throw new StepFailure('serverTooOld', found.installedVersion ?? undefined)
     const grant = await deps.mintGrant({
       hostname: found.hostname,
@@ -509,7 +541,7 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
       user: found.user,
     })
     if ('error' in grant) throw new StepFailure(grant.error, grant.detail)
-    const login = await ssh(loginScript(grant.deviceCode, machineNameFromTarget(target)), { limit: { kind: 'total', ms: timeouts.step }, timeoutReason: 'timeout' })
+    const login = await ssh(loginScript(grant.deviceCode, machineNameFromTarget(target)), { limit: { kind: 'total', ms: timeouts.step }, timeoutReason: 'timeout', sensitiveOutput: true })
     const outcome = parseLoginOutput(login.stdout)
     if (!outcome.ok) {
       // #6264 这个账号的咕咕 server 数到上限了:说清哪条上限、用了几台,界面就地给「升级会员 / 移除一台机器」。
@@ -522,8 +554,8 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
     const machine = run.snapshot().machine
     run.update((draft) => {
       draft.result = {
-        email: outcome.email,
-        others: outcome.others,
+        email: outcome.email ? sshAccountLabel({ userId: outcome.userId, email: outcome.email }) : null,
+        others: outcome.others.map(safeSshText),
         hostname: found.hostname,
         userId: outcome.userId,
         deviceId: outcome.deviceId,
@@ -532,17 +564,18 @@ export async function runSshInstall(target: SshTarget, run: InstallRun, deps: Ss
       draft.finished = true
     })
   } catch (error) {
-    const failure = error instanceof StepFailure ? error : new StepFailure('unknown', error instanceof Error ? error.message : String(error))
+    const failure = deps.signal.aborted ? new StepFailure('cancelled') : error instanceof StepFailure ? error : new StepFailure('unknown', error instanceof Error ? error.message : String(error))
+    const detail = failure.detail ? safeSshText(failure.detail) : undefined
     const step = current
     run.setStep(step, { status: 'failed' })
-    if (failure.detail) run.appendLog(failure.detail)
+    if (detail) run.appendLog(detail)
     const left = leftover()
     run.update((draft) => {
       draft.prompt = null
       draft.failure = {
         step,
         reason: failure.reason,
-        ...(failure.detail ? { detail: failure.detail } : {}),
+        ...(detail ? { detail } : {}),
         ...failure.extra,
         ...(left ? { leftover: left } : {}),
       }

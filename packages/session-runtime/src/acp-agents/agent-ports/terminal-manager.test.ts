@@ -251,3 +251,38 @@ describe('AgentTerminalManager.killAll()', () => {
     expect(manager.listAll()).toHaveLength(0);
   });
 });
+
+describe('AgentTerminalManager.release()', () => {
+  it('stops forwarding output and exit once the terminal is released', async () => {
+    const { host, recording, manager } = makeManager();
+    const proc = new FakeAcpTerminalProcess();
+    const terminalId = await createTerminal(manager, host, 'conv-1', 'cat', proc);
+
+    manager.release(terminalId);
+    expect(recording.terminalReleased).toHaveLength(1);
+    expect(proc.stdout.listenerCount('data')).toBe(0);
+
+    proc.pushOutput('late');
+    proc.triggerExit({ exitCode: 0, signal: null });
+    expect(recording.terminalOutput).toHaveLength(0);
+    expect(recording.terminalExit).toHaveLength(0);
+  });
+
+  it('a failed kill stays retryable and keeps the registration', async () => {
+    const { host, recording, manager } = makeManager();
+    const proc = new FakeAcpTerminalProcess();
+    const terminalId = await createTerminal(manager, host, 'conv-1', 'cat', proc);
+
+    proc.killFn.mockImplementationOnce(() => {
+      throw new Error('kill failed');
+    });
+    expect(() => manager.release(terminalId)).toThrow('kill failed');
+    expect(manager.listAll()).toHaveLength(1);
+    expect(recording.terminalReleased).toHaveLength(0);
+
+    manager.release(terminalId);
+    expect(manager.listAll()).toHaveLength(0);
+    expect(recording.terminalReleased).toHaveLength(1);
+    expect(proc.killFn).toHaveBeenCalledTimes(2);
+  });
+});

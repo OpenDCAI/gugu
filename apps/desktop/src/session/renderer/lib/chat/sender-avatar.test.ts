@@ -11,7 +11,7 @@ const PHOTO = 'https://example.test/avatars/alice.png';
 
 function identity(id: string, avatar: string | null, type: 'human' | 'agent' = 'human'): DisplayIdentity {
   return {
-    id, type, display_name: id.slice(0, 4), avatar, gugu_number: null, bio: null, owner_user_id: null,
+    id, type, display_name: id.slice(0, 4), nameSerial: null, avatar, gugu_number: null, bio: null, owner_user_id: null,
     agent_public: null, desired_status: null, device_id: null, category: null, is_official: null, local_path: null,
     created_at: null, updated_at: null,
   };

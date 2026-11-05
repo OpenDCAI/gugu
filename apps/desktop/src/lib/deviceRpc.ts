@@ -477,7 +477,7 @@ export async function callDeviceRpc<T>(
   deviceId: string,
   type: string,
   payload: unknown,
-  options?: { timeoutMs?: number; signal?: AbortSignal; retryOnTimeout?: boolean },
+  options?: { timeoutMs?: number; signal?: AbortSignal; retryOnTimeout?: boolean; retainReplyOnTimeout?: boolean },
 ): Promise<DeviceRpcResponse<T>> {
   if (!deviceId) throw new Error('deviceId is required')
   watchTransports()
@@ -485,7 +485,7 @@ export async function callDeviceRpc<T>(
   const maxAttempts = options?.retryOnTimeout ? 2 : 1
   for (let attempt = 1; ; attempt += 1) {
     try {
-      return (await requester.call(deviceId, type, payload, { timeoutMs, signal: options?.signal })) as DeviceRpcResponse<T>
+      return (await requester.call(deviceId, type, payload, { timeoutMs, signal: options?.signal, ...(options?.retainReplyOnTimeout ? { retainReplyOnTimeout: true } : {}) })) as DeviceRpcResponse<T>
     } catch (err) {
       if (!(err instanceof DeviceRpcTimeoutError) || attempt >= maxAttempts) throw err
     }

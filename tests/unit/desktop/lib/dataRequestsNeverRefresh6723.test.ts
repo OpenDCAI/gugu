@@ -65,7 +65,8 @@ describe('one refresher per session (#6723)', () => {
 
     // 整张出站清单一起比:修前这里会多出一条 /auth/v1/token,数据请求带的也不再是已发布的令牌。
     expect(sent.map((request) => `${new URL(request.url).pathname} ${request.authorization}`)).toEqual([
-      `/rest/v1/rpc/current_quota_windows Bearer ${PUBLISHED_ACCESS}`,
+      `/rest/v1/rpc/current_quota_windows_v2 Bearer ${PUBLISHED_ACCESS}`,
+      `/rest/v1/rpc/public_pricing_v2 Bearer ${PUBLISHED_ACCESS}`,
       `/rest/v1/gugu_runtime_capability_policy Bearer ${PUBLISHED_ACCESS}`,
     ])
   })

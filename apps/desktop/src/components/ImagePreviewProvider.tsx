@@ -23,6 +23,7 @@ import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
 import { commandRegistry } from '@renderer/lib/commands/registry'
 import { useMobileShell } from '../hooks/useMobileShell'
 import { readRendererPlatform, windowTitlebarHeight } from '../lib/window-chrome'
+import { wireReadingZoom } from './preview/image-reading-zoom'
 import {
   decodedSizeOf,
   downloadNameFor,
@@ -149,6 +150,7 @@ function viewerOptions(request: ImageViewerRequest, mobile: boolean, errorMsg: s
 }
 
 function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: ImageViewerItem, error: unknown) => void): void {
+  const applyReadingZoom = wireReadingZoom(pswp)
   // 缩略图打开的那几张:翻到哪张,取哪张的原图,换上(取不到就留着缩略图;item.full 自己记着结果,不重复下)。
   const upgrade = (index: number) => {
     const slides = pswp.options.dataSource
@@ -209,6 +211,7 @@ function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: I
     } else {
       slide.currentResolution = 0
       slide.zoomAndPanToInitial()
+      applyReadingZoom()
     }
     slide.updateContentSize(true)
     slide.applyCurrentZoomPan()

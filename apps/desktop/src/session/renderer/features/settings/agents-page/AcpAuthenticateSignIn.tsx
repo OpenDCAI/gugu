@@ -3,7 +3,7 @@ import { reaction } from 'mobx';
 import { useEffect, useRef, useState } from 'react';
 import { AcpAuthLoginBinding } from '@renderer/lib/acp/auth-login-binding';
 import type { BaseModalProps } from '@renderer/lib/modal/modal-provider';
-import { confirmOpenExternalLink } from '@renderer/lib/open-external-link';
+import { openExternalLinkInBrowser } from '@renderer/lib/open-external-link';
 import { Button } from '@renderer/lib/ui/button';
 import {
   DialogContentArea,
@@ -124,7 +124,7 @@ export function AcpAuthenticateSignIn({
             variant="link"
             size="sm"
             data-testid="acp-sign-in-fallback"
-            onClick={() => confirmOpenExternalLink(view.fallbackUrl!)}
+            onClick={() => openExternalLinkInBrowser(view.fallbackUrl!)}
           >
             {translate('agentsPage.signInBrowserFallback')}
           </Button>

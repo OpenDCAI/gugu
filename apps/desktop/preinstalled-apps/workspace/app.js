@@ -2246,6 +2246,10 @@ function scheduleBlockHandleHide() {
   handleHideTimer = setTimeout(hideBlockHandle, 150)
 }
 
+function scheduleBlockHandleHideUnlessHovered() {
+  if (!$('preview').matches(':hover') && !$('block-controls').matches(':hover')) scheduleBlockHandleHide()
+}
+
 function hideBlockHandle(force = false) {
   if (force) {
     if ($('block-controls').contains(state.menuAnchor)) closeMenu()
@@ -3135,7 +3139,7 @@ function closeMenu() {
   state.menuAnchor?.setAttribute('aria-expanded', 'false')
   state.menuAnchor = null
   $('menu').hidden = true
-  if (blockControls && !$('preview').matches(':hover') && !$('block-controls').matches(':hover')) scheduleBlockHandleHide()
+  if (blockControls) scheduleBlockHandleHideUnlessHovered()
 }
 
 // ─── start ──────────────────────────────────────────────────────────────────
@@ -3228,7 +3232,7 @@ function start() {
   $('preview').addEventListener('contextmenu', readBlockMenu)
   $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
   $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
-  $('block-controls').addEventListener('focusout', scheduleBlockHandleHide)
+  $('block-controls').addEventListener('focusout', scheduleBlockHandleHideUnlessHovered)
   $('block-handle').onclick = (event) => openBlockMenu(event, blockMenu)
   $('preview').addEventListener('change', tickTask)
   $('empty-write').onclick = () => {

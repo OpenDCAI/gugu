@@ -115,6 +115,7 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
   const connections = useSubscriptionConnections(machine, agent.id);
   const manageable = agent.id === 'claude' || agent.id === 'codex';
   const currentConnection = connections.data?.find((connection) => connection.current);
+  const hasNoConnections = connections.isSuccess && connections.data.length === 0;
   const connectionId = currentConnection?.id;
   const ready = !manageable || !!currentConnection;
   const plan = useSubscriptionPlan(machine, agent.id, connectionId, ready);
@@ -134,7 +135,7 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
     : plan.error
       ? translate('subscriptions.unavailable.error', { message: errorText(plan.error) })
       : translate('subscriptions.checking');
-  const notes = plan.data ? planNotes(plan.data, translate, (at) => formatDate(at, locale)) : [];
+  const notes = plan.data ? planNotes(plan.data, translate, (at) => formatDate(at, locale)).filter(note => !manageable || note !== translate('subscriptions.signInHint')) : [];
   const reading = quotaReading(plan.data, usage.data);
 
   return (
@@ -155,7 +156,10 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
           ? translate('subscriptions.connections.count', { count: connections.data.length })
           : translate('subscriptions.connections.device')
       }
-      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchNotice} /> : undefined}
+      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchNotice}
+        addDirectly={hasNoConnections}
+        label={hasNoConnections ? translate('subscriptions.connections.add') : undefined}
+      /> : undefined}
       notice={switchNotice ? <SwitchNoticeLine notice={switchNotice} /> : undefined}
     >
       <UsageBlock

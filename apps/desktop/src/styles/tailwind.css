@@ -1,0 +1,23 @@
+/* Shared cascade contract for the host and standalone session entries.
+ * Keep Preflight in a nested base layer: ordinary base rules must also win
+ * when another entry loads its reset later (for example a body portal).
+ * Retain the reset in both entries so the standalone renderer still works.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base.preflight);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Tailwind v4 otherwise uses currentColor for unspecified borders.
+ * Only supply a color; widths and explicit semantic/state colors stay owned
+ * by components and utilities. The fallback supports the standalone renderer.
+ */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border-color, var(--border, currentColor));
+  }
+}

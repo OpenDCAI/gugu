@@ -116,6 +116,7 @@ const fallbackMessages = {
   'transcript.starting': 'Starting',
   'transcript.restoring': 'Restoring',
   'transcript.sending': 'Sending',
+  'transcript.waitingToReceive': 'Waiting to be received',
   'transcript.waitingToSend': 'Waiting to send',
   'transcript.waitingHostOffline': 'Machine offline',
   'transcript.waitingHostNotReady': 'Machine not ready',
@@ -211,6 +212,8 @@ const fallbackMessages = {
   'transcript.deliveryFact.whisperTo': 'Whisper to',
   'transcript.deliveryFact.viaApp': 'App',
   'transcript.turnFinished': 'Finished{reason}',
+  'transcript.creditsExhausted': 'You’re out of credits. {recharge} to continue.',
+  'transcript.rechargeCredits': 'Top up',
   'transcript.viewMermaid': 'View Mermaid diagram',
   'transcript.mermaidDiagram': 'Mermaid diagram',
   'transcript.mermaidError': "Couldn't render diagram",
@@ -321,7 +324,9 @@ export function useChatTranslator(): ChatTranslator {
   return useContext(ChatTranslationContext)?.translate ?? defaultChatTranslator;
 }
 
-/** Transcript dates use the same host capability and translation epoch as their text. */
+const defaultChatLocale = (): SupportedLocale => 'en-US';
+
+/** Transcript dates use the same host capability and translation epoch as their text; without a host, the fallback messages' English. */
 export function useChatLocale(): () => SupportedLocale {
-  return useContext(ChatTranslationContext)!.locale;
+  return useContext(ChatTranslationContext)?.locale ?? defaultChatLocale;
 }

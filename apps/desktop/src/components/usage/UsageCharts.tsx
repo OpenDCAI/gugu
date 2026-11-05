@@ -1,3 +1,6 @@
+import { useMemo } from 'react'
+import { addCreditAmounts, compareCreditAmounts, type CreditAmount } from '@gugu/core/billing/creditAmount'
+import { creditChartScale } from '../../lib/usage/creditChartScale'
 import { tokenColor, useChartTheme } from './useChartTheme'
 import { VChart } from '@visactor/react-vchart'
 import type { ChartPoint, ModelTotal } from '../../lib/usage/charts'
@@ -14,43 +17,59 @@ const colorScale = (domain: string[]) => ({ type: 'ordinal', domain, range: seri
 const OPTIONS = { mode: 'desktop-browser' as const }
 const BASE = { background: 'transparent', padding: { top: 12, right: 12, bottom: 4, left: 4 } }
 
-type TooltipItem = { key: string; value: string | number; datum?: { value?: number } }
+type TooltipItem = { key: string; value: string | number; datum?: { value?: number; amount?: CreditAmount } }
 
 /** 维度浮窗:按量降序,首行「总计」,只列前 15 个,剩下的并成「其他」。 */
-function dimensionContent(format: (n: number) => string, totalLabel: string, otherLabel: string) {
+function dimensionContent(format: (amount: CreditAmount) => string, totalLabel: string, otherLabel: string) {
   return (items: TooltipItem[]) => {
-    const rows = items
-      .map((item) => ({ item, value: Number(item.datum?.value ?? 0) }))
-      .filter((r) => r.value > 0)
-      .sort((a, b) => b.value - a.value)
-    const total = rows.reduce((sum, r) => sum + r.value, 0)
-    const head = rows.slice(0, 15).map((r) => ({ ...r.item, value: format(r.value) }))
-    const rest = rows.slice(15).reduce((sum, r) => sum + r.value, 0)
-    const first = items[0]
+    const rows = items.flatMap((item) => item.datum?.amount === undefined ? [] : [{ item, amount: item.datum.amount }])
+      .filter((row) => compareCreditAmounts(row.amount, 0) > 0)
+      .sort((a, b) => -compareCreditAmounts(a.amount, b.amount))
+    const total = rows.reduce<CreditAmount>((sum, row) => addCreditAmounts(sum, row.amount), 0)
+    const head = rows.slice(0, 15).map((row) => ({ ...row.item, value: format(row.amount) }))
+    const rest = rows.slice(15).reduce<CreditAmount>((sum, row) => addCreditAmounts(sum, row.amount), 0)
+    const first = rows[0]?.item
     return [
       ...(first ? [{ ...first, key: totalLabel, value: format(total), hasShape: false }] : []),
       ...head,
-      ...(rest > 0 && first ? [{ ...first, key: otherLabel, value: format(rest), hasShape: false }] : []),
+      ...(compareCreditAmounts(rest, 0) > 0 && first ? [{ ...first, key: otherLabel, value: format(rest), hasShape: false }] : []),
     ]
   }
 }
 
-export function StackedChart({ mode, points, domain, format, totalLabel, otherLabel }: {
-  mode: 'bar' | 'area'; points: ChartPoint[]; domain: string[]; format: (n: number) => string; totalLabel: string; otherLabel: string
-}) {
+type StackedProps<A extends CreditAmount> = {
+  mode: 'bar' | 'area'; points: ChartPoint<A>[]; domain: string[]; format: (amount: A) => string; totalLabel: string; otherLabel: string
+}
+
+export function StackedChart(props: StackedProps<number>) {
+  return <StackedChartImpl {...props} format={(value) => {
+    if (typeof value !== 'number') throw new TypeError('Expected a numeric chart count')
+    return props.format(value)
+  }} />
+}
+
+export function CreditStackedChart(props: StackedProps<CreditAmount>) {
+  return <StackedChartImpl {...props} />
+}
+
+function StackedChartImpl({ mode, points, domain, format, totalLabel, otherLabel }: StackedProps<CreditAmount>) {
   const theme = useChartTheme()
+  const { scale, values } = useMemo(() => {
+    const scale = creditChartScale(points.map((point) => point.value))
+    return { scale, values: points.map((point) => ({ ...point, amount: point.value, value: scale.coordinate(point.value) })) }
+  }, [points])
   const common = {
     ...BASE,
-    data: [{ id: 'series', values: points }],
+    data: [{ id: 'series', values }],
     xField: 'time',
     yField: 'value',
     seriesField: 'model',
     stack: true,
     color: colorScale(domain),
     legends: { visible: true, selectMode: 'single' as const, orient: 'bottom' as const },
-    axes: [{ orient: 'left', label: { formatMethod: (v: number | string) => format(Number(v)) } }, { orient: 'bottom', type: 'band' }],
+    axes: [{ orient: 'left', label: { formatMethod: (v: number | string) => scale.formatCoordinate(v, format) } }, { orient: 'bottom', type: 'band' }],
     tooltip: {
-      mark: { content: [{ key: (d: ChartPoint) => d.model, value: (d: ChartPoint) => format(d.value) }] },
+      mark: { content: [{ key: (d: { model: string }) => d.model, value: (d: { amount: CreditAmount }) => format(d.amount) }] },
       dimension: { updateContent: dimensionContent(format, totalLabel, otherLabel) },
     },
   }

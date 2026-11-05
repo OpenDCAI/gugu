@@ -3,10 +3,15 @@ import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SessionListSyncHandlers } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-list-sync'
 import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
-import { useNeedsYouTasks } from '../../../../apps/desktop/src/components/needsYou/useNeedsYouTasks'
+import { markNeedsYouTaskSeen, useNeedsYouTasks } from '../../../../apps/desktop/src/components/needsYou/useNeedsYouTasks'
 
 const state = vi.hoisted(() => ({ host: true, devices: [] as unknown[], directory: {} as Record<string, unknown>, handlers: null as SessionListSyncHandlers | null }))
 const stop = vi.hoisted(() => vi.fn())
+const markSeen = vi.hoisted(() => vi.fn(async (_id: string) => undefined))
+const machineRpc = vi.hoisted(() => vi.fn((_deviceId: string, _local: boolean) => ({ sessions: { markSessionSeen: markSeen } })))
+const invokePhoneHost = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined))
+vi.mock('@/mobile/agent-watch/sessionpage-rpc', () => ({ machineRpc }))
+vi.mock('@/mobile/local-agent/phoneHostRpc', () => ({ invokePhoneHost }))
 const sync = vi.hoisted(() => vi.fn((_client, device, handlers: SessionListSyncHandlers) => { state.handlers = handlers; return { stop, reconnect: vi.fn() } }))
 vi.mock('@/platform', () => ({ platform: { capabilities: { get sessionHost() { return state.host } }, subscribeAppForeground: () => () => undefined } }))
 vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: state.devices }) }))
@@ -16,6 +21,7 @@ vi.mock('@/session/renderer/features/remote-hosts/machine-session-list', () => (
 let harness: ReturnType<typeof createReactHarness>
 function Probe() { const { tasks, attention } = useNeedsYouTasks(); return <output data-attention={attention} data-phone-hosts={tasks.filter(task => task.phoneHost).map(task => task.deviceId).join(',')}>{tasks.map(task => `${task.deviceId}:${task.session.conversationId}`).join(',')}</output> }
 const pending = (id: string) => ({ conversationId: id, agentStatus: 'needs_approval', status: { status: 'needs_user', detail: 'approval' } })
+const failure = (id: string, extra: object = {}) => ({ ...pending(id), status: { status: 'error', detail: null }, unseen: true, ...extra })
 beforeEach(() => {
   vi.clearAllMocks()
   state.host = true
@@ -54,7 +60,7 @@ it('drops the prior account and stops its list subscription on logout', async ()
 })
 
 it('lists failures, adds a real wait, and keeps the failure after that wait is answered (#1165)', async () => {
-  state.directory = { server: { cached: false, error: null, sessions: [{ ...pending('failed'), status: { status: 'error', detail: null } }] } }
+  state.directory = { server: { cached: false, error: null, sessions: [failure('failed')] } }
   await renderWithAppProviders(harness, <Probe />)
   expect(harness.container.querySelector('output')?.dataset.attention).toBe('error')
   expect(harness.container.textContent).toBe('server:failed')
@@ -74,4 +80,46 @@ it('preserves native phone host identity from the existing device directory', as
   expect(harness.container.querySelector('output')?.dataset.phoneHosts).toBe('phone')
   expect(harness.container.textContent).toBe('phone:native')
   expect(sync).not.toHaveBeenCalled()
+})
+
+it('acknowledged errors (and errors from hosts without a read bit) leave attention; waits stay whatever their read bit', async () => {
+  state.directory = { server: { cached: false, error: null, sessions: [
+    { ...pending('read-failure'), status: { status: 'error', detail: null }, unseen: false },
+    { ...pending('unknown-read-failure'), status: { status: 'error', detail: null } },
+    { ...pending('approval'), unseen: false },
+  ] } }
+  await renderWithAppProviders(harness, <Probe />)
+  expect(harness.container.textContent).toBe('server:approval')
+  expect(harness.container.querySelector('output')?.dataset.attention).toBe('needs_user')
+  state.directory = { server: { cached: false, error: null, sessions: [{ ...pending('read-failure'), status: { status: 'error', detail: null }, unseen: false }] } }
+  await renderWithAppProviders(harness, <Probe />)
+  expect(harness.container.textContent).toBe('')
+  expect(harness.container.querySelector('output')?.dataset.attention).toBeUndefined()
+})
+
+it.each([false, true])('uses the existing task host seen action with an explicit destination (local=%s)', async local => {
+  await markNeedsYouTaskSeen({ deviceId: 'target', machine: 'Target', local, phoneHost: false, session: { conversationId: 'failure' } } as never)
+  expect(machineRpc).toHaveBeenCalledWith('target', local)
+  expect(markSeen).toHaveBeenCalledExactlyOnceWith('failure')
+  expect(invokePhoneHost).not.toHaveBeenCalled()
+})
+
+it('uses the phone host route and propagates its error without acknowledging a task locally', async () => {
+  invokePhoneHost.mockRejectedValueOnce(new Error('unknown_method'))
+  await expect(markNeedsYouTaskSeen({ deviceId: 'phone', machine: 'Phone', local: false, phoneHost: true, session: { conversationId: 'failure' } } as never)).rejects.toThrow('unknown_method')
+  expect(invokePhoneHost).toHaveBeenCalledExactlyOnceWith('phone', 'sessions.markSessionSeen', ['failure'])
+  expect(markSeen).not.toHaveBeenCalled()
+})
+
+it('a month of read failures does not inflate the count; unread ones list newest first', async () => {
+  const day = (n: number) => new Date(Date.UTC(2026, 9, n)).toISOString()
+  const old = Array.from({ length: 40 }, (_, i) => failure(`old-${i}`, { unseen: false, lastInteractedAt: day(1 + (i % 28)) }))
+  state.directory = { server: { cached: false, error: null, sessions: [
+    ...old,
+    failure('older-unread', { lastInteractedAt: day(2) }),
+    { ...pending('newest-wait'), lastInteractedAt: day(30) },
+    failure('newer-unread', { lastInteractedAt: day(20) }),
+  ] } }
+  await renderWithAppProviders(harness, <Probe />)
+  expect(harness.container.textContent).toBe('server:newest-wait,server:newer-unread,server:older-unread')
 })

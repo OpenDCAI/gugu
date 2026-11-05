@@ -24,33 +24,44 @@ export function usePinchZoom(
     onPinchRef.current = onPinch
   }, [onPinch])
 
+  // 绑在实际挂着的元素上,❌ 只按 [ref]:同一个面板换文件时 ref 会挪到别的元素上(或挪走)。
+  const bound = useRef<{ element: HTMLElement | null; off?: () => void }>(undefined)
   useEffect(() => {
     const element = ref.current
-    if (!element) return
-    let pendingDeltaY = 0
-    let point: PinchPoint = { x: 0, y: 0 }
-    let frame = 0
+    if (bound.current?.element === element) return
+    bound.current?.off?.()
+    bound.current = { element, off: element ? bindPinch(element, (deltaY, point) => onPinchRef.current(deltaY, point)) : undefined }
+  })
+  useEffect(() => () => {
+    bound.current?.off?.()
+    bound.current = undefined
+  }, [])
+}
 
-    const flush = () => {
-      frame = 0
-      const deltaY = pendingDeltaY
-      pendingDeltaY = 0
-      if (deltaY !== 0) onPinchRef.current(deltaY, point)
-    }
+function bindPinch(element: HTMLElement, onPinch: (deltaY: number, point: PinchPoint) => void): () => void {
+  let pendingDeltaY = 0
+  let point: PinchPoint = { x: 0, y: 0 }
+  let frame = 0
 
-    const onWheel = (event: WheelEvent) => {
-      if (!isPinchWheel(event)) return
-      event.preventDefault()
-      const rect = element.getBoundingClientRect()
-      point = { x: event.clientX - rect.left, y: event.clientY - rect.top }
-      pendingDeltaY += event.deltaY
-      if (!frame) frame = requestAnimationFrame(flush)
-    }
+  const flush = () => {
+    frame = 0
+    const deltaY = pendingDeltaY
+    pendingDeltaY = 0
+    if (deltaY !== 0) onPinch(deltaY, point)
+  }
 
-    element.addEventListener('wheel', onWheel, { passive: false })
-    return () => {
-      element.removeEventListener('wheel', onWheel)
-      if (frame) cancelAnimationFrame(frame)
-    }
-  }, [ref])
+  const onWheel = (event: WheelEvent) => {
+    if (!isPinchWheel(event)) return
+    event.preventDefault()
+    const rect = element.getBoundingClientRect()
+    point = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+    pendingDeltaY += event.deltaY
+    if (!frame) frame = requestAnimationFrame(flush)
+  }
+
+  element.addEventListener('wheel', onWheel, { passive: false })
+  return () => {
+    element.removeEventListener('wheel', onWheel)
+    if (frame) cancelAnimationFrame(frame)
+  }
 }

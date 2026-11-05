@@ -14,7 +14,8 @@ import { useChatTranslator, type ChatTranslator } from '@session-chat/localizati
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import type { MeasureCtx } from '@session-chat/core/define';
-import { readableLabel } from '../readable-label';
+import { applySoftWraps, measureSoftWrap } from '@session-chat/core/measure/soft-wrap';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { SubagentProgress } from './SubagentProgress';
 import {
   backgroundTaskButton,
@@ -38,6 +39,9 @@ export const BACKGROUND_TASK_ROW_H = 28;
 const ROW_GAP = 4;
 const LIST_PAD = 4;
 const LIST_TOP = 4;
+const AGENT_META_W = 104;
+const AGENT_META_FONT_SIZE = 12;
+const AGENT_META_LINE_H = 20;
 
 export function backgroundTasksListHeight(count: number): number {
   if (count === 0) return 0;
@@ -49,12 +53,44 @@ export function backgroundTaskNameLayout(name: string, ctx: MeasureCtx, controls
   return readableLabel(name, ctx, Math.min(600, ctx.width) - 52 - controls, 14, 20);
 }
 
+function backgroundTaskMetaText(agent: SubagentRosterEntry, translate: ChatTranslator, elapsed: string): string {
+  return [
+    agent.completedSteps > 0
+      ? translate(agent.completedSteps === 1 ? 'transcript.backgroundTasks.stepsOne' : 'transcript.backgroundTasks.steps', { count: agent.completedSteps })
+      : '',
+    elapsed,
+  ].filter(Boolean).join(' · ');
+}
+
+/** 量高用的最坏单位串:秒/分的任何实时值都不会比 `00m00s` 宽,小时不会比 `00h00m` 宽(评审)。 */
+const worstElapsed = (ms: number): string => (ms >= 3_600_000 ? '00h00m' : '00m00s');
+
+/** 元数据按实际的等宽小字量好并写入同一组换行，避免浏览器另换一遍后把行撑高。
+ *  文案用实时值、量高按本单位的最坏串预留(评审):行内计时器每秒都在跳,预留高度必须覆盖本单位的任何一跳
+ *  (9m59s → 10m00s 那一跳换行也顶不出去),否则外层固定高度会在某一跳把行裁掉。 */
+export function backgroundTaskMetaLayout(agent: SubagentRosterEntry, ctx: MeasureCtx, elapsed = formatElapsed(agent.elapsedMs)) {
+  const translate = rowTranslator(ctx);
+  const font = `400 ${AGENT_META_FONT_SIZE}px ${ctx.theme.config.fonts.mono.join(', ')}`;
+  const text = backgroundTaskMetaText(agent, translate, elapsed);
+  const wrap = measureSoftWrap(text.replace(/\d/g, '0'), AGENT_META_W, font);
+  // 没有时长的行不给量高编一个:预留串与文案同形。
+  const reserved = measureSoftWrap(backgroundTaskMetaText(agent, translate, elapsed ? worstElapsed(agent.elapsedMs) : elapsed).replace(/\d/g, '0'), AGENT_META_W, font);
+  return {
+    text: applySoftWraps(text, wrap.softWrapOffsets),
+    height: reserved.visualLineCount * AGENT_META_LINE_H,
+  };
+}
+
 export function measuredBackgroundListHeight(commands: readonly BackgroundCommandEntry[], agents: readonly SubagentRosterEntry[], ctx: MeasureCtx): number {
   const rows = [
     ...commands.map(entry => backgroundTaskNameLayout(entry.name, ctx,
       (ctx.commands?.onStopBackgroundTask ? 32 : 0) + (ctx.commands?.onDismissBackgroundTask ? 32 : 0)).height + 8),
-    ...agents.map(entry => backgroundTaskNameLayout(entry.name, ctx,
-      (ctx.width < 360 ? 0 : 112) + (entry.canCancel && ctx.commands?.onStopBackgroundTask ? 32 : 0) + (ctx.commands?.onDismissBackgroundTask ? 32 : 0)).height + 8 + (ctx.width < 360 ? 20 : 0)),
+    ...agents.map(entry => {
+      const nameH = backgroundTaskNameLayout(entry.name, ctx,
+        (ctx.width < 360 ? 0 : AGENT_META_W + 8) + (entry.canCancel && ctx.commands?.onStopBackgroundTask ? 32 : 0) + (ctx.commands?.onDismissBackgroundTask ? 32 : 0)).height;
+      const metaH = backgroundTaskMetaLayout(entry, ctx).height;
+      return (ctx.width < 360 ? nameH + metaH : Math.max(nameH, metaH)) + 8;
+    }),
   ];
   return rows.length ? LIST_TOP + LIST_PAD * 2 + rows.reduce((a, b) => a + b, 0) + (rows.length - 1) * ROW_GAP : 0;
 }
@@ -201,16 +237,9 @@ export function BackgroundTasksList(props: {
               <IconUser />
             </span>
             <span style={{ display: 'flex', 'flex-direction': props.measureCtx().width < 360 ? 'column' : 'row', gap: props.measureCtx().width < 360 ? '0' : '8px', flex: 1, 'min-width': 0 }}>
-            <span class={backgroundTaskName}>{backgroundTaskNameLayout(agent.name, props.measureCtx(), (props.measureCtx().width < 360 ? 0 : 112) + (agent.canCancel && commands().onStopBackgroundTask ? 32 : 0) + (commands().onDismissBackgroundTask ? 32 : 0)).text}</span>
-            <span class={backgroundTaskMeta} style={{ width: '104px', 'white-space': 'normal' }}>
-              {[
-                agent.completedSteps > 0
-                  ? translate(agent.completedSteps === 1 ? 'transcript.backgroundTasks.stepsOne' : 'transcript.backgroundTasks.steps', { count: agent.completedSteps })
-                  : '',
-                elapsed(agent.startedAt),
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+            <span class={backgroundTaskName}>{backgroundTaskNameLayout(agent.name, props.measureCtx(), (props.measureCtx().width < 360 ? 0 : AGENT_META_W + 8) + (agent.canCancel && commands().onStopBackgroundTask ? 32 : 0) + (commands().onDismissBackgroundTask ? 32 : 0)).text}</span>
+            <span class={backgroundTaskMeta} data-slot="background-task-meta" style={{ width: `${AGENT_META_W}px`, 'white-space': 'pre-wrap' }}>
+              {backgroundTaskMetaLayout(agent, props.measureCtx(), elapsed(agent.startedAt)).text}
             </span>
             </span>
             <Show when={agent.canCancel && commands().onStopBackgroundTask}>

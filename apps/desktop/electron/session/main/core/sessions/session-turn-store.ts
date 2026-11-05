@@ -1,5 +1,7 @@
+import { renumberStoredTurn, rewriteTurnId } from './session-turn-identity';
+export { renumberStoredTurn } from './session-turn-identity';
 import { findToolImage, trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
-import { and, asc, desc, eq, gte, like, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, like, lt, notLike, sql } from 'drizzle-orm';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
@@ -9,6 +11,10 @@ import { noteNativeConversationReplies, truncateNativeConversationRead } from '.
 import { nativeConversationActivity } from './session-conversation-activity';
 import { publishNativeConversationInbox, queueNativeConversationInbox } from './native-conversation-inbox';
 import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
+import { ownerNotificationEpoch, rewindOwnerNotificationState, publishOwnerNotificationState } from './owner-notification-state';
+import { persistWithTurnSettlement } from './turn-settlement';
+import { events } from '@main/lib/events';
+import { sessionTurnSettledChannel, type StoredSettledTurn } from '@shared/core/sessions/sessionEvents';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -45,55 +51,14 @@ export type CommittedTurnSource = 'live' | 'replay' | 'revision' | 'backfill';
  * 新回合用 `INSERT OR IGNORE` 保持按到达序幂等；已提交回合的改口(结局或迟到的尾巴)整轮替换其最新投影行。
  * `backfill`(更早那一轮被后台命令的终态补了内容,#6582)落盘与 `revision` 同一条路:按 turn id 找行、整轮替换。
  */
-/**
- * 把一条回合按**库里的序号**重新编号（#5381）。
- *
- * ⚠️ 运行时那份回合序号**每次重开会话都从 0 重数**，而 `turn.id` 与它下面所有条目的 id 都由它
- * 派生（`${conversationId}:turn:${index}`、`${turnId}:message:…`）。于是一条跨过重启的会话，
- * 库里会出现**两条 id 完全相同的回合**——实测:第 5 行的 turn.id 与第 3 行逐字相同。
- *
- * 后果不是「显示得不好看」：id 是转录的主键，`scrollToItem`、按 id 定位、折叠状态、
- * 框架的 keying 全靠它。两条不同的回合共用一个 id，这些一起错位。而且它**只在跨重启的会话上
- * 发作** —— 正是这个功能存在的那个场景。
- *
- * 重编号只动 id 那几个字段（`id` 与 `parentId`，两者都以 turn id 为前缀），
- * ❌ 不做整段 JSON 的字符串替换：消息正文里恰好出现同样的字符串就会被误伤。
- */
-function rewriteTurnId(value: string, previous: string, next: string): string {
-  if (value === previous) return next;
-  return value.startsWith(previous + ':') ? next + value.slice(previous.length) : value;
-}
-
-export function renumberStoredTurn(
-  turn: TranscriptTurn,
-  sessionId: string,
-  storeSeq: number
-): TranscriptTurn {
-  const nextTurnId = `${sessionId}:turn:s${storeSeq}`;
-  const prevTurnId = turn.id;
-  if (nextTurnId === prevTurnId) return { ...turn, seq: storeSeq };
-
-  const walk = (node: unknown): unknown => {
-    if (Array.isArray(node)) return node.map(walk);
-    if (node === null || typeof node !== 'object') return node;
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
-      out[key] = (key === 'id' || key === 'parentId') && typeof val === 'string'
-        ? rewriteTurnId(val, prevTurnId, nextTurnId)
-        : walk(val);
-    }
-    return out;
-  };
-
-  return { ...(walk(turn) as TranscriptTurn), id: nextTurnId, seq: storeSeq };
-}
-
 const persistenceTails = new Map<string, Promise<void>>();
 type PersistInput = { sessionId: string; source: CommittedTurnSource; turn: TranscriptTurn };
 
 export function persistCommittedTurn(input: PersistInput): Promise<void> {
   const previous = persistenceTails.get(input.sessionId) ?? Promise.resolve();
-  const next = previous.then(() => persistCommittedTurnNow(input), () => persistCommittedTurnNow(input));
+  const write = () => persistWithTurnSettlement(input, () => persistCommittedTurnNow(input),
+    receipt => events.emit(sessionTurnSettledChannel, receipt));
+  const next = previous.then(write, write);
   persistenceTails.set(input.sessionId, next);
   return next.finally(() => {
     if (persistenceTails.get(input.sessionId) === next) persistenceTails.delete(input.sessionId);
@@ -231,12 +196,13 @@ export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTur
 export async function storedTurnIndexBase(sessionId: string): Promise<number> {
   await persistenceTails.get(sessionId);
   const rows = await db
-    .select({ turnId: sessionTurns.turnId })
+    .select({ turnId: sessionTurns.turnId, notifiedSource: sql<string | null>`CASE WHEN ${sessionTurns.turnId} LIKE 'owner-notify:%' THEN json_extract(${sessionTurns.data}, '$.items[0].ownerNotification.sourceTurnId') END` })
     .from(sessionTurns)
     .where(eq(sessionTurns.sessionId, sessionId));
   let max = -1;
-  for (const { turnId } of rows) {
-    const index = /:turn:(\d+)$/.exec(turnId)?.[1];
+  for (const { turnId, notifiedSource } of rows) {
+    // A notified but interrupted turn already owns its identity; a restarted engine must not reuse it.
+    const index = /:turn:(\d+)$/.exec(notifiedSource ?? turnId)?.[1];
     if (index !== undefined) max = Math.max(max, Number(index));
   }
   return max + 1;
@@ -246,7 +212,7 @@ async function storedTurnCount(sessionId: string): Promise<number> {
   const rows = await db
     .select({ count: sql<number>`count(*)` })
     .from(sessionTurns)
-    .where(eq(sessionTurns.sessionId, sessionId));
+    .where(and(eq(sessionTurns.sessionId, sessionId), notLike(sessionTurns.turnId, 'owner-notify:%')));
   return rows[0]?.count ?? 0;
 }
 
@@ -272,15 +238,23 @@ export async function getStoredHistory(params: {
   limit?: number;
   /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面开场补读用;与 before/limit 互斥。 */
   fromSeq?: number;
+  ownerNotificationsOnly?: boolean;
 }): Promise<StoredTurnPage> {
-  const page = await readStoredTurns(params.sessionId, {
-    before: params.before,
-    limit: params.limit,
-    fromSeq: params.fromSeq,
-  });
-  return params.fromSeq === undefined
-    ? trimCursorPageForTransport(page)
-    : { ...page, turns: trimTurnsForTransport(page.turns) };
+  for (;;) {
+    const epoch = ownerNotificationEpoch(params.sessionId);
+    const page = await readStoredTurns(params.sessionId, {
+      before: params.before,
+      limit: params.limit,
+      fromSeq: params.fromSeq,
+      ownerNotificationsOnly: params.ownerNotificationsOnly,
+    });
+    // A revert can reuse every sequence in the page. Its rows and generation must describe the same snapshot.
+    if (epoch !== ownerNotificationEpoch(params.sessionId)) continue;
+    const snapshot = { ...page, nativeOwnerNotificationEpoch: epoch };
+    return params.fromSeq === undefined
+      ? trimCursorPageForTransport(snapshot)
+      : { ...snapshot, turns: trimTurnsForTransport(page.turns) };
+  }
 }
 
 export async function getStoredToolImage(params: {
@@ -298,8 +272,22 @@ export async function getStoredToolImage(params: {
   return findToolImage(turn ? [turn] : [], itemId, params.index, Number.POSITIVE_INFINITY);
 }
 
+/** Read one immutable live origin, even after its runtime record was removed. No provider is contacted. */
+export async function getStoredSettledTurn(params: { sessionId: string; referenceId: string; originTurnId: string }): Promise<StoredSettledTurn | null> {
+  await persistenceTails.get(params.sessionId);
+  const [row] = await db.select({ data: sessionTurns.data, originTurnId: sessionTurns.turnId })
+    .from(sessionTurns).where(and(eq(sessionTurns.sessionId, params.sessionId), eq(sessionTurns.turnId, params.originTurnId),
+      sql`json_extract(${sessionTurns.data}, '$.referenceId') = ${params.referenceId}`))
+    .orderBy(desc(sessionTurns.seq)).limit(1);
+  if (!row) return null;
+  const turn = JSON.parse(row.data) as TranscriptTurn;
+  return turn.outcome ? { originTurnId: row.originTurnId, turn: trimTurnsForTransport([turn])[0]! } : null;
+}
+
 export interface StoredTurnPage {
   turns: TranscriptTurn[];
+  /** The generation in which these rows were read; older hosts omit it (generation zero). */
+  nativeOwnerNotificationEpoch?: number;
   /** 与 `turns` 一一对应:每一行来自引擎的哪一轮(运行时原始 turn id)。旧版本写的行这里是库内 id。 */
   originTurnIds: string[];
   /** 还有更早的一页时给出游标（本页最早那一条的 `seq`）；到头了、或是 `fromSeq` 读法时为 null。 */
@@ -315,7 +303,7 @@ export interface StoredTurnPage {
  */
 export async function readStoredTurns(
   sessionId: string,
-  options: { before?: number; limit?: number; fromSeq?: number } = {}
+  options: { before?: number; limit?: number; fromSeq?: number; ownerNotificationsOnly?: boolean } = {}
 ): Promise<StoredTurnPage> {
   if (options.fromSeq !== undefined) {
     // 「开场那一页之后新落库的行」—— 开场时补读一次用(acp-chat-store `_reloadStoredTail`)。❌ 不分页:这一段只是
@@ -330,7 +318,8 @@ export async function readStoredTurns(
       .where(
         and(
           eq(sessionTurns.sessionId, sessionId),
-          gte(sessionTurns.seq, options.fromSeq)
+          gte(sessionTurns.seq, options.fromSeq),
+          ...(options.ownerNotificationsOnly ? [like(sessionTurns.turnId, 'owner-notify:%')] : [])
         )
       )
       .orderBy(asc(sessionTurns.seq));
@@ -384,19 +373,28 @@ export async function storedRevertBoundary(sessionId: string, anchor: string): P
 }
 
 export async function truncateStoredHistory(sessionId: string, fromSeq: number | null): Promise<void> {
-  await persistenceTails.get(sessionId);
   if (fromSeq === null) return;
-  stopFillingReplay(sessionId);
-  const removed = db.transaction(tx => {
-    const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq }).all();
-    return { rows: result, publish: truncateNativeConversationRead(sessionId, fromSeq, tx) };
+  return withStoredTurns(sessionId, async () => {
+    stopFillingReplay(sessionId);
+    const removed = db.transaction(tx => {
+      const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq, turnId: sessionTurns.turnId }).all();
+      const origins = new Set(result.map(row => row.turnId));
+      // A notification commits before its calling provider turn; deleting that turn must remove its earlier notice too.
+      const attached = tx.select({ seq: sessionTurns.seq, turnId: sessionTurns.turnId, data: sessionTurns.data }).from(sessionTurns)
+        .where(and(eq(sessionTurns.sessionId, sessionId), like(sessionTurns.turnId, 'owner-notify:%'))).all()
+        .filter(row => (JSON.parse(row.data) as TranscriptTurn).items.some(item => item.kind === 'message' && item.ownerNotification?.sourceTurnId && origins.has(item.ownerNotification.sourceTurnId)));
+      for (const row of attached) tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.turnId, row.turnId))).run();
+      rewindOwnerNotificationState(sessionId, tx);
+      return { rows: [...result, ...attached], publish: truncateNativeConversationRead(sessionId, fromSeq, tx, new Set(attached.map(row => row.seq))) };
+    });
+    removed.publish?.();
+    publishOwnerNotificationState(sessionId);
+    // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
+    if (removed.rows.length > 0) {
+      activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
+        session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
+    }
   });
-  removed.publish?.();
-  // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
-  if (removed.rows.length > 0) {
-    activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
-      session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
-  }
 }
 
 /** One stored turn by its sequence, or null when the session's stored history no longer has it. */

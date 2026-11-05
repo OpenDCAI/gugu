@@ -1,3 +1,4 @@
+import { CLAUDE_AUTH_CONNECTIONS } from '../../connection-capabilities';
 import { platformModel } from './platform-model';
 import {
   definePlugin,
@@ -174,6 +175,7 @@ export const plugin = definePlugin(
     },
     auth: {
       kind: 'supported',
+      connections: CLAUDE_AUTH_CONNECTIONS,
       methods: [
         {
           kind: 'cli-login',

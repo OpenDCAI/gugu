@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { Button } from '@/components/ui/Button'
@@ -6,7 +6,7 @@ import { MessageCircle, Search, Users } from '@/lib/icons'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
 import { tabItemStyle } from './settledTab'
-import type { PhoneViewport } from './usePhoneViewport'
+import { PhoneViewportContext, type PhoneViewport } from './usePhoneViewport'
 
 /** 点按切换时挂在栏上的过渡窗口:比 --dur-med(200ms)多留一点,过渡跑完就摘,❌ 拖动时还挂着(那会拖在手指后面)。 */
 const TAB_SWITCH_MS = 320
@@ -25,14 +25,17 @@ function useNavHeight(viewport: PhoneViewport): number {
   return height
 }
 
-export function PhoneTabBar({ activeTab, onTabChange, pendingContactsCount, barRef, tabs, viewport }: {
+export function PhoneTabBar({ activeTab, onTabChange, pendingContactsCount, barRef, tabs, viewport: suppliedViewport }: {
   activeTab: SidebarTab
   onTabChange: (tab: SidebarTab) => void
   pendingContactsCount: number
   barRef: RefObject<HTMLElement | null>
   tabs: readonly SidebarTab[]
-  viewport: PhoneViewport
+  viewport?: PhoneViewport
 }) {
+  const shellViewport = useContext(PhoneViewportContext)
+  const viewport = suppliedViewport ?? shellViewport
+  if (!viewport) throw new Error('Phone navigation requires its shell viewport')
   const { t } = useTranslation('main')
   const { t: mt } = useTranslation('messaging')
   const height = useNavHeight(viewport)

@@ -3,7 +3,6 @@ import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { useAgentDisplayStatus } from '@/hooks/useAgentDisplayStatus'
 import { useRowContextMenu } from '@/hooks/useRowContextMenu'
 import { displayName } from '@/lib/contactsListSort'
-import { Zap } from '@/lib/icons'
 import { Avatar } from '../Avatar'
 import { AgentContactStatusMark } from '../AgentContactStatusMark'
 import { agentContactPresentation, useShownAgentContactStatus, agentContactRowStatusClass } from '../contactAgentTone'
@@ -11,7 +10,7 @@ import { Chip } from '../ui/Chip'
 import { ListRow } from '../ui/ListRow'
 import { SelectionCheckbox } from './ContactSearch'
 import { ContactRowContextMenu, ContactRowDeleteButton, type ContactRowMenuActions } from './ContactRowActions'
-import { agentAvatarClass, boltClass, ct, rowKeyActivate } from './contactsPanelStyles'
+import { agentAvatarClass, ct, rowKeyActivate } from './contactsPanelStyles'
 
 export function AgentContactRow({
   contact,
@@ -68,7 +67,6 @@ export function AgentContactRow({
         title={shownName}
         accessory={
           <>
-            <span className={boltClass}><Zap size={11} /></span>
             {allowsLiveActions && contact.agent_public ? <Chip>{ct('panel.shared')}</Chip> : null}
           </>
         }

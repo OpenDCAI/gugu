@@ -55,12 +55,15 @@ it('opens an actual project on the assistant device and retains its project cont
     expect(host.querySelector('[aria-label="sidebar.newSessionIn"]')).not.toBeNull();
     await act(async () => (host.querySelector('[data-project-row="business"]') as HTMLElement).click());
     expect(state.navigate).toHaveBeenCalledWith('project', { projectId: 'business' });
-    expect(state.expand).toHaveBeenCalledWith('business');
+    expect(state.expand).not.toHaveBeenCalled();
     expect(state.toggle).not.toHaveBeenCalled();
     state.screen = true;
     await act(async () => host.querySelector('[data-project-row="business"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })));
     expect(state.beside).toHaveBeenCalledWith({ kind: 'project', projectId: 'business' });
     expect(state.navigate).toHaveBeenCalledTimes(1);
+    await act(async () => (host.querySelector('[aria-label="sidebar.newSessionIn"]') as HTMLElement).click());
+    expect(state.expand).not.toHaveBeenCalled();
+    expect(state.toggle).not.toHaveBeenCalled();
   } finally {
     state.screen = false;
     await act(async () => root.unmount());

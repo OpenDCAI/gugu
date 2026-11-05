@@ -100,6 +100,8 @@ function fakeSession() {
     activeTurn: replica(null),
     plan: replica(null),
     draft: replica(null),
+    canSyncDraft: () => true,
+    onDraftSyncReady: () => () => {},
     terminals: replica([] as unknown[]),
     config: replica({}),
     sendPrompt,
@@ -229,4 +231,51 @@ describe('#6497 宿主停掉会话之后的聊天面', () => {
     session.sessionState.push(closedState);
     expect(store.session).toBe(replacement);
   });
+});
+
+// Reviewer: exercise the existing closed -> ready -> reattach callbacks.
+it('clears a model rejection when a host reload confirms the replacement', async () => {
+  const { store, session, boot } = attachedStore();
+  (session as unknown as {setModelOption: unknown}).setModelOption = vi.fn().mockResolvedValue({ success: false, error: { type: 'set_config_failed', cause: { name: 'RequestError', message: 'unknown model: retired-model' } } });
+  await store.setModel('retired-model');
+  expect(store.modelSettingError).toContain('unknown model: retired-model');
+  session.sessionState.push(closedState);
+  expect(store.session).toBeNull();
+  const next = fakeSession().session;
+  next.config.push({ modelOptions: { selected: 'replacement-model', available: [] } });
+  boot.mockImplementation(async () => {
+    runInAction(() => {
+      store.session = next as unknown as Store['session'];
+      (store as unknown as Internal)._subscribeLiveSession(next);
+    });
+  });
+  session.sessionState.push(readyState);
+  await Promise.resolve();
+  expect(boot).toHaveBeenCalledOnce();
+  expect(store.model).toBe('replacement-model');
+  expect(store.modelSettingError).toBeNull();
+});
+
+it.each(['model-first', 'ready-first'] as const)('waits for both a usable reloaded session and model read-back (%s)', async (order) => {
+  const { store, session, boot } = attachedStore();
+  (session as unknown as { setModelOption: unknown }).setModelOption = vi.fn().mockResolvedValue({ success: false, error: new Error('model rejected') });
+  await store.setModel('retired-model');
+  session.sessionState.push(closedState);
+  const next = fakeSession().session;
+  next.sessionState.push({ ...readyState, lifecycle: 'starting' });
+  boot.mockImplementation(async () => {
+    runInAction(() => {
+      store.session = next as unknown as Store['session'];
+      (store as unknown as Internal)._subscribeLiveSession(next);
+    });
+  });
+  session.sessionState.push(readyState);
+  await Promise.resolve();
+  expect(store.modelSettingError).toContain('model rejected');
+  if (order === 'model-first') next.config.push({ modelOptions: { selected: 'replacement-model', available: [] } });
+  else next.sessionState.push(readyState);
+  expect(store.modelSettingError).toContain('model rejected');
+  if (order === 'model-first') next.sessionState.push(readyState);
+  else next.config.push({ modelOptions: { selected: 'replacement-model', available: [] } });
+  expect(store.modelSettingError).toBeNull();
 });

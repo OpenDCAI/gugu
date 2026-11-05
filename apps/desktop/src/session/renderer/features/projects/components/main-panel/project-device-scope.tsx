@@ -25,11 +25,21 @@ export function selectedScope(saved: readonly string[] | null | undefined, avail
 }
 
 /** `deviceOfMember` 只用来认还没答的那几个本地项目在哪台上;读到的文件夹各带自己的 deviceId。 */
-export function foldersInScope(state: ProjectFoldersState, selected: readonly string[], deviceOfMember: (projectId: string) => string | null): ProjectFoldersState {
+export function foldersInScope(
+  state: ProjectFoldersState,
+  selected: readonly string[],
+  deviceOfMember: (projectId: string) => string | null,
+  isDeviceResting: (deviceId: string) => boolean = () => false,
+): ProjectFoldersState {
   const inScope = (deviceId: string | null) => selected.includes(scopeKey(deviceId));
   const found = state.folders?.filter((folder) => inScope(folder.deviceId)) ?? null;
   // 范围里的机器还有没答的、答了的又一个都没有:还不知道 ⇒ 按读取中(null),❌ 报「所选设备不可用」。
-  const folders = found?.length === 0 && state.unanswered.some((projectId) => inScope(deviceOfMember(projectId))) ? null : found;
+  // A resting cloud device has not answered this read; its empty cached list is
+  // not proof that the selected folders are unavailable. Typing wakes it via the
+  // existing composer path, and reconnecting reloads the actual folder list.
+  const waiting = state.unanswered.some((projectId) => inScope(deviceOfMember(projectId)))
+    || selected.some((deviceId) => deviceId !== 'local' && isDeviceResting(deviceId));
+  const folders = found?.length === 0 && waiting ? null : found;
   const chosen = folders?.find((folder) => folder.workspaceId === state.chosen?.workspaceId) ?? folders?.[0] ?? null;
   return { ...state, folders, chosen };
 }

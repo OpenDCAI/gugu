@@ -77,12 +77,12 @@ import { readGroupMemberIdentities } from './chatGroupIdentity'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { addGroupAgent, type GroupAgentJoinOutcome, groupJoinError, listMyAgentJoinRequests } from './groupAgentJoinService'
 import { currentGroupAdmin } from './groupAdmin'
+import { deleteListedConversation } from './deleteListedConversation'
 export type {
   MessageOverlay,
   MessageMutationPatch,
   WindowRevalidation,
 } from './chatMessageRevalidation'
-
 
 type GroupCollabMemberRow = {
   user_id: string
@@ -879,9 +879,9 @@ export const chatService = {
     return createGroupWithInvitations(chatDb, name, creatorId, await getCurrentAuthUserId(), identities, groupPrompt)
   },
 
-  /** Archive a chat so it disappears from getChats() for every member. */
-  async archiveChat(chatId: string): Promise<void> {
-    await (await currentGroupAdmin()).archive(chatId)
+  /** Delete this owner's DM list entry, or archive a group using its management authority. */
+  async archiveChat(chatId: string) {
+    return deleteListedConversation(chatId)
   },
 
   /**

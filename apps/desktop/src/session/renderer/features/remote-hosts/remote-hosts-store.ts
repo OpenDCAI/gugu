@@ -1,3 +1,4 @@
+import { setAssistantProjectHosts } from '@renderer/features/projects/assistant-project-presentation';
 // #6264「会话页里的别的机器」(按 Zed):别的机器上的项目与本机项目混排在同一个侧栏里,机器是项目的属性,
 // ❌ 没有「当前机器」。这里只管「名下有哪些别的机器、和它们连没连上」;项目、任务、会话本身与本机的
 // 是同一张表、同一套界面(behavior gugu-server.md 第 8 条,一套工作台):连上一台就把它的项目清单
@@ -575,6 +576,7 @@ export class RemoteHostsStore {
       this.bridge = bridge;
     });
     if (!bridge) {
+      setAssistantProjectHosts([]);
       for (const deviceId of [...this.hosts.keys()]) this.forget(deviceId);
       return;
     }
@@ -597,6 +599,7 @@ export class RemoteHostsStore {
     const bridge = this.bridge;
     if (!bridge) return;
     const devices = bridge.listDevices();
+    setAssistantProjectHosts(devices);
     const seen = new Set<string>();
     for (const device of devices) {
       seen.add(device.id);

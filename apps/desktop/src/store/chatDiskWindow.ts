@@ -2,6 +2,21 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import { readMessageWindow, type AccountImRepository } from '../lib/imRepository'
 import { trimToMessageWindow } from './chatMessageWindow'
+import type { ChatWindowCache } from './chatWindowCache'
+
+/** One account commit feeds every viewport, including conversations not open yet. */
+export function bindRepositoryMessageCache(repository: AccountImRepository, cache: ChatWindowCache): () => void {
+  let previous: ReturnType<AccountImRepository['snapshot']> | undefined
+  return repository.subscribe(snapshot => snapshot, snapshot => {
+    if (previous && previous.chat !== snapshot.chat) {
+      for (const row of previous.chat) if (!snapshot.chat.some(chat => chat.id === row.id)) cache.delete(row.id)
+    }
+    const messagesChanged = previous?.message !== snapshot.message
+    previous = snapshot
+    if (!messagesChanged) return
+    for (const chatId of new Set(snapshot.message.map(row => row.chatId))) cache.set(chatId, readMessageWindow(repository, chatId)?.messages ?? [])
+  })
+}
 
 /**
  * 盘上(L2)的消息窗 → 这条会话现在就能画的行。盘读是同步的:仓库开着时,点开一条会话的**同一帧**
@@ -9,10 +24,10 @@ import { trimToMessageWindow } from './chatMessageWindow'
  *
  * - 按 chat_id 过滤 + 裁到窗口(防串会话,与内存缓存同一契约)。
  * - 内存里只有未落定的乐观行(outbox)不算已缓存:与盘上的窗合并。
- * - 内存里已有落定行 ⇒ null:更新的网络数据优先,迟到的盘读不许覆盖它。
+ * - L1 已有落定行时不回灌迟到的盘窗;账号新消息由上面的提交订阅推入同一 L1。
  */
 export function paintableDiskWindow(repository: AccountImRepository, chatId: string, live: MessageItem[] | undefined): { rows: MessageItem[]; hasMoreOlder: boolean } | null {
-  if (live?.some((message) => message.seq >= 0)) return null
+  if (live?.some(message => message.seq >= 0)) return null
   const cached = readMessageWindow(repository, chatId)
   const rows = cached ? trimToMessageWindow(cached.messages.filter((message) => message.chat_id === chatId)) : []
   if (!cached || rows.length === 0) return null

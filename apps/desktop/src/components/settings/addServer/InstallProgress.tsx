@@ -8,6 +8,7 @@ import { Check, ChevronDown, ChevronRight, Circle, X } from '@/lib/icons'
 import type { ServerSshInstallFailureReason, ServerSshInstallState, ServerSshInstallStep } from '../../../lib/serverSshInstall'
 import { cn } from '../../../lib/cn'
 import { platform } from '../../../platform'
+import { useAuth } from '../../../store/auth'
 import { Button } from '../../ui/Button'
 import { Collapse } from '../../ui/Collapse'
 import { CommandBlock } from './CommandBlock'
@@ -56,6 +57,9 @@ const TUNNEL_FALLBACK_REASONS: ReadonlySet<ServerSshInstallFailureReason> = new 
   'connectTimeout',
 ])
 
+/** #1682 Retrying cannot change these: the fix is elsewhere (that machine, or another address). */
+const NO_RETRY_REASONS: ReadonlySet<ServerSshInstallFailureReason> = new Set(['accountMismatch'])
+
 export function InstallProgress({
   state,
   landing = null,
@@ -88,6 +92,7 @@ export function InstallProgress({
   onRemoveMachine?: () => void
 }) {
   const { t } = useTranslation('settings')
+  const { user } = useAuth()
   const { prompt, failure, result, warnings, finished, machine } = state
   const [showLog, setShowLog] = useState(false)
 
@@ -138,6 +143,8 @@ export function InstallProgress({
         return step.replaces && step.status !== 'failed' ? t('devices.addServer.stepDetail.replaces', { version: step.replaces }) : null
       case 'login':
         if (machine?.alreadySignedIn) return t('devices.addServer.stepDetail.alreadySignedIn')
+        // #1682 Refused because another account holds it: nothing will be added, so ❌ promise it.
+        if (failure?.reason === 'accountMismatch') return null
         if (machine && machine.others.length > 0) return t('devices.addServer.stepDetail.addAccount', { names: machine.others.join('、') })
         return null
     }
@@ -206,6 +213,10 @@ export function InstallProgress({
             <div className={cn(text, 'text-[var(--fg)]')}>
               {failure.reason === 'machineLimit' ? (
                 <MachineLimitNotice refusal={failure.machineLimit ?? null} onUpgrade={onUpgrade} onRemoveMachine={onRemoveMachine} />
+              ) : failure.reason === 'accountMismatch' && failure.accountMismatch ? (
+                user?.email
+                  ? t('devices.addServer.reasons.accountMismatch', { server: failure.accountMismatch.server, current: user.email })
+                  : t('devices.addServer.reasons.accountMismatchUnknownCurrent', { server: failure.accountMismatch.server })
               ) : (
                 t(`devices.addServer.reasons.${failure.reason}`)
               )}
@@ -269,7 +280,7 @@ export function InstallProgress({
       <div className="flex justify-end gap-2">
         {!finished && <Button size="sm" onClick={onCancel}>{t('devices.cancel')}</Button>}
         {finished && failure && <Button size="sm" onClick={onBack}>{t('devices.addServer.back')}</Button>}
-        {finished && failure && (
+        {finished && failure && !NO_RETRY_REASONS.has(failure.reason) && (
           <Button size="sm" variant="primary" onClick={onRetry}>{t('devices.retry')}</Button>
         )}
         {finished && !failure && (

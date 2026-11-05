@@ -1,3 +1,4 @@
+import { installRemoteHostsBridge, CloudComputerWakeFailed } from '@/session/shared/remote-hosts';
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -6,15 +7,17 @@ import { LocalizationProvider, setLocalePreference } from '@/i18n';
 import { modalStore } from '@renderer/lib/modal/modal-store';
 import { useConfirmDeleteProject } from './use-confirm-delete-project';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn(), notice: vi.fn(), log: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn(), notice: vi.fn(), log: vi.fn(), wake: vi.fn(), cloud: {presence: 'asleep' as string} }));
 vi.mock('@renderer/lib/ipc', () => ({ rpc: { automations: { listAutomations: mocks.list } } }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ deleteProject: mocks.remove }),
 }));
+vi.mock('@renderer/lib/machine-routing', () => ({machineRegistry: {machineOf: () => 'cloud-device'}}));
 vi.mock('@/lib/notices', () => ({ notify: mocks.notice, dismissNotice: vi.fn() }));
 vi.mock('@/lib/log', () => ({ rendererLogger: () => ({ error: mocks.log }) }));
 
 let root: Root, container: HTMLDivElement;
+let offBridge: () => void;
 let confirm: ReturnType<typeof useConfirmDeleteProject>;
 function Probe() {
   confirm = useConfirmDeleteProject();
@@ -26,6 +29,12 @@ const settle = async () => { await act(async () => {}); };
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  mocks.cloud.presence = 'asleep';
+  mocks.wake.mockImplementation(async () => { mocks.cloud.presence = 'awake'; });
+  offBridge = installRemoteHostsBridge({
+    listDevices: () => [{id: 'cloud-device', label: 'Cloud assistant', isOnline: true, cloudComputer: mocks.cloud.presence}],
+    subscribeDevices: () => () => {}, pickFolder: async () => null, wakeCloudComputer: mocks.wake,
+  } as never);
   mocks.list.mockResolvedValue([]);
   mocks.remove.mockResolvedValue(undefined);
   setLocalePreference('en-US');
@@ -38,6 +47,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   act(() => root.unmount());
+  offBridge();
   container.remove();
   modalStore.closeModal();
   vi.clearAllTimers();
@@ -46,6 +56,33 @@ afterEach(() => {
 });
 
 describe('project deletion confirmation', () => {
+  it('wakes a resting cloud host before reading automation dependencies or requesting deletion', async () => {
+    const unreachable = Object.assign(new Error('Cloud host is resting'), {code: 'unreachable'});
+    mocks.wake.mockImplementation(async () => {mocks.cloud.presence = 'awake'; return true;});
+    mocks.list.mockImplementation(async () => {
+      if (mocks.cloud.presence !== 'awake') throw unreachable;
+      return [];
+    });
+    await act(async () => confirm(project));
+    expect(mocks.wake).toHaveBeenCalledWith('cloud-device');
+    expect(mocks.wake.mock.invocationCallOrder[0]).toBeLessThan(mocks.list.mock.invocationCallOrder[0]);
+    expect(modalStore.activeModalId).toBe('confirmActionModal');
+    expect(mocks.remove).not.toHaveBeenCalled();
+    await act(async () => modalStore.activeModalArgs!.onSuccess({dontAskAgain: false, scopeChecked: false}));
+    expect(mocks.remove).toHaveBeenCalledWith(project.projectId);
+    expect(mocks.notice).not.toHaveBeenCalled();
+  });
+
+  it('shows the wake refusal without reading dependencies, opening confirmation, or deleting', async () => {
+    mocks.wake.mockRejectedValue(new CloudComputerWakeFailed('refused', 'credits_exhausted', 'private controller diagnostics'));
+    await act(async () => confirm(project));
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(modalStore.isOpen).toBe(false);
+    expect(mocks.notice).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error', description: expect.not.stringContaining('private controller diagnostics') }));
+    expect(mocks.log).toHaveBeenCalled();
+  });
+
   it('shows automation names before deletion and runs the success callback only after deletion succeeds', async () => {
     mocks.list.mockResolvedValue([{ id: 'scheduled', name: 'Daily report' }]);
     let finish!: () => void;

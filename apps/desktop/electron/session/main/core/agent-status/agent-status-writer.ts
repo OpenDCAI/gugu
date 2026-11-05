@@ -33,6 +33,7 @@ import {
   type ProviderReviewGate,
 } from '@shared/core/sessions/sessionEvents';
 import type { InterruptedBy, Session } from '@shared/core/sessions/sessions';
+import type { HarnessPresenceStatus } from '@gugu/session-core/agents/plugins';
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import {
   emptyStatusLogState,
@@ -80,6 +81,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
   /** 声明了的状态来源读不出(会话在场文件没出现 / 格式变了):一句原因。 */
   private readonly statusSourceFaults = new Map<string, string>();
   private readonly writes = new Map<string, Promise<void>>();
+  private readonly writeVersions = new Map<string, symbol>();
   private readonly disposers: Array<() => void> = [];
   private readonly _hooks = new HookCore<AgentStatusWriterHooks>((name, e) =>
     log.error(`AgentStatusWriter: ${String(name)} hook error`, e)
@@ -93,7 +95,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
    * 同一会话的写入按到达顺序一条一条做完:每条都先 await 库再发布;两条挨得很近的写入(回合起 → 马上被取消)
    * 并发跑时,后到的可能先发布完,读者最终停在前一条上。
    */
-  private inOrder(sessionId: string, write: () => Promise<void>): Promise<void> {
+  private inOrder(sessionId: string, write: () => Promise<void>, version = Symbol()): Promise<void> {
+    this.writeVersions.set(sessionId, version);
     const next = (this.writes.get(sessionId) ?? Promise.resolve()).then(write);
     const settled = next.then(
       () => undefined,
@@ -126,6 +129,11 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     if (!entry) return false;
     const { status } = readStatusLog(entry.state);
     return status === 'working' || status === 'needs_user';
+  }
+
+  currentReading(sessionId: string): AgentStatusReading | null {
+    const entry = this.logs.get(sessionId);
+    return entry ? readStatusLog(entry.state) : null;
   }
 
   /**
@@ -293,7 +301,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
 
   /**
    * 开机收残:上一个进程的会话,引擎随它一起没了的(ACP、不在 tmux 里的终端腿),留下的「在跑 / 等人」是历史不是现在时。
-   * 那一轮没做完、也没人知道 ⇒ 记成 `error`、未读(要人处理;下一轮开工自己清掉),原因(`lastExit`:宿主更新 / 重启 /
+   * 那一轮被打断,不是做完也不是失败 ⇒ 记成已读的 `idle/plain`,原因(`lastExit`:宿主更新 / 重启 /
    * 上一次没正常退出)记在 interrupted-turns,会话页末尾据此说一句(10-28 Linux 2:换版打断 7 条车道,侧栏却是一片安静的空闲)。
    * **引擎在 tmux 里活下来的不收**:它那一轮还在跑,读数照旧(它的钩子会接着打回来)。❌ 一律收成空闲:
    * 那样账号进程一重启,所有在 tmux 里跑着的会话都读成空闲(10-08:守护进程据此判「没有 agent 在跑」连升两级)。
@@ -311,13 +319,52 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     for (const sessionId of gone) {
       await sessionBootTasks.run('status-recovery', sessionId, async () => {
         await db.update(sessions)
-          .set({ agentStatus: 'error', agentStatusDetail: null, agentStatusSeen: 0 })
+          .set({ agentStatus: 'idle', agentStatusDetail: 'plain', agentStatusSeen: 1 })
           .where(eq(sessions.id, sessionId));
         recordInterruptedTurns([sessionId], lastExit);
         settled.push(sessionId);
       });
     }
     return settled;
+  }
+
+  /** Sample after prior writes, and remember this position even after the queue becomes idle. */
+  async presenceWriteVersion(sessionId: string): Promise<symbol> {
+    const version = this.writeVersions.get(sessionId) ?? Symbol();
+    const ready = this.inOrder(sessionId, async () => {}, version);
+    await ready;
+    return version;
+  }
+
+  /** A surviving harness's boot snapshot uses the normal writer path, never interruption recovery. */
+  reconcilePresence(params: StatusWriteParams & { status: HarnessPresenceStatus; signal?: AbortSignal; writeVersion: symbol }): Promise<void> {
+    const sessionId = params.sessionId;
+    if (params.writeVersion !== this.writeVersions.get(sessionId)) return Promise.resolve();
+    const writingVersion = Symbol();
+    return this.inOrder(sessionId, () => this.apply(sessionId, ctx => {
+      // The boot deadline can expire while this write is queued or logFor reads the stored row.
+      if (params.signal?.aborted) return [];
+      // A newer queued live fact supersedes the sample, even while logFor is waiting.
+      if (writingVersion !== this.writeVersions.get(sessionId)) return [];
+      const current = this.currentReading(sessionId);
+      const target: Pick<AgentStatusReading, 'status' | 'detail'> = params.status === 'busy'
+        ? { status: 'working', detail: 'running' }
+        : params.status === 'shell' ? { status: 'working', detail: 'parked' }
+          : params.status === 'waiting' ? { status: 'needs_user', detail: current?.status === 'needs_user' ? current.detail : 'approval' }
+            : { status: 'idle', detail: current?.status === 'idle' ? current.detail : 'done' };
+      // A matching snapshot cannot replace existing waits, background counts or read state.
+      if (current?.status === target.status && current.detail === target.detail) return [];
+      const events: AgentStatusEvent[] = [{ kind: 'Started', sessionId }];
+      if (params.status === 'idle' || params.status === 'shell') {
+        events.push({ kind: 'Stopped', sessionId, outcome: 'done',
+          backgroundTasks: params.status === 'shell' ? 1 : 0, scheduledTasks: 0 });
+      } else {
+        events.push({ kind: 'TasksObserved', sessionId, backgroundTasks: 0, scheduledTasks: 0 });
+        if (params.status === 'busy') events.push({ kind: 'WaitEnded', sessionId, id: '*' });
+        else if (!ctx.waiting) events.push({ kind: 'WaitStarted', sessionId, id: 'presence', waitKind: 'approval' });
+      }
+      return events;
+    }, this.now()), writingVersion);
   }
 
   /** 宿主停下了在飞的一切(停止键、ACP 取消 / 关闭):被打断,不是做完也不是失败。 */
@@ -349,7 +396,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       }
       if (!entry.written.unseen) return;
       await this.publish(sessionId, entry, readStatusLog(entry.state), false, this.now(), { persist: true });
-    });
+    }, this.writeVersions.get(sessionId));
   }
 
   /**
@@ -418,7 +465,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       const entry = await this.logFor(params.sessionId);
       if (!entry?.written) return;
       await this.publish(params.sessionId, entry, readStatusLog(entry.state), entry.written.unseen, this.now(), { persist: false });
-    }).catch((error) =>
+    }, this.writeVersions.get(params.sessionId)).catch((error) =>
       log.error('AgentStatusWriter: failed to publish the status source fault', { sessionId: params.sessionId, error: String(error) }),
     );
   }
@@ -472,6 +519,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       this.providerReviewGates.delete(sessionId);
       this.providerBlockers.delete(sessionId);
       this.statusSourceFaults.delete(sessionId);
+      this.writeVersions.delete(sessionId);
     }
   }
 
@@ -527,6 +575,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     this.providerReviewGates.clear();
     this.providerBlockers.clear();
     this.statusSourceFaults.clear();
+    this.writeVersions.clear();
   }
 }
 

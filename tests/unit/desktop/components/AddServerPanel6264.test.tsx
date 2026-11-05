@@ -38,6 +38,7 @@ import {
   type NewSessionBridgeWindow,
 } from '../../../../apps/desktop/src/lib/sessionpageNewSessionBridge'
 import { DevicesContext, type DevicesContextValue } from '../../../../apps/desktop/src/store/devicesContext'
+import { AuthContext } from '../../../../apps/desktop/src/store/auth'
 import { createReactHarness } from '../../../support/testHarness'
 import zhSettings from '../../../../apps/desktop/src/i18n/locales/zh-CN/settings'
 import enSettings from '../../../../apps/desktop/src/i18n/locales/en-US/settings'
@@ -526,6 +527,49 @@ describe('OneLineInstall · 一行命令添加', () => {
     expect(status()).toBe('Linux 2 已添加')
     await click(buttonNamed('完成'))
     expect(onAdded).toHaveBeenCalledWith('new-1')
+    harness.cleanup()
+  })
+})
+
+describe('AddServerPanel · 那台机器登的是另一个账号（#1682）', () => {
+  const signedInAs = (email: string) => (children: React.ReactNode) => (
+    <AuthContext.Provider value={{ user: { id: 'u1', email, nickname: 'D' }, loading: false, status: 'ready' as never,
+      updateUser: noop, logout: async () => ({ success: true }) }}>{children}</AuthContext.Provider>
+  )
+  const mismatch = (): ServerSshInstallState['failure'] => ({ step: 'detect', reason: 'accountMismatch',
+    accountMismatch: { server: 'c… · u9' }, detail: 'This system user is already signed in to another Gugu account (c… · u9).' })
+
+  it('说清两边各是哪个账号，不给「重试」；「改地址」留着', async () => {
+    const { emit } = installApi()
+    const harness = createReactHarness()
+    await harness.render(signedInAs('dana@lab.edu')(panel()))
+    await act(async () => undefined)
+    await type(target(), 'gpu')
+    await click(buttonNamed('连接'))
+    emit(state({ steps: steps({ connect: 'done', detect: 'failed' }), failure: mismatch(), finished: true,
+      machine: { os: 'Linux', arch: 'x86_64', distro: 'Ubuntu 22.04.4 LTS', libc: 'glibc 2.35', hostname: 'box', user: 'alice',
+        installedVersion: '0.3.1', others: ['c… · u9'], alreadySignedIn: false } }))
+    const failure = document.querySelector('[data-testid="add-server-failure"]')?.textContent ?? ''
+    expect(failure).toContain('c… · u9')
+    expect(failure).toContain('dana@lab.edu')
+    expect(failure).not.toContain('重试')
+    expect(buttonNamed('重试')).toBeUndefined()
+    expect(buttonNamed('改地址')).toBeTruthy()
+    // 登录那一步不会再发生:❌ 还写着「添加你的账号」。
+    expect(body()).not.toContain('添加你的账号')
+    harness.cleanup()
+  })
+
+  it('别的失败照旧给「重试」', async () => {
+    const { emit } = installApi()
+    const harness = createReactHarness()
+    await harness.render(signedInAs('dana@lab.edu')(panel()))
+    await act(async () => undefined)
+    await type(target(), 'gpu')
+    await click(buttonNamed('连接'))
+    emit(state({ steps: steps({ connect: 'done', detect: 'done', download: 'done', service: 'done', login: 'failed' }),
+      failure: { step: 'login', reason: 'loginFailed', detail: 'expired_token' }, finished: true }))
+    expect(buttonNamed('重试')).toBeTruthy()
     harness.cleanup()
   })
 })

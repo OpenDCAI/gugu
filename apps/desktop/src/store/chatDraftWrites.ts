@@ -1,6 +1,6 @@
 import type { PromptEditorRef } from '@gugu/session-ui/react/components'
 
-export type DraftWrite = string | { at: 'start' | 'end'; text: string }
+export type DraftWrite = string | { at: 'start' | 'end'; text: string } | { clearIf: string }
 type DraftEditor = () => PromptEditorRef | null
 type DraftStore = { drafts: Record<string, string>; setDraft: (chatId: string, update: (text: string) => string) => void }
 
@@ -22,6 +22,16 @@ export function createDraftWriter(store: () => DraftStore) {
     },
     writeDraft(chatId: string | null | undefined, write: DraftWrite) {
       const mounted = [...editors.get(chatId ?? null) ?? []].map((resolve) => resolve()).filter((editor) => editor !== null)
+      // A durable send settles the shared slot, including a composer opened while it was pending.
+      // The live document wins over its debounced mirror; changed text is never partially consumed.
+      if (typeof write !== 'string' && 'clearIf' in write) {
+        if (mounted.length) {
+          if (mounted.at(-1)!.getText() !== write.clearIf) return
+          for (const editor of mounted) if (editor.getText() === write.clearIf) editor.setText('')
+          if (chatId) store().setDraft(chatId, () => '')
+        } else if (chatId) store().setDraft(chatId, current => current === write.clearIf ? '' : current)
+        return
+      }
       if (mounted.length) {
         for (const editor of mounted) {
           if (typeof write === 'string') editor.setText(write)

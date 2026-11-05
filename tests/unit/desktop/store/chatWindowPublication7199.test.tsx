@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness, deferred, message } from '../../../support/testHarness'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
-import { openImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { openImRepository, ingestAccountMessage } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { openCachedChatWindow, useChatWindowCache } from '../../../../apps/desktop/src/store/chatWindowPublication'
 
@@ -70,6 +70,27 @@ describe('shared message cache publication', () => {
     await read
     expect(readSeqs).toHaveBeenCalledWith({ peer: 1 })
     repository.close()
+  })
+
+  it('paints an unopened account arrival before fetching a complete tail for its sparse range', async () => {
+    await harness.render(<CacheOwner index={1} />)
+    const repository = await openImRepository('user', { adapter: createMemoryLocalSyncDb() })
+    const arrival = message({ id: 'arrived-while-closed', chat_id: 'topic', seq: 100 })
+    await repository.transaction(tx => ingestAccountMessage(repository, tx, arrival, '1'))
+    const body = deferred<ReturnType<typeof message>[]>()
+    const readMessages = vi.spyOn(chatService, 'getMessages').mockImplementation(() => body.promise)
+    vi.spyOn(chatService, 'getOtherMembersReadSeqs').mockResolvedValue({})
+    const painted = vi.fn()
+    const read = openCachedChatWindow({
+      chatId: 'topic', userId: 'user', cache: first.cache, history: first.cache.history('topic'), getRepository: async () => repository,
+      expectedTailSeq: 100, hasPositiveUnread: true,
+      observer: { current: () => true, painted, ready: vi.fn(), readSeqs: vi.fn() },
+      commit: rows => { first.cache.set('topic', rows) }, revalidate: async () => {},
+    })
+    await vi.waitFor(() => expect(painted).toHaveBeenCalledWith([arrival], true))
+    expect(readMessages).toHaveBeenCalledWith('topic', 'user', 'initialLoad', 30)
+    expect(first.cache.rows('topic')).toEqual([arrival])
+    body.resolve([arrival]); await read; repository.close()
   })
 
 })

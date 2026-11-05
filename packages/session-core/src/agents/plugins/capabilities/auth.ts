@@ -82,6 +82,8 @@ export const agentAuthDescriptorSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('supported'),
     methods: z.array(authMethodSchema).min(1),
+    /** This adapter supports managing saved account/API connections in the shared connection panel. */
+    connections: z.object({ kind: z.literal('managed') }).optional(),
     programs: z.record(z.string(), programAuthSchema).optional(),
   }),
 ]);
