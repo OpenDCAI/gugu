@@ -6,6 +6,7 @@ import { creditDecimal as d, type CreditAmount } from '@gugu/core/billing/credit
 import { creditAmounts, rankModels, stackedPoints } from '../../../../apps/desktop/src/lib/usage/charts'
 import { creditChartScale } from '../../../../apps/desktop/src/lib/usage/creditChartScale'
 import { formatCreditDecimal } from '../../../../apps/desktop/src/lib/billing/v2/decimal'
+import { quotaWindowLabel } from '../../../../apps/desktop/src/lib/billing/quota'
 import { CreditStackedChart, StackedChart } from '../../../../apps/desktop/src/components/usage/UsageCharts'
 const chart = vi.hoisted(() => ({ spec: null as unknown }))
 // Only the canvas renderer is replaced: these assertions exercise the real chart's
@@ -89,4 +90,9 @@ it('preserves numeric token and request chart semantics', async () => {
   const spec = chart.spec as Spec
   expect(spec.data[0].values[0]).toMatchObject({ value: 42, amount: 42 })
   expect(spec.tooltip.mark.content[0].value(spec.data[0].values[0])).toBe('42')
+})
+
+it('names a quota window in days from two whole days up, in hours below', () => {
+  expect(quotaWindowLabel(720, 'en-US')).toBe('30 days')
+  expect(quotaWindowLabel(24, 'en-US')).toBe('24 hours')
 })
