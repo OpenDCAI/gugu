@@ -4,7 +4,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { build } from 'esbuild'
-import ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { defaultEngineTreeOps } from '../../../../packages/session-core/src/acp/engine-tree'
 
@@ -55,41 +54,25 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
       process.send({kind:'wire-runtime-signal',event:'ready'});
       setInterval(()=>{},1000);
     `)
-    const main = ts.createSourceFile('main.ts', fs.readFileSync(path.resolve(__dirname, '../../../../apps/desktop/electron/main.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
-    const declaration = (name: string) => main.statements.find(node => ts.isVariableStatement(node)
-      && node.declarationList.declarations.some(item => item.name.getText(main) === name))!.getText(main)
-    const fatal = main.statements.find(node => node.getText(main).startsWith("process.on('uncaughtException'"))!.getText(main)
-    let lockGuard = ''
-    const visit = (node: ts.Node): void => {
-      if (ts.isVariableDeclaration(node) && node.name.getText(main) === 'reportActivity' && node.initializer && ts.isArrowFunction(node.initializer) && ts.isBlock(node.initializer.body)) {
-        lockGuard = node.initializer.body.statements.find(statement => ts.isIfStatement(statement) && statement.expression.getText(main).includes('ownsHomeLock'))!.getText(main)
-      }
-      ts.forEachChild(node, visit)
-    }
-    visit(main)
-    expect(lockGuard).not.toBe('')
     await build({ stdin: { loader: 'ts', resolveDir: process.cwd(), contents: `
       import {appendFileSync,existsSync} from 'node:fs';
       import {join} from 'node:path';
-      import {spawnWorker,killAllWorkersSync} from ${JSON.stringify(path.resolve('packages/session-wire/src/worker/index.ts'))};
+      import {spawnWorker} from ${JSON.stringify(path.resolve('packages/session-wire/src/worker/index.ts'))};
       import {defineContract} from ${JSON.stringify(path.resolve('packages/session-wire/src/api/define.ts'))};
       import {createScope} from ${JSON.stringify(path.resolve('packages/session-wire/src/util/scope.ts'))};
       import {createStubLogger} from ${JSON.stringify(path.resolve('packages/session-wire/src/testing/index.ts'))};
-      import * as engineTree from ${JSON.stringify(path.resolve('packages/session-core/src/acp/engine-tree.ts'))};
-      const {signalProcessDescendantsSync}=engineTree;
-      import {killServerDescendantsSync} from ${JSON.stringify(path.resolve('apps/desktop/electron/server/server-processes.ts'))};
       import {checkAccountBoot} from ${JSON.stringify(path.resolve('apps/desktop/electron/server/server-selftest.ts'))};
       import {runMiseProcess} from ${JSON.stringify(path.resolve('apps/desktop/electron/session/main/core/dependencies/mise-process.ts'))};
+      import {createNativeLegReap,createFatalExit,stopOnLostLock} from ${JSON.stringify(path.resolve('apps/desktop/electron/process-exit.ts'))};
+      import {createSignalExit} from ${JSON.stringify(path.resolve('apps/desktop/electron/signal-exit.ts'))};
       const logDir=${JSON.stringify(dir)},shutdownLogger={info(){},error(){},warn(){}};
-      const createLogger=()=>shutdownLogger,classifyFatal=()=>'defect',recordFatalSync=()=>{};
-      const killAllCodexAppServerProcessGroupsSync=()=>{},opencodeServeAttachSessionDelivery={disposeSync(){}},droidDaemonSessionDelivery={disposeSync(){}};
-      const emdashBridge=null,closeTunnelMachines=null,tunnelEndpoint=null;
       let lockLost=false;
-      const app={getPath:()=>''},noteExitReason=()=>{},stopServerActivity=()=>{},deviceRuntimeHost=null,SERVER_MODE=process.env.EXIT_SCOPE!=='desktop',EXIT_RESTART=75,EXIT_CONFIG=78,isSingleServerRun=()=>lockLost,ownsHomeLock=()=>false;
-      let signalStopping=false;
-      ${declaration('killEnginesOnCrash')}
-      ${declaration('exitOnSignal')}
-      ${fatal}
+      const SERVER_MODE=process.env.EXIT_SCOPE!=='desktop',isSingleServerRun=()=>lockLost,exit=(code)=>process.exit(code);
+      // main's wiring of the real exit paths; the other native legs (codex, opencode, droid, programs, tunnel) are idle here.
+      const killEnginesOnCrash=createNativeLegReap({logDir,serverMode:SERVER_MODE,logger:shutdownLogger,legs:()=>[]});
+      const {exitOnSignal}=createSignalExit({serverMode:SERVER_MODE,exitRestart:75,exitSignedOut:78,stopActivity(){},singleRun:isSingleServerRun,
+        sessionFileExists:()=>true,supervisedBy:()=>undefined,markStopped(){},noteExitReason(){},killEngines:killEnginesOnCrash,exit,host:()=>null,stopHost:async()=>{},warn(){}});
+      process.on('uncaughtException',createFatalExit({classify:()=>'defect',record(){},logger:shutdownLogger,reap:killEnginesOnCrash,exit}));
       void(async()=>{
         const {logger}=createStubLogger();
         await spawnWorker({name:'fixture',entry:${JSON.stringify(workerEntry)},contract:defineContract({}),scope:createScope({logger}),supervision:{restart:'never'}});
@@ -99,7 +82,7 @@ describe.runIf(process.platform !== 'win32')('real host exit with a detached ACP
         while(!existsSync(process.env.BOOT_TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
         while(!existsSync(process.env.MISE_TREE_FILE)) await new Promise(resolve=>setTimeout(resolve,5));
         process.on('message',kind=>{
-          if(kind==='lock-lost'){lockLost=true;${lockGuard}}
+          if(kind==='lock-lost'){lockLost=true;stopOnLostLock({singleRun:isSingleServerRun,ownsHomeLock:()=>false,logger:shutdownLogger,reap:killEnginesOnCrash,exit,exitCode:78})}
           else if(kind==='crash') setImmediate(()=>{throw new Error('download parser failure fixture')});
           else exitOnSignal('SIGTERM',kind==='stop'?143:75);
         });
