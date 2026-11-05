@@ -5,6 +5,7 @@ Describe the concrete problem and resulting behavior. Link the issue; use Closes
 ## Verification
 
 - Focused validation and observed results:
+- New tests fail on the parent commit: <command and output summary>, or N/A with the reason:
 - Remaining limits or user configuration needed:
 - How a reviewer can try the change:
 
