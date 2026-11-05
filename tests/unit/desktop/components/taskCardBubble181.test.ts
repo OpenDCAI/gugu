@@ -295,6 +295,25 @@ describe('task card resource access', () => {
     expect(cardOpen.open).not.toHaveBeenCalled()
   })
 
+  // A task's attachments are versions in its agent's DM folder: the phone opens them by id, as it opens any chat file.
+  it('opens a task attachment with the chat file opener, by its id and version, without opening the topic', async () => {
+    const onOpenTopic = vi.fn(), onOpenFile = vi.fn()
+    const files = [{ itemId: 'brief', version: 2, name: 'brief.csv', mimeType: 'text/csv', sizeBytes: 12 }]
+    await renderWithAppProviders(harness, createNode(MessageBubble, {
+      msg: message({ id: 'card-1', is_mine: true, content_type: 'card', content: serializeComposerCard({ ...CARD, files }) }),
+      onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(), compactMobile: true, onOpenTopic, onOpenFile,
+    }))
+    const card = harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
+    expect(card.tagName).toBe('DIV') // a card holding links is not a <button> around them
+    const file = card.querySelector<HTMLElement>('[data-testid="task-card-file"]')!
+    expect(file.textContent).toBe('brief.csv')
+    await act(async () => { file.click() })
+    expect(onOpenFile).toHaveBeenCalledWith({ kind: 'file', fileName: 'brief.csv', mimeType: 'text/csv', sizeBytes: 12, source: { kind: 'item', itemId: 'brief', version: 2 } })
+    expect(onOpenTopic).not.toHaveBeenCalled()
+    await act(async () => { card.click() })
+    expect(onOpenTopic).toHaveBeenCalledWith('card-1')
+  })
+
   it('does not retain a failed device lookup for the next card mount', async () => {
     cardOpen.snapshot.mockRejectedValueOnce(new Error('snapshot unavailable'))
     await renderCard(true)

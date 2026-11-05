@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
 import type { ComposerCard, QuestionCard, TaskCard } from '@gugu/core/shared/ui/taskCardModels'
+import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
+import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
 import { composerCardCopy } from '../../lib/composerCardCopy'
 import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
 import { Check, Clock, Sparkles } from '@/lib/icons'
@@ -43,7 +45,7 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
  * gugu-dev#181 任务卡 / 已安排卡:是什么(右上时刻)、原话、文件名(有附件时)、交给谁(行尾状态与侧栏同一套读数)。
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
-export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles, onOpenTopic }: {
+export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles, onOpenTopic, onOpenFile }: {
   card: Exclude<ComposerCard, QuestionCard>
   isMine: boolean
   isGroup: boolean
@@ -58,6 +60,8 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
    * 谁的卡都能点 —— 话题跟着群,群里的人都看得见;过程在派它的那台电脑上,话题里是它每一轮说的话。
    */
   onOpenTopic?: () => void
+  /** A chat's file opener (MessageBubble's): a task's attachments are versions in its agent's DM folder, opened by id. */
+  onOpenFile?: (file: ParsedAttachment) => void
 }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
@@ -84,9 +88,18 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
       time={time}
       text={card.text}
       onOpen={openable ? () => (onOpenTopic ? onOpenTopic() : openTaskCardSession(task, place.local)) : undefined}
+      links={!!onOpenFile}
     >
       {task?.files?.length ? (
-        <span className="whitespace-pre-wrap break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{task.files.map(file => file.name).join('\n')}</span>
+        <span className="flex flex-col break-words text-[var(--font-caption)] text-[var(--muted-fg)]">
+          {task.files.map(file => {
+            const open = onOpenFile && (() => onOpenFile({ kind: isRenderableImage(file.name, file.mimeType) ? 'image' : 'file', fileName: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes, source: { kind: 'item', itemId: file.itemId, version: file.version } }))
+            return open
+              ? <span key={`${file.itemId}@${file.version}`} role="link" tabIndex={0} data-testid="task-card-file" className="cursor-pointer hover:underline"
+                onClick={event => { event.stopPropagation(); open() }} onKeyDown={event => { if (event.key === 'Enter') { event.stopPropagation(); open() } }}>{file.name}</span>
+              : <span key={`${file.itemId}@${file.version}`}>{file.name}</span>
+          })}
+        </span>
       ) : null}
       {task && !owned ? (
         <span className="break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{place.label}</span>
@@ -107,7 +120,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
  * 任务卡 / 已安排卡的那一面:卡头(记号、是什么、时刻)、原话,底下一行由调用方给。只管长相,❌ 读任何数据 ——
  * 群里的卡(ComposerCardView)和示例项目(#709)里那张预先写好的卡画的是同一面。
  */
-export function ComposerCardFrame({ cardType, mark, title, time, text, onOpen, tour, children }: {
+export function ComposerCardFrame({ cardType, mark, title, time, text, onOpen, tour, links = false, children }: {
   cardType: ComposerCard['type']
   mark: ReactNode
   title: string
@@ -117,10 +130,12 @@ export function ComposerCardFrame({ cardType, mark, title, time, text, onOpen, t
   onOpen?: () => void
   /** 分步引导定位这张卡用的锚点。 */
   tour?: string
+  /** The card holds its own links (a task's files): so it is not a button element around them. */
+  links?: boolean
   children?: ReactNode
 }) {
   const { t } = useTranslation('messaging')
-  const interactiveTime = typeof time !== 'string'
+  const interactiveTime = typeof time !== 'string' || links
   const Root = onOpen && !interactiveTime ? 'button' : 'div'
   return (
     <Root
