@@ -198,7 +198,7 @@ export function projectPendingMessages(committed: readonly TranscriptTurn[], act
     const known = input.nativeEcho ?? remembered?.get(input.id) ?? (ids.length ? undefined : findPendingPromptEcho(input, all));
     for (const { turn, messages } of native) for (const { item, sourceIds } of messages) {
       const landed = known ? nativeMessageKey(item.id) === nativeMessageKey(known.itemId)
-        : item._meta?.guguClientMessageId === input.id || item.id === input.id || (input.id.length >= 16 && item.id.includes(input.id))
+        : (item.kind === 'message' && item._meta?.guguClientMessageId === input.id) || item.id === input.id || (input.id.length >= 16 && item.id.includes(input.id))
           || (ids.length ? ids.every(id => sourceIds.has(id)) : pendingPromptLanded(input, [{ ...turn, items: [item] }]));
       if (landed) match = { turnId: turn.id, itemId: item.id };
     }
