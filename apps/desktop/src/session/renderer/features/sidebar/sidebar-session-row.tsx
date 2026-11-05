@@ -289,7 +289,7 @@ export function SessionRowShell({
                 </Tooltip>
               </span>
             ) : null}
-            <span className={cn(sidebarRowRestActionsClass, treeSummary && 'w-10 whitespace-nowrap')}>
+            <span className={sidebarRowRestActionsClass}>
               {/* 自己的「需要你」先于子树汇总:否则一条出错的会话只显示「树里有事」那颗黄点,红点永远轮不到。 */}
               {presentation && presentationAttention(presentation) ? (
                 <span className="flex size-5 items-center justify-center">
