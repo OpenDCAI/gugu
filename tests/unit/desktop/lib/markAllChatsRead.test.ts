@@ -131,7 +131,7 @@ describe('markChatsReadAndRefresh', () => {
       if (name === 'list_unread_locators') return { data: rows, error: null }
             return { data: [{ ...readState, stream_id: args?.p_stream_id }], error: null }
     })
-    await markChatsReadAndRefresh({ chats: [chat('a', 10), chat('b', 10)], refresh: async () => {}, ...(automatic ? { preserveManualUnread: true } : {}) })
+    await markChatsReadAndRefresh({ chats: [{ ...chat('a', 10), is_marked_unread: true }, chat('b', 10)], refresh: async () => {}, ...(automatic ? { preserveManualUnread: true } : {}) })
     expect(rpc.mock.calls.filter(([name]) => name !== 'list_unread_locators')).toEqual(automatic ? [
       ['mark_stream_read', { p_chat_id: 'b', p_stream_id: 'main:b', p_seq: 9, p_thread_root_id: null }],
     ] : [
