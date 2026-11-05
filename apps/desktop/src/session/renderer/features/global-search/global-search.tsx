@@ -64,9 +64,10 @@ export function openHit(hit: SearchHit): void {
 /**
  * The global search panel (the desktop modal and the phone's full-screen page). One filter row, newest first, the
  * matched sentence leading each row; scope by typing in: / from:, or by a group's header. `tasks`: this device has
- * local tasks to search (the phone has none, so it has no task filter).
+ * local tasks to search (the phone has none, so it has no task filter). `onOpen` closes the panel because a result was
+ * opened (done, not dismissed: focus goes to the result, not back to the box that opened the panel).
  */
-export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () => void }) {
+export function GlobalSearch({ tasks, onClose, onOpen }: { tasks: boolean; onClose: () => void; onOpen: () => void }) {
   const { translate } = useSessionMessages()
   const { text, chips, facet, selectedId } = useSearchSession()
   const summaries = useChatSummaries()
@@ -95,7 +96,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
 
   useEffect(() => { listRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [selected?.id])
 
-  const open = (hit: SearchHit) => { onClose(); openHit(hit) }
+  const open = (hit: SearchHit) => { onOpen(); openHit(hit) }
   const move = (direction: 1 | -1) => {
     if (!ordered.length) return
     const at = selected ? ordered.indexOf(selected) : -1

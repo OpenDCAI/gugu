@@ -105,6 +105,29 @@ function bannedTypeHits(files: string[]): BannedTypeHit[] {
 }
 const GEOMETRY_DEBT_EXTENSIONS = new Set(['.tsx', '.ts'])
 
+// @@@pointer-focus-ring — 焦点环只给键盘焦点画(@@@focus-visible-7333,tokens.css 一处统一画)。
+// 挂在 `:focus` 上的环/outline 鼠标一点也会亮,点完就一直挂着;这里一处都不许有,要环就写在 `:focus-visible` 上。
+// Tailwind 的 `focus:ring-*` / `focus:outline-*` / `focus:shadow-*`(去掉环的 -0 / -none / -hidden 不算),
+// 以及 CSS 里 `:focus` 选择器下声明的非 none outline。
+const POINTER_FOCUS_RING_PATTERNS = [
+  /(?<![A-Za-z0-9_-])focus:(?:ring|outline|shadow)-(?!(?:0|none|hidden)(?![A-Za-z0-9_-]))[^\s'"`]*/g,
+  /:focus(?![A-Za-z0-9_-])[^{}]*\{[^}]*?\boutline\s*:\s*(?![\s]|none)[^;}]*/g,
+]
+
+function pointerFocusRings(files: string[]): BannedTypeHit[] {
+  const hits: BannedTypeHit[] = []
+  for (const file of files) {
+    const source = readFileSync(file, 'utf8')
+    for (const re of POINTER_FOCUS_RING_PATTERNS) {
+      for (const match of source.matchAll(re)) {
+        const { line, column } = lineAndColumn(source, match.index!)
+        hits.push({ file: relative(file), line, column, id: 'pointer-focus-ring', token: match[0] })
+      }
+    }
+  }
+  return hits
+}
+
 // @@@one-loading-state (Refs #6264) — product spec:全产品表达「在等」只有一个样子,
 // 即 lib/loading/LoadingIndicator(同一份 Lottie 素材;行内那些地方用它的 `size="inline"` 档)。
 // owner 2026-09-24:「这个加载中应该是我们的加载中,而不是一个 icon 手动旋转」。
@@ -430,6 +453,7 @@ export function inspect(root: string = repoRoot) {
     // ❌ stories 不豁免:摘出去之后在 story 里写回 12px 不会有任何东西变红,
     // 而 story 正是别人照抄的样板。
     bannedTypeHits: bannedTypeHits([...mainFiles, ...sessionFiles, ...sessionUiFiles, ...sessionChatUiFiles]),
+    pointerFocusRings: pointerFocusRings([...mainFiles, ...sessionFiles, ...sessionUiFiles, ...sessionChatUiFiles]),
     offLadderFontSizeLiterals: {
       mainRenderer: offLadderFontSizeLiterals(mainFiles),
       sessionRenderer: offLadderFontSizeLiterals(sessionFiles),
@@ -514,6 +538,11 @@ export function run(output: Output = console): number {
     }
     if (result.bannedTypeHits.length > 0) passed = false
 
+    for (const hit of result.pointerFocusRings) {
+      output.error(`${hit.file}:${hit.line}:${hit.column}: ${JSON.stringify(hit.token)} —— 焦点环挂在 :focus 上,鼠标点一下也会亮。写在 :focus-visible 上(或交给 tokens.css 的全局键盘焦点环)。`)
+    }
+    if (result.pointerFocusRings.length > 0) passed = false
+
     for (const problem of result.radiusScaleProblems) {
       output.error(`radius scale parity: ${problem}(见 docs/design/ui-visual-spec.md §5)`)
     }
@@ -537,6 +566,7 @@ export function run(output: Output = console): number {
       `radius scale parity problems=${result.radiusScaleProblems.length}; ` +
       `main geometry debt ${GEOMETRY_DEBT_KEYS.map((key) => `${key}=${result.geometryDebt[key]}`).join(' ')}; ` +
       `banned type hits=${result.bannedTypeHits.length}; ` +
+      `pointer focus rings=${result.pointerFocusRings.length}; ` +
       `off-ladder literals ${OFF_LADDER_SCOPES.map((key) => `${key}=${result.offLadderFontSizeLiterals[key]}`).join(' ')}; ` +
       `hand-rotated spinners=${Object.values(result.handRotatedSpinners).reduce((sum, n) => sum + n, 0)}; ` +
       `${result.scannedFiles.sessionRenderer + result.scannedFiles.mainRenderer + result.scannedFiles.sessionUi + result.scannedFiles.sessionChatUi} files scanned ` +
