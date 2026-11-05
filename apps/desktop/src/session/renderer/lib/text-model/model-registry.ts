@@ -9,10 +9,18 @@ import { EDITOR_CONFIRM_FILE_BYTES } from '@renderer/lib/editor/file-size-limits
 import { HEAD_REF, type GitRef } from '@shared/core/git/types';
 import { gitRefToString, refsEqual } from '@shared/core/git/utils';
 import { buildModelUri, isExternalModelRoot } from './model-uri';
-import { documentText, TextModel } from './text-model';
+import type { TextModel } from './text-model';
 import { workspaceBackend, workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 
 const BUFFER_DEBOUNCE_MS = 2000;
+
+/**
+ * @@@lazy-text-model - a text model is CodeMirror (its undo history brings the view and language packages). The registry
+ * itself sits on every surface's startup path, the phone's included, so CodeMirror loads with the first file, not the app.
+ */
+type TextModelClass = typeof import('./text-model').TextModel;
+let textModelClass: Promise<TextModelClass> | null = null;
+const loadTextModel = () => (textModelClass ??= import('./text-model').then((module) => module.TextModel));
 
 // ---------------------------------------------------------------------------
 // Discriminated-union entry types
@@ -242,18 +250,20 @@ export class TextModelRegistry {
   ): Promise<string> {
     const uri = buildModelUri(modelRootPath, filePath);
     const external = isExternalModelRoot(modelRootPath);
+    const Model = await loadTextModel();
 
     switch (type) {
       case 'disk':
-        return this.registerDisk(projectId, workspaceId, uri, filePath, language, external, maxBytes);
+        return this.registerDisk(Model, projectId, workspaceId, uri, filePath, language, external, maxBytes);
       case 'git':
-        return this.registerGit(projectId, workspaceId, uri, filePath, language, ref);
+        return this.registerGit(Model, projectId, workspaceId, uri, filePath, language, ref);
       case 'buffer':
-        return this.registerBuffer(uri, language);
+        return this.registerBuffer(Model, uri, language);
     }
   }
 
   private async registerDisk(
+    Model: TextModelClass,
     projectId: string,
     workspaceId: string,
     uri: string,
@@ -331,7 +341,7 @@ export class TextModelRegistry {
       throw err;
     }
 
-    const model = new TextModel(diskUri, language, content);
+    const model = new Model(diskUri, language, content);
     const entry: DiskModelEntry = {
       type: 'disk',
       model,
@@ -350,6 +360,7 @@ export class TextModelRegistry {
   }
 
   private async registerGit(
+    Model: TextModelClass,
     projectId: string,
     workspaceId: string,
     uri: string,
@@ -399,7 +410,7 @@ export class TextModelRegistry {
       throw error;
     }
 
-    const model = new TextModel(gitUri, language, content ?? '');
+    const model = new Model(gitUri, language, content ?? '');
     const entry: GitModelEntry = {
       type: 'git',
       model,
@@ -417,7 +428,7 @@ export class TextModelRegistry {
     return uri;
   }
 
-  private async registerBuffer(uri: string, language: string): Promise<string> {
+  private async registerBuffer(Model: TextModelClass, uri: string, language: string): Promise<string> {
     const existing = this.modelMap.get(uri);
 
     if (existing?.type === 'buffer') {
@@ -441,7 +452,7 @@ export class TextModelRegistry {
     const filePath = diskEntry?.filePath ?? '';
     const external = diskEntry?.type === 'disk' ? diskEntry.external : false;
 
-    const model = new TextModel(uri, language, seedContent);
+    const model = new Model(uri, language, seedContent);
     this.modelMap.set(uri, {
       type: 'buffer',
       model,
@@ -912,7 +923,7 @@ export class TextModelRegistry {
     if (bufEntry?.type !== 'buffer') return;
 
     const mine = bufEntry.model.doc.toString();
-    const theirs = documentText(newContent);
+    const theirs = entry.model.doc.toString();
     // No unsaved edits: the buffer becomes the disk's text. Unsaved edits: the disk's change merges in beside them, and
     // the buffer stays unsaved until ⌘S writes the merged text (F91).
     const next = !this.dirtyUris.has(bufferUri) || mine === theirs ? theirs : mergeThreeWay(base, mine, theirs);

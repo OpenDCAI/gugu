@@ -16,11 +16,6 @@ function lineEnding(text: string): '\n' | '\r\n' {
   return crlf > text.split('\n').length - 1 - crlf ? '\r\n' : '\n';
 }
 
-/** The text as the document holds it (every line ending a `\n`), the coordinates `edit` takes. */
-export function documentText(text: string): string {
-  return text.replace(/\r\n?/g, '\n');
-}
-
 /**
  * One file's text with its undo history — the document every editor view of that file mirrors.
  *
