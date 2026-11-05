@@ -25,7 +25,9 @@ vi.mock('../../../../apps/desktop/src/lib/usage/cloud', async (importOriginal) =
 import { fetchLedgerPage, type LedgerRow } from '../../../../apps/desktop/src/lib/usage/cloud'
 
 // Keep the real card, totals and format callback; the chart canvas is irrelevant to amount text.
-vi.mock('@visactor/react-vchart', () => ({ VChart: () => null }))
+// The package is installed only under apps/desktop: the bare name does not resolve from tests/, so a mock
+// registered under it never matches the product import, and the lazily loaded real chart fails in Node.
+vi.mock('../../../../apps/desktop/node_modules/@visactor/react-vchart', () => ({ VChart: () => null }))
 
 const ledger = (rows: LedgerRow[]) => ({ rows, total: rows.length })
 const RANGE = { from: '2026-08-25', to: '2026-09-23', days: 30 }
