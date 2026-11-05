@@ -14,6 +14,8 @@ vi.mock('@main/db/client', () => ({
 import { eq } from 'drizzle-orm';
 import { sessions } from '@main/db/schema';
 import { enqueuePending, lifeStore } from './session-pending';
+import { storedPendingInputLookup } from './session-pending-history';
+import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { initializeDatabase } from '@main/db/initialize';
 
 const source = (messageId: string) => ({ agentUserId: 'agent', row: { id: messageId, chatId: 'chat', seq: 1 } as never });
@@ -148,4 +150,19 @@ describe('session_pending store', () => {
     lifeStore.settleRead('s', a);
     expect(lifeStore.acceptedUnsettled('s')).toEqual([]);
   });
+  it('finds exact input evidence behind more than the renderer byte/page budget and ignores replies', async () => {
+    const envelope = (id: string) => renderDeliveryEnvelope({ route: 'session-direct', from: 'Sender', fromType: 'agent', fromId: 'session:sender', messageId: `msg:${id}`, at: '2026-11-06 05:00 UTC+8', content: 'hello' });
+    const original = { id: 'original-input-client-id', text: envelope('delivery-1') };
+    const insert = fixture.sqlite.prepare('INSERT INTO session_turns (id,session_id,seq,turn_id,data) VALUES (?, ?, ?, ?, ?)');
+    const item = { kind: 'message', role: 'user', id: 'native-user', text: original.text, _meta: { guguClientMessageId: original.id } };
+    insert.run('s:1', 's', 1, 'oldest', JSON.stringify({ id: 'oldest', seq: 1, outcome: { kind: 'error' }, items: [item] }));
+    for (let seq = 2; seq <= 710; seq++) insert.run(`s:${seq}`, 's', seq, `turn-${seq}`, JSON.stringify({ id: `turn-${seq}`, seq, items: [{ kind: 'execute-tool-call', output: 'x'.repeat(1500) }] }));
+    insert.run('s:711', 's', 711, 'reply', JSON.stringify({ items: [{ ...item, id: 'assistant', role: 'assistant', text: envelope('absent') }] }));
+    const lookup = storedPendingInputLookup('s');
+    expect(await lookup(original)).toBe('native-user');
+    expect(await lookup({ id: 'different-id', text: envelope('delivery-1') })).toBe('native-user');
+    expect(await lookup({ id: 'missing-id', text: envelope('absent') })).toBeNull();
+    expect(await storedPendingInputLookup('other')(original)).toBeNull();
+  });
+
 });

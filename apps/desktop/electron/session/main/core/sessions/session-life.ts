@@ -273,6 +273,56 @@ export class SessionLife {
     this.send(sessionId, { k: 'discard-row', seq: row.seq });
   }
 
+  /** A person's explicit resend preserves the original row and frozen source membership.
+   * History lookup failure leaves custody unchanged; a positive echo settles it without dispatch.
+   */
+  retryUnknownRow(sessionId: string, messageId: string,
+    findEcho: (input: { id: string; text: string }) => Promise<string | null>): Promise<void> {
+    return this.recoverUnknownRow(sessionId, messageId, findEcho, true);
+  }
+
+  /** Opening a session reconciles durable inputs beyond the renderer's bounded history window. Never resends. */
+  async reconcileUnknownRows(sessionId: string, findEcho: (input: { id: string; text: string }) => Promise<string | null>): Promise<void> {
+    for (const row of this.ports.store(sessionId).unaccepted(sessionId)) {
+      if (row.state === 'unknown') await this.recoverUnknownRow(sessionId, row.message.id, findEcho, false);
+    }
+  }
+
+  private async recoverUnknownRow(sessionId: string, messageId: string,
+    findEcho: (input: { id: string; text: string }) => Promise<string | null>, resend: boolean): Promise<void> {
+    const account = this.account, epoch = this.epoch;
+    if (!account || this.leaving || !await this.ports.ownedBy(sessionId, account)) {
+      if (resend) throw new Error('This account cannot resend this input');
+      return;
+    }
+    const entry = this.entry(sessionId);
+    const allowed = () => this.account === account && this.epoch === epoch && !this.leaving
+      && this.entries.get(sessionId) === entry && entry.life.kind !== 'archived' && entry.life.kind !== 'stopping'
+      && !((entry.life.kind === 'dormant' || entry.life.kind === 'failed') && entry.life.hold?.reason === 'sign-out');
+    if (!allowed()) {
+      if (resend) throw new Error('This session cannot resend an input now');
+      return;
+    }
+    const store = this.ports.store(sessionId);
+    const row = store.unaccepted(sessionId).find(item => item.message.id === messageId);
+    if (!row || row.state !== 'unknown') return;
+    const echo = await findEcho(row.message);
+    if (!await this.ports.ownedBy(sessionId, account) || !allowed()) {
+      if (resend) throw new Error('The session changed while checking delivery');
+      return;
+    }
+    // Another click or a receipt may have consumed this exact row while history was read.
+    if (store.row(sessionId, row.seq).state !== 'unknown') return;
+    if (!echo && !resend) return;
+    const receipt: Receipt = echo ? { state: 'accepted', nativeReceiptId: echo } : { state: 'queued' };
+    store.commit(sessionId, [{ e: 'write-receipt', seq: row.seq, receipt }]);
+    this.logReceipt(sessionId, row.seq, receipt);
+    this.publish(sessionId, entry);
+    if (echo) { this.reconcileRead(sessionId, row.seq); return; }
+    this.start(sessionId, 'retry');
+    this.deliver(sessionId, row.seq);
+  }
+
   restore(sessionId: string): void { this.send(sessionId, { k: 'restore' }); }
   turn(sessionId: string, busy: boolean): void {
     const entry = this.entries.get(sessionId);
@@ -475,7 +525,7 @@ export class SessionLife {
       stage: stageOf(entry),
       pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching').length,
         items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), text: row.message.text, kind: row.kind, sentAt: row.sentAt, discardable: discardable(row),
-          state: row.state, failure: row.state === 'failed' ? row.failure?.message ?? null : null })) },
+          resendable: row.state === 'unknown' && life.kind !== 'archived' && life.kind !== 'stopping', state: row.state, failure: row.state === 'failed' ? row.failure?.message ?? null : null })) },
       hold: hold?.reason ?? null,
       failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message, cause: life.hold.cause } : null,
       lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null,

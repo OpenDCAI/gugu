@@ -13,6 +13,8 @@ export function InputSendStatus(props: { item: ChatMessage; right: number; top: 
   const t = useChatTranslator();
   const commands = useCommands();
   const [failureRoot, setFailureRoot] = createSignal<HTMLElement>();
+  const canRetry = () => !!commands().onRetrySend && (props.item.sendStatus?.state === 'unknown'
+    ? props.item.sendStatus.retryable === true : props.item.sendStatus?.retryable !== false);
   const manual = () => props.item.sendStatus?.state === 'failed' && !!commands().canDiscardSend?.(props.item.id) && !!commands().onInputSendFailureMount;
   createEffect(() => {
     const root = failureRoot(), mount = commands().onInputSendFailureMount;
@@ -43,12 +45,12 @@ export function InputSendStatus(props: { item: ChatMessage; right: number; top: 
     <Show when={props.item.sendStatus?.state === 'failed' || props.item.sendStatus?.state === 'unknown'}>
       <div data-send-state={props.item.sendStatus?.state} role="alert" title={props.item.sendStatus?.error}
         style={{ height: `${INPUT_SEND_FAILURE_HEIGHT}px`, display: 'flex', 'align-items': 'center', 'justify-content': 'flex-end', gap: '8px', 'font-size': '12px', color: vars.fgError }}>
-        <Show when={manual()} fallback={<span style={{ overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{t(props.item.sendStatus?.state === 'unknown' ? 'transcript.sendUnknown' : 'transcript.sendFailed')}{props.item.sendStatus?.reason ? ` · ${props.item.sendStatus?.reason}` : ''}</span>}>
+        <Show when={manual()} fallback={<Show when={props.item.sendStatus?.state !== 'unknown' || !canRetry()}><span style={{ overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{t(props.item.sendStatus?.state === 'unknown' ? 'transcript.sendUnknown' : 'transcript.sendFailed')}{props.item.sendStatus?.reason ? ` · ${props.item.sendStatus?.reason}` : ''}</span></Show>}>
           <span ref={setFailureRoot} style={{ 'max-width': '100%' }} />
         </Show>
-        <Show when={!manual() && commands().onRetrySend && props.item.sendStatus?.retryable !== false}>
+        <Show when={!manual() && canRetry()}>
           <button type="button" onClick={() => commands().onRetrySend?.(props.item.id)}
-            style={{ color: 'inherit', cursor: 'pointer', 'flex-shrink': 0 }}>{t('transcript.retrySend')}</button>
+            style={{ color: 'inherit', cursor: 'pointer', 'flex-shrink': 0 }}>{t(props.item.sendStatus?.state === 'unknown' ? 'transcript.resendInput' : 'transcript.retrySend')}</button>
         </Show>
       </div>
     </Show>

@@ -59,6 +59,11 @@ export function discardSessionLifeRow(sessionId: string, messageId: string): Pro
   return rpcOn(machineRegistry.machineOf(sessionId)).sessions.lifeDiscard(sessionId, messageId);
 }
 
+/** Resend one host-owned unknown input only after an explicit click. */
+export function retryUnknownSessionInput(sessionId: string, messageId: string): Promise<void> {
+  return rpcOn(machineRegistry.machineOf(sessionId)).sessions.lifeRetryUnknown(sessionId, messageId);
+}
+
 /** The person opened or retried this session: its host's session-life starts it (a page never starts a runtime). */
 export function startSessionLife(sessionId: string): Promise<void> {
   return rpcOn(machineRegistry.machineOf(sessionId)).sessions.lifeStart(sessionId);
