@@ -123,7 +123,7 @@ describe('session-life ACP leg', () => {
     createAcpLegAdapter('s', null).onExit({ process: await processLease() }, exit => exits.push(exit));
     h.watchers.get('s')!({ lifecycle: 'starting' });
     h.watchers.get('s')!({ lifecycle: 'lost', failure: { kind: 'adapter-exit', message: 'claude exited: login required', exitCode: 1, signal: null } });
-    expect(exits).toEqual([{ cause: { name: 'adapter-exit', message: 'claude exited: login required' }, code: 1, signal: null }]);
+    expect(exits).toEqual([{ processExited: true, cause: { name: 'adapter-exit', message: 'claude exited: login required' }, code: 1, signal: null }]);
   });
 
   it('maps the worker admission: started/queued is accepted with its turn, declined is rejected, missing is a lost channel', async () => {

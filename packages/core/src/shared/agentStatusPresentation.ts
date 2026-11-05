@@ -79,7 +79,7 @@ type AgentStatusInput = {
   reachability?: AgentReachability
   unseen?: boolean
   /** A session-life session's lifecycle word, as `displayStatus` composed it; it answers before the reading. */
-  lifecycle?: 'starting' | 'archived' | null
+  lifecycle?: 'starting' | 'archived' | 'offline' | null
 }
 
 const WAIT_LABEL: Readonly<Record<AgentWaitKind, AgentStatusLabel>> = {

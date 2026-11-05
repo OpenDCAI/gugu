@@ -160,7 +160,7 @@ export class AgentStatusFeed {
     const next: AgentStatusFeedEntry | null = sessionId && (change || life)
       ? { sessionId, agentUserId, reading: change?.reading ?? null, unseen: change?.unseen ?? false, reviewGate: change?.reviewGate ?? null,
         providerBlocker: change?.providerBlocker ?? null, statusSourceFault: change?.statusSourceFault ?? null,
-        life: life ? { kind: life.kind, stage: life.stage } : null }
+        life: life ? { kind: life.kind, stage: life.stage, ...(life.processExited ? { processExited: true } : {}) } : null }
       : null
     if (previous === null && next === null) return
     if (previous && next && sameEntry(previous, next)) return

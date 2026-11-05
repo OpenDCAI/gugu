@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { noopLogger } from '@gugu/session-shared/logger';
+import { displayStatus } from '../../../../apps/desktop/src/session/shared/core/sessions/session-life';
 import { SessionLife } from '../../../../apps/desktop/electron/session/main/core/sessions/session-life';
 import type { LifeStore, SessionLifePorts } from '../../../../apps/desktop/electron/session/main/core/sessions/session-life';
 import type { LegAdapter, PendingRow } from '../../../../apps/desktop/electron/session/main/core/sessions/session-life-adapter';
@@ -14,10 +16,10 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 const seq = (value: number) => value as Seq;
-const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
+const EXIT: ExitFact = { processExited: true, cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
 function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
-  failAt?: StageName; failAwaitsPerson?: boolean; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; channelLostTimes?: number; failOnceAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
+  failAt?: StageName; failAwaitsPerson?: boolean; exitBeforeFail?: boolean; rejectDispatch?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; channelLostTimes?: number; failOnceAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
   const records = new Map<string, { owner: string | null; hold: Hold | null; archived: boolean }>();
   const rows = new Map<Seq, PendingRow>();
   const settled = new Set<Seq>();
@@ -28,6 +30,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
   const failures: unknown[] = [];
   const marked: Seq[] = [];
   const trace: string[] = [];
+  const facts: { message: string; fields: Record<string, unknown> }[] = [];
   const blocked = deferred<void>();
   const dispatchStarted = deferred<void>();
   const receipt = deferred<{ result: 'accepted'; nativeReceiptId: string | null }>();
@@ -67,7 +70,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
     settleRead(_id, s) { settled.add(s); },
     remove(id) { records.delete(id); forks.delete(id); for (const row of rows.values()) if (row.sessionId === id) rows.delete(row.seq); },
   };
-  const ports: SessionLifePorts = { sessions: () => [...records.keys()].filter(id => !forks.has(id)), store: () => store,
+  const ports: SessionLifePorts = { logger: { ...noopLogger, info: (message, fields) => { facts.push({ message, fields: fields ?? {} }); } }, sessions: () => [...records.keys()].filter(id => !forks.has(id)), store: () => store,
     forks: id => [...forks].filter(([, parent]) => parent === id).map(([fork]) => fork), allForks: () => [...forks.keys()], parentOf: id => forks.get(id) ?? null,
     ownedBy: async (id, user) => records.get(id)?.owner === user,
     adapter(sessionId) {
@@ -90,6 +93,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
           return (at === 'identity' ? { kind: 'bound', agentUserId: 'agent' } : lease) as StageOut[K];
         },
         async dispatch(_have, row) { dispatched.push(row.seq); dispatchStarted.resolve();
+          if (options.rejectDispatch) return { result: 'rejected-before-admission', cause: { name: 'Refused', message: 'not admitted' } };
           if (throwOnce) { throwOnce = false; throw new Error('worker RPC failed'); }
           if (lostTimes > 0) { lostTimes -= 1; return { result: 'channel-lost', cause: { name: 'AcpSessionMissing', message: 'gone' } }; }
           return options.delayReceipt ? receipt.promise : { result: 'accepted', nativeReceiptId: row.message.id }; },
@@ -105,10 +109,56 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
   function fork(id: string, parent = 's') { forks.set(id, parent); records.set(id, { owner: null, hold: null, archived: false }); }
   function enqueue(id = 's') { const s = seq(++counter); rows.set(s, { seq: s, sessionId: id, sentAt: 0, kind: 'ordinary', state: 'queued', failure: null, message: { id: `m${s}`, text: `input ${s}` }, sources: [], turn: { kind: 'prompt' } }); return s; }
   const send = (id = 's', messageId = `user-${++counter}`) => owner.enqueue({ sessionId: id, messageId, text: messageId, kind: 'ordinary' });
-  return { owner, records, rows, active, views, removed, dispatched, failures, marked, trace, blocked, dispatchStarted, receipt, exitCallbacks, session, fork, enqueue, send, store };
+  return { owner, records, rows, active, views, removed, dispatched, failures, marked, trace, facts, blocked, dispatchStarted, receipt, exitCallbacks, session, fork, enqueue, send, store };
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
+  { name: 'a thrown dispatch leaves the outcome unknown without inventing a process exit', async run() {
+    const r = rig({ dispatchThrowsOnce: true }); r.session(); await r.owner.signIn('A');
+    const sent = r.send(); await r.owner.quiescent('s');
+    assert.equal(r.rows.get(sent.seq)!.state, 'unknown');
+    assert.equal(displayStatus(r.owner.status('s'), 'error'), 'error');
+    assert.equal(r.owner.read('s').processExited, false);
+    await r.owner.signOut();
+  } },
+  { name: 'only an owned process exit shows offline; a stale exit cannot take the resumed generation offline', async run() {
+    const r = rig(); r.session(); await r.owner.signIn('A');
+    assert.equal(displayStatus(r.owner.status('s'), 'working'), 'working');
+    r.send('s', 'source-1'); await r.owner.quiescent('s');
+    const oldExit = r.exitCallbacks.at(-1)!;
+    oldExit(EXIT); await r.owner.quiescent('s');
+    assert.equal(displayStatus(r.owner.status('s'), 'working'), 'offline');
+    const exits = () => r.facts.filter(f => f.message === 'session-life: transition' && f.fields.event === 'exit');
+    assert.equal(exits().length, 1);
+    r.send('s', 'source-2'); await r.owner.quiescent('s');
+    oldExit(EXIT); await r.owner.quiescent('s');
+    assert.equal(displayStatus(r.owner.status('s'), 'working'), 'working');
+    assert.equal(exits().length, 1);
+    await r.owner.signOut();
+  } },
+  { name: 'committed receipts keep the message identity; an uncertain dispatch is never reinserted', async run() {
+    const r = rig({ delayReceipt: true }); r.session(); await r.owner.signIn('A');
+    const sent = r.send('s', 'source-uncertain'); await r.dispatchStarted.promise;
+    r.exitCallbacks.at(-1)!(EXIT);
+    assert.equal(r.rows.get(sent.seq)!.state, 'unknown');
+    r.receipt.resolve({ result: 'accepted', nativeReceiptId: 'late-receipt' });
+    await r.owner.quiescent('s'); r.send('s', 'source-uncertain'); await r.owner.quiescent('s');
+    const receipts = r.facts.filter(f => f.message === 'session-life: receipt');
+    assert.deepEqual(receipts.map(f => (f.fields.receipt as { state: string }).state), ['queued', 'dispatching', 'unknown']);
+    assert.ok(receipts.every(f => f.fields.messageId === 'source-uncertain' && f.fields.seq === sent.seq));
+    assert.deepEqual(r.dispatched, [sent.seq]); assert.deepEqual(r.marked, []);
+    await r.owner.signOut();
+  } },
+  { name: 'a definite admission refusal is logged as failed with its original cause', async run() {
+    const r = rig({ rejectDispatch: true }); r.session(); await r.owner.signIn('A');
+    const sent = r.send('s', 'source-refused'); await r.owner.quiescent('s');
+    assert.equal(r.rows.get(sent.seq)!.state, 'failed');
+    assert.deepEqual(r.facts.filter(f => f.message === 'session-life: receipt').map(f => f.fields.receipt), [
+      { state: 'queued' }, { state: 'dispatching', attempt: 1 },
+      { state: 'failed', cause: { name: 'Refused', message: 'not admitted' } },
+    ]);
+    assert.deepEqual(r.marked, []); await r.owner.signOut();
+  } },
   { name: 'a notice queued before boot sign-in remains startable; archive settles a stranded notice', async run() {
     const r = rig(); r.session();
     const notice = r.owner.enqueue({ sessionId: 's', messageId: 'update-notice', text: 'Your work was interrupted; check commands and continue.', kind: 'ordinary' });
