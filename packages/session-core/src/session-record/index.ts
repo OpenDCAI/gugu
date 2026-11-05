@@ -51,6 +51,7 @@ import { createHermesSqliteSource } from './sources/hermes-sqlite';
 import { createOpencodeSqliteSource } from './sources/opencode-sqlite';
 import { createQwenJsonlSource } from './sources/qwen-jsonl';
 import { createPiJsonlSource } from './sources/pi-jsonl';
+import { createCodebuddyJsonlSource } from './sources/codebuddy-jsonl';
 import type { SessionRecordSourceOptions } from './sources/shared';
 
 /**
@@ -79,6 +80,8 @@ export function createSessionRecordSource(
       return createQwenJsonlSource(locator, options);
     case 'pi':
       return createPiJsonlSource(locator, options);
+    case 'codebuddy':
+      return createCodebuddyJsonlSource(locator, options);
   }
 }
 

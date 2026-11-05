@@ -62,6 +62,7 @@ describe('locateSessionRecord · 候选顺序(每家一格)', () => {
     ['copilot', { COPILOT_HOME: '/e' }, ['/managed/session-state', '/e/session-state', `${home}/.copilot/session-state`]],
     ['hermes', { HERMES_HOME: '/e' }, ['/managed/state.db', '/e/state.db', `${home}/.hermes/state.db`]],
     ['qwen', { QWEN_RUNTIME_DIR: '/r', QWEN_HOME: '/e' }, ['/managed/projects', '/r/projects', '/e/projects', `${home}/.qwen/projects`]],
+    ['codebuddy', { CODEBUDDY_CONFIG_DIR: '/e' }, ['/managed/projects', '/e/projects', `${home}/.codebuddy/projects`]],
     ['pi', { GUGU_HOME: '/g' }, ['/managed/sessions', '/g/.pi/agent/sessions', '/g/.pi/acp-agent/sessions']],
     ['opencode', { XDG_DATA_HOME: '/x' }, ['/managed/opencode.db', '/x/opencode/opencode.db', `${home}/.local/share/opencode/opencode.db`]],
     ['mimocode', { MIMOCODE_HOME: '/m', XDG_DATA_HOME: '/x' }, ['/managed/mimocode.db', '/m/data/mimocode.db', '/x/mimocode/mimocode.db', `${home}/.local/share/mimocode/mimocode.db`]],
