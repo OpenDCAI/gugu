@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore, useLayoutEffect } from 'react'
 import { chatService } from '../lib/chat'
 import { recentMachineLimitRefusal } from '../lib/device-labels'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
@@ -234,7 +234,8 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   const thisPhoneId = useMemo(() => (platform.kind === 'capacitor' && userId ? thisPhoneDeviceId(userId) : null), [userId])
   const { machines, phones } = useMemo(() => partitionPhones(listedHere, thisPhoneId), [listedHere, thisPhoneId])
   const directoryDevices = useMemo(() => [...machines, ...phones], [machines, phones])
-  useEffect(() => { publishDirectoryDevices(directoryDevices) }, [directoryDevices])
+  // 布局期发布:头像角标、收回着与否从这份读,首帧就要是这份,❌ 先画一帧旧的再翻。
+  useLayoutEffect(() => { publishDirectoryDevices(directoryDevices) }, [directoryDevices])
 
   // 开通、唤醒途中每 3 秒问一次管家(它的进度只在 /state 上),连设备列表一起刷。
   const pollMs = userId ? cloudComputerPollMs(cloudComputer.snapshot, listedHere) : null
