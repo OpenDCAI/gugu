@@ -1,8 +1,9 @@
 import { BODY_COLORS } from '../components/agentAvatar/engine/identity'
 import { isBuiltinAgentAvatarUrl, resolveAgentLook, type AgentLook } from '../components/agentAvatar/look'
-import { boringAvatarNameHue } from './agentAvatarPalette'
+import { avatarColorNameHue, boringAvatarNameHue } from './agentAvatarPalette'
+import { dicebearAvatarMainColor } from './dicebearAvatar'
 
-/** Follow Avatar's existing generated-body paths; uploaded images and human names keep their identity hue. */
+/** Follow each generated avatar's existing main colour; uploaded images keep their identity hue. */
 export function memberNameHue({ id, avatar, isAgent, assistantLook }: {
   id: string | null
   avatar?: string | null
@@ -10,6 +11,10 @@ export function memberNameHue({ id, avatar, isAgent, assistantLook }: {
   assistantLook?: AgentLook
 }): number {
   const identityHue = BODY_COLORS[resolveAgentLook(id, avatar).color].hue
-  if (!isAgent || !id?.trim() || (avatar != null && !isBuiltinAgentAvatarUrl(avatar))) return identityHue
+  if (!isAgent) {
+    if (!id?.trim() || avatar != null) return identityHue
+    return avatarColorNameHue(dicebearAvatarMainColor(id), identityHue)
+  }
+  if (!id?.trim() || (avatar != null && !isBuiltinAgentAvatarUrl(avatar))) return identityHue
   return assistantLook ? BODY_COLORS[assistantLook.color].hue : boringAvatarNameHue(id, identityHue)
 }

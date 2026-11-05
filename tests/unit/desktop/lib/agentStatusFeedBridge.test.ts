@@ -116,6 +116,7 @@ describe('agentStatusFeedBridge', () => {
     expect(() => emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'working'), unseen: 'no' }, version: 9 }))
       .toThrow('unseen')
     expect(() => emit({ agentUserId: 'agent-a', entry: entry('agent-a', 'online'), version: 9 })).toThrow('unknown agent status')
+    expect(() => emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'working'), life: { kind: 'dormant', stage: null, processExited: 'yes' } }, version: 9 })).toThrow('malformed life exit')
     const { life: _life, ...withoutLife } = entry('agent-a', 'working')
     expect(() => emit({ agentUserId: 'agent-a', entry: withoutLife, version: 9 })).toThrow('malformed life')
     expect(() => emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'working'), life: { kind: 'booting', stage: null } }, version: 9 }))
@@ -130,7 +131,8 @@ describe('agentStatusFeedBridge', () => {
     await flush()
     const stage = { at: 'process', index: 5, total: 7, since: 42 }
     emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'idle'), life: { kind: 'starting', stage } }, version: 2 })
-    emit({ agentUserId: 'agent-a', entry: entry('agent-a', 'idle'), version: 3 })
-    expect(lives).toEqual([{ kind: 'starting', stage }, null])
+    emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'working'), life: { kind: 'dormant', stage: null, processExited: true } }, version: 3 })
+    emit({ agentUserId: 'agent-a', entry: entry('agent-a', 'idle'), version: 4 })
+    expect(lives).toEqual([{ kind: 'starting', stage }, { kind: 'dormant', stage: null, processExited: true }, null])
   })
 })

@@ -84,8 +84,8 @@ const MountedProjectMenuItems = observer(function MountedProjectMenuItems({
 })
 
 /**
- * 项目页签的右键菜单(gugu-dev#181:页签条右端只留搜索、群文件夹、成员、历史,和原型一样):项目群的
- * 在本群打开 App,在哪里打开,仓库链接,移除项目。这枚页签只有这一个右键菜单,项目和它的群的东西都加在这里。
+ * 项目页签的右键菜单(gugu-dev#181:页签条右端只留搜索、群文件夹、成员、历史,和原型一样):
+ * 在哪里打开,仓库链接,移除项目(本群的 App 在页签条的「+」里)。这枚页签只有这一个右键菜单,项目和它的群的东西都加在这里。
  * 隐藏的内部项目(task-home)不是用户的项目,不出菜单(见 session-home-project-constants)。
  */
 export const ProjectTabMenu = observer(function ProjectTabMenu({ projectId, chatId, children }: { projectId: string; chatId: string | null; children: ReactNode }) {

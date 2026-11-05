@@ -1771,7 +1771,14 @@ export class SessionCell {
   private composeQueuedBatch(sources: readonly QueuedPrompt[]): QueuedPrompt {
     const [head] = sources;
     if (sources.length === 1) return head;
-    if (queuedPromptMergeKind(head) === 'typed') return mergeTypedPrompts(sources);
+    const merged = queuedPromptMergeKind(head) === 'typed' ? mergeTypedPrompts(sources) : this.mergeQueuedEnvelopes(sources);
+    // The merged prompt's receipts carry its promptId only; this line maps it back to every host message in it.
+    this.deps.logger.info('SessionCell: queued prompts merged', { sessionId: this.sessionId, promptId: merged.id,
+      clientMessageIds: sources.map(prompt => prompt.clientMessageId ?? null) });
+    return merged;
+  }
+
+  private mergeQueuedEnvelopes(sources: readonly QueuedPrompt[]): QueuedPrompt {
     const merge = this.deps.mergeEnvelopes;
     if (!merge) {
       throw new Error(
@@ -1780,7 +1787,7 @@ export class SessionCell {
       );
     }
     return {
-      ...head,
+      ...sources[0],
       text: merge(sources.map((prompt) => prompt.text)),
       updatedAt: Math.max(...sources.map((prompt) => prompt.updatedAt)),
     };
@@ -2037,6 +2044,11 @@ export class SessionCell {
       this.emitTranscriptChanged();
     }
     const requestId = started ? this.latestTurnEnvelope!.requestId : crypto.randomUUID();
+    // One line per outcome of this send, keyed by the host message id: inserted = the provider echoed it natively;
+    // unknown = it may have reached the provider; failed = it never did.
+    const logReceipt = (receipt: Record<string, unknown>) => this.deps.logger.info('SessionCell: prompt receipt', {
+      sessionId: this.sessionId, promptId: prompt.id, requestId, clientMessageId: prompt.clientMessageId ?? null, receipt,
+    });
     const request = { messageId, prompt, steered, cycle, submitted: submittedMessage,
       accepted: false, dispatched: false, completion: Promise.withResolvers<PromptResult>() };
     this.requests.set(requestId, request);
@@ -2046,7 +2058,8 @@ export class SessionCell {
     const refuse = (error: unknown) => {
       this.requests.delete(requestId);
       this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId, stopReason: null, error: toSerializedError(error) });
-      this.deps.logger.warn('SessionCell: provider refused a prompt before admission', { sessionId: this.sessionId });
+      this.deps.logger.warn('SessionCell: provider refused a prompt before admission', { sessionId: this.sessionId,
+        promptId: prompt.id, requestId, clientMessageId: prompt.clientMessageId ?? null, receipt: { state: 'failed', cause: toSerializedError(error) } });
       this.transcript.restoreState(transcriptBeforePrompt);
       this.pendingTurnContext = new Map([...turnContextBeforePrompt, ...this.pendingTurnContext]);
       if (sessionContextBeforePrompt && this.pendingSessionContext !== sessionContextBeforePrompt) {
@@ -2155,6 +2168,7 @@ export class SessionCell {
             return acpErr.sessionNotFound(this.sessionId);
           }
           if (toSerializedError(error).code === -32603) {
+            logReceipt({ state: 'unknown', cause: toSerializedError(error) });
             await releasePreparation();
             recordUserMessage();
             this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
@@ -2180,6 +2194,8 @@ export class SessionCell {
           return retried;
         }
         recordUserMessage();
+        // injected = the channel took it; neither a native echo nor model consumption.
+        logReceipt({ state: 'unknown', admission: 'injected' });
         this.pendingNativeSteers.push({ prompt, toolsAtAdmission: this.runningToolIds() });
         // The adapter has the input before a released human tool creates its next boundary.
         this.deps.callbacks?.onPromptSteered?.();
@@ -2208,16 +2224,21 @@ export class SessionCell {
         && this.transcript.entityOwner({ ...submittedMessage, messageId: request.messageId })?.outcome?.kind !== 'cancelled'
         ? confirmPreparation() : releasePreparation());
       const receipt = receiptOrTimeout.then(receipt => {
-        if (this._agent !== agent || this.machine.phase.kind === 'closed' || this.machine.phase.kind === 'lost') return ok({ queued: false });
+        if (this._agent !== agent || this.machine.phase.kind === 'closed' || this.machine.phase.kind === 'lost') {
+          logReceipt({ state: 'unknown', outcome: 'retired-before-receipt', receiptStatus: receipt.status });
+          return ok({ queued: false });
+        }
         if (steered) confirmPreparation();
         admit();
         if (receipt.status === 'accepted') {
           acceptPromptMessage(request, receipt.messageId, this.transcript, event => this.push(event), this.deps.providerId);
+          logReceipt({ state: 'inserted', messageId: receipt.messageId });
           this.applyReceiptMetadata(requestId, receipt._meta);
           this.settleRequests();
           const owner = this.transcript.entityOwner({ ...submittedMessage, messageId: receipt.messageId });
           if (!opts?.fromQueue || owner?.outcome?.kind !== 'error') this.releaseDispatch();
         } else {
+          logReceipt({ state: 'unknown', admission: 'dispatched' });
           // Request-activity transports identify their aggregate cycle on dispatch acknowledgement.
           request.dispatched = true;
           void (cycle ?? Promise.resolve(ok({ queued: false }))).then(result => {
@@ -2228,6 +2249,7 @@ export class SessionCell {
         }
         return ok({ queued: false });
       }).catch(async (error: unknown) => {
+        if (this._agent !== agent || !providerRejectedMissingSession(error)) logReceipt({ state: 'unknown', cause: toSerializedError(error) });
         if (this._agent !== agent) return this.failedPrompt(toSerializedError(error), requestId);
         if (steered) await releasePreparation();
         // Only a rejection before any provider work is a refusal; after it, the cycle owns the failure.
@@ -2249,6 +2271,7 @@ export class SessionCell {
       });
       return steered ? receipt : request.completion.promise;
     } catch (error) {
+      logReceipt({ state: 'unknown', cause: toSerializedError(error) });
       await releasePreparation();
       recordUserMessage();
       this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });

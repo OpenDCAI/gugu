@@ -125,3 +125,31 @@ describe('client encrypted temporary file format', () => {
     expect(refused.api.commit).not.toHaveBeenCalled(); expect(refused.api.abort).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('whole-file digests', () => {
+  async function fileCipherWith(crypto: unknown) {
+    const builtin = process.getBuiltinModule.bind(process)
+    vi.spyOn(process, 'getBuiltinModule').mockImplementation(((id: string) => id === 'node:crypto' ? crypto : builtin(id)) as typeof process.getBuiltinModule)
+    vi.resetModules()
+    try { return await import('../../../../packages/core/src/shared/fileCipher') } finally { vi.restoreAllMocks() }
+  }
+  const plain = Uint8Array.from({ length: FILE_CHUNK_BYTES * 2 + 3 }, (_, i) => i % 251)
+
+  it('verify with Node crypto where the runtime has it (Electron main)', async () => {
+    const createHashSpy = vi.fn((algorithm: string) => createHash(algorithm))
+    const { copyVerifiedFile: copy } = await fileCipherWith({ createHash: createHashSpy })
+    const output = sink()
+    await copy(revision(plain), source(plain), output.api)
+    expect(createHashSpy).toHaveBeenCalledWith('sha256')
+    expect(output.bytes()).toEqual(plain)
+    await expect(copy({ ...revision(plain), sha256: digest(new Uint8Array([1])) }, source(plain), sink().api)).rejects.toThrow('File SHA-256 mismatch')
+  })
+
+  it('verify in JavaScript where there is no Node crypto (browsers, the phone)', async () => {
+    const { copyVerifiedFile: copy } = await fileCipherWith(undefined)
+    const output = sink()
+    await copy(revision(plain), source(plain), output.api)
+    expect(output.bytes()).toEqual(plain)
+    await expect(copy({ ...revision(plain), sha256: digest(new Uint8Array([1])) }, source(plain), sink().api)).rejects.toThrow('File SHA-256 mismatch')
+  })
+})

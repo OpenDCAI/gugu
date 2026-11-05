@@ -8,8 +8,8 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import type { SessionInput } from '../../../apps/desktop/src/lib/sessionInputOutbox'
 import { translateSessionMessage } from '../../../apps/desktop/src/session/renderer/localization/locale-store'
 const scope = vi.hoisted(() => ({ enqueue: vi.fn(async () => undefined), pending: [] as SessionInput[], timeline: null as ReturnType<typeof emptyAgentWatchTimeline> | null,
-  composer: null as null | { onBeforeSend?: () => void; onSend: (text: string) => Promise<void> },
-  nativeRecord: null as { turns: ReturnType<typeof emptyAgentWatchTimeline>['turns']; activeTurn: null; nextCursor: null } | null }))
+  composer: null as null | { agentWorking?: boolean; onBeforeSend?: () => void; onSend: (text: string) => Promise<void> },
+  nativeRecord: null as { turns: ReturnType<typeof emptyAgentWatchTimeline>['turns']; activeTurn: ReturnType<typeof emptyAgentWatchTimeline>['turns'][number] | null; nextCursor: null } | null }))
 vi.mock('../../../apps/desktop/src/lib/sessionInputOutboxBridge', () => ({ enqueueSessionInput: scope.enqueue, retrySessionInputs: vi.fn(), useQueuedSessionInputs: (sessionId: string) => scope.pending.filter(input => input.sessionId === sessionId) }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchSession', () => ({ useAgentWatchSession: () => ({ timeline: scope.timeline ?? emptyAgentWatchTimeline(), phase: 'error', error: 'Host unreachable', pendingSends: [], reload() {}, loadOlder: async () => undefined, cancel() {}, respond() {} }) }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/useNativeSessionRecord', () => ({ useNativeSessionRecord: () => ({ record: scope.nativeRecord, error: null, followTail() {}, loadNewer() {}, loadOlder: async () => undefined }) }))
@@ -70,6 +70,7 @@ it.each([
 ])('checks the phone queued handoff before enqueue: %j', async ({ mobile, busy, identity, blocked }) => {
   vi.stubGlobal('innerWidth', mobile ? 390 : 1200)
   scope.timeline = { ...emptyAgentWatchTimeline(), turns: busy ? [{ id: 'working', seq: 0, initiator: 'user', items: [] }] : [] }
+  scope.nativeRecord = { turns: [], activeTurn: busy ? scope.timeline.turns[0] : null, nextCursor: null }
   const session = { conversationId: 'session', projectId: 'project', title: 'Task', runtime: 'acp', nativeInputVersion: 2,
     ...(identity ? { nativeInputIdentity: true } : {}), agentStatus: busy ? 'working' : 'idle' } as SessionpageSessionSummary
   const render = () => renderWithAppProviders(harness, <SessionTimelinePage device={device('host', [], { is_online: true })} session={session} onBack={() => undefined} />)
@@ -84,4 +85,17 @@ it.each([
   expect(() => scope.composer!.onBeforeSend?.()).not.toThrow()
   await scope.composer!.onSend('keep the whole draft')
   expect(scope.enqueue).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'keep the whole draft', queued: busy }))
+})
+
+it.each([false, true])('uses the native foreground instead of the provider boundary (native busy=%s)', async busy => {
+  vi.stubGlobal('innerWidth', 390)
+  const done = { id: 'native', seq: 1, initiator: 'user' as const, items: [], outcome: { kind: 'done' as const } }
+  scope.timeline = { ...emptyAgentWatchTimeline(), turns: [{ ...done, id: 'provider', outcome: busy ? done.outcome : undefined }] }
+  scope.nativeRecord = { turns: busy ? [] : [done], activeTurn: busy ? { ...done, outcome: undefined } : null, nextCursor: null }
+  const session = { conversationId: 'session', projectId: 'project', title: 'Task', runtime: 'acp', nativeInputVersion: 2,
+    nativeInputIdentity: true, agentStatus: 'idle' } as SessionpageSessionSummary
+  await renderWithAppProviders(harness, <SessionTimelinePage device={device('host', [], { is_online: true })} session={session} onBack={() => undefined} />)
+  expect(scope.composer!.agentWorking).toBe(busy)
+  await scope.composer!.onSend('whole input')
+  expect(scope.enqueue).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'whole input', queued: busy }))
 })

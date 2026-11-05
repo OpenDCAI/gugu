@@ -581,6 +581,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     },
     removed: sessionId => log.info('session-life: session removed', { sessionId }),
     failed: (sessionId, error) => log.error('session-life: failure', { sessionId, error: String(error) }),
+    logger: log,
     now: Date.now,
   })
   // Task names: a bound task is named by its roster identity (task-name.ts). The roster keys were just
