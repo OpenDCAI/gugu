@@ -32,7 +32,7 @@ export function buildBubbleStyle(
     wordBreak: 'break-word',
     overflowWrap: 'break-word',
     whiteSpace: 'pre-wrap',
-    // Metadata and attachments keep the message menu. The mobile body root explicitly opts into selection.
+    // A phone's long-press on a bubble is the message menu; its 「选择文本」 is where text is picked.
     ...(compactMobile
       ? { userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }
       : {}),

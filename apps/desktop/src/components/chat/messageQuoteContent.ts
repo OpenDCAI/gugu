@@ -3,8 +3,6 @@ import { SELECTED_MESSAGE_QUOTES_ENABLED } from '../../lib/messageQuoteRollout'
 
 export interface QuoteSelection {
   originalContent: string | null
-  selectionId?: string
-  clear?: boolean
 }
 
 /** Existing composer wire format; ordinary Markdown blockquotes are left alone. */
