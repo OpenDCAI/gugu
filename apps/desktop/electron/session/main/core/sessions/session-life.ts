@@ -294,7 +294,8 @@ export class SessionLife {
     findEcho: (input: { id: string; text: string }) => Promise<string | null>, resend: boolean): Promise<void> {
     const account = this.account, epoch = this.epoch;
     const observed = this.entries.get(sessionId), recoveryEpoch = observed?.recoveryEpoch ?? 0;
-    if (!account || this.leaving || !await this.ports.ownedBy(sessionId, account)) {
+    if (!account || this.leaving || !await this.ports.ownedBy(sessionId, account)
+      || this.account !== account || this.epoch !== epoch || this.leaving) {
       if (resend) throw new Error('This account cannot resend this input');
       return;
     }

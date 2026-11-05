@@ -223,3 +223,20 @@ it('a refused foreign input never creates an entry that a later sign-out can mut
   expect(lifeStore.read('s').hold).toBeNull();
   expect(lifeStore.row('s', seq).state).toBe('unknown');
 });
+
+
+it('sign-out during the ownership check cannot create a late recovery entry', async () => {
+  const { seq } = interrupted();
+  lifeStore.commit('s', [{ e: 'write-receipt', seq, receipt: { state: 'unknown' } }]);
+  let check: () => Promise<boolean> = async () => false;
+  const r = rig(() => check()); await r.owner.signIn('A');
+  let finish!: (value: boolean) => void, entered!: () => void;
+  const began = new Promise<void>(resolve => { entered = resolve; });
+  check = () => { entered(); return new Promise<boolean>(resolve => { finish = resolve; }); };
+  const retry = r.owner.retryUnknownRow('s', 'interrupted', async () => null);
+  await began; await r.owner.signOut(); finish(true);
+  await expect(retry).rejects.toThrow('account cannot');
+  check = async () => false;
+  await r.owner.signIn('B'); await r.owner.signOut();
+  expect(lifeStore.read('s').hold).toBeNull(); expect(lifeStore.row('s', seq).state).toBe('unknown');
+});
