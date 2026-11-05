@@ -110,6 +110,27 @@ jobs:
     })
   })
 
+  it('expands repeated relative paths at distinct caller commits without inventing a cycle', () => {
+    inRepository({
+      '.github/workflows/ci.yml': 'on: pull_request\njobs:\n  check:\n    runs-on: fixture\n',
+      '.github/workflows/wrapper.yml': 'on: workflow_call\njobs:\n  leaf:\n    uses: ./.github/workflows/leaf.yml\n',
+      '.github/workflows/leaf.yml': 'on: workflow_call\njobs:\n  end:\n    name: End check\n    runs-on: fixture\n',
+    }, (root, git) => {
+      const older = git('rev-parse', 'HEAD')
+      writeFileSync(join(root, '.github/workflows/ci.yml'),
+        'on: pull_request\njobs:\n  start:\n    uses: ./.github/workflows/wrapper.yml\n')
+      writeFileSync(join(root, '.github/workflows/leaf.yml'), `on: workflow_call
+jobs:
+  older:
+    uses: GUYI-AI/gugu/.github/workflows/wrapper.yml@${older}
+`)
+      git('add', '.')
+      git('commit', '-qm', 'call older wrapper through current leaf')
+      expect(prProfiles(root, git('rev-parse', 'HEAD')).flatMap(profile => profile.checks))
+        .toEqual(['start / leaf / older / leaf / End check'])
+    })
+  })
+
   it('still refuses a missing local callee rather than treating it as a skipped check', () => {
     inRepository({ '.github/workflows/ci.yml': ci }, (root, git) => {
       expect(() => prProfiles(root, git('rev-parse', 'HEAD'))).toThrow()
