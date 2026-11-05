@@ -21,6 +21,15 @@ import { markNeedsYouTaskSeen, useNeedsYouTasks, type NeedsYouTask } from './use
 
 installShellSlots()
 const EMPTY_SLOTS: ReadonlyMap<string, HTMLElement> = new Map()
+const NOTHING_KEPT: ReadonlyMap<string, NeedsYouTask> = new Map()
+const taskKey = (task: NeedsYouTask) => `${task.deviceId}/${task.session.conversationId}`
+const byLatest = (a: NeedsYouTask, b: NeedsYouTask) => (Date.parse(b.session.lastInteractedAt ?? '') || 0) - (Date.parse(a.session.lastInteractedAt ?? '') || 0)
+
+/** The failures this open panel has listed; returns `kept` itself when nothing new appeared. */
+function keepListed(kept: ReadonlyMap<string, NeedsYouTask>, failures: NeedsYouTask[]): ReadonlyMap<string, NeedsYouTask> {
+  const added = failures.filter(task => !kept.has(taskKey(task)))
+  return added.length ? new Map([...kept, ...added.map(task => [taskKey(task), task] as const)]) : kept
+}
 
 /** One account-owned notification list, shared by the desktop workspace and phone Messages header. */
 export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }: { onAttentionChange?: (attention: AgentAttention) => void }) {
@@ -42,6 +51,14 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }
     setMarking(count => count - 1)
   }, [])
   const failures = tasks.filter(task => sessionPresentation(task.session, true)?.tone === 'error')
+  // A visible failure row is read at once (#1616) and read failures leave `tasks` (#1654), so the row would vanish as it
+  // appears. While the panel is open it keeps listing the failures it has shown; the count still drops, and closing the
+  // panel applies the read filter.
+  const [kept, setKept] = useState(NOTHING_KEPT)
+  const nextKept = open ? keepListed(kept, failures) : NOTHING_KEPT
+  if (nextKept !== kept) setKept(nextKept)
+  const live = new Set(tasks.map(taskKey))
+  const listed = [...tasks, ...[...nextKept.values()].filter(task => !live.has(taskKey(task)))].sort(byLatest)
   const title = t('settings.general.notifications', { ns: 'main' })
   return <>{[...entries].map(([key, element]) => {
     if (key.startsWith(NOTIFICATION_TOGGLE_SLOT_PREFIX)) return createPortal(
@@ -60,7 +77,7 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }
       <div data-testid="notification-list" data-notification-scroll="" role="listbox" aria-label={title} className="min-h-0 flex-1 overflow-auto px-2 pb-4">
         {error && <p role="alert">{error}</p>}
         {readError && <p role="alert">{readError}</p>}
-        {tasks.map(task => <NotificationTaskRow key={`${task.deviceId}/${task.session.conversationId}`} task={task} mobile={mobile} onRead={markRead} />)}
+        {listed.map(task => <NotificationTaskRow key={taskKey(task)} task={task} mobile={mobile} onRead={markRead} />)}
       </div>
     </>, element, key)
   })}</>
