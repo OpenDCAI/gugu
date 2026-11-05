@@ -41,6 +41,7 @@ import { useSelfIdentity } from '@session-chat/lib/self-identity';
 import { useAppName } from '@session-chat/lib/app-name';
 import { useChatName } from '@session-chat/lib/chat-name';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
+import { useViewShown } from '@session-chat/view-visibility';
 import type { ChatCaches } from '@session-chat/core/caches';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatTheme } from '@session-chat/core/theme';
@@ -156,6 +157,7 @@ export type UnitRowProps = {
 // ── UnitRow ───────────────────────────────────────────────────────────────────
 
 export function UnitRow(props: UnitRowProps) {
+  const shown = useViewShown();
   const debug = useDebug();
   const commands = useCommands();
   const translate = useChatTranslator();
@@ -165,6 +167,18 @@ export function UnitRow(props: UnitRowProps) {
   let rowEl: HTMLElement | undefined;
 
   const def = createMemo(() => UNIT_REGISTRY[props.unit.kind]);
+  // Keep mounted leaf renderers on their last inputs while hidden. Their own
+  // Markdown/process/tool layout memos must not bypass the row measure guard.
+  // A row first created while hidden waits until shown before mounting its leaf.
+  let lastRenderUnit: UnitRowProps['unit'] | undefined;
+  const renderUnit = createMemo(() => {
+    if (shown()) lastRenderUnit = props.unit;
+    return lastRenderUnit;
+  });
+  const renderDef = createMemo(() => {
+    const unit = renderUnit();
+    return unit ? UNIT_REGISTRY[unit.kind] : undefined;
+  });
 
   const chrome = createMemo(() => props.unit.chrome);
   const insetX = createMemo(() => chrome()?.insetX ?? 0);
@@ -197,10 +211,13 @@ export function UnitRow(props: UnitRowProps) {
     background: props.background,
   });
 
+  let lastContentH = 0;
   const contentH = createMemo(() => {
+    // Stop tracking changing row data while hidden; showing reads the latest inputs once.
+    if (!shown()) return lastContentH;
     const d = def();
-    if (!d) return 0;
-    return d.measure(props.unit.data, logicalMeasureCtx(), d.vars ?? {});
+    lastContentH = d ? d.measure(props.unit.data, logicalMeasureCtx(), d.vars ?? {}) : 0;
+    return lastContentH;
   });
 
   const logicalReserved = createMemo(() => unitReservedHeight(props.unit, contentH()));
@@ -366,7 +383,7 @@ export function UnitRow(props: UnitRowProps) {
   };
 
   // Display measureCtx: also holds the expanded user-card open during collapse.
-  const displayMeasureCtx = (): MeasureCtx => ({
+  const readDisplayMeasureCtx = (): MeasureCtx => ({
     theme: props.theme,
     translate, commands: commands(), selfIdentity: self(), chatName, appName,
     width: Math.max(0, props.rowWidth - 2 * insetX()),
@@ -381,6 +398,12 @@ export function UnitRow(props: UnitRowProps) {
     finalReplyId: finalReplyId(),
     latestConversationMessageId: latestConversationMessageId(),
     background: props.background,
+  });
+
+  let lastDisplayMeasureCtx = untrack(readDisplayMeasureCtx);
+  const displayMeasureCtx = createMemo(() => {
+    if (shown()) lastDisplayMeasureCtx = readDisplayMeasureCtx();
+    return lastDisplayMeasureCtx;
   });
 
   // ── Animated clip ─────────────────────────────────────────────────────────
@@ -405,7 +428,7 @@ export function UnitRow(props: UnitRowProps) {
       }}
       style={{ position: 'relative' }}
     >
-      <Show when={def()}>
+      <Show when={renderDef()}>
         {(d) => {
           // Read `insetX()` inside the style object, not once up here: a row
           // component lives per *index*, and a structural change above it (a
@@ -436,7 +459,7 @@ export function UnitRow(props: UnitRowProps) {
               >
                 <Dynamic
                   component={d().Render}
-                  data={props.unit.data}
+                  data={renderUnit()!.data}
                   ctx={renderCtx}
                   vars={d().vars ?? {}}
                 />

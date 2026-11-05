@@ -205,7 +205,7 @@ it('a rejected task connection remains visible with its cause and keeps the orig
   await userEvent.click(page.getByRole('button', { name: 'Go sign in', exact: true }));
   await userEvent.click(page.getByTestId('connection-use-api'));
   await until('the host refused the switch', () => control.selected === 'rejected');
-  await expect.element(page.getByRole('alert')).toHaveTextContent('Connection could not switch');
+  await until('the refusal is shown', () => document.querySelector('[role="alert"]')?.textContent?.includes('Connection could not switch') === true);
   expect(control.connections.find(c => c.current)?.id).toBe('native');
   expect((host.querySelector('input') as HTMLInputElement).value).toBe('Original draft');
 });

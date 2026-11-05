@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useStructurallyShared } from '@/hooks/useStructurallyShared'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { isOwnedAgentPeer, useOwnedAgentEntries } from '@/lib/ownedAgentConversation'
@@ -30,7 +31,8 @@ export function useNativeAgentChats(chats: readonly ChatItem[]): ChatItem[] {
     }
     return byAgent
   }, [devices, directory])
-  return chats.map(chat => {
+  // 合并出来的行每次都是新对象;内容没变就沿用上一次那个,会话行(memo)才不会每次列表更新都重画。
+  return useStructurallyShared(chats.map(chat => {
     if ((chat.kind !== 'dm' && chat.kind !== 'ai') || !isOwnedAgentPeer(chat.peer_user_id)) return chat
     const sessions = sessionsByAgent.get(chat.peer_user_id ?? '') ?? []
     const last = sessions[0]?.nativeLastMessage
@@ -42,5 +44,5 @@ export function useNativeAgentChats(chats: readonly ChatItem[]): ChatItem[] {
     // ❌ On a computer: its session page waits for that machine without a word, so the row would do nothing when clicked.
     const seen = mobile && sessions[0] && last === undefined && !chat.last_message_at ? sessions[0].lastInteractedAt : undefined
     return newer ? { ...withNotifications, last_message_preview: last.text, last_message_at: last.at } : seen ? { ...withNotifications, last_message_at: seen } : withNotifications
-  })
+  }))
 }

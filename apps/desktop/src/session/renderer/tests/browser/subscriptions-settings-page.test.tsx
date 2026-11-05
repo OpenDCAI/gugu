@@ -284,7 +284,9 @@ it('Gugu Free shares the same collection and membership errors are never shown a
   await until('membership error is visible', () => host.querySelector('[data-testid="subscription-row-gugu"]')?.textContent?.includes('offline') === true);
   const gugu = host.querySelector('[data-testid="subscription-row-gugu"]')!;
   expect(gugu.querySelector('.subscription-plan-badge')).toBeNull();
-  expect(gugu.parentElement).toBe(host.querySelector('[data-testid="subscription-row-claude"]')?.parentElement);
+  // The Claude row comes from its own provider read; it can land after the Gugu row.
+  await until('the Claude row is listed', () => host.querySelector('[data-testid="subscription-row-claude"]') !== null);
+  expect(gugu.parentElement).toBe(host.querySelector('[data-testid="subscription-row-claude"]')!.parentElement);
   expect(thrown).toEqual([]);
 });
 

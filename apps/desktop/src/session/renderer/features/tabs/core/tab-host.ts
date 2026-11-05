@@ -39,8 +39,6 @@ export interface TabHost {
    * `multiBlock` = 这一格所在的这屏不止一块(调用方从 ScreenBlockContext 读)。
    */
   tabFill(tabId: string, multiBlock?: boolean): { full: boolean; toggle: () => void } | null;
-  /** Whether this tab can go to a new pane beside its own (#7052). False where there is no pane layout. */
-  canSplitTab(tabId: string): boolean;
   /** Moves this tab into a new pane on that side of its own. */
   splitTab(tabId: string, edge: 'right' | 'bottom'): void;
   /** 这一格在一个能分格的布局里(单独成窗的那一格、独立的格子不在)。 */

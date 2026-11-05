@@ -7,6 +7,15 @@ import type {
   ReactionGroup,
 } from '@gugu/core/shared/types/chat'
 import { chatDb } from './supabase'
+import { ingestMessages, readMessagePage } from './messageIngest'
+
+/** Server patches apply to canonical local rows, never a view window written back into storage. */
+export async function persistMessagePatches(userId: string, ids: string[], patch: (row: MessageItem) => MessageItem): Promise<void> {
+  for (let i = 0; i < ids.length; i += 64) {
+    const page = await readMessagePage(userId, { ids: ids.slice(i, i + 64), limit: 64 })
+    if (page?.rows.length) await ingestMessages(userId, { writes: page.rows.map(row => ({ type: 'put', message: patch(row) })), revisions: [] })
+  }
+}
 
 export interface MessageOverlay {
   reactions: ReactionGroup[]
@@ -103,7 +112,14 @@ export async function loadMessageAgentWakes(messageIds: string[]): Promise<Map<s
   return wakes
 }
 
-export async function loadMessageOverlays(
+/** Overlay facts patch the stored rows where they arrive. */
+export async function loadMessageOverlays(messageIds: string[], userId: string): Promise<Map<string, MessageOverlay>> {
+  const overlays = await fetchMessageOverlays(messageIds, userId)
+  await persistMessagePatches(userId, messageIds, row => ({ ...row, ...overlays.get(row.id) }))
+  return overlays
+}
+
+async function fetchMessageOverlays(
   messageIds: string[],
   userId: string
 ): Promise<Map<string, MessageOverlay>> {
@@ -180,10 +196,11 @@ export function foldMessageOverlays(
 async function loadWindowBodyMutations(
   messageIds: string[],
   userId: string
-): Promise<{ mutations: Map<string, MessageMutationPatch>; presentIds: Set<string> }> {
+): Promise<{ mutations: Map<string, MessageMutationPatch>; presentIds: Set<string>; rows: MessageItem[] }> {
   const mutations = new Map<string, MessageMutationPatch>()
   const presentIds = new Set<string>()
-  if (messageIds.length === 0) return { mutations, presentIds }
+  const rows: MessageItem[] = []
+  if (messageIds.length === 0) return { mutations, presentIds, rows }
   for (let i = 0; i < messageIds.length; i += OVERLAY_IN_CHUNK) {
     const chunk = messageIds.slice(i, i + OVERLAY_IN_CHUNK)
     const { data, error } = await chatDb
@@ -206,6 +223,7 @@ async function loadWindowBodyMutations(
     for (const raw of (data ?? []) as RawMessageRow[]) {
       const item = messageItemFromRow(raw, userId)
       if (!item) continue
+      rows.push(item)
       presentIds.add(item.id)
       mutations.set(item.id, {
         content: item.content,
@@ -214,7 +232,7 @@ async function loadWindowBodyMutations(
       })
     }
   }
-  return { mutations, presentIds }
+  return { mutations, presentIds, rows }
 }
 
 export async function applyMessageOverlays(items: MessageItem[], userId: string): Promise<MessageItem[]> {
@@ -232,9 +250,17 @@ export async function revalidateMessageWindow(
   messageIds: string[],
   userId: string
 ): Promise<WindowRevalidation> {
-  const [overlays, { mutations, presentIds }] = await Promise.all([
-    loadMessageOverlays(messageIds, userId),
+  // The window writes below carry the overlays; persisting them separately would write each row twice.
+  const [overlays, { mutations, presentIds, rows }] = await Promise.all([
+    fetchMessageOverlays(messageIds, userId),
     loadWindowBodyMutations(messageIds, userId),
   ])
+  for (let i = 0; i < messageIds.length; i += 64) {
+    const local = await readMessagePage(userId, { ids: messageIds.slice(i, i + 64), limit: 64 })
+    await ingestMessages(userId, { writes: [
+      ...rows.filter(row => messageIds.slice(i, i + 64).includes(row.id)).map(row => ({ type: 'put' as const, message: { ...row, ...overlays.get(row.id) } })),
+      ...(local?.rows ?? []).filter(row => !presentIds.has(row.id)).map(row => ({ type: 'delete' as const, chatId: row.chat_id, id: row.id })),
+    ], revisions: [] })
+  }
   return { overlays, mutations, presentIds }
 }

@@ -37,7 +37,13 @@ export type LocalImDbOperation =
   | { type: 'delete'; store: ImStoreName; key: IDBValidKey }
   | { type: 'clearAccount'; accountId: string }
 
+/** Desktop keeps message windows and arrival claims in the local message store (@@@arrival-claim). */
+const DESKTOP_DROPPED_VIEW_PREFIXES = ['message-window:', 'message-revision:']
+const DESKTOP_DROPPED_VIEWS = new RegExp(`^(${DESKTOP_DROPPED_VIEW_PREFIXES.join('|')})`)
+
 export interface LocalImDbAdapter {
+  /** Desktop keeps messages in the session SQLite store; any IndexedDB message rows are legacy and are dropped. */
+  prepareLocalMessages?(accountId: string): Promise<void>
   loadAccount(accountId: string): Promise<Record<ImStoreName, LocalImRow[]>>
   commit(operations: readonly LocalImDbOperation[]): Promise<void>
   close(): void
@@ -64,6 +70,12 @@ export async function openLocalSyncDb(indexedDb: IDBFactory = window.indexedDB):
 export function createMemoryLocalSyncDb(): LocalImDbAdapter {
   let stores = emptyMemoryStores()
   return {
+    async prepareLocalMessages(accountId) {
+      for (const name of ['message', 'stream', 'view'] as const) {
+        for (const [key, row] of stores[name]) if (row.accountId === accountId
+          && (name !== 'view' || DESKTOP_DROPPED_VIEWS.test(String(row.key)))) stores[name].delete(key)
+      }
+    },
     async loadAccount(accountId) {
       assertId(accountId, 'accountId')
       return Object.fromEntries(IM_STORE_NAMES.map((name) => [
@@ -334,6 +346,21 @@ function assertNoConflictingRows(rows: Record<ImStoreName, LocalImRow[]>): void 
 
 function createIndexedDbAdapter(handle: IndexedDbHandle): LocalImDbAdapter {
   return {
+    async prepareLocalMessages(accountId) {
+      assertId(accountId, 'accountId')
+      const db = await handle.get()
+      const transaction = db.transaction(['message', 'stream', 'view'], 'readwrite')
+      const done = transactionDone(transaction)
+      // @@@key-range-cleanup - this runs before the account's repository opens, on every desktop start. Key ranges drop the
+      // rows in one request per range instead of one cursor step per row; the first start after the upgrade used to walk
+      // every message and every view row here (38k steps on an owner-sized account) before the conversation list could show.
+      transaction.objectStore('message').delete(IDBKeyRange.bound([accountId], [accountId, []]))
+      transaction.objectStore('stream').delete(IDBKeyRange.bound([accountId], [accountId, []]))
+      for (const prefix of DESKTOP_DROPPED_VIEW_PREFIXES) {
+        transaction.objectStore('view').delete(IDBKeyRange.bound([accountId, prefix], [accountId, `${prefix}\uffff`]))
+      }
+      await done
+    },
     async loadAccount(accountId) {
       assertId(accountId, 'accountId')
       const db = await handle.get()

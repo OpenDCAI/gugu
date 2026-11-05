@@ -2,10 +2,13 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import { readMessageWindow, type AccountImRepository } from '../lib/imRepository'
 import { trimToMessageWindow } from './chatMessageWindow'
+import { messageWindow, publishMessageWindows } from '../lib/messageWindows'
 import type { ChatWindowCache } from './chatWindowCache'
 
 /** One account commit feeds every viewport, including conversations not open yet. */
 export function bindRepositoryMessageCache(repository: AccountImRepository, cache: ChatWindowCache): () => void {
+  // Desktop windows come from the session SQLite store; the repository then carries no message rows.
+  publishMessageWindows(repository.accountId, (chatId, rows) => { if (rows) cache.set(chatId, rows); else cache.delete(chatId) })
   let previous: ReturnType<AccountImRepository['snapshot']> | undefined
   return repository.subscribe(snapshot => snapshot, snapshot => {
     if (previous && previous.chat !== snapshot.chat) {
@@ -28,7 +31,9 @@ export function bindRepositoryMessageCache(repository: AccountImRepository, cach
  */
 export function paintableDiskWindow(repository: AccountImRepository, chatId: string, live: MessageItem[] | undefined): { rows: MessageItem[]; hasMoreOlder: boolean } | null {
   if (live?.some(message => message.seq >= 0)) return null
-  const cached = readMessageWindow(repository, chatId)
+  const local = messageWindow(repository.accountId, chatId)
+  const cached = local === null ? readMessageWindow(repository, chatId)
+    : { messages: local, hasMoreOlder: (local[0]?.seq ?? 1) > 1 }
   const rows = cached ? trimToMessageWindow(cached.messages.filter((message) => message.chat_id === chatId)) : []
   if (!cached || rows.length === 0) return null
   return { rows: trimToMessageWindow(mergeMessagesById(live ?? [], rows, chatId)), hasMoreOlder: cached.hasMoreOlder }

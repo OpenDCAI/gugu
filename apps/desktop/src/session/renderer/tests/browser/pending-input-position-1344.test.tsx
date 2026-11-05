@@ -379,11 +379,13 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
       await until('edit reserves the persistent entry', () => !!own.rows.find(row => row.id === q!.id)?.sendQueue?.edit);
       // The persisted reservation lands before the store clears its pending flag. While pending, the composer
       // drops text changes and Enter, then resets the editor to the queued text, so typing on the row alone
-      // loses the edit. Type once the rendered composer has the edit open and accepts input.
+      // loses the edit. Type once the rendered composer has the edit open and the editor has settled: TipTap
+      // re-enables the editor (aria-disabled) in a later effect and focuses it a frame later. Both write the
+      // caret back to the end of the entry, so a fill() that selected the text first appends ("好edited …").
       await until('the composer has opened the entry for editing', () => {
         const cancel = [...view.composerSlot!.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === t('common.cancel'));
         const editor = input.element();
-        return !!cancel && !cancel.disabled && editor instanceof HTMLElement && editor.isContentEditable;
+        return !!cancel && !cancel.disabled && editor.getAttribute('aria-disabled') === 'false' && document.activeElement === editor;
       });
       await input.fill('edited queued input'); await userEvent.keyboard('{Enter}');
       await until('the same queued identity has the saved text', () => own.rows.some(row => row.id === q!.id && row.text === 'edited queued input' && !row.sendQueue?.edit));

@@ -12,7 +12,7 @@ const mock = vi.hoisted(() => ({
 }))
 vi.mock('@gugu/session-chat-ui', () => ({ createChatView: (options: ChatViewOptions) => {
   mock.created = options.commands; mock.current = options.commands
-  return { setCommands: mock.setCommands, setModel: () => {}, setContentPadding: () => {}, dispose: () => {} }
+  return { setCommands: mock.setCommands, setModel: () => {}, setContentPadding: () => {}, setShown: () => {}, dispose: () => {} }
 } }))
 let harness: ReturnType<typeof createReactHarness> | undefined
 afterEach(() => { harness?.cleanup(); vi.restoreAllMocks(); mock.setCommands.mockClear() })

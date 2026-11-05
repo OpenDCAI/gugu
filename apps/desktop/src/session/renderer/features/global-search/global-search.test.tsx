@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query'
 import React, { act } from 'react'
 import { runInAction } from 'mobx'
 import { createRoot, type Root } from 'react-dom/client'
@@ -19,7 +19,7 @@ import { displayIdentity } from '../../../../../../../tests/support/testHarness'
 import { sessionAgentBindings } from '../sessions/stores/session-agent-bindings'
 import { installPhoneImeDismiss } from '@/mobile/usePhoneImeDismiss'
 
-const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), indexStatus: vi.fn(), messages: vi.fn(), firstOfDay: vi.fn(), viewFilters: [] as unknown[][] }))
+const remote = vi.hoisted(() => ({ opened: [] as unknown[], turns: vi.fn(), indexStatus: vi.fn(), messages: vi.fn(), firstOfDay: vi.fn(), viewFilters: [] as unknown[][], local: vi.fn(), desktop: false }))
 vi.mock('@/lib/guguLinks', () => ({ followLink: (target: unknown) => { remote.opened.push(target); return true } }))
 vi.mock('@renderer/lib/ipc', async (original) => ({
   ...await original<typeof import('@renderer/lib/ipc')>(),
@@ -32,6 +32,12 @@ vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: remote.messages, from: (table:
   chain.limit = async () => remote.firstOfDay()
   return chain
 } } }))
+vi.mock('@/platform/desktopIpc', () => ({ desktopIpc: () => remote.desktop
+  ? { invoke: remote.local, eventOn: () => () => {} } : null }))
+vi.mock('@/platform', async importOriginal => {
+  const original = await importOriginal<typeof import('@/platform')>()
+  return { ...original, platform: { ...original.platform, get localMessages() { return remote.desktop ? 'sqlite' : 'window' } } }
+})
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string, params?: object) => params ? `${key} ${JSON.stringify(params)}` : key }) }))
 
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
@@ -51,14 +57,24 @@ const systemRow = { ...rows[0]!, id: 'system-row', sender_user_id: null, sender_
 let host: HTMLDivElement
 let root: Root
 let closed = 0
+let queryClient: QueryClient | undefined
+function setNetwork(online: boolean) {
+  Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => online })
+  window.dispatchEvent(new Event(online ? 'online' : 'offline'))
+  onlineManager.setOnline(online)
+}
 const ensureIdentity = vi.fn()
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   remote.opened = []
+  remote.desktop = false
+  remote.local.mockReset().mockResolvedValue([])
   closed = 0
   remote.turns.mockReset().mockResolvedValue([turn])
   remote.indexStatus.mockReset().mockResolvedValue({ state: 'ready' })
   focusManager.setFocused(true)
+  onlineManager.setOnline(true)
+  queryClient = undefined
   remote.messages.mockReset().mockResolvedValue({ data: rows, error: null })
   remote.firstOfDay.mockReset(); remote.viewFilters = []
   publishSelfIdentity({ userId: 'me-1', displayName: null, guguNumber: null })
@@ -78,6 +94,9 @@ beforeEach(() => {
 afterEach(async () => {
   focusManager.setFocused(undefined)
   await act(async () => root.unmount())
+  queryClient?.clear()
+  setNetwork(true)
+  publishSelfIdentity(null)
   host.remove()
   publishIdentityDirectory(null, null)
   runInAction(() => sessionAgentBindings.bindings.clear())
@@ -87,6 +106,7 @@ afterEach(async () => {
 const settle = async () => { for (let round = 0; round < 3; round++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)) }) }
 async function render(text: string, tasks = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient = client
   await act(async () => root.render(<QueryClientProvider client={client}><GlobalSearch tasks={tasks} onClose={() => {}} onOpen={() => { closed++ }} /><SessionProbe /></QueryClientProvider>))
   await act(async () => updateSearchSession({ text }))
   await settle()
@@ -169,6 +189,27 @@ describe('global search sender avatars', () => {
 })
 
 describe('global search panel', () => {
+  it('preserves system-row filtering and neutral sender identity for scoped SQLite results', async () => {
+    remote.desktop = true
+    setNetwork(false)
+    remote.local.mockResolvedValue([
+      systemRow,
+      { ...systemRow, id: 'senderless-text', content_type: 'text', content: 'orchid senderless text' },
+      { ...rows[0]!, content: 'orchid ordinary message' },
+    ])
+    resetSearchSession({ chips: [{ kind: 'in', chatId: GROUP }] })
+    await render('orchid')
+    expect(options()).toHaveLength(2)
+    expect(options().map(option => option.textContent)).toEqual(expect.arrayContaining([
+      expect.stringContaining('orchid senderless text'),
+      expect.stringContaining('orchid ordinary message'),
+    ]))
+    expect(host.textContent).toContain('globalSearch.system')
+    expect(host.textContent).not.toContain('未知用户')
+    expect(host.textContent).not.toContain('Codex 1')
+    expect(remote.messages).not.toHaveBeenCalledWith('message_search_as', expect.objectContaining({ p_chat_id: GROUP }))
+  })
+
   for (const tasks of [true, false]) {
     const surface = tasks ? 'desktop' : 'phone chat-only entry'
     it(`excludes system rows from ${surface} search without losing ordinary messages (U-A)`, async () => {
@@ -204,6 +245,87 @@ describe('global search panel', () => {
     expect(options()[0]!.textContent).not.toContain('小林')
     expect(remote.turns).not.toHaveBeenCalled()
     expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: null, p_query: '回滚', p_limit: 100 })
+  })
+
+  it('executes scoped local search while offline and renders its result without a cloud request', async () => {
+    remote.desktop = true
+    setNetwork(false)
+    remote.local.mockResolvedValue([{ ...rows[0], content: 'orchid offline message', content_type: 'text', retracted_at: null }])
+    resetSearchSession({ chips: [{ kind: 'in', chatId: GROUP }] })
+    await render('orchid', false)
+    expect(remote.local).toHaveBeenCalledWith('imMessages.search', 'me-1', GROUP, 'orchid', 100, undefined)
+    expect(options().map(option => option.textContent)).toEqual([expect.stringContaining('orchid offline message')])
+    expect(remote.messages).not.toHaveBeenCalled()
+    expect(remote.turns).not.toHaveBeenCalled()
+  })
+
+  it('keeps unscoped cloud search paused while offline', async () => {
+    remote.desktop = true
+    setNetwork(false)
+    await render('orchid', false)
+    expect(queryClient?.getQueryCache().find({ queryKey: ['global-search-messages', 'orchid', null] })?.state.fetchStatus).toBe('paused')
+    expect(remote.messages).not.toHaveBeenCalled()
+    expect(remote.local).not.toHaveBeenCalled()
+  })
+
+  it('uses the shell identity outside AuthContext and changes query ownership when the shell account changes', async () => {
+    remote.desktop = true
+    setNetwork(false)
+    remote.local.mockImplementation(async (_method, account) => account === 'me-1'
+      ? [{ ...rows[0], content: 'orchid only account A', content_type: 'text', retracted_at: null }] : [])
+    resetSearchSession({ chips: [{ kind: 'in', chatId: GROUP }] })
+    await render('orchid')
+    expect(options().map(option => option.textContent)).toEqual([expect.stringContaining('only account A')])
+    await act(async () => publishSelfIdentity({ userId: 'account-b', displayName: null, guguNumber: null }))
+    await settle()
+    expect(remote.local).toHaveBeenLastCalledWith('imMessages.search', 'account-b', GROUP, 'orchid', 100, undefined)
+    expect(options()).toHaveLength(0)
+    expect(remote.messages).not.toHaveBeenCalledWith('message_search_as', expect.objectContaining({ p_chat_id: GROUP }))
+  })
+
+  it('reports missing shell identity instead of presenting an unexecuted local query as no results', async () => {
+    remote.desktop = true
+    setNetwork(false)
+    publishSelfIdentity(null)
+    resetSearchSession({ chips: [{ kind: 'in', chatId: GROUP }] })
+    await render('orchid')
+    expect(host.querySelector('[role=alert]')?.textContent).toContain('Sign in to search messages stored on this device.')
+    expect(host.textContent).not.toContain('globalSearch.emptyFor')
+    expect(remote.local).not.toHaveBeenCalled()
+    expect(remote.messages).not.toHaveBeenCalledWith('message_search_as', expect.objectContaining({ p_chat_id: GROUP }))
+  })
+
+  it('offline, finds a message the open window never loaded through the local index in the in: scope', async () => {
+    remote.desktop = true
+    setNetwork(false)
+    remote.local.mockResolvedValue([{ ...rows[0], id: 'unloaded-third', content: 'orchid third message', content_type: 'text', retracted_at: null }])
+    resetSearchSession({ chips: [{ kind: 'in', chatId: GROUP }] })
+    await render('orchid')
+    expect(options().map(option => option.textContent)).toEqual([expect.stringContaining('orchid third message')])
+    expect(remote.local).toHaveBeenCalledWith('imMessages.search', 'me-1', GROUP, 'orchid', 100, undefined)
+    expect(remote.messages).not.toHaveBeenCalled()
+  })
+  it('runs a word-less quick filter against the stored messages under in:', async () => {
+    remote.desktop = true
+    setNetwork(false)
+    remote.local.mockResolvedValue([
+      { ...rows[0]!, id: 'stored-link', content: 'see https://example.com', content_type: 'text', retracted_at: null },
+      { ...rows[0]!, id: 'stored-plain', content: 'no link here', content_type: 'text', retracted_at: null },
+    ])
+    resetSearchSession({ chips: [{ kind: 'in', chatId: GROUP }, { kind: 'type', type: 'link' }] })
+    await render('')
+    expect(remote.local).toHaveBeenCalledWith('imMessages.search', 'me-1', GROUP, '', 100, undefined)
+    expect(options().map(option => option.textContent)).toEqual([expect.stringContaining('example.com')])
+    expect(remote.messages).not.toHaveBeenCalled()
+  })
+  it('online, searches one conversation in the cloud, so rows never stored on this device are found', async () => {
+    remote.desktop = true
+    remote.messages.mockResolvedValue({ data: [{ ...rows[0]!, id: 'never-stored', content: 'orchid only in the cloud' }], error: null })
+    resetSearchSession({ chips: [{ kind: 'in', chatId: GROUP }] })
+    await render('orchid')
+    expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: GROUP, p_query: 'orchid', p_limit: 100 })
+    expect(remote.local).not.toHaveBeenCalled()
+    expect(options().map(option => option.textContent)).toEqual([expect.stringContaining('orchid only in the cloud')])
   })
 
   it('the phone IME dismisses after Enter still opens the selected message (#1385)', async () => {

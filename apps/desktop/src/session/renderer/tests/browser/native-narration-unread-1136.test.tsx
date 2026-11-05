@@ -61,10 +61,24 @@ it('does not report narration clipped by the process viewport until that row is 
   state.viewState.setCollapsed('t:process', true);
   const visible = new Set<string>();
   let view!: ChatView;
+  const onReady = (ready: ChatView) => { view = ready; };
+  const onVisibleItems = (ids: readonly string[]) => ids.forEach(id => visible.add(id));
+  const reader = (shown: boolean) => <AgentConversationView context={context} state={state} shown={shown} style={{ position: 'absolute', inset: 0 }} onReady={onReady} onVisibleItems={onVisibleItems} />;
   await loadChatUi();
-  await harness.render(<AgentConversationView context={context} state={state} shown style={{ position: 'absolute', inset: 0 }} onReady={ready => { view = ready; }} onVisibleItems={ids => ids.forEach(id => visible.add(id))} />);
+  // Position the retained reader before enabling acknowledgements: the initial
+  // page can genuinely expose row 0 while the fixture waits for mounting.
+  await harness.render(reader(false));
   await until('the process viewport mounts', () => !!view && !!harness.container.querySelector('[data-slot="conversation-process-steps"]'));
   await act(async () => { view.scrollToItem(id(23), { align: 'end' }); });
+  await until('the first narration is clipped and the last narration is readable', () => {
+    const process = harness.container.querySelector('[data-slot="conversation-process-steps"]')?.getBoundingClientRect();
+    const first = harness.container.querySelector(`[data-agent-conversation-message="${id(0)}"]`)?.getBoundingClientRect();
+    const last = harness.container.querySelector(`[data-agent-conversation-message="${id(23)}"]`)?.getBoundingClientRect();
+    return !!process && !!last && last.height > 0 && last.bottom <= process.bottom && last.top >= process.top
+      && (!first || first.bottom <= process.top);
+  });
+  expect(visible.size).toBe(0);
+  await harness.render(reader(true));
   await until('a visible narration confirms the observer ran', () => visible.has(id(23)));
   expect(visible.has(id(0))).toBe(false);
   await act(async () => { view.scrollToItem(id(0), { align: 'start' }); });
