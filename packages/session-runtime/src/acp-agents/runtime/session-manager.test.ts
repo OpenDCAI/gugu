@@ -2263,6 +2263,31 @@ describe('AcpRuntime session manager', () => {
     expect(edit.pending).toHaveLength(1);
   });
 
+  it.each(['read-only', 'edit', 'full-access'] as const)(
+    '没有 ACP 档位通道、档位由会话包在 spawn 时兑现的家(dsh 形状):%s 照起,❌ 去设一个它不报的档',
+    async (permissionMode) => {
+      const h = makeAcpHarness({
+        autoApprove: 'supported',
+        bundleAutonomy: 'native',
+        liveSettings: { permission: { channel: 'unsupported', ack: 'none', busy: 'reject', reloadRequired: false, recovery: 'unsupported' } },
+      });
+      const rt = new AcpRuntime(h.deps);
+      h.agent.newSession.mockResolvedValueOnce({ sessionId: `session-dsh-${permissionMode}` });
+      const started = await rt.startSession({ ...makeStartInput({ sessionId: `conv-dsh-${permissionMode}` }), permissionMode });
+      expect(isOk(started)).toBe(true);
+      expect(h.agent.setSessionMode).not.toHaveBeenCalled();
+      expect(h.agent.setSessionConfigOption).not.toHaveBeenCalled();
+    },
+  );
+
+  it('阴控:档位由会话包兑现、但权限一维走 ACP 的家,更严的档仍要 ACP 报得出来', async () => {
+    const h = makeAcpHarness({ autoApprove: 'supported', bundleAutonomy: 'native' });
+    const rt = new AcpRuntime(h.deps);
+    h.agent.newSession.mockResolvedValueOnce({ sessionId: 'session-acp-tier' });
+    const started = await rt.startSession({ ...makeStartInput({ sessionId: 'conv-acp-tier' }), permissionMode: 'read-only' });
+    expect(isOk(started)).toBe(false);
+  });
+
   it('grok 形状:整张档位表缺席 + per-surface 自治(仅 acp native)+ 完全访问 ⇒ 会话照起', async () => {
     // 这是 grok 1.0.13 在产品上的**真实死法**:它的 ACP server 结构上恒为完全访问,
     // `session/new` 连 configOptions 都不报（`!options`）,而它的 units.autonomy 是

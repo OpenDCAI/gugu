@@ -2378,6 +2378,12 @@ export class SessionManager implements InboundRouter {
       error.name = 'LiveSettingUndeclared';
       throw error;
     }
+    // 这一家**没有任何** ACP 档位通道(权限一维声明 unsupported),而 acp 腿的自治维由会话包兑现 ⇒
+    // 用户所选的那一档在 spawn 那刻已经精确落进进程(dsh:物化器按同一个档写 `DSH_PERMISSION_MODE`,
+    // 表外的档在物化时就响亮失败)。这里没有可设的东西,❌ 再去找它不报的档位表。
+    const bundleDeliversTier = permissionSetting.channel === 'unsupported'
+      && resolveUnitDelivery(provider.capabilities.sessionBundle.units.autonomy, 'acp').kind === 'native';
+    if (bundleDeliversTier) return;
     const options = record.cell.config.modeOptions;
     if (!options) {
       // 该档已在 spawn 那刻由会话包兑现(见上) —— grok 走这条:它一个档位都不报。
