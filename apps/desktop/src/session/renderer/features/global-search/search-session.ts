@@ -1,11 +1,15 @@
 import { useSyncExternalStore } from 'react'
 import { commandRegistry } from '@renderer/lib/commands/registry'
 
-/** A scope that narrows the search: one conversation, one local task, or one sender. */
+/** What a message is, for the quick filters: a picture or video, any other file, a link, or one that @-mentions me. */
+export type SearchKind = 'media' | 'file' | 'link' | 'mention'
+
+/** A scope that narrows the search: one conversation, one local task, one sender, or one kind of message. */
 export type SearchChip =
   | { kind: 'in'; chatId: string }
   | { kind: 'in-task'; taskId: string; title: string }
   | { kind: 'from'; userId: string; name: string }
+  | { kind: 'type'; type: SearchKind }
 
 /** The filter row: everything, chat messages, task content, or files sent in chats. */
 export type SearchFacet = 'all' | 'message' | 'task' | 'file'
@@ -45,6 +49,19 @@ export function resetSearchSession(options: { text?: string; chips?: SearchChip[
 export function openGlobalSearch(options: { text?: string; chips?: SearchChip[] } = {}): void {
   resetSearchSession(options)
   if (!commandRegistry.dispatch('app.globalSearch')) throw new Error('No global search panel is mounted')
+}
+
+const RECENT_KEY = 'gugu.globalSearch.recent'
+const RECENT_MAX = 5
+/** 「最近在这里搜过」: the last words searched with this conversation in scope, newest first (this device only). */
+export function recentSearches(chatId: string): string[] {
+  const all = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '{}') as Record<string, string[]>
+  return all[chatId] ?? []
+}
+export function rememberSearch(chatId: string, text: string): void {
+  const all = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '{}') as Record<string, string[]>
+  all[chatId] = [text, ...(all[chatId] ?? []).filter((old) => old !== text)].slice(0, RECENT_MAX)
+  localStorage.setItem(RECENT_KEY, JSON.stringify(all))
 }
 
 /** Search one conversation (optionally one sender's messages in it): the global panel, scoped by removable chips. */
