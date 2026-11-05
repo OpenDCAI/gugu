@@ -3,6 +3,7 @@ import { act } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, waitForCondition } from '../../../support/testHarness'
+import { stubLayoutIntersection } from '../../../support/layoutIntersection'
 import type { FirstRunHintId, FirstRunHintsProgress } from '../../../../apps/desktop/src/lib/firstRunHints'
 
 const io = vi.hoisted(() => ({ read: vi.fn(), dismiss: vi.fn() }))
@@ -22,6 +23,7 @@ beforeEach(async () => {
     return account
   })
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  stubLayoutIntersection()
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => new DOMRect(20, 40, 100, 44))
   await i18n.changeLanguage('zh-CN')
 })
