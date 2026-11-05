@@ -5892,7 +5892,8 @@ app.whenReady().then(async () => {
 
     // @@@2503 平台额度注入器(Chat UI / ACP 侧)—— pty 钩子的孪生。结构刻意与它一致:先按契约判这一格
     // 能不能注入,再决定复用还是重签。Claude 走会话 `_meta`;Codex/OpenCode 走会话私有适配器的 spawn env。
-    emdash.setEmdashPlatformInjector((info) => sessionpagePlatformHooks.acpInjector(info))
+    emdash.setEmdashPlatformInjector((info) => sessionpagePlatformHooks.acpInjector(info),
+      async (info) => (await sessionpagePlatformHooks.acpPlatformModel(info)).accessSessionId)
     // @@@2503 会话结束 / ACP 运行时消失 → 结清令牌并删掉那份带令牌的 0600 settings 文档。
     // conversationId 为 null = 运行时整个没了,把 Chat UI 这一批全结清(终端会话那批的进程还活着,
     // 一起撤会把它们打成每轮 401)。

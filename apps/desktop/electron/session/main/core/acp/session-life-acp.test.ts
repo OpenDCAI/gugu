@@ -10,7 +10,9 @@ const h = vi.hoisted(() => ({
   inject: vi.fn(),
   logError: vi.fn(),
   turnFiles: vi.fn(),
-  release: vi.fn(async (_id: string) => undefined),
+  release: vi.fn(async (_id: string, _generation?: string) => undefined),
+  preparePlatform: vi.fn(async (_info: unknown): Promise<string | null> => null),
+  platformModel: null as { modelId: string } | null,
   identity: null as unknown,
   parentAgent: null as { gugu_user_id?: string } | null,
   /** The in-memory registry: empty until something mounts the session (e.g. right after a restart). */
@@ -31,13 +33,13 @@ vi.mock('./runtime-process/host', () => ({
   persistSessionMcpServers: vi.fn(async () => undefined),
   acpWorkerLease: async () => ({ client: h.client, onGone: (cb: (cause: string) => void) => { h.gone = cb; return () => { h.gone = null; }; } }),
   stopAcpSessionAndSettle: h.stopAndSettle,
-  readSessionInjectionFacts: async () => ({ agentDisplayName: undefined }),
+  readSessionInjectionFacts: async () => ({ agentDisplayName: undefined, platformModel: h.platformModel }),
   provisionStartIdentity: async (input: { cwd: string }) => { h.identityCwd = input.cwd; return h.identity; },
 }));
 vi.mock('../session-timeline/turn-files', () => ({ turnFileText: h.turnFiles }));
 vi.mock('./inject-prompt', () => ({ injectEmdashPromptDetached: h.inject }));
 vi.mock('@main/lib/logger', () => ({ log: { error: h.logError } }));
-vi.mock('./emdash-platform-injector', () => ({ releaseEmdashPlatformSession: h.release }));
+vi.mock('./emdash-platform-injector', () => ({ releaseEmdashPlatformSession: h.release, prepareEmdashPlatformSession: h.preparePlatform }));
 vi.mock('@main/core/sessions/runtime-fork-ownership', () => ({ recordRuntimeForkOwnership: vi.fn() }));
 vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({ localAgentForSession: async () => h.parentAgent }));
 vi.mock('@main/core/projects/utils', () => ({ resolveWorkspace: () => (h.registered ? { path: '/repo' } : null), persistedWorkspacePath: () => '/repo' }));
@@ -62,9 +64,34 @@ async function boundAdapter() {
   return adapter;
 }
 
-beforeEach(() => { h.watchers.clear(); h.gone = null; h.identity = null; h.parentAgent = null; vi.clearAllMocks(); });
+beforeEach(() => { h.watchers.clear(); h.gone = null; h.identity = null; h.parentAgent = null; h.platformModel = null; vi.clearAllMocks(); });
 
 describe('session-life ACP leg', () => {
+  it('starts platform preparation once identity is bound, before waiting for workspace or capability work', async () => {
+    h.platformModel = { modelId: 'platform-model' };
+    h.preparePlatform.mockReturnValueOnce(new Promise(() => {}));
+    await boundAdapter();
+    expect(h.preparePlatform).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 's', projectId: 'p', providerId: 'claude', cwd: '/repo', platformModel: h.platformModel,
+    }));
+  });
+
+  it('carries an early platform refusal into the existing startup failure path', async () => {
+    h.platformModel = { modelId: 'platform-model' };
+    h.preparePlatform.mockRejectedValueOnce(new Error('Platform access was refused'));
+    const adapter = await boundAdapter();
+    await expect(adapter.run('capabilities', {} as never, ctx())).rejects.toThrow('Platform access was refused');
+  });
+
+  it('settles a late platform preparation when the attempt stopped before capabilities', async () => {
+    h.platformModel = { modelId: 'platform-model' };
+    let finish!: (generation: string) => void;
+    h.preparePlatform.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const adapter = await boundAdapter();
+    await adapter.teardown({}, ctx());
+    finish('prepared-generation');
+    await vi.waitFor(() => expect(h.release).toHaveBeenCalledWith('s', 'prepared-generation'));
+  });
 
   it.each(['CANCELLED', 'HANDLER_ERROR', 'DISCONNECTED'])('owns a completed %s request without another admission', async code => {
     const adapter = await boundAdapter();
@@ -87,7 +114,6 @@ describe('session-life ACP leg', () => {
     await Promise.resolve();
     expect(h.logError).not.toHaveBeenCalled();
   });
-
 
   it('one exit per attempt, from whichever fact ends the session first', async () => {
     const process = await processLease();
