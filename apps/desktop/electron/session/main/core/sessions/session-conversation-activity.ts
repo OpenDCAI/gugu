@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
-import type { TranscriptTurn } from '@gugu/session-core/acp';
+import type { TranscriptMessage, TranscriptTurn } from '@gugu/session-core/acp';
 import { db, type AppDb } from '@main/db/client';
 import { kv } from '@main/db/schema';
 
@@ -19,14 +19,10 @@ export function nativeConversationActivity(sessionId: string, source: ActivityDb
 
 /** A live committed turn, not replay time or a synthetic IM message, supplies the preview. */
 export function noteNativeConversationActivity(sessionId: string, turn: TranscriptTurn, source: ActivityDb): boolean {
-  if (!isPersonalConversationTurn(turn)) return false;
-  let personal = true;
   let latest: Activity | null = null;
-  for (const item of turn.items) {
-    if (item.kind !== 'message') continue;
-    if (item.role === 'user') personal = !isDeliveryEnvelope(item.text);
+  for (const item of personalConversationMessages(turn)) {
     const at = item.at ?? (item.role === 'assistant' ? turn.endedAt : turn.startedAt);
-    if (!personal || !item.text.trim() || item.text.trim() === '[NO_REPLY]' || at === undefined) continue;
+    if (!item.text.trim() || item.text.trim() === '[NO_REPLY]' || at === undefined) continue;
     // File mentions are input instructions. Do not expose local paths in a list preview.
     const text = item.attachments?.length || /\[(?:Folder file|Image attached at local path:)/.test(item.text) || /@\[[^\]]+\]\(/.test(item.text)
       ? '' : item.text.trim().replace(/\s+/g, ' ').slice(0, 180);
@@ -40,10 +36,20 @@ export function noteNativeConversationActivity(sessionId: string, turn: Transcri
   return true;
 }
 
-/** Background work is activity in its own task, not an exchange with the owner. */
-export function isPersonalConversationTurn(turn: TranscriptTurn): boolean {
-  if (turn.items.some(item => item.kind === 'message' && item.ownerNotification)) return true;
-  return turn.trigger ? turn.trigger.kind === 'owner' : turn.initiator === 'user';
+/** A steered owner exchange belongs to the owner even when a delivery opened its turn. */
+export function personalConversationMessages(turn: TranscriptTurn): TranscriptMessage[] {
+  const legacyPersonal = turn.trigger ? turn.trigger.kind === 'owner' : turn.initiator === 'user';
+  let personal = legacyPersonal;
+  const selected: TranscriptMessage[] = [];
+  for (const item of turn.items) {
+    if (item.kind !== 'message') continue;
+    if (item.role === 'user') {
+      const ownerInput = item._meta?.guguOwnerInput;
+      personal = typeof ownerInput === 'boolean' ? ownerInput : legacyPersonal && !isDeliveryEnvelope(item.text);
+    }
+    if (personal || item.ownerNotification) selected.push(item);
+  }
+  return selected;
 }
 
 export function truncateNativeConversationActivity(sessionId: string, fromSeq: number, source: ActivityDb, removed: ReadonlySet<number> = new Set()): boolean {

@@ -2,6 +2,8 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
+import { noopLogger } from '@gugu/session-shared/logger';
+import { FakeAcpAgent, requestActivityCell } from '../../../../../../../packages/session-runtime/src/acp-agents/acp-test-support';
 
 const mock = vi.hoisted(() => ({ db: undefined as AppDb | undefined }));
 vi.mock('@main/db/client', () => ({ get db() { if (!mock.db) throw new Error('Missing fixture'); return mock.db; } }));
@@ -17,6 +19,27 @@ afterEach(() => { fixture.close(); mock.db = undefined; });
 const turn = (ids: string[]): TranscriptTurn => ({ id: 's:turn:1', seq: 1, initiator: 'user', items: ids.map((id, seq) => ({ kind: 'message', id: `s:turn:1:message:${id}`, seq, role: 'assistant', text: 'reply' })) });
 
 describe('native personal conversation unread', () => {
+  it('projects an owner reply steered into the real runtime while its original turn remains delivery-started', async () => {
+    const delivered = '<gugu_delivery route="chat" chat="group" chat_kind="group" msg="msg:group"><![CDATA[Group input]]></gugu_delivery>';
+    const agent = new FakeAcpAgent();
+    let finish!: () => void;
+    agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>(resolve => { finish = () => resolve({ stopReason: 'end_turn' }); }));
+    agent.extMethod = vi.fn().mockResolvedValue({ outcome: 'injected' });
+    const cell = requestActivityCell(agent, { sessionId: 's', projectId: 'p', providerId: 'claude', acpSessionId: 'native', supportsSteering: true, resolveAttachment: vi.fn(), logger: noopLogger });
+    cell.applySessionReady();
+    const running = cell.prompt({ text: delivered, origin: 'communication' });
+    await agent.called('prompt');
+    cell.push({ kind: 'message', role: 'assistant', messageId: 'group-reply', text: 'Group reply' });
+    expect(await cell.queueBehindTurn({ text: 'Owner follow-up', origin: 'manual' })).toMatchObject({ success: true, data: { queued: false } });
+    cell.push({ kind: 'message', role: 'assistant', messageId: 'owner-reply', text: 'New owner reply' });
+    finish(); await running;
+    const record = cell.history().committed[0]!;
+    expect(record.trigger).toMatchObject({ kind: 'delivery' });
+    noteNativeConversationReplies('s', record)?.();
+    expect(nativeConversationActivity('s')?.text).toBe('New owner reply');
+    expect(nativeConversationUnread('s')).toEqual([record.items.find(item => item.kind === 'message' && item.text === 'New owner reply')!.id]);
+  });
+
   it.each(['agent', 'schedule', 'delivery'] as const)('does not turn %s background work into owner conversation activity', kind => {
     const record: TranscriptTurn = { id: 's:turn:s1', seq: 1, initiator: kind === 'agent' ? 'agent' : 'user', trigger: { kind }, startedAt: 1000, endedAt: 2000, items: [
       { kind: 'message', id: 'background-input', seq: 0, role: 'user', text: 'Background task notification', at: 1000 },
@@ -25,6 +48,31 @@ describe('native personal conversation unread', () => {
     noteNativeConversationReplies('s', record);
     expect(nativeConversationActivity('s')).toBeNull();
     expect(nativeConversationUnread('s')).toEqual([]);
+  });
+
+  it('ends an owner segment at a later non-owner input without clearing the earlier reply', () => {
+    const record: TranscriptTurn = { id: 'mixed', seq: 4, initiator: 'user', trigger: { kind: 'delivery' }, startedAt: 1000, endedAt: 5000, items: [
+      { kind: 'message', id: 'delegation', seq: 0, role: 'user', text: 'A raw delegated task', at: 1000 },
+      { kind: 'message', id: 'background', seq: 1, role: 'assistant', text: 'Background reply', at: 2000 },
+      { kind: 'message', id: 'owner', seq: 2, role: 'user', text: 'Owner input', at: 3000, _meta: { guguOwnerInput: true } },
+      { kind: 'message', id: 'personal', seq: 3, role: 'assistant', text: 'Personal reply', at: 3500 },
+      { kind: 'message', id: 'later', seq: 4, role: 'user', text: 'Another raw delegation', at: 4000, _meta: { guguOwnerInput: false } },
+      { kind: 'message', id: 'later-reply', seq: 5, role: 'assistant', text: 'Later background reply', at: 5000 },
+    ] };
+    noteNativeConversationReplies('s', record)?.();
+    expect(nativeConversationActivity('s')).toEqual({ text: 'Personal reply', at: new Date(3500).toISOString(), turnSeq: 4 });
+    expect(nativeConversationUnread('s')).toEqual(['personal']);
+  });
+
+  it('keeps explicit owner notifications visible during a background turn without taking unrelated text', () => {
+    const record: TranscriptTurn = { id: 'background', seq: 5, initiator: 'agent', trigger: { kind: 'agent' }, items: [
+      { kind: 'message', id: 'notice', seq: 0, role: 'assistant', text: 'A deliberate notice', at: 2000,
+        ownerNotification: { requestId: '11111111-1111-4111-8111-111111111111', requestHash: 'hash' } },
+      { kind: 'message', id: 'unrelated', seq: 1, role: 'assistant', text: 'Private background work', at: 3000 },
+    ] };
+    noteNativeConversationReplies('s', record)?.();
+    expect(nativeConversationActivity('s')?.text).toBe('A deliberate notice');
+    expect(nativeConversationUnread('s')).toEqual(['notice']);
   });
 
   it('publishes the actual native reply and its original time without inventing another IM message', () => {

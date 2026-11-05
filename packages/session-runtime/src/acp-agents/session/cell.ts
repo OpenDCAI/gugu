@@ -2010,7 +2010,11 @@ export class SessionCell {
         role: 'user',
         messageId,
         text: prompt.text,
-        ...(prompt.clientMessageId ? { _meta: { guguClientMessageId: prompt.clientMessageId } } : {}),
+        ...((prompt.clientMessageId || steered) ? { _meta: {
+          ...(prompt.clientMessageId ? { guguClientMessageId: prompt.clientMessageId } : {}),
+          // Steering does not change who opened the turn; retain this input's own origin for conversation readers.
+          ...(steered ? { guguOwnerInput: isOwnerOrigin(prompt.origin) } : {}),
+        } } : {}),
         ...(prompt.files?.length ? { files: prompt.files.map(({ itemId, version, name, mimeType, sizeBytes }) => ({ itemId, version, name, mimeType, sizeBytes })) } : {}),
         content: [{ type: 'text', text: prompt.text }],
         contentMode: 'replace',
