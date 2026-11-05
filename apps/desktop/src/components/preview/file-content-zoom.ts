@@ -46,7 +46,7 @@ export function bindFileZoom(element: HTMLElement, apply: (command: FileZoomComm
   const oldTabIndex = element.getAttribute('tabindex');
   if (oldTabIndex === null) element.tabIndex = -1;
   element.addEventListener(FILE_ZOOM_EVENT, command);
-  // Window capture: the focused viewer owns its zoom keys before app hotkeys, which also listen in capture (Monaco bridge, captured commands).
+  // Window capture: the focused viewer owns its zoom keys before app hotkeys, which also listen in capture (code editor bridge, captured commands).
   const view = element.ownerDocument.defaultView ?? window;
   view.addEventListener('keydown', key, true);
   element.addEventListener('pointerdown', focus);
@@ -64,11 +64,11 @@ export function zoomForCommand(current: number, command: FileZoomCommand): numbe
 }
 
 /**
- * Monaco: font size follows the text/code preference. Its own `mouseWheelZoom` is a global EditorZoom that is never saved,
- * ignores reset and leaks into every editor, so a pinch over the editor is taken here instead (one write per frame).
+ * Code editor: font size follows the text/code preference, and a pinch over the editor steps that preference
+ * (one write per frame) instead of zooming the whole window.
  */
-export function bindEditorFileZoom(container: HTMLElement, editor: { updateOptions(options: { fontSize: number }): void }, baseFontSize: number): () => void {
-  const apply = () => editor.updateOptions({ fontSize: baseFontSize * readFileZoom('text-code') });
+export function bindEditorFileZoom(container: HTMLElement, setFontSize: (px: number) => void, baseFontSize: number): () => void {
+  const apply = () => setFontSize(baseFontSize * readFileZoom('text-code'));
   const offPreference = subscribeFileZoom(apply);
   const offCommand = bindFileZoom(container, command => writeFileZoom('text-code', clampZoom(zoomForCommand(readFileZoom('text-code'), command), DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)));
   let pendingDeltaY = 0;

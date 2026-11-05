@@ -16,7 +16,6 @@ import {
   type EntryReachability,
 } from './scripts/build/renderer-chunking.mjs'
 import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/build/obfuscate-own-chunks.mjs'
-import { monacoWorkerSingleBundlePlugin } from './scripts/build/monaco-worker-bundle.mjs'
 import { deterministicModuleSideEffects } from './scripts/build/deterministic-module-side-effects.mjs'
 import { devNodeExternals, type DependencyManifest } from './scripts/build/dev-node-externals.mjs'
 import { activateDbEnv, serverChannelForDb } from './scripts/build/build-env-preflight.mts'
@@ -675,7 +674,6 @@ export default defineConfig(({ command }) => ({
     startupFirstFrame(isElectronTarget),
     deterministicModuleSideEffects(),
     guguEntryReachabilityPlugin(reachability, isGuguEntry),
-    monacoWorkerSingleBundlePlugin(),
     // @@@task-fusion (#2802) — 会话页的 @gugu/session-ui / session-chat-ui 用 vanilla-extract 写样式。
     // 并入本体后它们不再各自 tsdown 出 dist,而是由这一次构建直接编 .css.ts —— 少一套构建。
     vanillaExtractPlugin(),

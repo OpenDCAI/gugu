@@ -17,9 +17,9 @@ vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }));
 vi.mock('@/session/renderer/lib/ipc', () => ({ rpc: { workspace: { files: state.files } } }));
 vi.mock('@renderer/features/tabs/pane-context', () => ({ usePaneContext: () => ({ pane: state.pane }) }));
 vi.mock('@renderer/features/sessions/session-view-context', () => ({ useSessionViewContext: () => ({ projectId: 'p' }), useWorkspaceId: () => 'w', useWorkspace: () => ({ path: '/w' }) }));
-vi.mock('@renderer/lib/monaco/model-status-overlay', () => ({ ModelStatusOverlay: () => null }));
-vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({ modelRegistry: { bufferVersions: new Map(), getText: () => state.text, dirtyUris: new Set() } }));
-vi.mock('@renderer/lib/monaco/use-model', () => ({ useModelStatus: () => 'ready' }));
+vi.mock('@renderer/lib/text-model/model-status-overlay', () => ({ ModelStatusOverlay: () => null }));
+vi.mock('@renderer/lib/text-model/model-registry', () => ({ modelRegistry: { bufferVersions: new Map(), getText: () => state.text, dirtyUris: new Set() } }));
+vi.mock('@renderer/lib/text-model/use-model', () => ({ useModelStatus: () => 'ready' }));
 vi.mock('@renderer/features/browser/browser-toolbar-actions', () => ({ openBrowserUrlExternally: vi.fn() }));
 vi.mock('@renderer/features/sessions/workspace-backend/workspace-backend', () => ({ workspaceEvents: { on: () => vi.fn() }, workspaceRpc: () => ({ files: state.files }), workspaceBackend: vi.fn() }));
 

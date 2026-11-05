@@ -161,7 +161,7 @@ export type ChatView = {
   clearFind(): void;
   /**
    * Replace the ChatState this view renders without tearing down the Solid root
-   * (Monaco/CodeMirror model-swap pattern). Snapshots the outgoing model's
+   * (CodeMirror setState model-swap pattern). Snapshots the outgoing model's
    * heightmap into the old state, then loads the incoming model's ScrollMode
    * intent and projects it. Safe to call while the outgoing state is streaming.
    *

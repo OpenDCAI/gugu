@@ -7,7 +7,7 @@
 //   · 根 = dist/ 里除任务页入口以外的每个文件，以及 assets/ 之外的一切(public/ 拷来的、预装 App、App 运行时);
 //   · assets/ 下带内容哈希的打包产物只在被某个已保留的文件按文件名引用时才保留(哈希名唯一，字面出现即引用;
 //     rollup 的静态/动态 import、worker 的 new URL、CSS 的 url() 都写的是字面文件名)。
-// 多算引用只会多留，不会误删。删掉的是只有任务页够得着的那些(Monaco、devicon、任务页代码)。
+// 多算引用只会多留，不会误删。删掉的是只有任务页够得着的那些(代码编辑器、devicon、任务页代码)。
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'

@@ -1,18 +1,18 @@
-import type { ModelStatus } from '@renderer/lib/monaco/monaco-model-registry';
+import type { ModelStatus } from '@renderer/lib/text-model/model-registry';
 
 interface FileTabLoadingState {
   isExternal: boolean;
   isExternalLoading: boolean;
-  isMonacoFile: boolean;
+  isTextModelFile: boolean;
   diskStatus: ModelStatus | undefined;
 }
 
 export function isFileTabLoading({
   isExternal,
   isExternalLoading,
-  isMonacoFile,
+  isTextModelFile,
   diskStatus,
 }: FileTabLoadingState): boolean {
-  if (isExternal) return isMonacoFile && isExternalLoading;
-  return isMonacoFile && (diskStatus ?? 'loading') === 'loading';
+  if (isExternal) return isTextModelFile && isExternalLoading;
+  return isTextModelFile && (diskStatus ?? 'loading') === 'loading';
 }

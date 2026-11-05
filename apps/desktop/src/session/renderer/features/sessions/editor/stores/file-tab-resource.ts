@@ -2,23 +2,23 @@ import { action, computed, makeObservable, observable } from 'mobx';
 import type { TabHandle, TabResource } from '@renderer/features/tabs/core/tab-provider';
 import {
   getFileKind,
-  isMonacoBackedKind,
+  isTextModelKind,
   isPreviewableKind,
   isSelfLoadingKind,
 } from '@renderer/lib/editor/fileKind';
 import type { ManagedFileKind } from '@renderer/lib/editor/types';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
 import {
-  buildMonacoModelPath,
+  buildModelUri,
   EXTERNAL_MODEL_ROOT,
-} from '@renderer/lib/monaco/monacoModelPath';
+} from '@renderer/lib/text-model/model-uri';
 import { htmlTitle } from '../file-tab-label';
 import type { FileModelContext, FileModelManager } from './file-model-manager';
 
 /** Extends ManagedFileKind with terminal load-time states. */
 export type FileContentType = ManagedFileKind | 'file-error' | 'too-large';
 
-/** Whether the file is shown in Monaco (source) or its rendered preview. */
+/** Whether the file is shown in the source editor or its rendered preview. */
 export type FileViewMode = 'source' | 'preview';
 
 export interface FilePayload {
@@ -75,7 +75,7 @@ export class FileTabResource implements TabResource {
     // 文本类的外部文件现在也有 model(#5585),加载态由 model 的 status 表示。这个标志位因此
     // 只剩「自己去取字节」那几类在用,同时它也是 FileContentPreview 那条外部读取的开关 ——
     // 置 false 即表示「这份正文归注册表管,别再自己读一遍」。
-    const modelBacked = !this.isExternal || isMonacoBackedKind(fileKind);
+    const modelBacked = !this.isExternal || isTextModelKind(fileKind);
     this.isLoading = isSelfLoadingKind(fileKind)
       ? false
       : fileKind === 'image'
@@ -111,7 +111,7 @@ export class FileTabResource implements TabResource {
       setExternalError: action,
     });
 
-    // Retain Monaco models for this file. Outside the workspace only the text kinds go
+    // Retain text models for this file. Outside the workspace only the text kinds go
     // through the registry. PDFs fetch their own bytes in their renderer (`isSelfLoadingKind`);
     // images are fetched by FileContentPreview through `readImage` (`external-file-load.ts`, #6455).
     if (modelManager && this._usesModels) {
@@ -121,7 +121,7 @@ export class FileTabResource implements TabResource {
 
   /** Whether this tab's body comes from the model registry rather than its own fetch. */
   private get _usesModels(): boolean {
-    return !this.isExternal || isMonacoBackedKind(this.fileKind);
+    return !this.isExternal || isTextModelKind(this.fileKind);
   }
 
   dispose(): void {
@@ -153,7 +153,7 @@ export class FileTabResource implements TabResource {
     this.revealRequest = null;
   }
 
-  /** True when the Monaco buffer for this file has unsaved changes. */
+  /** True when the buffer for this file has unsaved changes. */
   get isDirty(): boolean {
     if (!this._modelCtx) return false;
     return modelRegistry.dirtyUris.has(this.bufferUri);
@@ -169,17 +169,17 @@ export class FileTabResource implements TabResource {
   }
 
   /**
-   * The editable Monaco buffer backing this tab — one address for every reader, so no
+   * The editable buffer backing this tab — one address for every reader, so no
    * renderer has to ask「这文件在工作区里面还是外面」(#5585). Inside or outside the
    * workspace, the file is shown from its buffer and saved from it; only the root and
    * the write RPC differ, and both are decided below this line.
    */
   get bufferUri(): string {
     if (!this._modelCtx) return '';
-    return buildMonacoModelPath(this._modelRoot, this.path);
+    return buildModelUri(this._modelRoot, this.path);
   }
 
-  /** Called by the Monaco editor when the user makes the first edit — pins the tab. */
+  /** Pins the tab once the user edits it. */
   onFirstEdit(): void {
     this._handle?.pin();
   }

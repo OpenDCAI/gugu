@@ -113,7 +113,7 @@ function predictOutcome(href: string): string {
   }
   const kind = getFileKind(resolved)
   if (kind === 'binary') return '工作区内·binary→查看面板「不支持的文件格式」占位页签(不交给系统、不开文件夹)'
-  return `工作区内·${kind}→查看面板对应渲染器(${kind === 'text' ? 'monaco 文本' : kind})(缺文件→toast Could not find;目录→Finder/Explorer)`
+  return `工作区内·${kind}→查看面板对应渲染器(${kind === 'text' ? '代码编辑器文本' : kind})(缺文件→toast Could not find;目录→Finder/Explorer)`
 }
 
 type Row = { id: string; md: string }

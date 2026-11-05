@@ -9,21 +9,21 @@ import {
 import { dispatchMatchingHotkeys } from '@renderer/lib/hotkeys/dispatch-matching-hotkeys';
 
 function isCodeEditorFocused(event: KeyboardEvent): boolean {
-  return event.composedPath().some(node => node instanceof HTMLElement && node.closest('.monaco-editor, .cm-editor'));
+  return event.composedPath().some(node => node instanceof HTMLElement && node.closest('.cm-editor'));
 }
 
 /**
  * Intercepts keyboard events at capture phase and fires matching TanStack hotkey
- * registrations when Monaco editor has focus.
+ * registrations when a code editor has focus.
  *
- * Monaco calls stopPropagation() on keydown events, preventing them from reaching
+ * CodeMirror handles (and stops) the keys its keymaps bind, so they never reach
  * TanStack's document-level listeners (bubbling phase). This bridge uses capture
- * phase, which runs before Monaco's handlers, so it cannot be blocked by them.
+ * phase, which runs before the editor's handlers, so it cannot be blocked by them.
  *
- * When Monaco is not focused the handler returns immediately and normal TanStack
+ * When no code editor is focused the handler returns immediately and normal TanStack
  * bubbling-phase handling takes over unchanged.
  */
-export function MonacoKeyboardBridge() {
+export function CodeEditorKeyboardBridge() {
   const { value: keyboard } = useAppSettingsKey('keyboard');
   const ignoredHotkeys = useMemo(() => {
     const platform = detectPlatform();
@@ -34,7 +34,7 @@ export function MonacoKeyboardBridge() {
     ][];
 
     for (const [key, def] of shortcuts) {
-      if (!def.ignoreWhenMonacoFocused) continue;
+      if (!def.ignoreWhenCodeEditorFocused) continue;
       const hotkey = getEffectiveHotkey(key, keyboard);
       if (hotkey !== null) next.add(normalizeHotkey(hotkey, platform));
     }
@@ -53,7 +53,7 @@ export function MonacoKeyboardBridge() {
           !ignoredHotkeys.has(normalizeHotkey(registration.hotkey, platform)),
       });
 
-      // Prevent the event from reaching Monaco and skip the TanStack bubbling
+      // Prevent the event from reaching the editor and skip the TanStack bubbling
       // listener (which would otherwise double-dispatch the same shortcut).
       if (handled) e.stopPropagation();
     };

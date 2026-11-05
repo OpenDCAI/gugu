@@ -1,8 +1,8 @@
 /**
- * Map file extensions to Monaco Editor language IDs
- * Monaco uses different IDs than Prism in some cases
+ * Map file extensions to editor language IDs (the keys of lib/codemirror/languages.ts).
+ * They differ from Prism's in some cases
  */
-export function getMonacoLanguageId(filePath: string): string {
+export function getEditorLanguageId(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() || '';
   const langMap: Record<string, string> = {
     js: 'javascript',

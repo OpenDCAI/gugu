@@ -3,13 +3,13 @@ import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 import { observable, runInAction } from 'mobx';
-import type * as monaco from 'monaco-editor';
 import { diffHunks, mergeThreeWay } from '@/session/app-runtime/apply-from';
-import type { DiffViewState } from '@renderer/lib/editor/diff-view-state';
+import type { DiffViewState, FileViewState } from '@renderer/lib/editor/diff-view-state';
 import { EDITOR_CONFIRM_FILE_BYTES } from '@renderer/lib/editor/file-size-limits';
 import { HEAD_REF, type GitRef } from '@shared/core/git/types';
 import { gitRefToString, refsEqual } from '@shared/core/git/utils';
-import { buildMonacoModelPath, isExternalModelRoot } from './monacoModelPath';
+import { buildModelUri, isExternalModelRoot } from './model-uri';
+import { documentText, TextModel } from './text-model';
 import { workspaceBackend, workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 
 const BUFFER_DEBOUNCE_MS = 2000;
@@ -20,9 +20,9 @@ const BUFFER_DEBOUNCE_MS = 2000;
 
 interface BufferModelEntry {
   type: 'buffer';
-  model: monaco.editor.ITextModel;
-  /** Monaco cursor/scroll/folding state, saved between tab switches. */
-  viewState: monaco.editor.ICodeEditorViewState | null;
+  model: TextModel;
+  /** The file editor's cursor and scroll, saved between tab switches. */
+  viewState: FileViewState | null;
   refs: number;
   projectId: string;
   workspaceId: string;
@@ -34,7 +34,7 @@ interface BufferModelEntry {
 
 interface DiskModelEntry {
   type: 'disk';
-  model: monaco.editor.ITextModel;
+  model: TextModel;
   refs: number;
   projectId: string;
   workspaceId: string;
@@ -46,7 +46,7 @@ interface DiskModelEntry {
 
 interface GitModelEntry {
   type: 'git';
-  model: monaco.editor.ITextModel;
+  model: TextModel;
   refs: number;
   projectId: string;
   workspaceId: string;
@@ -61,8 +61,8 @@ export type ModelType = 'buffer' | 'disk' | 'git';
 export type ModelStatus = 'loading' | 'ready' | 'error' | 'too-large' | 'binary';
 
 /**
- * Manages up to three Monaco ITextModel instances per open file using a single
- * unified map keyed by Monaco URI string.
+ * Manages up to three TextModel instances per open file using a single
+ * unified map keyed by model URI string.
  *
  *   buffer  (file://)  — writable; shown in the code editor; holds user edits + undo stack
  *   disk    (disk://)  — read-only mirror of the current on-disk content; updated by watcher
@@ -81,14 +81,14 @@ export type ModelStatus = 'loading' | 'ready' | 'error' | 'too-large' | 'binary'
  *
  * Binary files must be filtered by callers before registering (use `getFileKind` from fileKind.ts).
  */
-export class MonacoModelRegistry {
+export class TextModelRegistry {
   /**
-   * Unified model map. Key is the Monaco URI string (scheme encodes entry type).
+   * Unified model map. Key is the model URI string (scheme encodes entry type).
    *   file://  → BufferModelEntry
    *   disk://  → DiskModelEntry
    *   git://   → GitModelEntry
    *
-   * Plain Map — Monaco ITextModel instances are imperative/mutable; not observable.
+   * Plain Map — TextModel instances are imperative/mutable; not observable.
    */
   private modelMap = new Map<string, ModelEntry>();
 
@@ -99,35 +99,6 @@ export class MonacoModelRegistry {
    * Entries are swept out when either constituent model is evicted (see unregisterModel).
    */
   private diffViewStates = new Map<string, DiffViewState>();
-
-  // ---------------------------------------------------------------------------
-  // Monaco readiness — awaited before creating any ITextModel instance.
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Resolves once monacoBootstrap.init() completes.
-   * notifyMonacoReady() is called by the bootstrap; the promise is idempotent
-   * after the first resolution.
-   */
-  private readonly monacoReadyPromise: Promise<typeof monaco>;
-  private resolveMonacoReady!: (m: typeof monaco) => void;
-  private monacoResolved = false;
-
-  constructor() {
-    this.monacoReadyPromise = new Promise<typeof monaco>((resolve) => {
-      this.resolveMonacoReady = resolve;
-    });
-  }
-
-  /**
-   * Called by monacoBootstrap after Monaco finishes loading.
-   * Safe to call multiple times — only the first call has any effect.
-   */
-  notifyMonacoReady(m: typeof monaco): void {
-    if (this.monacoResolved) return;
-    this.monacoResolved = true;
-    this.resolveMonacoReady(m);
-  }
 
   private reloadingFromDisk = new Set<string>();
 
@@ -156,7 +127,7 @@ export class MonacoModelRegistry {
   readonly modelStatus = observable.map<string, ModelStatus>();
 
   /**
-   * Total file size in bytes for disk:// URIs where the file was too large to load into Monaco.
+   * Total file size in bytes for disk:// URIs where the file was too large to load into the editor.
    * Keyed by disk:// URI. Used to display file size in the tab bar tooltip and TooLargeRenderer.
    */
   readonly modelTotalSizes = observable.map<string, number>();
@@ -175,7 +146,7 @@ export class MonacoModelRegistry {
    */
   readonly bufferVersions = observable.map<string, number>();
   /**
-   * 盘上这个文件变过几次(按工作区 + 路径,分隔符归一)。给不走 Monaco 模型的读者用 —— 图片、PDF 读一次字节就画,
+   * 盘上这个文件变过几次(按工作区 + 路径,分隔符归一)。给不走文本模型的读者用 —— 图片、PDF 读一次字节就画,
    * 自己收不到磁盘变化,读这个版本号、它动了就重读。和模型共用一条来源:`files:changes` → invalidation bridge。
    */
   private readonly diskVersions = observable.map<string, number>();
@@ -201,8 +172,8 @@ export class MonacoModelRegistry {
   /** Debounce timers for crash-recovery buffer autosave, keyed by buffer URI. */
   private bufferAutosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  /** model.onDidChangeContent disposables for each registered buffer, keyed by buffer URI. */
-  private bufferContentDisposables = new Map<string, { dispose(): void }>();
+  /** model.onDidChange unsubscribers for each registered buffer, keyed by buffer URI. */
+  private bufferContentDisposables = new Map<string, () => void>();
 
   // ---------------------------------------------------------------------------
   // URI helpers (public)
@@ -269,7 +240,7 @@ export class MonacoModelRegistry {
      */
     maxBytes: number = EDITOR_CONFIRM_FILE_BYTES
   ): Promise<string> {
-    const uri = buildMonacoModelPath(modelRootPath, filePath);
+    const uri = buildModelUri(modelRootPath, filePath);
     const external = isExternalModelRoot(modelRootPath);
 
     switch (type) {
@@ -306,10 +277,7 @@ export class MonacoModelRegistry {
 
     runInAction(() => this.modelStatus.set(diskUri, 'loading'));
 
-    // Run the RPC fetch and Monaco initialization in parallel — no need to wait
-    // for Monaco before fetching file content from the main process.
     let content: string;
-    let m: typeof monaco;
     try {
       // maxBytes 进 key:同一个文件「先问一句」与「仍然打开」是两次不同的读取,
       // 少了它第二次会被 dedup 缓存直接喂回第一次那个「太大」的结果(#5763)。
@@ -320,8 +288,7 @@ export class MonacoModelRegistry {
         truncated: boolean;
         totalSize: number;
       };
-      const [fetchResult, monaco_] = await Promise.all([
-        this.dedupFetch<DiskFetchResult>(fetchKey, async () => {
+      const fetchResult = await this.dedupFetch<DiskFetchResult>(fetchKey, async () => {
           // Outside the workspace the path is absolute and only readExternalFile accepts
           // it; both calls answer with the same shape (content / binary / truncated / size),
           // so everything downstream — status, eviction, too-large — stays one code path.
@@ -340,11 +307,9 @@ export class MonacoModelRegistry {
             truncated: res.data.truncated,
             totalSize: res.data.totalSize,
           };
-        }),
-        this.monacoReadyPromise,
-      ]);
+      });
 
-      // File too large to load into Monaco — mark status and bail out without creating a model.
+      // File too large to load into the editor — mark status and bail out without creating a model.
       if (fetchResult.truncated) {
         runInAction(() => {
           this.modelStatus.set(diskUri, 'too-large');
@@ -361,15 +326,12 @@ export class MonacoModelRegistry {
       }
 
       content = fetchResult.content;
-      m = monaco_;
     } catch (err) {
       runInAction(() => this.modelStatus.set(diskUri, 'error'));
       throw err;
     }
 
-    const diskMonacoUri = m.Uri.parse(diskUri);
-    let model = m.editor.getModel(diskMonacoUri);
-    if (!model) model = m.editor.createModel(content, language, diskMonacoUri);
+    const model = new TextModel(diskUri, language, content);
     const entry: DiskModelEntry = {
       type: 'disk',
       model,
@@ -410,13 +372,10 @@ export class MonacoModelRegistry {
 
     runInAction(() => this.modelStatus.set(gitUri, 'loading'));
 
-    // Run the RPC fetch and Monaco initialization in parallel.
     const fetchKey = `${projectId}:${workspaceId}:${filePath}:git:${gitRefToString(ref)}`;
     let content: string | null;
-    let m: typeof monaco;
     try {
-      [content, m] = await Promise.all([
-        this.dedupFetch(fetchKey, async () => {
+      content = await this.dedupFetch(fetchKey, async () => {
           if (ref.kind === 'staged') {
             const res = await workspaceRpc(projectId).gitWorktree.getFileAtIndex(
               projectId,
@@ -434,17 +393,13 @@ export class MonacoModelRegistry {
           );
           if (!res.success) throw new Error(`Cannot read git ref: ${JSON.stringify(res.error)}`);
           return res.data.content;
-        }),
-        this.monacoReadyPromise,
-      ]);
+      });
     } catch (error) {
       runInAction(() => this.modelStatus.set(gitUri, 'error'));
       throw error;
     }
 
-    const gitMonacoUri = m.Uri.parse(gitUri);
-    let model = m.editor.getModel(gitMonacoUri);
-    if (!model) model = m.editor.createModel(content ?? '', language, gitMonacoUri);
+    const model = new TextModel(gitUri, language, content ?? '');
     const entry: GitModelEntry = {
       type: 'git',
       model,
@@ -475,39 +430,9 @@ export class MonacoModelRegistry {
       // Re-attach the content-change listener if it was eagerly disposed when
       // refs previously dropped to 0 (tab close), but the model survived the
       // 60 s eviction window and is now being re-registered.
-      if (!this.bufferContentDisposables.has(uri)) {
-        const disposable = existing.model.onDidChangeContent(() => {
-          if (this.reloadingFromDisk.has(uri)) return;
-          runInAction(() => {
-            if (this.computeIsDirtyRaw(uri)) this.dirtyUris.add(uri);
-            else this.dirtyUris.delete(uri);
-            this.bufferVersions.set(uri, (this.bufferVersions.get(uri) ?? 0) + 1);
-          });
-          const existingTimer = this.bufferAutosaveTimers.get(uri);
-          if (existingTimer) clearTimeout(existingTimer);
-          this.bufferAutosaveTimers.set(
-            uri,
-            setTimeout(() => {
-              this.bufferAutosaveTimers.delete(uri);
-              const currentEntry = this.modelMap.get(uri);
-              if (!currentEntry || currentEntry.type !== 'buffer') return;
-              if (!this.isDirty(uri)) return;
-              const value = currentEntry.model.getValue();
-              void workspaceRpc(currentEntry.projectId).editor.saveBuffer(
-                currentEntry.projectId,
-                currentEntry.workspaceId,
-                currentEntry.filePath,
-                value
-              );
-            }, BUFFER_DEBOUNCE_MS)
-          );
-        });
-        this.bufferContentDisposables.set(uri, disposable);
-      }
+      if (!this.bufferContentDisposables.has(uri)) this.watchBuffer(uri, existing.model);
       return uri;
     }
-
-    const m = await this.monacoReadyPromise;
 
     const diskEntry = this.modelMap.get(this.toDiskUri(uri));
     const seedContent = diskEntry?.type === 'disk' ? diskEntry.model.getValue() : '';
@@ -516,57 +441,19 @@ export class MonacoModelRegistry {
     const filePath = diskEntry?.filePath ?? '';
     const external = diskEntry?.type === 'disk' ? diskEntry.external : false;
 
-    {
-      const bufferMonacoUri = m.Uri.parse(uri);
-      let model = m.editor.getModel(bufferMonacoUri);
-      if (!model) model = m.editor.createModel(seedContent, language, bufferMonacoUri);
-      const entry: BufferModelEntry = {
-        type: 'buffer',
-        model,
-        refs: 1,
-        projectId,
-        workspaceId,
-        filePath,
-        language,
-        viewState: null,
-        external,
-      };
-      this.modelMap.set(uri, entry);
-
-      // Attach content-change listener for dirty tracking and crash-recovery autosave.
-      const disposable = model.onDidChangeContent(() => {
-        if (this.reloadingFromDisk.has(uri)) return;
-
-        // Update reactive dirty set and bump content version so observer()
-        // components that render buffer text (e.g. markdown preview) re-render.
-        runInAction(() => {
-          if (this.computeIsDirtyRaw(uri)) this.dirtyUris.add(uri);
-          else this.dirtyUris.delete(uri);
-          this.bufferVersions.set(uri, (this.bufferVersions.get(uri) ?? 0) + 1);
-        });
-
-        // Debounced crash-recovery save — persists unsaved edits across app restarts.
-        const existingTimer = this.bufferAutosaveTimers.get(uri);
-        if (existingTimer) clearTimeout(existingTimer);
-        this.bufferAutosaveTimers.set(
-          uri,
-          setTimeout(() => {
-            this.bufferAutosaveTimers.delete(uri);
-            const currentEntry = this.modelMap.get(uri);
-            if (!currentEntry || currentEntry.type !== 'buffer') return;
-            if (!this.isDirty(uri)) return;
-            const value = currentEntry.model.getValue();
-            void workspaceRpc(currentEntry.projectId).editor.saveBuffer(
-              currentEntry.projectId,
-              currentEntry.workspaceId,
-              currentEntry.filePath,
-              value
-            );
-          }, BUFFER_DEBOUNCE_MS)
-        );
-      });
-      this.bufferContentDisposables.set(uri, disposable);
-    }
+    const model = new TextModel(uri, language, seedContent);
+    this.modelMap.set(uri, {
+      type: 'buffer',
+      model,
+      refs: 1,
+      projectId,
+      workspaceId,
+      filePath,
+      language,
+      viewState: null,
+      external,
+    });
+    this.watchBuffer(uri, model);
 
     runInAction(() => this.modelStatus.set(uri, 'ready'));
     // Mark the buffer as having content so markdown/other renderers that depend
@@ -584,13 +471,45 @@ export class MonacoModelRegistry {
     return uri;
   }
 
+  /** Dirty tracking, content version and the debounced crash-recovery save for one buffer. */
+  private watchBuffer(uri: string, model: TextModel): void {
+    this.bufferContentDisposables.set(uri, model.onDidChange(() => {
+      if (this.reloadingFromDisk.has(uri)) return;
+      // Update reactive dirty set and bump content version so observer()
+      // components that render buffer text (e.g. markdown preview) re-render.
+      runInAction(() => {
+        if (this.computeIsDirtyRaw(uri)) this.dirtyUris.add(uri);
+        else this.dirtyUris.delete(uri);
+        this.bufferVersions.set(uri, (this.bufferVersions.get(uri) ?? 0) + 1);
+      });
+      // Debounced crash-recovery save — persists unsaved edits across app restarts.
+      const existingTimer = this.bufferAutosaveTimers.get(uri);
+      if (existingTimer) clearTimeout(existingTimer);
+      this.bufferAutosaveTimers.set(
+        uri,
+        setTimeout(() => {
+          this.bufferAutosaveTimers.delete(uri);
+          const currentEntry = this.modelMap.get(uri);
+          if (!currentEntry || currentEntry.type !== 'buffer') return;
+          if (!this.isDirty(uri)) return;
+          void workspaceRpc(currentEntry.projectId).editor.saveBuffer(
+            currentEntry.projectId,
+            currentEntry.workspaceId,
+            currentEntry.filePath,
+            currentEntry.model.getValue()
+          );
+        }, BUFFER_DEBOUNCE_MS)
+      );
+    }));
+  }
+
   // ---------------------------------------------------------------------------
   // Unregister (public API)
   // ---------------------------------------------------------------------------
 
   /**
    * Decrement the reference count for a model by its typed URI.
-   * Disposes the Monaco model and cleans up subscriptions when count reaches 0.
+   * Drops the model and cleans up subscriptions when count reaches 0.
    *
    * Pass the typed URI directly:
    *   buffer → the file:// buffer URI (same as returned by registerModel)
@@ -600,7 +519,7 @@ export class MonacoModelRegistry {
   unregisterModel(uri: string): void {
     const entry = this.modelMap.get(uri);
     if (!entry) {
-      // No Monaco model was created — this can happen for too-large disk models.
+      // No model was created — this can happen for too-large disk models.
       // Clean up status and size immediately since there is nothing else to evict.
       if (this.modelStatus.get(uri) === 'too-large') {
         runInAction(() => {
@@ -620,14 +539,13 @@ export class MonacoModelRegistry {
       this.evictionTimers.delete(uri);
       const e = this.modelMap.get(uri);
       if (!e || e.refs > 0) return;
-      if (!e.model.isDisposed()) e.model.dispose();
       this.modelMap.delete(uri);
       runInAction(() => {
         this.modelStatus.delete(uri);
         if (e.type === 'disk') this.modelTotalSizes.delete(uri);
       });
       if (e.type === 'buffer') {
-        this.bufferContentDisposables.get(uri)?.dispose();
+        this.bufferContentDisposables.get(uri)?.();
         this.bufferContentDisposables.delete(uri);
         const autosaveTimer = this.bufferAutosaveTimers.get(uri);
         if (autosaveTimer !== undefined) {
@@ -653,7 +571,7 @@ export class MonacoModelRegistry {
     // Eagerly clean up buffer-specific in-memory state immediately (content disposables,
     // autosave timers) so that edits made in a closing tab don't fire after close.
     if (entry.type === 'buffer') {
-      this.bufferContentDisposables.get(uri)?.dispose();
+      this.bufferContentDisposables.get(uri)?.();
       this.bufferContentDisposables.delete(uri);
       const autosaveTimer = this.bufferAutosaveTimers.get(uri);
       if (autosaveTimer !== undefined) {
@@ -667,34 +585,15 @@ export class MonacoModelRegistry {
   // Attach / view state
   // ---------------------------------------------------------------------------
 
-  /**
-   * Attach the buffer model to a leased code editor.
-   * Saves view state for `previousUri` and restores it for `newUri`.
-   */
-  attach(editor: monaco.editor.IStandaloneCodeEditor, newUri: string, previousUri?: string): void {
-    if (previousUri && previousUri !== newUri) {
-      const prev = this.modelMap.get(previousUri);
-      if (prev?.type === 'buffer') prev.viewState = editor.saveViewState();
-    }
-
-    // Any registered model can be shown — a file outside the workspace is backed by its
-    // read-only disk model, and refusing to attach it left the editor holding the file
-    // you looked at *before*, i.e. the source view silently showed the wrong file (#5585).
-    // Only buffers carry view state, since only they are edited.
-    const entry = this.modelMap.get(newUri);
-    if (!entry) return;
-    editor.setModel(entry.model);
-    if (entry.type === 'buffer' && entry.viewState) {
-      editor.restoreViewState(entry.viewState);
-    }
+  /** The file editor's saved cursor and scroll for this buffer. */
+  viewState(uri: string): FileViewState | null {
+    const entry = this.modelMap.get(uri);
+    return entry?.type === 'buffer' ? entry.viewState : null;
   }
 
-  detach(editor: monaco.editor.IStandaloneCodeEditor, previousUri?: string): void {
-    if (previousUri) {
-      const prev = this.modelMap.get(previousUri);
-      if (prev?.type === 'buffer') prev.viewState = editor.saveViewState();
-    }
-    editor.setModel(null);
+  saveViewState(uri: string, state: FileViewState): void {
+    const entry = this.modelMap.get(uri);
+    if (entry?.type === 'buffer') entry.viewState = state;
   }
 
   // ---------------------------------------------------------------------------
@@ -780,7 +679,7 @@ export class MonacoModelRegistry {
    * Returns the ITextModel stored at the given typed URI, or undefined.
    * Use toDiskUri / toGitUri to construct typed URIs for disk/git entries.
    */
-  getModelByUri(uri: string): monaco.editor.ITextModel | undefined {
+  getModelByUri(uri: string): TextModel | undefined {
     return this.modelMap.get(uri)?.model;
   }
 
@@ -1006,34 +905,26 @@ export class MonacoModelRegistry {
   private applyDiskUpdate(diskUri: string, entry: DiskModelEntry, newContent: string): void {
     const bufferUri = diskUri.replace(/^disk:\/\//, 'file://');
     const bufEntry = this.modelMap.get(bufferUri);
-    // The disk as the buffer last knew it: what its unsaved edits were made against.
-    const base = entry.model.getValue();
+    // The disk as the buffer last knew it: what its unsaved edits were made against. Compared and merged as the
+    // documents hold them (`\n` line ends), the coordinates the buffer's edits take.
+    const base = entry.model.doc.toString();
     entry.model.setValue(newContent);
     if (bufEntry?.type !== 'buffer') return;
 
-    const mine = bufEntry.model.getValue();
+    const mine = bufEntry.model.doc.toString();
+    const theirs = documentText(newContent);
     // No unsaved edits: the buffer becomes the disk's text. Unsaved edits: the disk's change merges in beside them, and
     // the buffer stays unsaved until ⌘S writes the merged text (F91).
-    const next = !this.dirtyUris.has(bufferUri) || mine === newContent ? newContent : mergeThreeWay(base, mine, newContent);
+    const next = !this.dirtyUris.has(bufferUri) || mine === theirs ? theirs : mergeThreeWay(base, mine, theirs);
     if (next !== mine) {
       this.reloadingFromDisk.add(bufferUri);
       // 只换变了的那几段:光标在没变的地方原地不动(VS Code 重新读回时同一个手感)。
-      const model = bufEntry.model;
-      model.applyEdits(
-        diffHunks(mine, next).map((hunk) => {
-          const start = model.getPositionAt(hunk.from);
-          const end = model.getPositionAt(hunk.to);
-          return {
-            range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column },
-            text: hunk.insert,
-          };
-        }),
-        false
-      );
+      // Not an undo step: undo goes back over your own edits, not over what came from disk.
+      bufEntry.model.edit(diffHunks(mine, next).map((hunk) => ({ from: hunk.from, to: hunk.to, insert: hunk.insert })), { addToHistory: false });
       this.reloadingFromDisk.delete(bufferUri);
     }
     runInAction(() => {
-      if (next === newContent) this.dirtyUris.delete(bufferUri);
+      if (next === theirs) this.dirtyUris.delete(bufferUri);
       else this.dirtyUris.add(bufferUri);
       // 内容监听在 reloadingFromDisk 期间整段跳过(它管的是算脏与自动保存),正文版本号得在这里补上 ——
       // 预览(HTML / markdown / SVG / CSV)只认它,不加就停在旧正文上。
@@ -1051,11 +942,11 @@ export class MonacoModelRegistry {
  * (#5903 在 chole 实测:watcher 报 `D:\\…\\pelican.svg`,注册表里是 `D:/…/pelican.svg`,`hit=0`)。
  *
  * ⇒ 比之前先把分隔符归一。❌ 不在注册时改写 `entry.filePath` —— 那个值还要原样回传给主进程去读文件,
- * 改写它等于让「读哪个文件」跟着「怎么比」一起漂。模型身份本来就与拼法无关:`buildMonacoModelPath`
+ * 改写它等于让「读哪个文件」跟着「怎么比」一起漂。模型身份本来就与拼法无关:`buildModelUri`
  * 已经把分隔符归一进 URI,所以同一个文件不同拼法本来就共用同一个 entry。
  */
 function samePathKey(filePath: string): string {
   return filePath.replace(/\\/g, '/');
 }
 
-export const modelRegistry = new MonacoModelRegistry();
+export const modelRegistry = new TextModelRegistry();

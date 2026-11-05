@@ -122,13 +122,13 @@ describe('global commands before widget key consumption', () => {
       expect(find).not.toHaveBeenCalled();
     } finally { await act(async () => disposeTimeline()); }
   });
-  it.each(['monaco-editor', 'cm-editor'])('k6 leaves %s native find alone', async (className) => {
+  it.each(['cm-editor'])('k6 leaves %s native find alone', async (className) => {
     host.classList.add(className);
     await press('f');
     expect(find).not.toHaveBeenCalled();
     expect(widget).toHaveBeenCalledOnce();
   });
-  it.each(['transcript', 'terminal', 'chat', 'monaco-editor', 'cm-editor'])('k7 global search still captures Shift+F in %s', async (className) => {
+  it.each(['transcript', 'terminal', 'chat', 'cm-editor'])('k7 global search still captures Shift+F in %s', async (className) => {
     host.classList.add(className);
     const globalSearch = vi.fn();
     let remove!: () => void;

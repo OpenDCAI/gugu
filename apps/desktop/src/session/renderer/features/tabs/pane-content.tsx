@@ -26,10 +26,10 @@ import { isUnavailableTabResource, UnavailableTabContent } from './unavailable-t
 import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
 import { tabFullscreen, WORKSPACE_ANCHOR } from './tab-fullscreen';
 
-// Monaco 0.55 收字的是 `.native-edit-context`,旁边那个 `ime-text-area` 是只读的:聚焦它 = 看着进了编辑器、字打不进去。
+// 文件编辑器收字的是 `.cm-content`(可编辑时 contenteditable)。
 // 浏览器页签的网页是主进程的 view(#7274),页签里只有它的占位 `[data-browser-page]`:聚焦占位 = 把焦点交给网页。
 const CONTENT_FOCUS_SELECTOR =
-  '.native-edit-context, textarea:not([readonly]), webview, [data-browser-page], [contenteditable="true"]';
+  '.cm-content, textarea:not([readonly]), webview, [data-browser-page], [contenteditable="true"]';
 
 function focusActiveContentElement(container: HTMLElement): void {
   for (const el of container.querySelectorAll<HTMLElement>(CONTENT_FOCUS_SELECTOR)) {

@@ -14,7 +14,7 @@ export interface CommandDef {
   /** Capture before terminal widgets and modal roots consume global entry keys. */
   capture?: boolean;
   conflictBehavior?: 'prevent' | 'allow';
-  ignoreWhenMonacoFocused?: boolean;
+  ignoreWhenCodeEditorFocused?: boolean;
   ignoreWhenBrowserFocused?: boolean;
 }
 
@@ -226,7 +226,7 @@ export const COMMANDS = defineCommands({
     iconKey: 'archive',
     defaultHotkey: 'Mod+Shift+E',
     category: 'Task View',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
   },
   'session.convertAutomation': {
     label: 'Convert to Regular Task',
@@ -247,7 +247,7 @@ export const COMMANDS = defineCommands({
     iconKey: 'text-cursor-input',
     defaultHotkey: 'Shift+Escape',
     category: 'Task View',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
   },
   'session.addContext': {
     label: 'Add Context',
@@ -255,7 +255,7 @@ export const COMMANDS = defineCommands({
     iconKey: 'list-plus',
     defaultHotkey: 'Mod+Shift+A',
     category: 'Task View',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
   },
   'session.stageAll': {
     label: 'Stage All Files',
@@ -263,7 +263,7 @@ export const COMMANDS = defineCommands({
     iconKey: 'git-commit',
     defaultHotkey: 'Mod+Shift+G',
     category: 'Task View',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
   },
   'session.timelineNext': {
     label: 'Next Timeline Entry',
@@ -271,7 +271,7 @@ export const COMMANDS = defineCommands({
     iconKey: 'chevron-down',
     defaultHotkey: 'Alt+]',
     category: 'Task View',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.timelinePrev': {
@@ -280,7 +280,7 @@ export const COMMANDS = defineCommands({
     iconKey: 'chevron-up',
     defaultHotkey: 'Alt+[',
     category: 'Task View',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'app.commandPalette': {
@@ -315,7 +315,7 @@ export const COMMANDS = defineCommands({
     label: 'Zen Mode',
     description: 'Hide both sidebars',
     category: 'View',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
     ignoreInputs: true,
   },
@@ -391,7 +391,7 @@ export const COMMANDS = defineCommands({
     description: 'Move to the next task in the sidebar and show it',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.previous': {
@@ -400,7 +400,7 @@ export const COMMANDS = defineCommands({
     description: 'Move to the previous task in the sidebar and show it',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.focusComposerFromSidebar': {
@@ -409,7 +409,7 @@ export const COMMANDS = defineCommands({
     description: 'Hand the keyboard back to the composer',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.projectHome': {
@@ -418,7 +418,7 @@ export const COMMANDS = defineCommands({
     description: "Jump to the parent project's home, where a new task is started",
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.backToList': {
@@ -427,7 +427,7 @@ export const COMMANDS = defineCommands({
     description: 'Leave the composer for the sidebar when the caret is at the start',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.leaveTerminal': {
@@ -436,7 +436,7 @@ export const COMMANDS = defineCommands({
     description: 'Hand the keyboard from a terminal task back to the sidebar',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.leaveComposer': {
@@ -445,7 +445,7 @@ export const COMMANDS = defineCommands({
     description: 'Return from the composer to sidebar navigation, keeping the draft',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.rename': {
@@ -454,7 +454,7 @@ export const COMMANDS = defineCommands({
     description: 'Rename the highlighted task in place',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.pinHighlighted': {
@@ -463,7 +463,7 @@ export const COMMANDS = defineCommands({
     description: 'Pin or unpin the highlighted task',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'session.archiveHighlighted': {
@@ -472,7 +472,7 @@ export const COMMANDS = defineCommands({
     description: 'Archive the highlighted task (press twice to confirm)',
     category: 'Navigation',
     conflictBehavior: 'allow',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'app.find': {
@@ -481,7 +481,7 @@ export const COMMANDS = defineCommands({
     description: 'Search the focused terminal or chat',
     category: 'Navigation',
     defaultHotkey: 'Mod+F',
-    ignoreWhenMonacoFocused: true,
+    ignoreWhenCodeEditorFocused: true,
     ignoreWhenBrowserFocused: true,
   },
   'chat.rename': {

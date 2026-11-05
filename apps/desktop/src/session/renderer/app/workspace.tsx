@@ -4,7 +4,7 @@ import { SESSION_NAV_FOCUS_REGION } from '@renderer/features/sidebar/session-key
 import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder';
 import { AppKeyboardShortcuts } from '@renderer/lib/components/app-keyboard-shortcuts';
 import { BrowserAppShortcutEvents } from '@renderer/lib/components/browser-app-shortcut-events';
-import { MonacoKeyboardBridge } from '@renderer/lib/components/monaco-keyboard-bridge';
+import { CodeEditorKeyboardBridge } from '@renderer/lib/components/code-editor-keyboard-bridge';
 import { useTheme } from '@renderer/lib/hooks/useTheme';
 import {
   useWorkspaceSlots,
@@ -64,7 +64,7 @@ export function Workspace() {
           may have no DOM node at all. Always mounted: inserted under the page root on each show, it re-matched the root's
           :has() rules and restyled the whole page (~130 ms at 1000 chat rows). */}
       <div data-region={SESSION_NAV_FOCUS_REGION} tabIndex={-1} aria-hidden="true" style={{ position: 'fixed', width: 0, height: 0, opacity: 0, outline: 'none' }} />
-      <MonacoKeyboardBridge />
+      <CodeEditorKeyboardBridge />
       <WorkspaceLayout
         sidebarHidden={withoutSessionSidebar}
         leftSidebar={<LeftSidebar />}

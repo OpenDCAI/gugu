@@ -1,18 +1,9 @@
-import { ChangeSet, Transaction, type TransactionSpec, type Text } from '@codemirror/state';
+import { ChangeSet, Transaction, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import type * as Monaco from 'monaco-editor';
-import { modelPosition } from './model-position';
-
-export function modelChanges(doc: Text, event: Monaco.editor.IModelContentChangedEvent): ChangeSet {
-  return ChangeSet.of(event.changes.map(({ range, text }) => ({
-    from: modelPosition(doc, { lineNumber: range.startLineNumber, column: range.startColumn }),
-    to: modelPosition(doc, { lineNumber: range.endLineNumber, column: range.endColumn }),
-    insert: text,
-  })), doc.length);
-}
+import type { TextModel } from '@renderer/lib/text-model/text-model';
 
 /** User edits enter the model; only model events enter the CM document, including the initiating view. */
-export function bindModel(view: EditorView, model: Monaco.editor.ITextModel, monaco: typeof Monaco) {
+export function bindModel(view: EditorView, model: TextModel) {
   // @@@ dispatch-wrap: user transactions must become model edits before CM applies them, so that
   // every CM document change (including the initiating view's) arrives from the model event alone.
   // That needs a hook in front of the view's update. EditorView's official hook is the
@@ -22,14 +13,10 @@ export function bindModel(view: EditorView, model: Monaco.editor.ITextModel, mon
   // and the outer transaction no longer starts from the view's state. So both modes wrap
   // `view.dispatch`. Switch to `dispatchTransactions` once MergeView accepts it per side.
   const apply = view.dispatch.bind(view);
-  let lastEdit: { version: number; time: number; event: string | undefined } | undefined;
-  const selections = (doc: Text, selection: typeof view.state.selection) => selection.ranges.map(({ anchor, head }) => {
-    const start = modelPosition(doc, anchor);
-    const end = modelPosition(doc, head);
-    return new monaco.Selection(start.lineNumber, start.column, end.lineNumber, end.column);
-  });
-  const listener = model.onDidChangeContent(event => {
-    apply({ changes: modelChanges(view.state.doc, event) });
+  const unsubscribe = model.onDidChange(({ changes, selection, origin }) => {
+    // Undo/redo restores the cursor only in the view that asked for it; elsewhere the selection just maps.
+    const own = origin === view && selection !== undefined;
+    apply({ changes, selection: own ? selection : undefined, scrollIntoView: own });
   });
 
   view.dispatch = (...input: (Transaction | readonly Transaction[] | TransactionSpec)[]) => {
@@ -46,19 +33,8 @@ export function bindModel(view: EditorView, model: Monaco.editor.ITextModel, mon
     const first = transactions[0]!;
     const last = transactions[transactions.length - 1]!;
     const changes = transactions.reduce((all, transaction) => all.compose(transaction.changes), ChangeSet.empty(first.startState.doc.length));
-    const edits: Monaco.editor.IIdentifiedSingleEditOperation[] = [];
-    changes.iterChanges((from, to, _fromB, _toB, insert) => {
-      const start = modelPosition(first.startState.doc, from);
-      const end = modelPosition(first.startState.doc, to);
-      edits.push({ range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column), text: insert.toString() });
-    });
-    const time = Date.now();
     const event = last.annotation(Transaction.userEvent);
-    if (!lastEdit || lastEdit.version !== model.getVersionId() || event !== 'input.type' || lastEdit.event !== event || time - lastEdit.time > 500) {
-      model.pushStackElement();
-    }
-    model.pushEditOperations(selections(first.startState.doc, first.startState.selection), edits, () => selections(last.newDoc, last.newSelection));
-    lastEdit = { version: model.getVersionId(), time, event };
+    model.edit(changes, { selectionBefore: first.startState.selection, selection: last.newSelection, userEvent: event, origin: view });
     // Document changes have already arrived through the model subscription.
     apply({
       selection: last.newSelection, effects: last.effects,
@@ -68,8 +44,7 @@ export function bindModel(view: EditorView, model: Monaco.editor.ITextModel, mon
   };
 
   return () => {
-    model.pushStackElement();
-    listener.dispose();
+    unsubscribe();
     view.dispatch = apply;
   };
 }

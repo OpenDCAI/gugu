@@ -718,7 +718,7 @@
 
     /* 页签两面(见 @theme 里 --color-tab-* 的说明)。
        face 取 --background-1:gugu 皮肤下它 = --card,而**面板里真正在画的那层就是它**
-       (--monaco-bg / --xterm-bg 都取 --background-1)。所以这不是新挑的颜色,是把页签和
+       (--code-bg / --xterm-bg 都取 --background-1)。所以这不是新挑的颜色,是把页签和
        内容对齐到内容本来就有的那一层。亮色下 --card = #fff。
        strip 往下压一档到 --muted(#f3f4f6)——产品里已经在用的面,不是新造的灰。 */
     --tab-face: var(--background-1);
@@ -787,21 +787,21 @@
     --status-todo: var(--neutral-9);
     --status-cancelled: var(--neutral-9);
 
-    /* Monaco editor */
-    --monaco-bg: var(--background);
-    --monaco-fg: var(--foreground);
-    --monaco-error-fg: var(--foreground-destructive);
+    /* Code editor (CodeMirror) */
+    --code-bg: var(--background);
+    --code-fg: var(--foreground);
+    --code-error-fg: var(--foreground-destructive);
 
-    --monaco-line-highlight: var(--background-2);
-    --monaco-line-number: var(--foreground-passive);
-    --monaco-gutter: var(--monaco-bg);
-    --monaco-inserted-text-bg: color(display-p3 0.063 0.725 0.506 / 0.251);
-    --monaco-inserted-line-bg: color(display-p3 0.925 0.992 0.961 / 0.502);
-    --monaco-removed-text-bg: color(display-p3 0.957 0.247 0.369 / 0.251);
-    --monaco-removed-line-bg: color(display-p3 1 0.945 0.949 / 0.502);
-    --monaco-selection-bg: var(--selection);
-    --monaco-selection-fg: var(--selection-foreground);
-    --monaco-inactive-selection-bg: color-mix(in srgb, var(--selection) 15.3%, transparent);
+    --code-line-highlight: var(--background-2);
+    --code-line-number: var(--foreground-passive);
+    --code-gutter: var(--code-bg);
+    --code-inserted-text-bg: color(display-p3 0.063 0.725 0.506 / 0.251);
+    --code-inserted-line-bg: color(display-p3 0.925 0.992 0.961 / 0.502);
+    --code-removed-text-bg: color(display-p3 0.957 0.247 0.369 / 0.251);
+    --code-removed-line-bg: color(display-p3 1 0.945 0.949 / 0.502);
+    --code-selection-bg: var(--selection);
+    --code-selection-fg: var(--selection-foreground);
+    --code-inactive-selection-bg: color-mix(in srgb, var(--selection) 15.3%, transparent);
 
     /* xterm terminals */
     --xterm-bg: var(--background);
@@ -1068,7 +1068,7 @@
     --background-secondary-3: var(--background-3);
 
     /* 页签两面(见 @theme 里 --color-tab-* 的说明)。face 与亮色同源 = --background-1
-       (gugu 皮肤下 = --card = #1a1c24,正是 monaco/xterm 已经在画的那层)。
+       (gugu 皮肤下 = --card = #1a1c24,正是代码编辑器/xterm 已经在画的那层)。
        ⚠️ strip 不能照抄亮色的 --muted:暗色下 --muted(#1f2128) 比 face 还**亮**,方向会反。
        暗色要往下沉一档,取窗体底色 --bg(#111318)——与 face 差 9 级,肉眼分得开;
        之前试过 --color-bg-window(#0e1014) 只差 3 级,实测太糊。 */
@@ -1131,22 +1131,22 @@
     --status-todo: var(--neutral-10);
     --status-cancelled: var(--neutral-10);
 
-    /* Monaco editor */
-    --monaco-bg: var(--background-1);
-    --monaco-fg: var(--foreground-muted);
-    --monaco-error-fg: color(display-p3 1 0.592 0.49);
+    /* Code editor (CodeMirror) */
+    --code-bg: var(--background-1);
+    --code-fg: var(--foreground-muted);
+    --code-error-fg: color(display-p3 1 0.592 0.49);
 
-    --monaco-line-highlight: var(--neutral-5);
-    --monaco-line-number: color(display-p3 0.227 0.227 0.227);
-    --monaco-gutter: var(--monaco-bg);
+    --code-line-highlight: var(--neutral-5);
+    --code-line-number: color(display-p3 0.227 0.227 0.227);
+    --code-gutter: var(--code-bg);
     /* Semi-transparent so the selection layer beneath stays visible (ENG-1248). */
-    --monaco-inserted-text-bg: color(display-p3 0.145 0.282 0.176 / 0.45);
-    --monaco-inserted-line-bg: color(display-p3 0.106 0.165 0.118 / 0.55);
-    --monaco-removed-text-bg: color(display-p3 0.38 0.086 0.137 / 0.45);
-    --monaco-removed-line-bg: color(display-p3 0.231 0.071 0.098 / 0.55);
-    --monaco-selection-bg: color(display-p3 0.3 0.52 0.82 / 0.7);
-    --monaco-selection-fg: color(display-p3 0.95 0.96 0.98);
-    --monaco-inactive-selection-bg: color(display-p3 0.3 0.52 0.82 / 0.35);
+    --code-inserted-text-bg: color(display-p3 0.145 0.282 0.176 / 0.45);
+    --code-inserted-line-bg: color(display-p3 0.106 0.165 0.118 / 0.55);
+    --code-removed-text-bg: color(display-p3 0.38 0.086 0.137 / 0.45);
+    --code-removed-line-bg: color(display-p3 0.231 0.071 0.098 / 0.55);
+    --code-selection-bg: color(display-p3 0.3 0.52 0.82 / 0.7);
+    --code-selection-fg: color(display-p3 0.95 0.96 0.98);
+    --code-inactive-selection-bg: color(display-p3 0.3 0.52 0.82 / 0.35);
 
     /* xterm terminals */
     --xterm-bg: var(--background-1);

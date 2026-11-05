@@ -1,4 +1,4 @@
-import { modelRegistry, type ModelStatus } from './monaco-model-registry';
+import { modelRegistry, type ModelStatus } from './model-registry';
 
 /**
  * Returns the loading status of a registered model, updating reactively via MobX.

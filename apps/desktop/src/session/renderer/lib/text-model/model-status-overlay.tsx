@@ -1,4 +1,4 @@
-import type { useModelStatus } from '@renderer/lib/monaco/use-model';
+import type { useModelStatus } from '@renderer/lib/text-model/use-model';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 

@@ -7,7 +7,7 @@ import {
 } from '@renderer/features/tabs/tab-bar/generic-tab-item';
 import { FileIcon } from '@renderer/lib/editor/file-icon';
 import { useDelayedBoolean } from '@renderer/lib/hooks/use-delay-boolean';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
 import { fileBaseName } from '../stores/workspace-path';
 import { isFileTabLoading } from './file-tab-loading';
 import { fileTabLabels } from './file-tab-label';
@@ -44,7 +44,7 @@ export const FileTabBarItem = observer(function FileTabBarItem({
   const { translate } = useSessionMessages();
   const resource = tab.resource;
   const fileName = fileBaseName(resource.path);
-  const isMonacoFile =
+  const isTextModelFile =
     resource.path.endsWith('.md') ||
     resource.path.endsWith('.svg') ||
     !resource.path.includes('.') ||
@@ -65,7 +65,7 @@ export const FileTabBarItem = observer(function FileTabBarItem({
     isFileTabLoading({
       isExternal: resource.isExternal,
       isExternalLoading: resource.isLoading,
-      isMonacoFile,
+      isTextModelFile,
       diskStatus,
     }),
     200

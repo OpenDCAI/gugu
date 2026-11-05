@@ -1,11 +1,11 @@
 import { computed, makeObservable, observable, reaction, runInAction } from 'mobx';
 import type { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
 import {
-  buildMonacoModelPath,
+  buildModelUri,
   EXTERNAL_MODEL_ROOT,
   isAbsoluteFilePath,
-} from '@renderer/lib/monaco/monacoModelPath';
+} from '@renderer/lib/text-model/model-uri';
 import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import { log } from '@renderer/utils/logger';
 import type { EditorViewSnapshot } from '@shared/view-state';
@@ -17,7 +17,7 @@ import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/work
 /**
  * Manages file persistence (save) and sidebar navigation state.
  *
- * Monaco model lifecycle (retain/release) is now handled by FileModelManager,
+ * Text model lifecycle (retain/release) is now handled by FileModelManager,
  * which is called by FileTabResource on construction and dispose.
  * This store focuses on save-all and buffer restore. A disk change to a file with unsaved edits merges into
  * them (the model registry, F91) — there is no conflict to resolve.
@@ -164,7 +164,7 @@ export class EditorViewStore implements Snapshottable<EditorViewSnapshot> {
         // Drafts are keyed by the same path the file was read with, so an absolute path
         // is a file outside the workspace — the same discriminator the main process uses.
         const root = isAbsoluteFilePath(filePath) ? EXTERNAL_MODEL_ROOT : this.modelRootPath;
-        const uri = buildMonacoModelPath(root, filePath);
+        const uri = buildModelUri(root, filePath);
         const model = modelRegistry.getModelByUri(uri);
         if (model) model.setValue(content);
       }
