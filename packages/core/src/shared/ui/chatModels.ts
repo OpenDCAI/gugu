@@ -16,8 +16,8 @@ export function isRoomChat(kind: ChatKind): boolean {
 }
 
 /**
- * 私聊(dm / ai)整条读:点开就读到最新,❌ 按「看到哪条算哪条」;列表上桌面只加粗、手机画点,不出数字(owner 11-05)。
- * 群与话题照旧逐条读、出数字。读数仍是同一份 chatAttention,这里只决定怎么读、怎么画。
+ * 私聊(dm / ai)整条读:点开就读到最新,❌ 按「看到哪条算哪条」(owner 11-05)。群与话题照旧读到看见的那条。
+ * 这里只决定怎么读;聊天列表怎么画不归它管(行照旧出数字)。
  */
 export function readsWholeChat(kind: ChatKind): boolean {
   return kind === 'dm' || kind === 'ai'

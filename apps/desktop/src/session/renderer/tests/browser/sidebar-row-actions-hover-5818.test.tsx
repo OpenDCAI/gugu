@@ -47,6 +47,7 @@ vi.mock('@renderer/features/sessions/stores/session-registry', () => ({
               ...data,
             },
             status: 'idle',
+            seen: data?.seen,
           }),
         },
       }
@@ -106,6 +107,7 @@ vi.mock('@renderer/lib/layout/navigation-provider', () => ({
 import { requestArchiveSession } from '@renderer/features/sessions/archive-session-flow'
 import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings'
 import { SidebarSessionItem } from '@renderer/features/sidebar/sidebar-session-item'
+import { removeDeviceSessions, updateDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { sidebarIdentityCard } from '@renderer/features/sidebar/sidebar-identity-card'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
@@ -559,4 +561,27 @@ it('fork 来源写父会话此刻的名字(从父会话自己的 store 读,❌ �
   await userEvent.hover(orphan!)
   await until('fork lineage tooltip renders', () => document.querySelector('[data-slot="tooltip-content"]') !== null)
   expect(document.querySelector('[data-slot="tooltip-content"]')!.textContent).not.toContain('母会话')
+})
+
+it('agent 发给主人的通知没读:Projects 这一行只加粗,不出数字(owner 11-05;数字只在聊天页那一行)', async () => {
+  registry.loaded.set('conv-1', { seen: true })
+  await userEvent.hover(park())
+  const titleWeight = () => Number(getComputedStyle(host.querySelector<HTMLElement>('[data-session-id="conv-1"] span.text-left')!).fontWeight)
+  mount()
+  await mounted()
+  const plain = titleWeight()
+  expect(plain, '阳性对照:没有通知时这一行不加粗').toBeLessThan(600)
+  root.unmount()
+  root = createRoot(host)
+  updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'conv-1', nativeOwnerNotificationUnreadCount: 2 } as never] })
+  try {
+    mount()
+    await mounted()
+    await until('the row reads the unread notification', () => titleWeight() >= 600)
+    const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
+    expect(row.querySelector('[aria-label*="2"]')).toBeNull()
+    expect(row.textContent).not.toMatch(/(^|\D)2(\D|$)/)
+  } finally {
+    removeDeviceSessions('host')
+  }
 })

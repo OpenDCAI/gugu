@@ -40,8 +40,7 @@ export function PhoneAssistantRow({ state, onOpen }: { state: PhoneAssistantStat
       title={name}
       meta={chat ? formatCalendarDay(chatActivityAt(chat)) : undefined}
       subtitle={chat ? chatPreviewText(chat) : undefined}
-      // Its private chat is a DM (readsWholeChat): on the phone a dot says there is unread, never how much.
-      trailing={unread > 0 ? <Chip tone="accent" shape="dot" role="img" aria-label={t('message.unread', { ns: 'messaging' })} /> : undefined}
+      trailing={unread > 0 ? <Chip tone="accent" shape="count">{unread > 99 ? '99+' : unread}</Chip> : undefined}
     />
     <div data-first-run-hint-space="assistant" />
     </>

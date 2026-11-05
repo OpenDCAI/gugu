@@ -46,7 +46,7 @@ import { PhoneMessageSearch } from '@/mobile/chat/PhoneMessageSearch'
 import { useShownAgentStatus, type ShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { AgentHostStaleBadge } from './AgentHostStaleBadge'
 import { aggregateGroupAgentStatus } from '../lib/groupAgentStatus'
-import { chatActivityAt, chatAttention, chatDisplayName, compareChatsByActivityDesc, isChatListed, isRoomChat, isSunkTopic, readsWholeChat } from '@gugu/core/shared/ui/chatModels'
+import { chatActivityAt, chatDisplayName, compareChatsByActivityDesc, isChatListed, isRoomChat, isSunkTopic } from '@gugu/core/shared/ui/chatModels'
 import { platform } from '../platform'
 import type { AgentDisplayStatus, ChatItem, NotificationLevel } from '@gugu/core/shared/types/chat'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
@@ -273,8 +273,6 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
   const displayName = chatDisplayName(chat, peerName)
   const shownName = useShownAgentName({ name: displayName, createdAt: isAgentChat ? peerIdentity?.created_at ?? undefined : undefined })
   const preview = chatPreviewText(chat)
-  const unread = chatAttention(chat).unread
-  const wholeRead = readsWholeChat(chat.kind)
 
   return (
     <>
@@ -290,7 +288,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
         data-unread-message-id={chat.unread_locator?.message_id ?? undefined}
         selected={isActive}
         pinned={chat.is_pinned}
-        emphasis={unread > 0}
+        emphasis={chat.unread_count > 0}
         mobile={mobile}
         role="option"
         aria-selected={isActive}
@@ -346,7 +344,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
             </>
           ) : preview
         }
-        trailing={(!mobile || chat.is_muted || unread > 0) ? (
+        trailing={(!mobile || chat.is_muted || chat.unread_count > 0) ? (
           <>
             {/* owner 10-28:agent 行不再标它在哪台机器上(「本机」/ 设备名);机器只在悬停卡与对话标题栏里说。 */}
             {chat.is_muted && (
@@ -354,12 +352,11 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
                 <BellOff size={13} strokeWidth={1.8} aria-hidden="true" />
               </span>
             )}
-            {/* 私聊(readsWholeChat):电脑只靠上面的加粗,手机画点,都不出数字(owner 11-05);群照旧出数。 */}
-            {unread > 0 && (wholeRead ? (mobile && <Chip tone="accent" shape="dot" role="img" aria-label={t('message.unread')} />) : (
+            {chat.unread_count > 0 && (
               <Chip tone="accent" shape="count">
-                {unread > 99 ? '99+' : unread}
+                {chat.unread_count > 99 ? '99+' : chat.unread_count}
               </Chip>
-            ))}
+            )}
           </>
         ) : undefined}
       />

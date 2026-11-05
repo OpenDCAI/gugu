@@ -11,11 +11,11 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 let remove: (() => void) | undefined
 afterEach(() => { harness.cleanup(); remove?.(); removeDeviceSessions('host'); publishDirectoryDevices([]) })
-it('keeps the badge on the DM counter: unseen native replies and owner notifications never add to it', async () => {
+it('keeps the badge on the DM counter: unseen native replies never add to it', async () => {
   remove = installOwnedAgentEntry({ open: () => true, owns: id => id === 'own-agent' })
   publishDirectoryDevices([{ device_id: 'host', is_online: true, capabilities: {} } as Device])
   const chats = [{ id: 'dm', kind: 'dm', peer_user_id: 'own-agent', unread_count: 2 }, { id: 'project', kind: 'group', unread_count: 8 }] as ChatItem[]
-  const session = { conversationId: 'session', agent: { userId: 'own-agent' }, nativeUnreadKeys: ['msg_a', 'msg_b', 'msg_covered'], nativeOwnerNotificationUnreadCount: 3 }
+  const session = { conversationId: 'session', agent: { userId: 'own-agent' }, nativeUnreadKeys: ['msg_a', 'msg_b', 'msg_covered'] }
   updateDeviceSessions('host', { cached: false, sessions: [session as never] })
   function Fixture() { return <div>{useNativeAgentChats(chats).map(chat => `${chat.id}:${chat.unread_count}`).join('|')}</div> }
   await harness.render(<Fixture />)

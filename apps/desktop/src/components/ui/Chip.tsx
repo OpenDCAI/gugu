@@ -7,10 +7,10 @@ import { cn } from '@/lib/cn'
  * 中性附属文字默认透明;计数与有语义的状态保留填充。tone 只表达含义,不拿它当装饰色。
  */
 export interface ChipProps extends HTMLAttributes<HTMLSpanElement> {
-  children?: ReactNode
+  children: ReactNode
   tone?: 'default' | 'accent' | 'danger' | 'ok' | 'warn'
-  /** count = 圆形计数徽标(最小 18×18);dot = 8×8 未读点,不带字。 */
-  shape?: 'pill' | 'count' | 'dot'
+  /** count = 圆形计数徽标(最小 18×18)。 */
+  shape?: 'pill' | 'count'
   /** plain = 列表里的附属文字,不铺标签底板。 */
   appearance?: 'filled' | 'plain'
   className?: string
@@ -22,7 +22,7 @@ export function Chip({ children, tone = 'default', shape = 'pill', appearance = 
       {...rest}
       data-slot="chip"
       data-tone={tone === 'default' ? undefined : tone}
-      data-shape={shape === 'pill' ? undefined : shape}
+      data-shape={shape === 'count' ? 'count' : undefined}
       data-appearance={appearance === 'plain' ? 'plain' : undefined}
       className={cn('gg-chip', className)}
     >
