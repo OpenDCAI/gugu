@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #1047 — a queued prompt committing while an earlier turn loads.
 import { afterEach, expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { HistoryPage } from '@gugu/session-core/acp/client';

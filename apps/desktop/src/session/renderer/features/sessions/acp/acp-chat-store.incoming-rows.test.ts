@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #1344 — incoming rows that are still unresolved.
 import { afterEach, expect, it, vi } from 'vitest';
 import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { LifeView } from '@shared/core/sessions/session-life';

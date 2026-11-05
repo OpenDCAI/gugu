@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// #1679 — reconciling a session that closed mid-turn.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { runInAction } from 'mobx';
 import { batch } from 'solid-js';
