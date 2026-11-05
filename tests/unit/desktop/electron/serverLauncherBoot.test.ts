@@ -172,10 +172,20 @@ describe('the packaged launcher verifies before loading application code', () =>
     const files = ['logs/supervisor.log', 'supervisor-health.json'].map(data)
     fs.mkdirSync(data('logs'), { recursive: true })
     for (const file of files) fs.writeFileSync(file, 'active instance data', { mode: 0o644 })
-    const before = files.map(file => fs.statSync(file))
+    const snapshot = (file: string) => {
+      const content = fs.readFileSync(file)
+      const { dev, ino, mode, uid, gid, size, mtimeMs } = fs.statSync(file)
+      return { content, dev, ino, mode, uid, gid, size, mtimeMs }
+    }
+    const before = files.map(snapshot)
+    const accessBefore = files.map(file => fs.statSync(file).atimeMs)
     const result = run()
     expect(result.status, result.stderr).toBe(78)
-    expect(files.map(file => fs.statSync(file))).toEqual(before)
+    const after = files.map(snapshot)
+    console.info('[launcher] access times (observation only)', {
+      before: accessBefore, after: files.map(file => fs.statSync(file).atimeMs),
+    })
+    expect(after).toEqual(before)
     expect(read('pending-verify.json').attempts).toBe(1)
     expect(fs.readFileSync(data('server.lock'), 'utf8')).toBe(String(child.pid))
     expect(fs.existsSync(data('stopped'))).toBe(false)

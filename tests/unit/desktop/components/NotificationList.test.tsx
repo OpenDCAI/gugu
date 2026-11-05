@@ -136,9 +136,25 @@ it.each([false, true])('only actually visible errors use the host read bit; perm
   await see('error-a'); expect(markSeen).toHaveBeenCalledExactlyOnceWith('error-a')
   await see('approval'); expect(markSeen).toHaveBeenCalledTimes(1)
   state.sessions = [task('error-a', 'error', false), task('error-b', 'error'), task('approval', 'needs_user', false)]
-  await mount(mobile)
+  await mount(mobile); await act(async () => toggle()!.click()); await open()
   expect(rows().map(row => row.dataset.sessionLine)).toEqual(['error-b', 'approval'])
   expect(state.sessions[0].status?.status).toBe('error')
+})
+it.each([false, true])('a failure read by appearing stays listed until the panel closes; only the count drops (phone=%s)', async mobile => {
+  const failure = { ...task('error-a', 'error'), lastInteractedAt: '2026-11-05T01:00:00.000Z' }
+  const wait = { ...task('approval', 'needs_user', false), lastInteractedAt: '2026-11-05T00:00:00.000Z' }
+  state.sessions = [failure, wait]
+  await mount(mobile); await open()
+  expect(document.querySelector('[data-testid="notification-count"]')?.textContent).toBe('2')
+  await see('error-a'); expect(markSeen).toHaveBeenCalledExactlyOnceWith('error-a')
+  // The host read bit lands while the panel is still open (#1616 auto-read x #1654 unread-only filter).
+  state.sessions = [{ ...failure, unseen: false }, wait]
+  await mount(mobile)
+  expect(rows().map(row => row.dataset.sessionLine), 'the row the person is looking at does not vanish').toEqual(['error-a', 'approval'])
+  expect(document.querySelector('[data-testid="notification-count"]')?.textContent).toBe('1')
+  await see('error-a'); expect(markSeen).toHaveBeenCalledTimes(1)
+  await act(async () => toggle()!.click()); await open()
+  expect(rows().map(row => row.dataset.sessionLine), 'closing the panel applies the read filter').toEqual(['approval'])
 })
 it('mark all reads global unexpanded errors across groups and leaves pending actions', async () => {
   state.sessions = [task('agent-a', 'error'), task('agent-b', 'error'), task('approval', 'needs_user', false)]
