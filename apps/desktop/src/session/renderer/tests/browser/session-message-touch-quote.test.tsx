@@ -1,9 +1,12 @@
 import { useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createChatContext, createChatState, createChatView, buildChatTheme, DEFAULT_CONFIG } from '@gugu/session-chat-ui';
 import type { AcpChatStore } from '../../features/sessions/acp/acp-chat-store';
 import { useSessionMessageQuotes } from '../../features/sessions/acp/use-session-message-quotes';
 import { finishRendererContentMenu, RENDERER_CONTENT_MENU_OPEN } from '@/lib/contentContextMenu';
+import type { RendererContentContextMenu } from '@/lib/contentContextMenu';
+import { platform } from '@/platform';
 import type { ContentContextMenu } from '@shared/content-context-menu';
 import { createReactHarness } from '../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../tests/support/awaitCondition';
@@ -95,7 +98,8 @@ it.each(['before', 'after'] as const)('handles an Android context menu arriving 
   } finally { window.removeEventListener(RENDERER_CONTENT_MENU_OPEN, capture); }
 });
 
-it('offers only copying for selected text instead of turning it into a whole-message quote', async () => {
+it.each(['android', 'web'])('offers copying for selected text on %s and keeps Android handle adjustments', async runtime => {
+  vi.spyOn(Capacitor, 'getPlatform').mockReturnValue(runtime);
   const { text } = await mountMessage();
   const capture = vi.fn();
   window.addEventListener(RENDERER_CONTENT_MENU_OPEN, capture);
@@ -106,9 +110,14 @@ it('offers only copying for selected text instead of turning it into a whole-mes
     selection.removeAllRanges(); selection.addRange(range);
     text.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     expect(capture).toHaveBeenCalledOnce();
-    const request = (capture.mock.calls[0][0] as CustomEvent<ContentContextMenu>).detail;
+    const request = (capture.mock.calls[0][0] as CustomEvent<RendererContentContextMenu>).detail;
     expect(request.items.filter(item => 'id' in item).map(item => item.id)).toEqual(['copy']);
+    expect(!!request.selectionRange).toBe(runtime === 'android');
     expect(selection.toString()).toContain('Original message words');
-    finishRendererContentMenu(request.requestId);
+    const node = document.createTreeWalker(text, NodeFilter.SHOW_TEXT).nextNode()!;
+    selection.setBaseAndExtent(node, 0, node, 8);
+    finishRendererContentMenu(request.requestId, 'copy');
+    await Promise.resolve();
+    expect(platform.writeClipboardText).toHaveBeenLastCalledWith(runtime === 'android' ? 'Original' : 'Original message words');
   } finally { window.removeEventListener(RENDERER_CONTENT_MENU_OPEN, capture); }
 });
