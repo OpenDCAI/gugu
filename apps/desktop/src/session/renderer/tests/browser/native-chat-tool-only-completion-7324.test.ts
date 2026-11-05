@@ -9,6 +9,7 @@ import { defaultChatTranslator } from '@session-chat/localization';
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { CHAT_COMPOSER_EDGE_FADE_PX } from '@session-chat/layout-geometry';
+import { sessionComposerTrayClassName } from '@renderer/features/sessions/session-composer-styles';
 import { SEGMENTERS } from '@session-chat/components/engine/unit-registry';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import '@gugu/session-ui/styles/global';
@@ -46,7 +47,11 @@ function mount(composer: 'slot' | 'none' = 'none', agentConversation = false) {
   return { state, context, host, header, view, writeClipboardText };
 }
 
-it.each([false, true])('keeps the lower fade aligned without replacing phone glass (phone=%s)', async (phone) => {
+it.each([
+  { phone: false, band: false },
+  { phone: false, band: true },
+  { phone: true, band: false },
+])('each box at the top of the composer stack draws its own lower fade (%o)', async ({ phone, band }) => {
   await page.viewport(1200, 700);
   const { state, host, view } = mount('slot', true);
   if (phone) { host.dataset.phoneShell = ''; host.dataset.taScope = ''; }
@@ -54,9 +59,15 @@ it.each([false, true])('keeps the lower fade aligned without replacing phone gla
   await until('bottom composer slot mounts', () => view.composerSlot?.parentElement?.dataset.chatComposerPlacement === 'bottom');
   const inner = view.composerSlot!;
   const layer = inner.parentElement!;
+  // The schedule tray's shape: narrower than the card and above it, the card lifted 10px into it.
+  const tray = document.createElement('div');
+  tray.dataset.composerBand = '';
+  tray.className = sessionComposerTrayClassName;
+  tray.style.height = '34px';
   const card = document.createElement('div');
-  card.style.height = '120px';
-  inner.append(card);
+  card.dataset.slot = 'composer';
+  card.style.cssText = band ? 'height:120px;margin-top:-10px' : 'height:120px';
+  inner.append(...(band ? [tray, card] : [card]));
   await until('composer occupies its slot', () => inner.getBoundingClientRect().height >= 120);
   if (phone) {
     const glass = getComputedStyle(inner, '::before');
@@ -68,17 +79,31 @@ it.each([false, true])('keeps the lower fade aligned without replacing phone gla
     return;
   }
   expect(getComputedStyle(layer, '::before').content).toBe('none');
-  const fade = getComputedStyle(inner, '::before');
   const box = inner.getBoundingClientRect();
   const radius = Number.parseFloat(getComputedStyle(inner).getPropertyValue('--radius-thread'));
+  // The card's fade: column-wide (the card's width), ending at the card's top corners. Without a band this is the
+  // column's top edge, as before.
+  const fade = getComputedStyle(inner, '::before');
+  const cardTop = card.getBoundingClientRect().top;
   expect(fade.content).not.toBe('none');
   expect(Number.parseFloat(fade.width)).toBe(box.width);
-  expect(box.left + Number.parseFloat(fade.left)).toBe(box.left);
-  expect(box.right - Number.parseFloat(fade.right)).toBe(box.right);
   expect(Number.parseFloat(fade.height)).toBe(CHAT_COMPOSER_EDGE_FADE_PX + radius);
-  const bottom = box.bottom - Number.parseFloat(fade.bottom);
-  expect(bottom).toBe(box.top + radius);
-  expect(bottom - Number.parseFloat(fade.height)).toBe(box.top - CHAT_COMPOSER_EDGE_FADE_PX);
+  expect(box.top + Number.parseFloat(fade.top)).toBe(cardTop - CHAT_COMPOSER_EDGE_FADE_PX);
+  expect(box.bottom - Number.parseFloat(fade.bottom)).toBe(cardTop + radius);
+  if (!band) return;
+  // The band's own fade: right above it, never wider than the band. Nothing spans the gap beside the band.
+  const trayBox = tray.getBoundingClientRect();
+  const own = getComputedStyle(tray, '::before');
+  expect(own.content).not.toBe('none');
+  // ...and only over the straight part of its top edge: inset by its own top corner radius on both sides.
+  const corner = Number.parseFloat(getComputedStyle(tray).borderTopLeftRadius);
+  expect(corner).toBeGreaterThan(0);
+  expect(Number.parseFloat(getComputedStyle(tray).borderTopRightRadius)).toBe(corner);
+  expect(Number.parseFloat(own.left)).toBe(corner);
+  expect(Number.parseFloat(own.right)).toBe(corner);
+  expect(Number.parseFloat(own.width)).toBe(trayBox.width - 2 * corner);
+  expect(Number.parseFloat(own.height)).toBe(CHAT_COMPOSER_EDGE_FADE_PX);
+  expect(trayBox.bottom - Number.parseFloat(own.bottom)).toBe(trayBox.top);
 });
 
 /** Park the pointer on a spot below the transcript, so no row is hovered. */
