@@ -382,7 +382,8 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
       // loses the edit. Type once the rendered composer has the edit open and accepts input.
       await until('the composer has opened the entry for editing', () => {
         const cancel = [...view.composerSlot!.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === t('common.cancel'));
-        return !!cancel && !cancel.disabled && input.element().isContentEditable;
+        const editor = input.element();
+        return !!cancel && !cancel.disabled && editor instanceof HTMLElement && editor.isContentEditable;
       });
       await input.fill('edited queued input'); await userEvent.keyboard('{Enter}');
       await until('the same queued identity has the saved text', () => own.rows.some(row => row.id === q!.id && row.text === 'edited queued input' && !row.sendQueue?.edit));
