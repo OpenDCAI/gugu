@@ -167,6 +167,18 @@ export function UnitRow(props: UnitRowProps) {
   let rowEl: HTMLElement | undefined;
 
   const def = createMemo(() => UNIT_REGISTRY[props.unit.kind]);
+  // Keep mounted leaf renderers on their last inputs while hidden. Their own
+  // Markdown/process/tool layout memos must not bypass the row measure guard.
+  // A row first created while hidden waits until shown before mounting its leaf.
+  let lastRenderUnit: UnitRowProps['unit'] | undefined;
+  const renderUnit = createMemo(() => {
+    if (shown()) lastRenderUnit = props.unit;
+    return lastRenderUnit;
+  });
+  const renderDef = createMemo(() => {
+    const unit = renderUnit();
+    return unit ? UNIT_REGISTRY[unit.kind] : undefined;
+  });
 
   const chrome = createMemo(() => props.unit.chrome);
   const insetX = createMemo(() => chrome()?.insetX ?? 0);
@@ -371,7 +383,7 @@ export function UnitRow(props: UnitRowProps) {
   };
 
   // Display measureCtx: also holds the expanded user-card open during collapse.
-  const displayMeasureCtx = (): MeasureCtx => ({
+  const readDisplayMeasureCtx = (): MeasureCtx => ({
     theme: props.theme,
     translate, commands: commands(), selfIdentity: self(), chatName, appName,
     width: Math.max(0, props.rowWidth - 2 * insetX()),
@@ -386,6 +398,12 @@ export function UnitRow(props: UnitRowProps) {
     finalReplyId: finalReplyId(),
     latestConversationMessageId: latestConversationMessageId(),
     background: props.background,
+  });
+
+  let lastDisplayMeasureCtx = untrack(readDisplayMeasureCtx);
+  const displayMeasureCtx = createMemo(() => {
+    if (shown()) lastDisplayMeasureCtx = readDisplayMeasureCtx();
+    return lastDisplayMeasureCtx;
   });
 
   // ── Animated clip ─────────────────────────────────────────────────────────
@@ -410,7 +428,7 @@ export function UnitRow(props: UnitRowProps) {
       }}
       style={{ position: 'relative' }}
     >
-      <Show when={def()}>
+      <Show when={renderDef()}>
         {(d) => {
           // Read `insetX()` inside the style object, not once up here: a row
           // component lives per *index*, and a structural change above it (a
@@ -441,7 +459,7 @@ export function UnitRow(props: UnitRowProps) {
               >
                 <Dynamic
                   component={d().Render}
-                  data={props.unit.data}
+                  data={renderUnit()!.data}
                   ctx={renderCtx}
                   vars={d().vars ?? {}}
                 />
