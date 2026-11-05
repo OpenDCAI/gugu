@@ -41,6 +41,7 @@ import {
   untrack,
   useContext,
 } from 'solid-js';
+import { useViewShown } from './view-visibility';
 import type { ChatContext } from './chat-context';
 import { conversationBackgroundOwner } from './state/conversation-background';
 import { ChatTranslationProvider } from './localization';
@@ -315,6 +316,7 @@ export type ChatRootProps = {
 // ── ChatRoot ──────────────────────────────────────────────────────────────────
 
 export function ChatRoot(props: ChatRootProps) {
+  const viewShown = useViewShown();
   // Normalize state prop to an accessor so ChatRoot is reactive when the host
   // swaps models via view.setModel(). Plain ChatState objects (the common path)
   // are wrapped in a stable closure that never changes its value.
@@ -1314,6 +1316,7 @@ export function ChatRoot(props: ChatRootProps) {
   };
 
   const measureUnitAt = (ui: number): void => {
+    if (!viewShown()) return;
     const u = units().at(ui);
     if (!u) return;
     const unitDef = UNIT_REGISTRY[u.kind];
@@ -1357,7 +1360,7 @@ export function ChatRoot(props: ChatRootProps) {
     // the tail would turn into an anchor at the spot they left. No reader input reaches a skipped scroller, so the first
     // drawn frame takes the browser's scrollTop as written and projects the intent the reader had.
     const wasSkipped = skipped;
-    skipped = !el.checkVisibility();
+    skipped = !viewShown() || !el.checkVisibility();
     if (skipped) return;
     if (wasSkipped) {
       expectedScrollTop = el.scrollTop;
@@ -1590,7 +1593,7 @@ export function ChatRoot(props: ChatRootProps) {
   let prefetchEnd = -1;
 
   const schedulePrefetch = () => {
-    if (prefetchIdleId !== null) return;
+    if (!viewShown() || prefetchIdleId !== null) return;
     prefetchIdleId = requestIdleCallback(runPrefetchSlice, { timeout: 500 });
   };
 
@@ -1603,6 +1606,7 @@ export function ChatRoot(props: ChatRootProps) {
 
   const runPrefetchSlice = (deadline: IdleDeadline) => {
     prefetchIdleId = null;
+    if (!viewShown()) return;
 
     const visStart = lastVisibleStart;
     const visEnd = lastVisibleEnd;
@@ -1640,6 +1644,11 @@ export function ChatRoot(props: ChatRootProps) {
       schedulePrefetch();
     }
   };
+
+  createEffect(() => {
+    if (viewShown()) scheduler.request();
+    else cancelPrefetch();
+  });
 
   // ── Scroll helpers ────────────────────────────────────────────────────────
   const doScrollToTop = (opts?: { behavior?: ScrollBehavior }) => {

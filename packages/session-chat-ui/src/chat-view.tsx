@@ -35,6 +35,7 @@ import { ChatRoot } from './ChatRoot';
 import type { ComposerPlacement, ComposerPlacementOptions, EngineControls } from './ChatRoot';
 import type { ChatCommands, ScrollToItemOptions } from './commands';
 import { createChatFind, type ChatFindStatus } from './find';
+import { ViewShownContext } from './view-visibility';
 import type { TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
 
@@ -47,6 +48,8 @@ export type ChatViewOptions = {
   state: ChatState;
   /** DOM element to render the Solid root into. */
   parent: HTMLElement;
+  /** False for an off-screen retained view; its model and reserved heights are kept. */
+  shown?: boolean;
   /**
    * Whether to render an internal composer slot.
    * - `'slot'`: sticky bottom slot; internal ResizeObserver drives padBottom.
@@ -107,6 +110,8 @@ export type ChatView = {
    */
   readonly contentOverlay: HTMLElement | null;
   /** Replace command callbacks without remounting. */
+  /** Resume measurement from the latest model before showing a retained view. */
+  setShown(shown: boolean): void;
   setCommands(commands: ChatCommands): void;
   /** Settle a host compositor ownership change before the browser can paint it. */
   reconcileNow?(): void;
@@ -176,6 +181,7 @@ export type ChatView = {
  * Mount a chat transcript view into `parent` and return a ChatView handle.
  */
 export function createChatView(opts: ChatViewOptions): ChatView {
+  const [shown, setShownSignal] = createSignal(opts.shown ?? true);
   const [padTop, setPadTop] = createSignal(opts.padTop ?? 0);
   const [padBottom, setPadBottom] = createSignal(opts.padBottom ?? 0);
   const [commands, setCommandsSignal] = createSignal<ChatCommands>(opts.commands ?? {});
@@ -215,6 +221,9 @@ export function createChatView(opts: ChatViewOptions): ChatView {
     },
     get contentOverlay() {
       return controls.contentOverlay ?? null;
+    },
+    setShown(value) {
+      setShownSignal(value);
     },
     setCommands(c) {
       setCommandsSignal(c);
@@ -269,25 +278,27 @@ export function createChatView(opts: ChatViewOptions): ChatView {
 
   solidDispose = render(
     () => (
-      <ChatRoot
-        context={opts.context}
-        state={currentModel}
-        stickToBottom={opts.stickToBottom}
-        class={opts.class}
-        contentClass={opts.contentClass}
-        padTop={padTop}
-        padBottom={padBottom}
-        commands={commands}
-        onReachStart={onReachStart}
-        onAtBottomChange={onAtBottomChange}
-        onActiveUserMessageVisibilityChange={onActiveUserMessageVisibilityChange}
-        controls={controls}
-        pinUserMessages={opts.pinUserMessages}
-        composer={opts.composer}
-        composerPlacement={opts.composerPlacement}
-        contentOverlay={opts.contentOverlay}
-        embedded={opts.embedded}
-      />
+      <ViewShownContext.Provider value={shown}>
+        <ChatRoot
+          context={opts.context}
+          state={currentModel}
+          stickToBottom={opts.stickToBottom}
+          class={opts.class}
+          contentClass={opts.contentClass}
+          padTop={padTop}
+          padBottom={padBottom}
+          commands={commands}
+          onReachStart={onReachStart}
+          onAtBottomChange={onAtBottomChange}
+          onActiveUserMessageVisibilityChange={onActiveUserMessageVisibilityChange}
+          controls={controls}
+          pinUserMessages={opts.pinUserMessages}
+          composer={opts.composer}
+          composerPlacement={opts.composerPlacement}
+          contentOverlay={opts.contentOverlay}
+          embedded={opts.embedded}
+        />
+      </ViewShownContext.Provider>
     ),
     opts.parent
   );

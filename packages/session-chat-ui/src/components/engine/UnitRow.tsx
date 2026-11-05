@@ -41,6 +41,7 @@ import { useSelfIdentity } from '@session-chat/lib/self-identity';
 import { useAppName } from '@session-chat/lib/app-name';
 import { useChatName } from '@session-chat/lib/chat-name';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
+import { useViewShown } from '@session-chat/view-visibility';
 import type { ChatCaches } from '@session-chat/core/caches';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatTheme } from '@session-chat/core/theme';
@@ -156,6 +157,7 @@ export type UnitRowProps = {
 // ── UnitRow ───────────────────────────────────────────────────────────────────
 
 export function UnitRow(props: UnitRowProps) {
+  const shown = useViewShown();
   const debug = useDebug();
   const commands = useCommands();
   const translate = useChatTranslator();
@@ -197,10 +199,13 @@ export function UnitRow(props: UnitRowProps) {
     background: props.background,
   });
 
+  let lastContentH = 0;
   const contentH = createMemo(() => {
+    // Stop tracking changing row data while hidden; showing reads the latest inputs once.
+    if (!shown()) return lastContentH;
     const d = def();
-    if (!d) return 0;
-    return d.measure(props.unit.data, logicalMeasureCtx(), d.vars ?? {});
+    lastContentH = d ? d.measure(props.unit.data, logicalMeasureCtx(), d.vars ?? {}) : 0;
+    return lastContentH;
   });
 
   const logicalReserved = createMemo(() => unitReservedHeight(props.unit, contentH()));
