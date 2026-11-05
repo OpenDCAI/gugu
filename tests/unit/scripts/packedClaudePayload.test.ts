@@ -50,9 +50,37 @@ describe('materialized thin Claude payload', () => {
     const root = fixture()
     const sdk = put(root, 'app/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs')
     const bridge = put(root, 'app/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js')
+    const manifest = put(root, 'app/node_modules/@anthropic-ai/claude-agent-sdk/package.json')
+    fs.writeFileSync(manifest, JSON.stringify({ name: '@anthropic-ai/claude-agent-sdk' }))
     expect(verifyPackedClaudePayload(root).nativePackages).toBe(0)
     expect(fs.readFileSync(sdk, 'utf8')).toBe('synthetic payload')
     expect(fs.readFileSync(bridge, 'utf8')).toBe('synthetic payload')
+  })
+
+  it.each(['renamed', '@anthropic-ai/renamed'])('rejects native identity hidden by directory name %s', alias => {
+    const root = fixture()
+    const manifest = put(root, `app/node_modules/${alias}/package.json`)
+    fs.writeFileSync(manifest, JSON.stringify({ name: '@anthropic-ai/claude-agent-sdk-darwin-arm64' }))
+    expect(() => verifyPackedClaudePayload(root)).toThrow('bundled Claude native packages')
+  })
+
+  it('checks the identity behind an internal alias', () => {
+    const root = fixture()
+    const target = path.join(root, 'vendor/renamed')
+    const manifest = put(root, 'vendor/renamed/package.json')
+    fs.writeFileSync(manifest, JSON.stringify({ name: '@anthropic-ai/claude-agent-sdk-darwin-arm64' }))
+    fs.symlinkSync(target, path.join(root, 'app/node_modules/alias'), 'junction')
+    expect(() => verifyPackedClaudePayload(root)).toThrow('bundled Claude native packages')
+  })
+
+  it('does not read a package manifest through an external alias', () => {
+    const root = fixture()
+    const outside = fixture()
+    const manifest = put(outside, 'package.json')
+    const target = path.join(root, 'app/node_modules/renamed')
+    fs.mkdirSync(target)
+    fs.symlinkSync(manifest, path.join(target, 'package.json'))
+    expect(() => verifyPackedClaudePayload(root)).toThrow('cannot verify dependency outside resources')
   })
 
   it('follows internal directory aliases and terminates cycles', () => {
