@@ -21,18 +21,18 @@ function binary(version: string, body: string) {
   return bin
 }
 
-function realSignalExit(kind: 'SIGTERM' | 'SIGUSR2' = 'SIGTERM') {
-  const file = ts.createSourceFile('main.ts', fs.readFileSync(path.resolve(__dirname, '../../../../apps/desktop/electron/main.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
-  const owner = file.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(decl => decl.name.getText(file) === 'exitOnSignal'))!
-  const signal = file.statements.find(node => node.getText(file).startsWith(kind === 'SIGTERM'
-    ? "process.on('SIGTERM'" : "if (SERVER_MODE) process.on('SIGUSR2'"))!
-  return ts.transpileModule(`const app={getPath:()=>''}, noteExitReason=()=>{}, killEnginesOnCrash=()=>{}, stopServerActivity=()=>{}, deviceRuntimeHost=null, SERVER_MODE=true, EXIT_RESTART=75, isSingleServerRun=()=>false; let signalStopping=false; ${owner.getText(file)}; ${signal.getText(file)}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+// The real signal exit (signal-exit.ts, the handlers main registers), transpiled as it is into the child binary's
+// script, with main's server-mode wiring and no device runtime host.
+function realSignalExit() {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../../../apps/desktop/electron/signal-exit.ts'), 'utf8')
+  const module = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText
+  return `{const exports={};${module};exports.createSignalExit({serverMode:true,exitRestart:75,exitSignedOut:78,stopActivity(){},singleRun:()=>false,sessionFileExists:()=>true,supervisedBy:()=>undefined,markStopped(){},noteExitReason(){},killEngines(){},exit:(code)=>process.exit(code),host:()=>null,stopHost:async()=>{},warn(){}}).listen((signal,handler)=>{process.on(signal,handler)})}`
 }
 
 describe.runIf(process.platform !== 'win32')('real-binary boot smoke: a package is admitted only after a real account process serves', () => {
   it('routes the legacy guard SIGUSR2 through the real graceful exit handler with code 75', async () => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-guard-signal-'))
-    const command = binary('1.0.0', `${realSignalExit('SIGUSR2')}process.stdin.resume();process.stdout.write('ready')`)
+    const command = binary('1.0.0', `${realSignalExit()}process.stdin.resume();process.stdout.write('ready')`)
     const child = spawn(command, [], { stdio: ['pipe', 'pipe', 'pipe'] })
     try {
       expect(String((await once(child.stdout!, 'data'))[0])).toBe('ready')

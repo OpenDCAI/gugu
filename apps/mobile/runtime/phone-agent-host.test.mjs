@@ -897,11 +897,10 @@ test('revoking OS permission after a successful phone read prevents data from re
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: '查询日历' }], 'revoke-in-flight')
     await until(() => fx.events.some((event) => event.type === 'turn_failed'), fx.events)
-    // Failure is emitted before runJob's finally block reports the settled state.
-    // Hold that report until the failure is observed, then wait for the real job
-    // report instead of asserting against an unrelated startup/working report.
+    // Failure is emitted before runJob's finally block reports the settled state, and that
+    // block first awaits the timeline and journal saves, so the report starts later.
+    // Wait for that held job report instead of assuming it already started, then release it.
     await until(() => pendingActionReports > 0, fx.events)
-    assert.ok(pendingActionReports > 0)
     releaseActionReports()
     await until(() => fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)?.[1].p_agent_status === 'error', fx.events)
     assert.ok(permissionChecks.length > 0)

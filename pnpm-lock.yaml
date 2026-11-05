@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@codemirror/autocomplete@6.20.3':
+    hash: 6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67
+    path: patches/@codemirror__autocomplete@6.20.3.patch
   '@codemirror/view@6.43.13':
     hash: dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3
     path: patches/@codemirror__view@6.43.13.patch
@@ -151,7 +154,7 @@ importers:
         version: 8.3.1(@capacitor/core@8.3.3)
       '@codemirror/autocomplete':
         specifier: 6.20.3
-        version: 6.20.3
+        version: 6.20.3(patch_hash=6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67)
       '@codemirror/commands':
         specifier: 6.10.3
         version: 6.10.3
@@ -13189,7 +13192,7 @@ snapshots:
 
   '@chevrotain/types@11.1.2': {}
 
-  '@codemirror/autocomplete@6.20.3':
+  '@codemirror/autocomplete@6.20.3(patch_hash=6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67)':
     dependencies:
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.7.6
@@ -13205,7 +13208,7 @@ snapshots:
 
   '@codemirror/lang-css@6.3.1':
     dependencies:
-      '@codemirror/autocomplete': 6.20.3
+      '@codemirror/autocomplete': 6.20.3(patch_hash=6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67)
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.7.6
       '@lezer/common': 1.5.2
@@ -13213,7 +13216,7 @@ snapshots:
 
   '@codemirror/lang-html@6.4.12':
     dependencies:
-      '@codemirror/autocomplete': 6.20.3
+      '@codemirror/autocomplete': 6.20.3(patch_hash=6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67)
       '@codemirror/lang-css': 6.3.1
       '@codemirror/lang-javascript': 6.2.5
       '@codemirror/language': 6.12.3
@@ -13225,7 +13228,7 @@ snapshots:
 
   '@codemirror/lang-javascript@6.2.5':
     dependencies:
-      '@codemirror/autocomplete': 6.20.3
+      '@codemirror/autocomplete': 6.20.3(patch_hash=6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67)
       '@codemirror/language': 6.12.3
       '@codemirror/lint': 6.9.7
       '@codemirror/state': 6.7.6
@@ -13240,7 +13243,7 @@ snapshots:
 
   '@codemirror/lang-markdown@6.5.2':
     dependencies:
-      '@codemirror/autocomplete': 6.20.3
+      '@codemirror/autocomplete': 6.20.3(patch_hash=6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67)
       '@codemirror/lang-html': 6.4.12
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.7.6
@@ -13258,7 +13261,7 @@ snapshots:
 
   '@codemirror/lang-sql@6.10.0':
     dependencies:
-      '@codemirror/autocomplete': 6.20.3
+      '@codemirror/autocomplete': 6.20.3(patch_hash=6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67)
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.7.6
       '@lezer/common': 1.5.2
@@ -18796,7 +18799,7 @@ snapshots:
 
   codemirror@6.0.2:
     dependencies:
-      '@codemirror/autocomplete': 6.20.3
+      '@codemirror/autocomplete': 6.20.3(patch_hash=6b12381eb752177e9c2c9f925e46782992df6e2ef30c36897449b9ada8ddbe67)
       '@codemirror/commands': 6.10.3
       '@codemirror/language': 6.12.3
       '@codemirror/lint': 6.9.7
