@@ -8,6 +8,7 @@ import { rpc } from '@renderer/lib/ipc'
 import { excerpt, type TaskTurnHit, type TaskTurnIndexStatus } from '@shared/core/search'
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
 import { readSelfIdentityBridge } from '@/lib/selfIdentityBridge'
+import { renderMentionTokens } from '@renderer/lib/chat/render-mention-tokens'
 import { rankPaletteMatches } from '../command-palette/palette-rank'
 import type { SearchChip, SearchFacet, SearchKind } from './search-session'
 
@@ -140,7 +141,7 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   const messageHits: SearchHit[] = inTask ? [] : (messages.data ?? [])
     .filter(shownRow)
     .map((row) => ({ kind: 'message', id: `m:${row.id}`, group: row.chat_id, chatId: row.chat_id, messageId: row.id, senderId: row.sender_user_id,
-      sender: row.sender_user_id === null ? null : row.sender_name, text: excerpt(parseAttachmentContent(row.content)?.fileName ?? row.content ?? '', query), at: row.created_at, file: row.file_item_id !== null }))
+      sender: row.sender_user_id === null ? null : row.sender_name, text: excerpt(parseAttachmentContent(row.content)?.fileName ?? renderMentionTokens(row.content ?? ''), query), at: row.created_at, file: row.file_item_id !== null }))
   const taskHits: SearchHit[] = !tasks || inChat || from || kinds.length > 0 || !query ? [] : (turns.data?.hits ?? [])
     .filter((hit) => !inTask || hit.sessionId === inTask.taskId)
     .map((hit) => ({ kind: 'task', id: `t:${hit.sessionId}:${hit.itemId}`, group: `task:${hit.sessionId}`, taskId: hit.sessionId, projectId: hit.projectId,

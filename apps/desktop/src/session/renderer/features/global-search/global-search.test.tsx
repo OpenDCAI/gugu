@@ -324,7 +324,8 @@ describe('global search panel', () => {
     await render('')
     await act(async () => host.querySelector<HTMLElement>('[data-quick=mention]')!.click())
     await settle()
-    expect(options().map((option) => option.textContent)).toEqual([expect.stringContaining('回滚之前看一下')])
+    expect(options().map((option) => option.textContent)).toEqual([expect.stringContaining('@srchu 回滚之前看一下')])
+    expect(options()[0]!.textContent).not.toContain('user:me-1')
   })
 
   it('without a conversation in scope the member and date filters are not offered', async () => {
