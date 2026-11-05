@@ -992,7 +992,8 @@ if (args[0] === 'pr') {
       })
     })
 
-    it.each(['unproven', 'failed-source', 'wrong-source', 'malformed', 'duplicate'] as const)(
+    it.each(['unproven', 'failed-source', 'wrong-source', 'wrong-event', 'missing-source-marker',
+      'malformed-source', 'duplicate-source', 'malformed', 'duplicate'] as const)(
       'does not replace missing or invalid current evidence with an unrelated decision: %s', (scenario) => {
         const profiles = realCiProfiles()
         const runs = snapshot(profiles, { [ANDROID]: skipped })
@@ -1001,9 +1002,14 @@ if (args[0] === 'pr') {
         runs.push(inherited)
         if (scenario === 'failed-source') original.conclusion = 'failure'
         if (scenario === 'wrong-source') original.name = 'Another decider'
+        if (scenario === 'wrong-event') original.event = 'push'
         const marker = { title: JOB_OUTPUTS_MARKER, message: 'build=true desktop-mac=true android=false' }
         attachDeciderOutputs(runs, profiles, (id) => {
-          if (id === original.id) return [marker]
+          if (id === original.id) {
+            if (scenario === 'missing-source-marker') return []
+            if (scenario === 'malformed-source') return [{ ...marker, message: 'android false' }]
+            return scenario === 'duplicate-source' ? [marker, marker] : [marker]
+          }
           if (scenario === 'malformed') return [{ ...marker, message: 'android false' }]
           if (scenario === 'duplicate') return [marker, marker]
           return []

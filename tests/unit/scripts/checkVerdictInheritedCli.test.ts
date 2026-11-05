@@ -16,7 +16,9 @@ process.stdout.write(JSON.stringify(responses[endpoint]))
 `)
 
 describe('check-verdict partial rerun through the GitHub CLI boundary (#288)', () => {
-  it.each(['inherited', 'rerun', 'malformed'] as const)('uses original annotations only for proven inheritance: %s', (scenario) => {
+  it.each(['inherited', 'third-attempt', 'rerun', 'missing-source-marker', 'malformed-source',
+    'malformed', 'duplicate', 'unrelated-annotation', 'incomplete-history'] as const)(
+    'uses original annotations only for proven inheritance: %s', (scenario) => {
     const directory = mkdtempSync(join(tmpdir(), 'gugu-verdict-inherited-'))
     const root = join(directory, 'repo')
     const log = join(directory, 'requests.log')
@@ -60,18 +62,30 @@ jobs:
         check_run_url: `https://api.github.com/${prefix}/check-runs/200`,
         ...(scenario === 'rerun' ? { completed_at: '2026-10-24T22:00:05Z' } : {}),
       }
+      const third = { ...inherited, run_attempt: 3,
+        check_run_url: `https://api.github.com/${prefix}/check-runs/300` }
+      const currentId = scenario === 'third-attempt' ? 300 : 200
+      const currentAnnotations = scenario === 'malformed'
+        ? [{ title: 'ci-job-outputs', message: 'android false' }]
+        : scenario === 'duplicate'
+          ? Array.from({ length: 2 }, () => ({ title: 'ci-job-outputs', message: 'android=false' }))
+          : scenario === 'unrelated-annotation' ? [{ title: 'warning', message: 'not an output' }] : []
       writeFileSync(responsesFile, JSON.stringify({
         [`${prefix}/pulls/288`]: { head: { sha }, base: { ref: 'dev', sha }, changed_files: 0 },
         [`${prefix}/pulls/288/files?per_page=100`]: [],
-        [`${prefix}/actions/runs?head_sha=${sha}&per_page=100`]: [{ workflow_runs: [{ id: 11, check_suite_id: 22, event: 'pull_request', run_attempt: 2 }] }],
+        [`${prefix}/actions/runs?head_sha=${sha}&per_page=100`]: [{ workflow_runs: [{ id: 11, check_suite_id: 22, event: 'pull_request', run_attempt: scenario === 'third-attempt' ? 3 : 2 }] }],
         [`${prefix}/commits/${sha}/check-runs?filter=all&per_page=100`]: [{ check_runs: [
           check(100, 'Detect changed areas'), check(200, 'Detect changed areas'),
+          ...(scenario === 'third-attempt' ? [check(300, 'Detect changed areas')] : []),
           check(201, 'Android build', 'skipped'), check(202, 'Gate'),
         ] }],
-        [`${prefix}/check-runs/100/annotations?per_page=100`]: [[{ title: 'ci-job-outputs', message: 'android=false' }]],
-        [`${prefix}/check-runs/200/annotations?per_page=100`]: [scenario === 'malformed' ? [{ title: 'ci-job-outputs', message: 'android false' }] : []],
-        [`${prefix}/actions/runs/11/attempts/1/jobs?per_page=100`]: [{ jobs: [original] }],
+        [`${prefix}/check-runs/100/annotations?per_page=100`]: [scenario === 'missing-source-marker' ? []
+          : [{ title: 'ci-job-outputs', message: scenario === 'malformed-source' ? 'android false' : 'android=false' }]],
+        [`${prefix}/check-runs/200/annotations?per_page=100`]: [currentId === 200 ? currentAnnotations : []],
+        [`${prefix}/check-runs/300/annotations?per_page=100`]: [currentAnnotations],
+        [`${prefix}/actions/runs/11/attempts/1/jobs?per_page=100`]: [{ jobs: scenario === 'incomplete-history' ? [] : [original] }],
         [`${prefix}/actions/runs/11/attempts/2/jobs?per_page=100`]: [{ jobs: [inherited] }],
+        [`${prefix}/actions/runs/11/attempts/3/jobs?per_page=100`]: [{ jobs: [third] }],
       }))
       const result = spawnSync(process.execPath, [resolve('scripts/ci/check-verdict.mts'),
         '--repo', 'fixture/repo', '--sha', sha, '--pr', '288', '--action', 'synchronize',
@@ -81,19 +95,23 @@ jobs:
       })
       expect(result.error).toBeUndefined()
       expect(result.stderr).toBe('')
-      expect(result.status).toBe(scenario === 'inherited' ? 0 : 1)
+      const inherits = scenario === 'inherited' || scenario === 'third-attempt'
+      expect(result.status).toBe(inherits ? 0 : 1)
       const verdict = JSON.parse(result.stdout)
-      expect(verdict.verdict).toBe(scenario === 'inherited' ? 'GREEN' : 'RED')
-      if (scenario === 'inherited') {
+      expect(verdict.verdict).toBe(inherits ? 'GREEN' : 'RED')
+      if (inherits) {
         expect(verdict).toMatchObject({ failed: [], missing: [], pending: [], skippedNotDue: ['pull_request/Android build'] })
         // Two independent snapshots re-read the attempt history before the reader settles GREEN.
         expect(readFileSync(log, 'utf8').split('\n').filter(line => line.endsWith('/attempts/1/jobs?per_page=100'))).toHaveLength(2)
       } else {
         expect(verdict.failed).toEqual(['pull_request/Android build (skipped; Detect changed areas published no ci-job-outputs android)'])
       }
-      if (scenario === 'malformed') expect(readFileSync(log, 'utf8')).not.toContain('/attempts/')
+      if (['malformed', 'duplicate', 'unrelated-annotation'].includes(scenario)) {
+        expect(readFileSync(log, 'utf8')).not.toContain('/attempts/')
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
-  })
+    },
+  )
 })
