@@ -1,18 +1,18 @@
-import { when } from 'mobx';
-import { getSessionPageStore, getSessionView, sessionViewKind } from '@renderer/features/sessions/stores/session-selectors';
-import { sessionTabKind } from './session-tab-kind';
-import { sessionPaneReady } from './session-pane-ready';
+import { getSessionPageStore, getSessionView, sessionViewKind, sessionErrorMessage, projectMountErrorMessage } from '@renderer/features/sessions/stores/session-selectors';
+import { getProjectStore } from '@renderer/features/projects/stores/project-selectors';
 import { machineUnavailableLabel } from './machine-unavailable-label';
+import { sessionTabKind } from './session-tab-kind';
+import { whenSessionPaneReady } from './session-pane-ready';
 import { offlineSessionInputTarget } from './offline-session-input-target';
 import { sessionRegistry } from './stores/session-registry';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { messageForUser } from '@/lib/userFacingError';
 import { rememberTask } from '@renderer/features/command-palette/recent-tasks';
 
 interface OpenSessionInSessionOptions {
   projectId: string;
   sessionId: string;
-  timeout?: number;
   /** Commit navigation or layout only after the task workspace can be opened. */
   onReady?: () => void;
   /**
@@ -41,7 +41,6 @@ interface OpenSessionInSessionOptions {
 export function openSessionInSessionWhenReady({
   projectId,
   sessionId,
-  timeout = 10_000,
   onlyIfNoTabs = false,
   host,
   onReady,
@@ -49,18 +48,13 @@ export function openSessionInSessionWhenReady({
   const kind = sessionViewKind(getSessionPageStore(projectId, sessionId), projectId);
   if (!onlyIfNoTabs && kind !== 'archived' && kind !== 'missing') rememberTask(sessionId);
   if (offlineSessionInputTarget(projectId, kind)) {
-    // Navigation (including a beside block) reaches SessionContentGate without a remote workspace.
+    // Navigation reaches the shared offline input without preparing a remote workspace.
     onReady?.();
     return () => {};
   }
-  const paneReady = sessionPaneReady(projectId, sessionId, { reviveArchived: false });
-  return when(
-    () => {
-      const session = sessionRegistry
-        .get(sessionId)
-        ?.sessions.get(sessionId);
-      return Boolean(paneReady() && getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId) && session);
-    },
+  return whenSessionPaneReady(
+    projectId,
+    sessionId,
     () => {
       const session = sessionRegistry
         .get(sessionId)
@@ -86,17 +80,40 @@ export function openSessionInSessionWhenReady({
       onReady?.();
     },
     {
-      timeout,
-      onError: (error) => {
-        console.error('[gugu] Timed out while opening a session-page session', {
-          projectId,
-          sessionId,
-          error,
-        });
+      canOpen: () => {
+        // The workspace can precede the registry's asynchronous conversation row on cold opens.
+        const manager = sessionRegistry.get(sessionId);
+        if (!manager?.sessions.get(sessionId)) {
+          // Reading data starts the existing demand load, including before its reaction attaches.
+          const data = manager?.list.data;
+          if (manager?.list.error) return manager.list.error;
+          if (manager && (data === null || manager.list.loading || data?.some(row => row.id === sessionId))) return undefined;
+          return false;
+        }
+        if (host && !getSessionView(host.projectId, host.sessionId)) {
+          const page = getSessionPageStore(host.projectId, host.sessionId);
+          const kind = sessionViewKind(page, host.projectId);
+          if (kind === 'project-error') return projectMountErrorMessage(host.projectId, translateSessionMessage);
+          const failure = sessionErrorMessage(page, translateSessionMessage) ?? machineUnavailableLabel(host.projectId);
+          if (failure) return failure;
+          if (kind === 'creating' || kind === 'provisioning') return undefined;
+          if (kind === 'project-mounting') {
+            const project = getProjectStore(host.projectId);
+            if (project?.phase === 'opening' || project?.mountedProject?.sessionManager.listState === 'reading') return undefined;
+          }
+          return false;
+        }
+        return Boolean(getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId));
+      },
+      onError: (reason) => {
         toast({
           title: translateSessionMessage('sidebar.conversationNotOpenable'),
-          description: machineUnavailableLabel(projectId) ?? translateSessionMessage('sidebar.workspaceNotReady'),
+          description: messageForUser(reason),
           variant: 'destructive',
+          action: {
+            label: translateSessionMessage('common.retry'),
+            onClick: () => openSessionInSessionWhenReady({ projectId, sessionId, onlyIfNoTabs, host, onReady }),
+          },
         });
       },
     }

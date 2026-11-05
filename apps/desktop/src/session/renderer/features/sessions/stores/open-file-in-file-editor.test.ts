@@ -54,6 +54,8 @@ vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ mountProject: mocks.mountProject }),
 }));
 
+vi.mock('../machine-unavailable-label', () => ({ machineUnavailableLabel: () => null }));
+
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: {
     browser: { registerSession: mocks.registerBrowser, ensureAgentPage: mocks.ensurePage },

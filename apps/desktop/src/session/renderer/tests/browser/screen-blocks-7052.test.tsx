@@ -1,14 +1,19 @@
+const dropped = vi.hoisted(() => ({ notice: vi.fn() }));
+vi.mock('@renderer/lib/hooks/use-toast', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@renderer/lib/hooks/use-toast')>(), toast: dropped.notice,
+}));
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { BlockDropPreviewLayer, BlockGrip, ScreenFrame, screenDropHandlers, startSessionBlockDrag } from '@renderer/app/screen-frame';
-import { blockDropPreview, resolveBlockDrop, setBlockDropPreview } from '@renderer/app/screen-layout-actions';
+import { blockDropPreview, placeOnScreen, resolveBlockDrop, setBlockDropPreview } from '@renderer/app/screen-layout-actions';
 import { clearDraggedScreenContent, hasDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { shieldNativeDrags } from '@renderer/lib/drag-shield';
 import { screenLayout } from '@renderer/app/screen-layout';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
 import { drainTopicSplitRequest } from '@/lib/topicSplitRequest';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import { WorkspaceLayoutContextProvider } from '@renderer/lib/layout/layout-provider';
 
@@ -265,4 +270,14 @@ describe('一屏几块的骨架 (#7052)', () => {
       clearDraggedScreenContent();
     }
   });
+});
+
+
+it('reports a missing task dropped onto the screen immediately instead of keeping its open pending', () => {
+  screenLayout.show({ kind: 'chat', chatId: 'drop-target' });
+  dropped.notice.mockClear();
+  {
+    expect(placeOnScreen({ kind: 'session', ...s('missing-drop') }, screenLayout.order[0], 'right')).toBe(true);
+    expect(dropped.notice).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ variant: 'destructive', description: translateSessionMessage('task.notFound') }));
+  }
 });

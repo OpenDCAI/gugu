@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { observable, runInAction } from 'mobx';
+import { observable, runInAction, when } from 'mobx';
 
 const state = vi.hoisted(() => ({
   tabs: ['conversation', 'file', 'browser', 'app'], open: vi.fn(),
 }));
 const ready = observable.box(false);
-vi.mock('@renderer/features/sessions/session-pane-ready', () => ({ sessionPaneReady: () => () => ready.get() }));
+vi.mock('@renderer/features/sessions/session-pane-ready', () => ({
+  whenSessionPaneReady: (_project: string, _session: string, onReady: () => void, options: { canOpen?: () => boolean }) =>
+    when(() => ready.get() && (options.canOpen?.() ?? true), onReady),
+}));
 vi.mock('@renderer/features/sessions/stores/session-selectors', async (importOriginal) => ({
   ...await importOriginal<typeof import('@renderer/features/sessions/stores/session-selectors')>(),
   getSessionView: () => ({ paneLayout: { groups: [{ pane: { tabOrder: state.tabs, entries: new Map() } }], open: state.open } }),

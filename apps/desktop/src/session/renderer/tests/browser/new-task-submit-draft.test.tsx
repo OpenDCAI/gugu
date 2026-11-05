@@ -56,7 +56,7 @@ let root: Root;
 let container: HTMLDivElement;
 beforeEach(async () => {
   vi.clearAllMocks();
-  mocks.create.mockResolvedValue(undefined);
+  mocks.create.mockImplementation(async (_params: unknown, options?: { onOptimistic?: () => void }) => { options?.onOptimistic?.(); });
   mocks.assertProtocol.mockReset();
   machineRegistry.register('host', ['project-1']);
   await page.viewport(900, 700);
@@ -83,22 +83,26 @@ it.each(['Enter', 'button'])('keeps the draft, file chip and visible update erro
   await page.getByRole('button', { name: translateSessionMessage('composer.removeAttachment', { name: 'brief.txt' }), exact: true }).click();
   await page.getByTestId('prompt-editor').click();
   await userEvent.keyboard('{Enter}');
-  await until('the retained caption creates one task', () => mocks.navigate.mock.calls.length === 1);
+  await until('the retained caption creates one task', () => mocks.navigate.mock.calls.length === 1 && text() === '');
   await act(async () => {});
   expect(mocks.create).toHaveBeenCalledOnce();
   expect(text()).toBe('');
   expect(mocks.create.mock.calls[0]?.[0].sessionConfig.initialSession.initialQueue[0].text).toBe('keep this draft');
 });
 
-it('keeps input visible and disables send until a slow creation succeeds', async () => {
+it('navigates immediately and retains the pending draft while a slow creation finishes', async () => {
   let finish!: () => void;
-  mocks.create.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  mocks.create.mockImplementationOnce((_params: unknown, options?: { onOptimistic?: () => void }) => {
+    options?.onOptimistic?.();
+    return new Promise<void>(resolve => { finish = resolve; });
+  });
   await userEvent.keyboard('{Enter}');
   await until('creation has started', () => mocks.create.mock.calls.length === 1);
+  expect(mocks.navigate).toHaveBeenCalledOnce();
   expect(text()).toBe('keep this draft');
   await expect.element(page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true })).toBeDisabled();
   await act(async () => finish());
-  await until('creation finishes', () => mocks.navigate.mock.calls.length === 1);
+  await until('creation finishes', () => text() === '');
   await act(async () => {});
   expect(text()).toBe('');
   expect(mocks.navigate).toHaveBeenCalledOnce();

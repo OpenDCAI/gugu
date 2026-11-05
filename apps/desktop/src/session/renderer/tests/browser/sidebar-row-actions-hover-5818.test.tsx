@@ -92,9 +92,31 @@ vi.mock('@renderer/features/sessions/archive-session-flow', () => ({
   archiveSessionNow: vi.fn(),
   confirmArchive: () => undefined,
 }))
+const openWaits = vi.hoisted(() => ({ disposers: [] as ReturnType<typeof vi.fn>[], completions: [] as (() => void)[], committed: vi.fn() }))
 vi.mock('@renderer/features/sessions/open-session-in-session', () => ({
-  openSessionInSessionWhenReady: () => undefined,
+  openSessionInSessionWhenReady: ({ onReady }: { onReady?: () => void }) => {
+    let cancelled = false
+    const dispose = vi.fn(() => { cancelled = true })
+    openWaits.disposers.push(dispose)
+    openWaits.completions.push(() => { if (!cancelled) { openWaits.committed(); onReady?.() } })
+    return dispose
+  },
 }))
+const terminal = vi.hoisted(() => ({ kind: null as 'archived' | 'missing' | null }))
+// The shared waiter's terminal states are tested with real stores in open-session-in-session.test.ts.
+// Here the real row must map its terminal callback to forkFailed rather than starting a fork.
+vi.mock('@renderer/features/sessions/session-pane-ready', () => ({
+  prepareSessionPane: async () => {},
+  sessionPaneReady: () => () => true,
+  whenSessionPaneReady: (_project: string, _session: string, _onReady: () => void, options: { onError: (reason: string) => void }) => {
+    if (terminal.kind) options.onError(translateSessionMessage(terminal.kind === 'archived' ? 'task.archivedToast' : 'task.notFound'))
+    return () => {}
+  },
+}))
+vi.mock('@shared/core/agents/agent-payload', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@shared/core/agents/agent-payload')>()
+  return { ...actual, agentForksOn: (...args: Parameters<typeof actual.agentForksOn>) => terminal.kind ? true : actual.agentForksOn(...args) }
+})
 vi.mock('@renderer/lib/layout/navigation-provider', () => ({
   useNavigate: () => ({ navigate: (view: string, params: unknown) => runInAction(() => {
     shown.navigation!.currentViewId = view
@@ -118,6 +140,11 @@ let root: Root
 let host: HTMLDivElement
 
 beforeEach(() => {
+  openWaits.disposers = []
+  openWaits.completions = []
+  openWaits.committed.mockClear()
+  terminal.kind = null
+  notice.mockClear()
   // 每条用例从「主区在别的会话上」开始:上一条点过的行不算数。
   runInAction(() => { shown.navigation!.viewParamsStore.session = { projectId: 'proj-1', sessionId: 'task-1' } })
   host = document.createElement('div')
@@ -173,6 +200,26 @@ async function settled(el: HTMLElement, expected: number): Promise<void> {
 async function mounted(): Promise<void> {
   await until('sidebar row mounted', () => host.querySelectorAll('[data-row-hover-actions]').length === 1)
 }
+
+it('cancels a repeated row click but completes an open after the virtual row unmounts', async () => {
+  mount()
+  await mounted()
+  const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
+  await userEvent.click(row)
+  expect(openWaits.disposers).toHaveLength(1)
+  expect(openWaits.disposers[0]).not.toHaveBeenCalled()
+  await userEvent.click(row)
+  expect(openWaits.disposers).toHaveLength(2)
+  expect(openWaits.disposers[0]).toHaveBeenCalledOnce()
+  expect(openWaits.disposers[1]).not.toHaveBeenCalled()
+  root.render(null)
+  await until('virtual row is unmounted', () => host.querySelector('[data-session-id="conv-1"]') === null)
+  expect(openWaits.disposers[1]).not.toHaveBeenCalled()
+  openWaits.completions[0]()
+  expect(openWaits.committed).not.toHaveBeenCalled()
+  openWaits.completions[1]()
+  expect(openWaits.committed).toHaveBeenCalledOnce()
+})
 
 const identityCard = () => document.querySelector<HTMLElement>('[data-sidebar-identity-card]')
 
@@ -584,4 +631,24 @@ it('agent 发给主人的通知没读:Projects 这一行只加粗,不出数字(o
   } finally {
     removeDeviceSessions('host')
   }
+})
+
+it.each(['archived', 'missing'] as const)('ends a %s source fork with forkFailed instead of a late fork', async (kind) => {
+  registry.loaded.set('conv-1', { runtime: 'pty' })
+  terminal.kind = kind
+  mount()
+  await mounted()
+  const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
+  row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }))
+  await until('fork menu renders', () => Array.from(document.querySelectorAll('[data-slot="context-menu-item"]')).some(el => el.textContent?.includes(translateSessionMessage('sidebar.forkSession'))))
+  const item = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')).find(el => el.textContent?.includes(translateSessionMessage('sidebar.forkSession')))!
+  terminal.kind = kind
+  await userEvent.click(item)
+  await until('fork reports the terminal source', () => notice.mock.calls.some(([value]) => value.title === translateSessionMessage('sidebar.forkFailed')))
+  expect(notice).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    title: translateSessionMessage('sidebar.forkFailed'),
+    description: translateSessionMessage(kind === 'archived' ? 'task.archivedToast' : 'task.notFound'),
+  }))
+  terminal.kind = null
+  expect(openWaits.disposers).toHaveLength(0)
 })

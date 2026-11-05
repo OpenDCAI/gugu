@@ -7,7 +7,7 @@ vi.mock('./stores/session-selectors', () => ({
   getSessionPageStore: () => ({}), sessionViewKind: () => 'live',
   getSessionView: () => ({ paneLayout: state.layout }),
 }));
-vi.mock('./session-pane-ready', () => ({ sessionPaneReady: () => () => true }));
+vi.mock('./session-pane-ready', () => ({ whenSessionPaneReady: (_project: string, _session: string, onReady: () => void) => { onReady(); return () => {}; } }));
 vi.mock('./offline-session-input-target', () => ({ offlineSessionInputTarget: () => false }));
 vi.mock('./stores/session-registry', () => ({ sessionRegistry: { get: () => ({ sessions: new Map([['same-task', { data: { runtime: 'pty' } }]]) }) } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: vi.fn() }));

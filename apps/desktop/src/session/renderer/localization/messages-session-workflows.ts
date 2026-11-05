@@ -259,6 +259,7 @@ export const enUSSessionWorkflowMessages = {
     'You can still turn the confirmation off in Settings → Interface.',
   // 归档要有去处(#6083):提示说得出在哪找回,并给一次撤销。
   'task.archivedToast': 'Archived',
+  'task.notFound': 'Task not found.',
   'task.archivedToastHint': 'Find it again under Task history.',
   'task.archiveUndo': 'Undo',
   'task.archiveUndoFailed': 'Failed to undo the archive',
@@ -884,6 +885,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.archiveDontAskAgainFailed': '保存「不再询问」失败',
   'task.archiveDontAskAgainFailedHint': '仍可在「设置 → 界面」里关掉归档确认。',
   'task.archivedToast': '已归档',
+  'task.notFound': '找不到这项任务。',
   'task.archivedToastHint': '在「会话历史」里可以找回。',
   'task.archiveUndo': '撤销',
   'task.archiveUndoFailed': '撤销归档失败',

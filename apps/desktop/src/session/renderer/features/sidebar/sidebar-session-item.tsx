@@ -10,17 +10,15 @@ import { GitFork } from '@/lib/icons'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { spawnedByExtensionLabel as spawnedByExtensionLabelFor } from '@renderer/features/extensions/spawned-by-extension-label';
 import { useAssistantShell } from '@renderer/features/assistant/assistant-shell';
-import { when } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useRef } from 'react';
 import { requestArchiveSession } from '@renderer/features/sessions/archive-session-flow';
 import { moveSessionUnder } from '@renderer/features/sessions/set-session-parent-flow';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
+import { whenSessionPaneReady } from '@renderer/features/sessions/session-pane-ready';
 import { focusedSessionId } from '@renderer/features/sessions/pane-selectors';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import {
-  asProvisioned,
-  getSessionPageStore,
   getSessionView,
 } from '@renderer/features/sessions/stores/session-selectors';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -109,6 +107,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   // 设置里关掉 = 用户不要这个行为 → 连倒计时都不起。名字是会话的 title(任务只有一个名字)。
   const identityCardEnabled = sidebarStore.agentNameOnHoverEnabled;
   const rowRef = useRef<HTMLDivElement | null>(null);
+  const pendingOpen = useRef<(() => void) | null>(null);
+  // Virtual rows can unmount while preparation is in flight. Only another click cancels this open;
+  // the shared readiness waiter releases itself on success or a terminal preparation failure.
   const rowAnchor = useCallback(() => rowRef.current, []);
   const identityCard = useSidebarIdentityCardTrigger(sessionId, identityCardEnabled);
   const identityCardOpen = identityCardEnabled && sidebarIdentityCard.activeSessionId === sessionId;
@@ -175,17 +176,18 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   });
 
   const openSession = ({ beside = false }: { beside?: boolean } = {}) => {
+    pendingOpen.current?.();
     // behavior session-page「键盘导航」: the highlight is the cursor, so a click moves the cursor too —
     // pressing ↓ right after clicking must continue from the row you just clicked.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'conversation', projectId, sessionId });
     // ⌘ 点 = 并排放在正看着那块的右边(spec session-page「一屏几块」);只在看这屏的视图上才有「正看着那块」。
     if (beside && isScreenView(appState.navigation.currentViewId)) {
       // The block is placed only once the task can open: one that never gets ready leaves nothing behind.
-      openSessionInSessionWhenReady({ projectId, sessionId, onReady: () => showSessionBeside({ projectId, sessionId }) });
+      pendingOpen.current = openSessionInSessionWhenReady({ projectId, sessionId, onReady: () => showSessionBeside({ projectId, sessionId }) });
       return;
     }
     navigate('session', { projectId, sessionId: sessionId });
-    openSessionInSessionWhenReady({ projectId, sessionId });
+    pendingOpen.current = openSessionInSessionWhenReady({ projectId, sessionId });
   };
 
   const cursor = sessionKeyboardNav.cursor;
@@ -226,9 +228,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     // The fork's own task reuses the source task's workspace, which exists only once the source
     // task is provisioned — navigate first, fork when ready, then open the fork in its own task.
     navigate('session', { projectId, sessionId: sessionId });
-    when(
-      () =>
-        Boolean(asProvisioned(getSessionPageStore(projectId, sessionId)) && sessionRegistry.get(sessionId)),
+    whenSessionPaneReady(
+      projectId,
+      sessionId,
       () => {
         void sessionRegistry
           .get(sessionId)
@@ -250,12 +252,13 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           });
       },
       {
-        timeout: 15_000,
-        onError: () => {
+        canOpen: () => Boolean(sessionRegistry.get(sessionId)),
+        onError: (reason) => {
           toast({
             title: translate('sidebar.forkFailed'),
-            description: translate('sidebar.workspaceNotReady'),
+            description: messageForUser(reason),
             variant: 'destructive',
+            action: { label: translate('common.retry'), onClick: handleFork },
           });
         },
       }
