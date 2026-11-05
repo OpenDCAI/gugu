@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
+import { Capacitor } from '@capacitor/core';
 import type { ChatCommands } from '@gugu/session-chat-ui';
 import type { PromptEditorRef } from '@gugu/session-ui/react/components';
 import { showRendererContentMenu } from '@/lib/contentContextMenu';
@@ -39,16 +40,19 @@ export function useSessionMessageQuotes(store: Pick<AcpChatStore, 'sessionId' | 
       const message = target.message();
       const text = selection ?? message.text;
       if (!text.trim()) return;
-      // Snapshot before the menu takes focus or virtualization reuses the row.
+      // Whole-message copy keeps a snapshot; selected text can still be extended with handles.
+      const selectionRange = selection !== undefined && Capacitor.getPlatform() === 'android'
+        ? target.root.ownerDocument.getSelection()?.getRangeAt(0).cloneRange() : undefined;
       const t = latest.current.translate;
       event.preventDefault();
       event.stopPropagation();
       void showRendererContentMenu([
         { id: 'copy', label: t(selection === undefined ? 'transcript.copyMessage' : 'transcript.copySelection') },
-      ], { x: event.clientX, y: event.clientY }).then(async action => {
+      ], { x: event.clientX, y: event.clientY }, selectionRange).then(async action => {
         if (!alive.current || latest.current.store !== current) return;
         if (action === 'copy') {
-          await platform.writeClipboardText(text);
+          const adjusted = selectionRange ? target.root.ownerDocument.getSelection()?.toString() : undefined;
+          await platform.writeClipboardText(adjusted?.trim() ? adjusted : text);
           toast({ title: t('transcript.copied') });
         }
       }).catch(error => {
