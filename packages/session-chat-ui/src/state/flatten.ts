@@ -12,8 +12,11 @@ import { planConversationSegments } from './conversation-segments';
  *   committedUnits  — stable; recomputes only when committed() identity
  *                     changes (turn_done / prepend / seed). The framework memo
  *                     replaces the old WeakMap segmentCache.
- *   activeUnits     — recomputes per streaming tick but only over the small
- *                     activeTurn array. No O(total) work during streaming.
+ *   activeUnits     — re-segments the running turn on every streaming tick;
+ *                     units whose content did not change keep last tick's
+ *                     objects (keepUnchangedUnits), so keyed rows and their
+ *                     measures only re-run for what changed. A long live turn
+ *                     no longer rebuilds every step per update.
  *
  * The two tiers are joined into an UnitsView (virtual concat) that never
  * allocates a full array per tick. All downstream consumers use

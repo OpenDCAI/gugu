@@ -20,11 +20,19 @@ export function createProcessStepsUnitDef(registry: () => Registry) {
     const def = registry()[unit.kind];
     return unit.gapBefore + def.measure(unit.data, childContext(unit, ctx), def.vars ?? {});
   };
-  const contentHeight = (data: ProcessSteps, ctx: MeasureCtx) => data.units.reduce((sum, unit) => sum + height(unit, ctx), 0);
+  /**
+   * The viewport is capped, so only the newest rows up to the cap decide its height. Summing every step re-measured the
+   * whole live turn on each update (O(steps) per update); from the newest end the work stops at the cap.
+   */
+  const cappedHeight = (data: ProcessSteps, ctx: MeasureCtx) => {
+    let sum = 0;
+    for (let i = data.units.length - 1; i >= 0 && sum < CONVERSATION_PREVIEW_MAX_H; i--) sum += height(data.units[i], ctx);
+    return Math.min(CONVERSATION_PREVIEW_MAX_H, sum);
+  };
   return defineUnit<ProcessSteps>({
     kind: 'conversation-process-steps', margin: { top: 0, bottom: 0 },
     estimate: () => CONVERSATION_PREVIEW_MAX_H,
-    measure: (data, ctx) => Math.min(CONVERSATION_PREVIEW_MAX_H, contentHeight(data, ctx)),
+    measure: cappedHeight,
     Render(props) {
       const commands = useCommands();
       let viewport!: HTMLDivElement;
@@ -32,7 +40,7 @@ export function createProcessStepsUnitDef(registry: () => Registry) {
       const [scrolled, setScrolled] = createSignal(false);
       const ctx = () => props.ctx.measureCtx!();
       const memoryKey = () => `${props.data.id}:${props.data.live ? 'live' : 'done'}`;
-      const total = createMemo(() => contentHeight(props.data, ctx()));
+      const total = createMemo(() => cappedHeight(props.data, ctx()));
       const remember = () => {
         if (disposed || !viewport.isConnected) return;
         const memory = ctx().caches.processScrollPositions;
@@ -44,6 +52,8 @@ export function createProcessStepsUnitDef(registry: () => Registry) {
         const key = memoryKey();
         const live = props.data.live;
         const memory = ctx().caches.processScrollPositions;
+        // New steps arrive below the cap too: follow the steps, not only the capped height.
+        void props.data.units;
         total();
         const previous = memory.get(key);
         // Child DOM and the capped height must update before writing scrollTop.
@@ -56,7 +66,7 @@ export function createProcessStepsUnitDef(registry: () => Registry) {
       onCleanup(() => { disposed = true; });
       return <div class={styles.root}>
         <div ref={viewport} class={styles.viewport} data-slot="conversation-process-steps" data-process-id={props.data.id} data-live={props.data.live}
-          style={{ height: `${Math.min(CONVERSATION_PREVIEW_MAX_H, total())}px` }} onScroll={remember}>
+          style={{ height: `${total()}px` }} onScroll={remember}>
           <For each={props.data.units}>{unit => {
             const def = () => registry()[unit.kind];
             const inset = () => unit.chrome?.insetX ?? 0;
