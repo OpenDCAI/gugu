@@ -40,6 +40,7 @@ import {
 } from './chatProjectionAlgebra'
 import { ACCOUNT_REVISION_CURSOR_KEY, type AccountRevisionOperation } from './accountRevisionRuntime'
 import {
+  readDeliveryRevision,
   readMemberRosterRevision,
   readRevisionResourceKey,
   type AccountRevisionEvent,
@@ -141,7 +142,8 @@ export function toProjectionOperations(operations: readonly AccountRevisionOpera
   return operations.map(({ revision, event, payload }) => {
     if (CHAT_SCOPED.has(event)) {
       const own = event === 'chat_members_changed' && readMemberRosterRevision(payload).own
-      return { revision, event, ...readRevisionResourceKey(payload, event as AccountRevisionEvent), ...(own ? { own } : {}) }
+      const receipt = event === 'delivery_changed' && readDeliveryRevision(payload).receipt !== null
+      return { revision, event, ...readRevisionResourceKey(payload, event as AccountRevisionEvent), ...(own ? { own } : {}), ...(receipt ? { receipt } : {}) }
     }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error(`${event} revision payload is malformed`)
     const raw = payload as Record<string, unknown>
@@ -211,11 +213,9 @@ export function createChatProjection(viewerId: string): ChatProjection {
       return indexExact(ids, byId)
     },
     unread: async (ids, signal) => {
-      // list_unread_locators 是服务端的未读投影,按 chat 落位。一批里只脏了一条会话(忙群里几乎每一批都是)就只问它:
-      // 问全部要把每条会话的每个流重算一遍再整包拿回来。这条会话我已经不在了,服务端会拒 ⇒ 退回问全部,缺行即 tombstone。
-      const only = ids.length === 1 ? ids[0]! : null
-      let { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: only }).abortSignal(signal)
-      if (error && only) ({ data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null }).abortSignal(signal))
+      // 服务端的未读投影,只问这一批脏了的会话(一条集合查询,冷启与增量同一条)。
+      // 我已不在的会话不返回行 ⇒ 缺行即 tombstone,不必退回问全部。
+      const { data, error } = await chatDb.rpc('list_unread_locators_for_chats', { p_chat_ids: [...ids] }).abortSignal(signal)
       if (error) throw new Error(error.message)
       const byChat = mergeUnreadRows((data ?? []) as Array<Record<string, unknown> & { chat_id: string }>)
       return indexExact(ids, byChat as Map<string, unknown>)
@@ -232,16 +232,11 @@ export function createChatProjection(viewerId: string): ChatProjection {
       return new Map([...ids].map((id) => [id, byId.get(id) ?? { id, online: false }]))
     },
     preview: async (ids, signal) => {
-      // @@@chat-list-visibility — `messages_view` 是 `security_invoker = true` 的视图 ⇒ 走的是
-      // `messages` 那套 RLS:成员门 + `hide_history_before` 门 + whisper 门 + `deleted_at IS NULL`
-      // 都由数据库施加。所以列表 preview 与 transcript **消费同一成员可见性**,而且对每条会话
-      // 一视同仁、一发拿回 —— 从前只对带门的会话逐会话重算(与带门会话数成正比)。
-      // `is_whisper=false` 仍显式排除:RLS 会把发给我的私语放行,但它从前不进列表预览,这里不改产品行为。
-      const { data, error } = await chatDb.from('messages_view')
-        .select('id, chat_id, created_at, preview, seq, content_type, sender_user_id, client_message_id')
-        .in('chat_id', [...ids]).eq('is_whisper', false)
-        .order('seq', { ascending: false }).limit(ids.length * 4)
-        .abortSignal(signal)
+      // @@@chat-list-visibility — list_chat_previews 是 security invoker 的函数 ⇒ 走 `messages` 那套 RLS
+      // (成员门 + `hide_history_before` 门 + whisper 门),列表 preview 与 transcript 消费同一成员可见性。
+      // 每条会话各取最后一条可见、非私语、非待接走的消息,不算回复投影 —— 从前 messages_view 按 ids×4 行
+      // 一起截,忙会话会把安静会话的那一行挤掉。
+      const { data, error } = await chatDb.rpc('list_chat_previews', { p_chat_ids: [...ids] }).abortSignal(signal)
       if (error) throw new Error(error.message)
       const found = (data ?? []) as Array<Record<string, unknown> & { chat_id: string } & Parameters<typeof turnFailureReason>[0]>
       const byChat = new Map<string, unknown>()
@@ -386,6 +381,12 @@ export function createChatProjection(viewerId: string): ChatProjection {
     return requests
   }
 
+  /** 列表不显示的事实:回应、设备回执、别人的读位。它们不改预览、不改我的未读 ⇒ 不读。 */
+  const notShownInList = (operation: ProjectionOperation): boolean => operation.event === 'reaction_changed'
+    || operation.receipt === true
+    || ((operation.event === 'member_read_changed' || operation.event === 'member_stream_read_changed')
+      && operation.entityId !== null && operation.entityId !== viewerId)
+
   const republish = (): ChatItem[] => {
     rows = assemble(cache, viewerId).filter(row => !confirmedDeletions.has(row.id))
     return rows
@@ -490,7 +491,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
     async advance(operations, cursor, signal) {
       assertRevision(cursor, 'projection cursor')
       // observe 是幂等的:已新鲜的键、以及在途那发的戳已 ≥ 本 operation 的键,都**不入脏**。
-      planner = observe(planner, cache, operations)
+      planner = observe(planner, cache, operations.filter(operation => !notShownInList(operation)))
       const arrival: ProjectionBatch = {
         head: cursor,
         from: operations.length > 0 ? operations[0]!.revision : cursor,

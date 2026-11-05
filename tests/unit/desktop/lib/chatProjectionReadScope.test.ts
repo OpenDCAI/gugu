@@ -12,7 +12,7 @@ function builder(key: string, args?: unknown): unknown {
       if (prop === 'then') {
         return (onFulfilled: (value: Response) => unknown, onRejected?: (reason: unknown) => unknown) => {
           calls.push({ key, args })
-          const chatId = (args as { p_chat_id?: string | null } | undefined)?.p_chat_id
+          const chatId = (args as { p_chat_ids?: string[] } | undefined)?.p_chat_ids?.[0]
           const result: Response = chatId && refuse.has(chatId)
             ? { data: null, error: { message: `not authorized to read unread locator for chat ${chatId}` } }
             : { data: rowsByKey.get(key) ?? [], error: null }
@@ -46,9 +46,9 @@ function seed(): void {
     id, public_id: null, kind: 'group', status: 'active', name: id, avatar_url: null, created_at: '2026-10-29T00:00:00Z',
     last_message_at: null, last_message_preview: null, next_message_seq: 1, pinned_message_id: null,
   })))
-  rowsByKey.set('messages_view', []); rowsByKey.set('rpc:list_unread_locators', []); rowsByKey.set('contact_overrides', [])
+  rowsByKey.set('rpc:list_chat_previews', []); rowsByKey.set('rpc:list_unread_locators_for_chats', []); rowsByKey.set('contact_overrides', [])
 }
-const unreadArgs = () => calls.filter((call) => call.key === 'rpc:list_unread_locators').map((call) => (call.args as { p_chat_id: string | null }).p_chat_id)
+const unreadArgs = () => calls.filter((call) => call.key === 'rpc:list_unread_locators_for_chats').map((call) => (call.args as { p_chat_ids: string[] }).p_chat_ids)
 
 beforeEach(() => { calls.length = 0; refuse.clear(); seed() })
 
@@ -59,10 +59,10 @@ describe('chat projection read scope', () => {
     await projection.hydrate('0', signal)
     calls.length = 0
     await projection.advance([{ revision: '1', event: 'message_created', chatId: 'c-2', entityId: 'm-1' }], '1', signal)
-    expect(unreadArgs()).toEqual(['c-2'])
+    expect(unreadArgs()).toEqual([['c-2']])
   })
 
-  it('a batch over two chats still asks for everything in one call', async () => {
+  it('a batch over two chats asks only for those chats in one call', async () => {
     const projection = createChatProjection(VIEWER)
     const signal = new AbortController().signal
     await projection.hydrate('0', signal)
@@ -71,17 +71,17 @@ describe('chat projection read scope', () => {
       { revision: '1', event: 'message_created', chatId: 'c-1', entityId: 'm-1' },
       { revision: '2', event: 'message_created', chatId: 'c-3', entityId: 'm-2' },
     ], '2', signal)
-    expect(unreadArgs()).toEqual([null])
+    expect(unreadArgs()).toEqual([['c-1', 'c-3']])
   })
 
-  it('a chat the server no longer lets me read falls back to the full list (its missing row is the tombstone)', async () => {
+  it('a scoped read failure stays loud and never falls back to the full list', async () => {
     const projection = createChatProjection(VIEWER)
     const signal = new AbortController().signal
     await projection.hydrate('0', signal)
     calls.length = 0
     refuse.add('c-2')
-    await projection.advance([{ revision: '1', event: 'member_read_changed', chatId: 'c-2', entityId: null }], '1', signal)
-    expect(unreadArgs()).toEqual(['c-2', null])
+    await expect(projection.advance([{ revision: '1', event: 'member_read_changed', chatId: 'c-2', entityId: null }], '1', signal)).rejects.toThrow(/not authorized/)
+    expect(unreadArgs()).toEqual([['c-2']])
   })
 
   it('a delivery receipt re-reads preview and unread, not the chat row', async () => {
@@ -92,23 +92,23 @@ describe('chat projection read scope', () => {
     await projection.advance([{ revision: '1', event: 'delivery_changed', chatId: 'c-1', entityId: 'm-1' }], '1', signal)
     const keys = calls.map((call) => call.key)
     expect(keys).not.toContain('chats')
-    expect(keys).toContain('messages_view')
-    expect(unreadArgs()).toEqual(['c-1'])
+    expect(keys).toContain('rpc:list_chat_previews')
+    expect(unreadArgs()).toEqual([['c-1']])
   })
 
   it('clearing a manual unread mark on my own seat re-reads that chat\'s unread, though the read cursor did not move', async () => {
     // mark_stream_read on a chat marked unread at its tail: last_read_seq stays, so no member_read_changed —
     // the only journal entry is chat_members_changed kind 'own' (20261102035000_membership_revision_kind).
-    rowsByKey.set('rpc:list_unread_locators', [{ chat_id: 'c-2', stream_id: 'main:c-2', stream_kind: 'main', thread_root_id: null,
+    rowsByKey.set('rpc:list_unread_locators_for_chats', [{ chat_id: 'c-2', stream_id: 'main:c-2', stream_kind: 'main', thread_root_id: null,
       message_id: 'm-1', message_seq: 1, unread_count: 1, addressed_count: 1, cursor_seq: 1, version: 2, is_marked_unread: true }])
     const projection = createChatProjection(VIEWER)
     const signal = new AbortController().signal
     expect((await projection.hydrate('0', signal)).find((row) => row.id === 'c-2')?.unread_count).toBe(1)
-    rowsByKey.set('rpc:list_unread_locators', [])
+    rowsByKey.set('rpc:list_unread_locators_for_chats', [])
     calls.length = 0
     const rows = await projection.advance(toProjectionOperations([{ revision: '1', event: 'chat_members_changed',
       payload: { chat_id: 'c-2', user_id: VIEWER, kind: 'own', tombstone: false } }]), '1', signal)
-    expect(unreadArgs()).toEqual(['c-2'])
+    expect(unreadArgs()).toEqual([['c-2']])
     expect(rows?.find((row) => row.id === 'c-2')?.unread_count).toBe(0)
   })
 

@@ -193,6 +193,8 @@ export type ProjectionOperation = {
   entityId: string | null
   /** chat_members_changed kind 'own':我自己那一席的私有状态(读位、手动标未读)变了。 */
   own?: boolean
+  /** delivery_changed 是某台设备的 delivered/read 回执:不改「等 agent 接走」,列表不显示它。 */
+  receipt?: boolean
 }
 
 /**
