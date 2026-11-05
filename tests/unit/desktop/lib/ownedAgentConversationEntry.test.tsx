@@ -68,7 +68,7 @@ it('cold-opens the native phone task from committed ownership and the offline de
     expect(openOwnedAgentEntry('dm')).toBe(true)
     await vi.waitFor(() => expect(shown).toHaveBeenCalled())
     expect((shown.mock.calls[0]![0] as CustomEvent).detail).toMatchObject({ deviceId: 'host', session: { conversationId: 'session', runtime: 'acp', nativeInputVersion: 1 } })
-    expect(scope.select).toHaveBeenCalledWith('dm')
+    expect(scope.select).not.toHaveBeenCalled()
   } finally { window.removeEventListener(APP_SHOW_SESSION_EVENT, shown) }
 })
 it('does not override a newer foreign ownership snapshot with the cached identity', async () => {
@@ -195,4 +195,21 @@ it('pauses an existing file host until native conversation navigation has comple
   finishNavigation()
   await vi.waitFor(() => expect(canTakeOwnedAgentResource('owner', 'dm')).toBe(true))
   clearOwnedAgentResources('owner')
+})
+
+it.each([false, true])('keeps the phone IM opener unchanged while opening a task (carried draft: %s)', async carriesDraft => {
+  scope.native = false; scope.mobile = true
+  scope.devices = [{ device_id: 'host', is_online: false, capabilities: {}, projects: [], session_digest: [{ conversationId: 'session', projectId: 'project', title: 'Task', harness: 'claude', supported: true, agentUserId: 'agent', nativeInputVersion: 1, runtime: 'acp' }] }]
+  if (carriesDraft) scope.drafts = { dm: 'carry into the task' }
+  const shown = vi.fn()
+  window.addEventListener(APP_SHOW_SESSION_EVENT, shown)
+  try {
+    await harness.render(<Fixture />)
+    expect(openOwnedAgentEntry('dm')).toBe(true)
+    await vi.waitFor(() => expect(carriesDraft ? scope.compose : shown).toHaveBeenCalledOnce())
+    // The phone pushes its native task over the existing IM page. Selecting the
+    // agent DM underneath fabricates an empty intermediate page on Back.
+    expect(scope.select).not.toHaveBeenCalled()
+    expect(scope.onOpen).not.toHaveBeenCalled()
+  } finally { window.removeEventListener(APP_SHOW_SESSION_EVENT, shown) }
 })
