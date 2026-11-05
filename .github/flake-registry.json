@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "flakes": [
+    {
+      "test": "Failed to import test file (any file in the session browser project)",
+      "file": "apps/desktop/src/session/renderer/tests/browser/",
+      "symptom": "Session browser project: \"Failed to import test file ... Caused by: TypeError: Failed to fetch dynamically imported module: http://localhost:<port>/...test.tsx\"; the file runs 0 tests and later files report \"Failed to run the test\". Seen on input-area-mention-escape, input-area-slash-draft and others.",
+      "status": "open",
+      "fixPr": null,
+      "firstRun": "https://github.com/GUYI-AI/gugu/actions/runs/41903402541"
+    },
+    {
+      "test": "#2503 用量与订阅积分的诚实性",
+      "file": "tests/unit/desktop/components/UsageCreditsTruthfulness2503.test.ts",
+      "symptom": "Unit tests: \"Cannot find module .../@visactor/vchart/esm/util/id\". The bare-name vi.mock missed the product import, so the real chart loaded under Node ESM.",
+      "status": "fixed",
+      "fixPr": 1723,
+      "firstRun": "https://github.com/GUYI-AI/gugu/actions/runs/41955271605"
+    },
+    {
+      "test": "externalizes installed CommonJS packages, bundles ESM and local source, and rebuilds changes",
+      "file": "tests/unit/scripts/devNodeExternals.test.ts",
+      "symptom": "macOS tooling job: the case hits the 60 s cap. The edit landed before the file watcher subscribed, so no rebuild came.",
+      "status": "fixed",
+      "fixPr": 1723,
+      "firstRun": "https://github.com/GUYI-AI/gugu/actions/runs/41945123872"
+    },
+    {
+      "test": "B-life-first: record each actual paint boundary before Q starts",
+      "file": "apps/desktop/src/session/renderer/tests/browser/pending-input-position-1344.test.tsx",
+      "symptom": "Session browser project: 60 s hang with \"[awaiting-fact] the same queued identity has the saved text — last observed: false\". Text was typed before the composer entered edit mode.",
+      "status": "fixed",
+      "fixPr": 1723,
+      "firstRun": "https://github.com/GUYI-AI/gugu/actions/runs/41970754276"
+    },
+    {
+      "test": "preserves words typed during durable custody (failed / clear)",
+      "file": "apps/desktop/src/session/renderer/tests/browser/phone-local-queue-1451.test.tsx",
+      "symptom": "expected 'queued original' to be ''. Playwright fill() pressed Delete before ProseMirror read the DOM selection, so nothing was deleted.",
+      "status": "fixed",
+      "fixPr": 1730,
+      "firstRun": null
+    },
+    {
+      "test": "Android Gradle build",
+      "file": "apps/mobile/android/app/build.gradle",
+      "symptom": "\"A problem occurred starting process 'command node'\", then \"does not specify compileSdk\". A reused Gradle daemon started without node on its PATH.",
+      "status": "fixed",
+      "fixPr": 1730,
+      "firstRun": null
+    },
+    {
+      "test": "k4 releases an actual files.read during backoff without another fetch",
+      "file": "apps/desktop/electron/session/main/core/extensions/extension-program-cancellation.test.ts",
+      "symptom": "Red under a loaded full test:unit: vi.waitFor gave up after its 1 s default; the late call leaked into the next case.",
+      "status": "fixed",
+      "fixPr": 1730,
+      "firstRun": null
+    },
+    {
+      "test": "a delayed %s stays %s",
+      "file": "apps/desktop/electron/session/main/core/extensions/extension-program-resource-cancellation.test.ts",
+      "symptom": "Red under a loaded full test:unit: vi.waitFor gave up after its 1 s default; the late call leaked into the next case (\"expected [workspace_move_as] to deeply equal []\").",
+      "status": "fixed",
+      "fixPr": 1730,
+      "firstRun": null
+    }
+  ]
+}
