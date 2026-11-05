@@ -83,5 +83,13 @@ if [ "$TASK" = "assembleRelease" ]; then
   set +a
 fi
 
+# The Gradle daemon is shared between builds and keeps the PATH it was started with; a bare "node"
+# in build.gradle resolves through that PATH, not this shell's. Hand over this shell's node instead.
+GUGU_NODE="$(command -v node || true)"
+case "$GUGU_NODE" in
+  /*) ;;
+  *) echo "error: node not found on PATH (needed by apps/mobile/android/app/build.gradle)" >&2; exit 1 ;;
+esac
+
 cd "$ANDROID_DIR"
-exec ./gradlew "$TASK"
+exec ./gradlew -PguguNode="$GUGU_NODE" "$TASK"
