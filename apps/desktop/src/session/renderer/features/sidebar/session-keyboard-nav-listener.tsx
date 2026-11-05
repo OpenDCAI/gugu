@@ -8,6 +8,7 @@ import { modalStore } from '@renderer/lib/modal/modal-store';
 import { setTerminalKeyboardExitHandler } from '@renderer/lib/pty/terminal-keyboard-exit';
 import { caretAtStartOf } from './caret-at-start';
 import { focusSessionComposer, sessionKeyboardNav } from './session-keyboard-nav';
+import { deepActiveElement } from './session-navigation-focus';
 import {
   deferToDefaultPrevented,
   isTerminalExitChord,
@@ -29,13 +30,6 @@ function pathElements(event: KeyboardEvent): HTMLElement[] {
   // The session page runs inside an open shadow root in the gugu shell, where `event.target` is
   // retargeted to the host — only composedPath() sees the real element.
   return event.composedPath().filter((node): node is HTMLElement => node instanceof HTMLElement);
-}
-
-/** The element that really holds focus, looking through open shadow roots (the session page lives in one). */
-function deepActiveElement(): Element | null {
-  let active: Element | null = document.activeElement;
-  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-  return active;
 }
 
 function focusedElementMatches(selector: string): boolean {

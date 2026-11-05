@@ -10,6 +10,8 @@ import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { navNodeKey, navNodesEqual, type SidebarNavNode } from './sidebar-store';
 import { withMountedSession } from './with-mounted-session';
 import {
+  COMPOSER_INPUT_SELECTOR,
+  isComposerLayerElement,
   sessionNavigationFocus,
   type SessionNavFocusLayer,
 } from './session-navigation-focus';
@@ -28,9 +30,6 @@ const STATION_VIEWS: ReadonlySet<string> = new Set(['home', 'new-session', 'proj
  */
 
 export const SESSION_NAV_FOCUS_REGION = 'session-nav-focus';
-
-const COMPOSER_INPUT_SELECTOR =
-  '.tiptap[contenteditable="true"], .ProseMirror[contenteditable="true"], [contenteditable="true"], textarea';
 
 /**
  * ↑↓ walks stations and the main area follows each one. Opening is coalesced so holding ↓ does not
@@ -177,13 +176,7 @@ class SessionKeyboardNavStore {
       this.setFocusLayer('nav');
       return;
     }
-    if (
-      element.closest(
-        `${COMPOSER_INPUT_SELECTOR}, .xterm-helper-textarea, .cm-editor, webview, iframe`,
-      )
-    ) {
-      this.setFocusLayer('composer');
-    }
+    if (isComposerLayerElement(element)) this.setFocusLayer('composer');
   }
 
   /** Move one station and let the main area follow. Stops at both ends; never wraps. */
