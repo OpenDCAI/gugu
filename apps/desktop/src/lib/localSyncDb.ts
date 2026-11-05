@@ -37,6 +37,9 @@ export type LocalImDbOperation =
   | { type: 'delete'; store: ImStoreName; key: IDBValidKey }
   | { type: 'clearAccount'; accountId: string }
 
+/** Desktop keeps message windows and arrival claims in the local message store (@@@arrival-claim). */
+const DESKTOP_DROPPED_VIEWS = /^message-(window|revision):/
+
 export interface LocalImDbAdapter {
   /** Desktop keeps messages in the session SQLite store; any IndexedDB message rows are legacy and are dropped. */
   prepareLocalMessages?(accountId: string): Promise<void>
@@ -69,7 +72,7 @@ export function createMemoryLocalSyncDb(): LocalImDbAdapter {
     async prepareLocalMessages(accountId) {
       for (const name of ['message', 'stream', 'view'] as const) {
         for (const [key, row] of stores[name]) if (row.accountId === accountId
-          && (name !== 'view' || String(row.key).startsWith('message-window:'))) stores[name].delete(key)
+          && (name !== 'view' || DESKTOP_DROPPED_VIEWS.test(String(row.key)))) stores[name].delete(key)
       }
     },
     async loadAccount(accountId) {
@@ -353,7 +356,7 @@ function createIndexedDbAdapter(handle: IndexedDbHandle): LocalImDbAdapter {
       views.onsuccess = () => {
         const cursor = views.result
         if (!cursor) return
-        if (String(cursor.value.key).startsWith('message-window:')) cursor.delete()
+        if (DESKTOP_DROPPED_VIEWS.test(String(cursor.value.key))) cursor.delete()
         cursor.continue()
       }
       await done

@@ -12,7 +12,8 @@ export interface ImChatAccess {
 }
 
 export type ImMessageWrite =
-  | { type: 'put'; message: MessageItem }
+  /** claimed: set by the store on the put of the revision that first delivered this message (its notification claim). */
+  | { type: 'put'; message: MessageItem; claimed?: true }
   | { type: 'delete'; chatId: string; id: string }
   | { type: 'deleteChat'; chatId: string }
   | { type: 'chatAccess'; access: ImChatAccess }

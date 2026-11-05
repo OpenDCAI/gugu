@@ -12,7 +12,8 @@ CREATE TABLE im_messages (
   is_whisper integer NOT NULL,
   to_user_ids text NOT NULL,
   file_item_id text,
-  rest text NOT NULL
+  rest text NOT NULL,
+  claimed_revision text
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX im_messages_account_id ON im_messages(account_id, id);

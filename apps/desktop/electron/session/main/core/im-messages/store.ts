@@ -8,20 +8,21 @@ import { searchMessages } from './search'
 
 /** All durable messages and their derived index share the existing session connection. */
 export function createImMessageStore(connection: MessageSqlDatabase) {
-  const find = connection.prepare('SELECT rowid FROM im_messages WHERE account_id = ? AND id = ?')
+  const find = connection.prepare('SELECT rowid, claimed_revision FROM im_messages WHERE account_id = ? AND id = ?')
   const indexDelete = connection.prepare('DELETE FROM im_messages_text WHERE rowid = ?')
   const indexInsert = connection.prepare('INSERT INTO im_messages_text(rowid, text) VALUES (?, ?)')
   const isDeleted = connection.prepare(`SELECT 1 FROM im_message_tombstones
     WHERE account_id = ? AND chat_id = ? AND message_id IN ('', ?) LIMIT 1`)
   const upsert = connection.prepare(`INSERT INTO im_messages
     (account_id, id, chat_id, thread_root_id, seq, sender_user_id, created_at, content_type, content,
-     is_whisper, to_user_ids, file_item_id, rest)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     is_whisper, to_user_ids, file_item_id, rest, claimed_revision)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(account_id, id) DO UPDATE SET chat_id=excluded.chat_id,
       thread_root_id=excluded.thread_root_id, seq=excluded.seq, sender_user_id=excluded.sender_user_id,
       created_at=excluded.created_at, content_type=excluded.content_type, content=excluded.content,
       is_whisper=excluded.is_whisper, to_user_ids=excluded.to_user_ids,
-      file_item_id=excluded.file_item_id, rest=excluded.rest
+      file_item_id=excluded.file_item_id, rest=excluded.rest,
+      claimed_revision=COALESCE(im_messages.claimed_revision, excluded.claimed_revision)
     RETURNING rowid`)
   const progress = connection.prepare('SELECT through_revision FROM im_message_accounts WHERE account_id = ?')
   const writeProgress = connection.prepare(`INSERT INTO im_message_accounts(account_id, through_revision)
@@ -64,16 +65,19 @@ export function createImMessageStore(connection: MessageSqlDatabase) {
     // Compute before mutating; either the original row and index both change, or neither does.
     const text = projectMessageSearchText(message)
     const rest = encodeRest(message)
-    const old = find.get(accountId, message.id) as { rowid: number } | undefined
+    const old = find.get(accountId, message.id) as { rowid: number; claimed_revision: string | null } | undefined
+    // @@@arrival-claim - the first revision that delivers a message claims it, even if a page fetch stored the body first;
+    // the claim lives and dies with the row.
+    const claims = revision !== undefined && !old?.claimed_revision
     if (old) indexDelete.run(old.rowid)
     const row = upsert.get(accountId, message.id, message.chat_id, message.thread_root_id ?? null,
       message.seq, message.sender_user_id, message.created_at, message.content_type, message.content,
       Number(message.is_whisper === true), JSON.stringify(message.to_user_ids), message.file_item_id ?? null,
-      rest) as { rowid: number }
+      rest, claims ? revision : null) as { rowid: number }
     if (text) indexInsert.run(row.rowid, text)
     if (revision !== undefined) extend(accountId, message)
     const stored = connection.prepare('SELECT * FROM im_messages WHERE rowid=?').get(row.rowid) as StoredMessage
-    return [{ type: 'put', message: restore(stored) }]
+    return [{ type: 'put', message: restore(stored), ...(claims ? { claimed: true as const } : {}) }]
   }
 
   function write(accountId: string, operation: ImMessageWrite, revision?: string): ImMessageWrite[] {

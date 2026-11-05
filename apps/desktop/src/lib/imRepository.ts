@@ -384,19 +384,20 @@ export interface CachedMessageWindow {
 }
 
 /**
- * Called inside the revision inbox/cursor transaction. The per-message version row doubles as the
- * notification claim: only the first commit that creates it wins. The repository serializes
+ * Called inside the revision inbox/cursor transaction. On the phone the per-message version row doubles as the
+ * notification claim: only the first commit that creates it wins. Desktop keeps no such row (@@@arrival-claim). The repository serializes
  * transactions and desktop runs one repository per account, so read-then-write here is atomic.
  */
 export function ingestAccountMessage(repository: AccountImRepository, transaction: ImRepositoryTransaction,
-  message: MessageItem, revision: string): { won: boolean } {
+  message: MessageItem, revision: string, arrived?: ReadonlySet<string>): { won: boolean } {
+  // Desktop: the body is already in the local message store; whether this page stored it is the claim (@@@arrival-claim).
+  // A recovered body (no page) was fetched and stored once by its own recovery.
+  if (platform.localMessages === 'sqlite') return { won: arrived?.has(message.id) ?? true }
   const snapshot = repository.snapshot()
   const versionKey = `message-revision:${message.id}`
   const version = transaction.readView(versionKey) as { revision: string; deleted?: boolean } | undefined
   if (version && (version.deleted || BigInt(version.revision) >= BigInt(revision))) return { won: false }
   transaction.putView(versionKey, { revision })
-  // Desktop bodies were committed to the session SQLite store before this transaction.
-  if (platform.localMessages === 'sqlite') return { won: !version }
   const previous = snapshot.message.find(row => row.id === message.id && row.streamId === messageStreamId(message))?.value
   transaction.putMessage(mergeMessagesById(previous ? [previous] : [], [message], message.chat_id)[0]!)
   if (!message.thread_root_id) {
@@ -408,6 +409,13 @@ export function ingestAccountMessage(repository: AccountImRepository, transactio
       sparse: !cursor || cursor.sparse === true || message.seq > cursor.maxSeq + 1 })
   }
   return { won: !version }
+}
+
+/** Deletion from the account feed. Desktop's local message store already holds the row removal and its tombstone. */
+export function recordMessageDeletion(transaction: ImRepositoryTransaction, accountId: string, chatId: string | null, id: string, revision: string): void {
+  if (platform.localMessages === 'sqlite') return
+  transaction.delete('message', [accountId, id])
+  transaction.putView(`message-revision:${id}`, { revision, deleted: true, chatId })
 }
 
 export async function replaceMessageWindow(

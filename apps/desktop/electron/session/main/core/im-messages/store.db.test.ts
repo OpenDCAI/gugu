@@ -108,7 +108,12 @@ describe('durable local IM messages', () => {
     expect(store.ingest(account, batch(optimistic))).toEqual([])
     const row = message('confirmed')
     const accepted = store.ingest(account, batch({ ...row, local_send_state: 'sending', image_dimensions: { width: 10, height: 20 } }))
-    expect(accepted).toEqual([{ type: 'put', message: row }])
+    expect(accepted, 'a page fetch stores the body without claiming it').toEqual([{ type: 'put', message: row }])
+    const page = (revision: string, message: MessageItem): ImMessageBatch => ({ writes: [], revisions: [{ revision, writes: [{ type: 'put', message }] }] })
+    expect(store.ingest(account, page('1', row)), 'its first revision claims it').toEqual([{ type: 'put', message: row, claimed: true }])
+    expect(store.ingest(account, page('2', row)), 'a later revision of a claimed message does not').toEqual([{ type: 'put', message: row }])
+    expect(store.ingest(account, batch(row)), 'a later fetch keeps the claim').toEqual([{ type: 'put', message: row }])
+    expect(store.ingest(account, page('3', row))).toEqual([{ type: 'put', message: row }])
     expect(stored()).toHaveLength(1)
   })
 

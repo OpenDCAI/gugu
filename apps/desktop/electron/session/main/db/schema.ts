@@ -38,6 +38,8 @@ export const imMessages = sqliteTable('im_messages', {
   toUserIds: text('to_user_ids').notNull(),
   fileItemId: text('file_item_id'),
   rest: text('rest').notNull(),
+  /** The account revision that first delivered this message: its notification claim (@@@arrival-claim). */
+  claimedRevision: text('claimed_revision'),
 }, table => ({
   key: uniqueIndex('im_messages_account_id').on(table.accountId, table.id),
   stream: index('im_messages_stream').on(table.accountId, table.chatId, table.threadRootId, table.seq),
