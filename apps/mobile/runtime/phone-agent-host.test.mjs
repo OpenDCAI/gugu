@@ -900,6 +900,7 @@ test('revoking OS permission after a successful phone read prevents data from re
     // Failure is emitted before runJob's finally block reports the settled state.
     // Hold that report until the failure is observed, then wait for the real job
     // report instead of asserting against an unrelated startup/working report.
+    await until(() => pendingActionReports > 0, fx.events)
     assert.ok(pendingActionReports > 0)
     releaseActionReports()
     await until(() => fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)?.[1].p_agent_status === 'error', fx.events)
