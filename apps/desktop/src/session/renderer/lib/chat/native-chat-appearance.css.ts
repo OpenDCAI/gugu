@@ -82,8 +82,12 @@ globalStyle(`${desktopComposerColumn}::before`, {
 });
 
 globalStyle(`${desktopComposerColumn} > [data-composer-band]`, { position: 'relative' });
+// A band's fade covers only the straight part of its top edge (inset by the band's own corner radius), so beside
+// its rounded corners a message behind wraps around the curve instead of meeting a square tip.
 globalStyle(`${desktopComposerColumn} > [data-composer-band]::before, ${bottomComposer}:is([data-phone-shell] *)::before`, {
   ...composerEdgeFade,
+  left: 'var(--composer-band-radius, 0px)',
+  right: 'var(--composer-band-radius, 0px)',
   bottom: '100%',
   height: CHAT_COMPOSER_EDGE_FADE_PX,
   background: 'linear-gradient(to top, var(--chat-bg), transparent)',

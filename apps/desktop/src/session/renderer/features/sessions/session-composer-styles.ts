@@ -51,7 +51,7 @@ export const sessionComposerEmptyHeightPx =
 // 样式无声透明(托盘会和页面一样白,布局却是对的,极难一眼看出)。
 // 改任何颜色后都得回真 app 读一次 computed style,别信截图。
 export const sessionComposerTrayClassName =
-  'mx-[13px] flex items-center gap-4 rounded-t-lg px-4 pt-1.5 pb-3 text-xs text-[var(--em-foreground-muted)]';
+  'mx-[13px] flex items-center gap-4 [--composer-band-radius:8px] rounded-t-[var(--composer-band-radius)] px-4 pt-1.5 pb-3 text-xs text-[var(--em-foreground-muted)]';
 
 /**
  * 托盘填充 —— 走 inline style,不走 Tailwind。
