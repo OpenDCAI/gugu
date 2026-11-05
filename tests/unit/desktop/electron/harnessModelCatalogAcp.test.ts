@@ -792,7 +792,7 @@ function handle(msg) {
       return buildProbePlatformCredentials(id, dir)
     })
     await expect(probeHarnessModelCatalog('antigravity', 'acp')).resolves.toEqual({
-      kind: 'auth-required', authMethods: [{ id: 'moonshot', name: 'Sign in to Moonshot' }], efforts: [], selectedEffort: null,
+      kind: 'auth-required', authMethods: [{ id: 'moonshot', name: 'Sign in to Moonshot', kind: 'agent' }], efforts: [], selectedEffort: null,
     })
     expect(spawns).toBe(1)
     expect(scratch).not.toBe('')
