@@ -868,7 +868,11 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     read: (id, viewport) => { readChatWindow(id); return cache.view(id, viewport) }, subscribe: subscribeChatWindow,
     actions: conversationActions, setFollowingTail: cache.setFollowingTail, errorOf: messageReadFailureOf,
   }), [cache, readChatWindow, subscribeChatWindow, conversationActions, messageReadFailureOf])
-  useChatCatchupResume(catchupPriority, loadChats, refreshMessages, activeChatIdRef, getImRepository)
+  const refreshOnResume = useCallback(async (id: string) => {
+    if (cache.isFollowingTail(id)) await refreshMessages(id)
+    else await revalidateWindowOverlays(id)
+  }, [cache, refreshMessages, revalidateWindowOverlays])
+  useChatCatchupResume(catchupPriority, loadChats, refreshOnResume, { get current() { return chatOnScreen() } }, getImRepository)
   const line = useChatConversation(activeChatId, conversations)
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null
   messagesRef.current = line.messages

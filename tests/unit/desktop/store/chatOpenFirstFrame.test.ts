@@ -14,7 +14,7 @@ let network = deferred<void>()
 let messagesByChat: Record<string, MessageItem[]> = { chatA: [msgA1], chatB: [msgB1] }
 const { openImRepositoryMock, revisionListeners, revisionCoordinatorMock, coordinatorFactory, shell } = vi.hoisted(() => ({
   coordinatorFactory: vi.fn(),
-  shell: { native: false, foreground: null as null | (() => void) },
+  shell: { native: false, visibleChat: null as string | null, foreground: null as null | (() => void) },
   openImRepositoryMock: vi.fn(),
   revisionListeners: new Map<string, Set<(operations: readonly unknown[]) => void | Promise<void>>>(),
   revisionCoordinatorMock: {
@@ -29,6 +29,10 @@ const { openImRepositoryMock, revisionListeners, revisionCoordinatorMock, coordi
       return () => { for (const event of claimed) revisionListeners.get(event)?.delete(listener) }
     }),
   },
+}))
+vi.mock('../../../../apps/desktop/src/lib/onScreenChat', async (original) => ({
+  ...await original<typeof import('../../../../apps/desktop/src/lib/onScreenChat')>(),
+  chatOnScreen: () => shell.visibleChat,
 }))
 vi.mock('../../../../apps/desktop/src/platform', async (original) => {
   const actual = await original<typeof import('../../../../apps/desktop/src/platform')>()
@@ -110,9 +114,11 @@ function Probe() {
 }
 let select: (id: string | null) => void = () => { throw new Error('store not mounted') }
 let listActions: Pick<ChatContextValue, 'chats' | 'deleteChat'>
+let followCurrent: ChatContextValue['setFollowingTail']
 function Selector() {
   select = useChatStore('setActiveChatId').setActiveChatId
   listActions = useChatStore('chats', 'deleteChat')
+  followCurrent = useChatStore('setFollowingTail').setFollowingTail
   return null
 }
 let repository: import('../../../../apps/desktop/src/lib/imRepository').AccountImRepository
@@ -140,6 +146,7 @@ const framesOf = (chatId: string) => frames.filter((frame) => frame.activeChatId
 describe('打开会话的第一帧', () => {
   beforeEach(async () => {
     shell.native = false
+    shell.visibleChat = null
     shell.foreground = null
     coordinatorFactory.mockClear()
     vi.mocked(topicService.archiveTopic).mockReset().mockResolvedValue(undefined)
@@ -194,6 +201,8 @@ describe('打开会话的第一帧', () => {
     const signal = new AbortController().signal
     try {
       await act(async () => { select('chatA') })
+      shell.visibleChat = 'chatA'
+      act(() => followCurrent(true))
       await vi.waitFor(() => expect(framesOf('chatA').at(-1)?.loadingMessages).toBe(false))
       await act(async () => { await Promise.resolve() })
       network = deferred<void>()
@@ -223,6 +232,38 @@ describe('打开会话的第一帧', () => {
       await rest
       expect(ready).toBe(true)
     } finally { network.resolve(); harness.cleanup() }
+  })
+
+  it('preserves an older reading window on native resume instead of replacing it with the tail', async () => {
+    shell.native = true
+    network.resolve()
+    const harness = await mount()
+    try {
+      await act(async () => { select('chatA') })
+      shell.visibleChat = 'chatA'
+      act(() => followCurrent(false))
+      await act(async () => { await Promise.resolve() })
+      vi.mocked(chatService.getMessages).mockClear()
+      vi.mocked(chatService.revalidateWindow).mockClear()
+      const before = framesOf('chatA').at(-1)?.messages
+      await act(async () => { shell.foreground?.() })
+      expect(chatService.getMessages).not.toHaveBeenCalled()
+      expect(chatService.revalidateWindow).toHaveBeenCalledTimes(1)
+      expect(framesOf('chatA').at(-1)?.messages).toEqual(before)
+    } finally { harness.cleanup() }
+  })
+
+  it('does not fetch a selected IM chat hidden behind another native surface on resume', async () => {
+    shell.native = true
+    network.resolve()
+    const harness = await mount()
+    try {
+      await act(async () => { select('chatA') })
+      shell.visibleChat = null
+      vi.mocked(chatService.getMessages).mockClear()
+      await act(async () => { shell.foreground?.() })
+      expect(chatService.getMessages).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
   })
 
   it('releases native initial priority on a failed list read', async () => {
