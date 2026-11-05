@@ -80,15 +80,17 @@ describe('落终态用写那一刻有效的令牌', () => {
   it.each([true, false])('落库保留是否已在聊天披露：%s，其他设备不再重复通知', async (disclosedInChat) => {
     const { db, tickClient } = setup()
     await processPendingDeviceCommandsOnce(tickClient, DEVICE, {
-      'agent.deliver': async () => { throw Object.assign(new Error('weekly limit reached'), { disclosedInChat }) },
+      'agent.deliver': async () => { throw Object.assign(new Error('weekly limit reached'), { disclosedInChat, reason: 'weeklyQuota' }) },
     }, { nowIso: () => NOW, sleep: noSleep })
     expect(db.row('a8f47c6e').result).toEqual({ reply_notice: disclosedInChat ? 'in-chat' : 'context', reason: 'weeklyQuota' })
   })
-  it('落库的原因:失败自带的原因优先(无人持有 = undelivered),否则按原文分一次类,分不出是 generic', async () => {
+  // 受理之后的失败都由 reader 包成 DisclosedFailure 带着原因;不带原因的失败发生在交给 agent 之前,是咕咕这边的,
+  // ❌ 按原文套模型侧的词(「fetch failed」≠ 连不上模型服务)。
+  it('落库的原因:失败自带的原因优先(无人持有 = undelivered),不带原因 = 没交给 agent(notAdmitted)', async () => {
     for (const [thrown, reason] of [
       [Object.assign(new Error('Local agent not found for agent'), { reason: 'undelivered' }), 'undelivered'],
-      [new Error('fetch failed'), 'network'],
-      [new Error('something odd'), 'generic'],
+      [new Error('fetch failed'), 'notAdmitted'],
+      [new Error('weekly limit reached'), 'notAdmitted'],
     ] as const) {
       const { db, tickClient } = setup()
       await processPendingDeviceCommandsOnce(tickClient, DEVICE, { 'agent.deliver': async () => { throw thrown } }, { nowIso: () => NOW, sleep: noSleep })

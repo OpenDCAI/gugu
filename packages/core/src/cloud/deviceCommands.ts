@@ -1,7 +1,7 @@
 import { AGENT_INIT_HELD_TIMEOUT_MS, isDeviceCommandDone, isDeviceCommandError } from '../shared/enums/deviceModels'
 import type { DeviceCommand } from '../shared/types/chat'
 import { dbPayload } from './supabase'
-import { AGENT_FAILURE_REASONS, agentFailureReason, type AgentFailureReason } from '../shared/agentQuotaReason'
+import { AGENT_FAILURE_REASONS, type AgentFailureReason } from '../shared/agentQuotaReason'
 import { coreLogger } from '../log'
 import { RuntimeAuthExpiredError } from './runtimeAuthProvider'
 import {
@@ -795,11 +795,30 @@ async function processPendingDeviceCommand(
     }
   }
   const skipped: ProcessDeviceCommandResult = { commandId: command.id, type: command.type, claimed: true, status: 'skipped' }
+  const hold = (result?: unknown) => offTick(async (write) =>
+    (await write('hold', (c) => holdDeviceCommand(c, command.id, claimToken, operationTimeouts)))
+      ? { commandId: command.id, type: command.type, claimed: true, status: 'held', ...(result === undefined ? {} : { result }) }
+      : skipped)
+
+  // @@@recheck-unknown - the lease recheck is this queue's own bookkeeping, not the command: its error (a network flap
+  // between claim and recheck) says nothing about the command, which has not run. Only `false` refuses execution; an
+  // unanswered recheck puts the row back to pending (held-requeue) and the next tick runs it.
+  let mayExecute: boolean
+  try {
+    signal?.throwIfAborted()
+    mayExecute = await recheckDeviceCommandExecution(client, command.id, claimToken, operationTimeouts)
+  } catch (err) {
+    log.warn(
+      { commandId: command.id, type: command.type, err: err instanceof Error ? err.message : String(err) },
+      'device command lease recheck failed before execution; requeueing the command',
+    )
+    return hold()
+  }
+  if (!mayExecute) return skipped
 
   let result: unknown
   try {
     signal?.throwIfAborted()
-    if (!(await recheckDeviceCommandExecution(client, command.id, claimToken, operationTimeouts))) return skipped
     const handler = handlers[command.type]
     if (!handler) throw new Error(`unsupported command type: ${command.type}`)
     const claimedCommand = { ...command, claim_token: claimToken }
@@ -816,12 +835,7 @@ async function processPendingDeviceCommand(
   // @@@held-requeue - a held result signals "don't complete; requeue for retry" (turn_in_flight /
   // agent-init not-ready, #1594). Reset to 'pending' (mirrors recoverOrphanedDeviceCommands) so the next
   // tick re-fetches it.
-  if (result && typeof result === 'object' && 'held' in result && result.held) {
-    return offTick(async (write) =>
-      (await write('hold', (c) => holdDeviceCommand(c, command.id, claimToken, operationTimeouts)))
-        ? { commandId: command.id, type: command.type, claimed: true, status: 'held', result }
-        : skipped)
-  }
+  if (result && typeof result === 'object' && 'held' in result && result.held) return hold(result)
   return offTick(async (write) =>
     (await write('complete', (c) => completeDeviceCommand(c, command.id, claimToken, result, nowIso(), operationTimeouts)))
       ? { commandId: command.id, type: command.type, claimed: true, status: 'done', result }
@@ -859,12 +873,14 @@ async function settleDeferredDeviceCommand(
  */
 export type AgentDeliverFailureResult = { reply_notice: 'in-chat' | 'context'; reason: AgentFailureReason }
 
-function agentDeliverFailureResult(failure: unknown, error: string): AgentDeliverFailureResult {
+function agentDeliverFailureResult(failure: unknown): AgentDeliverFailureResult {
   const carried = failure && typeof failure === 'object' && 'reason' in failure ? failure.reason : null
   const disclosedInChat = Boolean(failure && typeof failure === 'object' && 'disclosedInChat' in failure && failure.disclosedInChat === true)
   return {
     reply_notice: disclosedInChat ? 'in-chat' : 'context',
-    reason: AGENT_FAILURE_REASONS.find((known) => known === carried) ?? agentFailureReason(error) ?? 'generic',
+    // A failure after admission is the reader's DisclosedFailure and carries the reason it was told with; one that carries
+    // none was thrown before the batch reached the agent (pull, lease, local runtime), so it is Gugu's, never the model's.
+    reason: AGENT_FAILURE_REASONS.find((known) => known === carried) ?? 'notAdmitted',
   }
 }
 
@@ -886,7 +902,7 @@ async function failClaimedDeviceCommand(
     ? sourceCause.message
     : undefined
   // #2115/#2159 — land the terminal CAS before notifying observers, including deferred turns.
-  const deliverOutcome = command.type === 'agent.deliver' ? agentDeliverFailureResult(failure, error) : undefined
+  const deliverOutcome = command.type === 'agent.deliver' ? agentDeliverFailureResult(failure) : undefined
   if (!(await settle('fail', (c) => failDeviceCommand(c, command.id, claimToken, error, nowIso(), operationTimeouts, deliverOutcome)))) {
     return { commandId: command.id, type: command.type, claimed: true, status: 'skipped' }
   }
