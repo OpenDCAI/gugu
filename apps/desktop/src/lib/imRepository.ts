@@ -19,7 +19,6 @@ import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import { MAX_WINDOW } from '../store/chatMessageWindow'
 import {
   IM_STORE_NAMES,
-  LocalImCacheError,
   migrateLegacyChatList,
   openLocalSyncDb,
   type ImStoreName,
@@ -174,7 +173,11 @@ export const imSelectors = {
 
 export async function openImRepository(
   accountId: string,
-  options: { adapter?: LocalImDbAdapter; storage?: Storage; initialize?: (repository: AccountImRepository) => Promise<void> } = {},
+  options: {
+    adapter?: LocalImDbAdapter; storage?: Storage; initialize?: (repository: AccountImRepository) => Promise<void>
+    /** Local rows are readable: the first frame. `initialize` (which may wait on the network) runs after it. */
+    loaded?: (repository: AccountImRepository) => void
+  } = {},
 ): Promise<AccountImRepository> {
   assertId(accountId, 'accountId')
   const adapter = options.adapter ?? await openLocalSyncDb()
@@ -184,15 +187,8 @@ export async function openImRepository(
       if (options.storage !== undefined) await migrateLegacyChatList(adapter, accountId, options.storage)
       else if (typeof window !== 'undefined') await migrateLegacyChatList(adapter, accountId)
     }
-    let initial: Record<ImStoreName, LocalImRow[]>
-    try {
-      initial = await adapter.loadAccount(accountId)
-    } catch (error) {
-      if (!(error instanceof LocalImCacheError) || !options.initialize) throw error
-      repositoryLog.warn({ accountId, error }, 'rebuilding invalid local IM cache')
-      initial = Object.fromEntries(IM_STORE_NAMES.map((name) => [name, name === 'outbox' ? error.outbox : []])) as Record<ImStoreName, LocalImRow[]>
-    }
-    const repository = createAccountRepository(accountId, adapter, initial, options.adapter === undefined)
+    const repository = createAccountRepository(accountId, adapter, await adapter.loadAccount(accountId), options.adapter === undefined)
+    options.loaded?.(repository)
     await options.initialize?.(repository)
     return repository
   } catch (error) {
