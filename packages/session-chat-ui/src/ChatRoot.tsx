@@ -67,7 +67,7 @@ import type { ThemeVarKey } from './core/config';
 import type { MeasureCtx } from './core/define';
 import { genericEstimate } from './core/layout/generic-estimate';
 import { STICK_THRESHOLD_PX } from './core/stick-to-bottom';
-import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units';
+import { keepUnchangedUnits, unitContainsItem, unitItemIds, unitReservedHeight } from './core/units';
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
@@ -651,7 +651,7 @@ export function ChatRoot(props: ChatRootProps) {
     return undefined;
   };
 
-  const activeLayout = createMemo(() => {
+  const activeLayoutNow = () => {
     committedUnitsVersion();
     const at = projectedInputs().active;
     const pendingPrompt = state().session.state.pendingPrompt;
@@ -689,6 +689,11 @@ export function ChatRoot(props: ChatRootProps) {
     if (owner) return { units, backgroundOwner: owner as string | null };
     // 没有可挂的过程行:后台单独一行贴在最后(轮早就收口了、命令还在跑,这一档也不能空手返回)。
     return { units: build(true), backgroundOwner: BACKGROUND_TASKS_ID as string | null };
+  };
+  // Unchanged units of the running turn keep last tick's objects (@@@stable-active-units).
+  const activeLayout = createMemo<ReturnType<typeof activeLayoutNow>>((previous) => {
+    const next = activeLayoutNow();
+    return { ...next, units: keepUnchangedUnits(previous?.units ?? [], next.units) };
   });
   const activeUnits = () => activeLayout().units;
 
