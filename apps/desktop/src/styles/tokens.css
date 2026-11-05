@@ -2171,6 +2171,8 @@ body.barcode-scanner-active #root {
 .gg-chip[data-appearance='plain'] { background: transparent; }
 /* 计数徽标:同一 chip 的圆形变体(未读数) */
 .gg-chip[data-shape='count'] { min-width: 18px; padding: 0 5px; justify-content: center; font-variant-numeric: tabular-nums; }
+/* 未读点:私聊行在手机上只说「有未读」,不说几条(readsWholeChat)。 */
+.gg-chip[data-shape='dot'] { width: 8px; min-width: 8px; height: 8px; padding: 0; }
 
 /* #5111 设置→账户 头像上传钮的**内容**。钮本身是 ui/Button variant=ghost(hover/press/disabled
    全部由那份变体表出,这里不重复一遍);这三条只管钮里面那块 40px 的头像与上传中的遮罩。 */

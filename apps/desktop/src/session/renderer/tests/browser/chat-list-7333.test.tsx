@@ -57,13 +57,13 @@ beforeAll(async () => {
 });
 afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); publishSidebarChatView({ focusedChatId: null, groups: [] }); });
 
-async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false, peerAvatar: string | null = null, placement: 'page' | 'sidebar' = 'page') {
+async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false, peerAvatar: string | null = null, placement: 'page' | 'sidebar' = 'page', rows = chats) {
   harness = createReactHarness();
   harness.container.style.cssText = 'width: 320px; height: 640px; display: flex;';
   await renderWithAppProviders(
     harness,
     createNode(ChatListPanel, { activeTab: 'chats', mobile, placement, onChatSelected }),
-    { chat: { chats, activeChatId, identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏', avatar: peerAvatar }) } } },
+    { chat: { chats: rows, activeChatId, identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏', avatar: peerAvatar }) } } },
   );
   await until('the chat rows rendered', () => harness.container.querySelector('[data-chat-row="dm-1"]') !== null);
   return harness.container;
@@ -260,9 +260,9 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     await until('restored topic receives focus', () => document.activeElement?.getAttribute('data-chat-row') === 't-live');
   });
 
-  it('a row is avatar + two lines: name and preview 14/20, time 12/18, the unread count an 18px ink chip; corners 8, not a capsule', async () => {
-    const root = await renderList();
-    const row = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;
+  it('a row is avatar + two lines: name and preview 14/20, time 12/18, a group\'s unread count an 18px ink chip; corners 8, not a capsule', async () => {
+    const root = await renderList('t-live', vi.fn(), false, null, 'page', chats.map((row) => row.id === 'grp-1' ? { ...row, unread_count: 3 } : row));
+    const row = root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
     expect(tier(row.querySelector('.gg-list-row-title'))).toEqual(COMPACT);
     expect(getComputedStyle(row.querySelector('.gg-list-row-title')!).fontWeight, 'an unread row\'s name is not emphasised').toBe('600');
     expect(tier(row.querySelector('.gg-list-row-subtitle'))).toEqual(COMPACT);
@@ -273,9 +273,29 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     expect(Math.round(count.getBoundingClientRect().height)).toBe(18);
     expect(getComputedStyle(count).backgroundColor).toBe(token('--primary'));
     expect(getComputedStyle(row).borderRadius, 'the row became a capsule').toBe('8px');
-    expect(row.querySelector('.gg-list-row-leading img, .gg-list-row-leading svg, .gg-list-row-leading [class*="avatar"]'), 'the row lost its avatar').not.toBeNull();
-    const lines = row.querySelectorAll('.gg-list-row-line');
+    const dm = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;
+    expect(dm.querySelector('.gg-list-row-leading img, .gg-list-row-leading svg, .gg-list-row-leading [class*="avatar"]'), 'the row lost its avatar').not.toBeNull();
+    const lines = dm.querySelectorAll('.gg-list-row-line');
     expect(lines.length, 'the row is not two lines').toBe(2);
+  });
+
+  it('an unread DM row on a computer is only bold: no number, no dot (owner 11-05)', async () => {
+    const root = await renderList();
+    const row = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;
+    expect(getComputedStyle(row.querySelector('.gg-list-row-title')!).fontWeight).toBe('600');
+    expect(row.querySelector('.gg-chip[data-tone="accent"]'), 'a DM row draws an unread chip on a computer').toBeNull();
+  });
+
+  it('an unread DM row on the phone is a bold name and an 8px dot without a number (owner 11-05)', async () => {
+    const root = await renderList('grp-1', vi.fn(), true);
+    const row = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;
+    expect(getComputedStyle(row.querySelector('.gg-list-row-title')!).fontWeight).toBe('600');
+    const dot = row.querySelector<HTMLElement>('.gg-chip[data-tone="accent"]')!;
+    expect(dot.getAttribute('data-shape')).toBe('dot');
+    expect(dot.textContent).toBe('');
+    expect(dot.getBoundingClientRect().width).toBe(8);
+    expect(dot.getBoundingClientRect().height).toBe(8);
+    expect(getComputedStyle(dot).backgroundColor).toBe(token('--primary'));
   });
 
   it('selected is the neutral --selected; hover lays --hover; the keyboard ring shows on focus', async () => {
