@@ -14,9 +14,9 @@ export function taskChatWindow(rows: ChatListRowItem[], count: number): { rows: 
   return { rows: rows.filter((row) => row.type === 'message' || visible.has(row.message.id)), earlier }
 }
 
-export function taskChatRows(messages: readonly MessageItem[], exchanges: readonly TaskExchange[], task: AssistantTaskChat | null, query: string): ChatListRowItem[] {
+export function taskChatRows(messages: readonly MessageItem[], exchanges: readonly TaskExchange[], task: AssistantTaskChat | null): ChatListRowItem[] {
   const visible = visibleDeliveryMessages(messages)
-  const rows: ChatListRowItem[] = (query ? visible : projectTurnFailureMessages(visible)).map((message) => ({ type: 'message', message }))
+  const rows: ChatListRowItem[] = projectTurnFailureMessages(visible).map((message) => ({ type: 'message', message }))
   if (!task) return rows
   const original = new Set(messages.map(message => message.id))
   const seen = new Set<string>()
@@ -25,7 +25,7 @@ export function taskChatRows(messages: readonly MessageItem[], exchanges: readon
     const toAssistant = task.assistants.some((assistant) => assistant.sessionId === entry.toSessionId)
     if (!(fromAssistant && entry.toSessionId === task.task.sessionId) && !(toAssistant && entry.fromSessionId === task.task.sessionId)) continue
     if (entry.sourceMessageId && original.has(entry.sourceMessageId)) continue
-    if (seen.has(entry.id) || (query && !entry.content.toLowerCase().includes(query.toLowerCase()))) continue
+    if (seen.has(entry.id)) continue
     seen.add(entry.id)
     rows.push({
       type: 'task-exchange', recipientUserId: fromAssistant ? task.taskAgentId??task.task.sessionId : task.assistantId,

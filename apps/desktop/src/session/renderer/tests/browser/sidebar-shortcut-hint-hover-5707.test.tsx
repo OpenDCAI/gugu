@@ -33,6 +33,7 @@ import {
   sidebarRowShortcutClass,
 } from '@renderer/features/sidebar/sidebar-primitives'
 import { SidebarSearchTrigger } from '@renderer/features/sidebar/sidebar-search-trigger'
+import { commandRegistry } from '@renderer/lib/commands/registry'
 import { BoundShortcut } from '@renderer/lib/ui/shortcut'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import { cn } from '@renderer/utils/utils'
@@ -166,8 +167,11 @@ it('#5707 键盘 Tab 停在那一行时键帽同样淡入(不止认指针)', asy
   // 走真键盘:先把焦点落到文档头,再 Tab 到这一行 —— `:focus-visible` 认的是「上一次输入是键盘」,
   // 直接 el.focus() 在鼠标模态下点不亮它。
   await userEvent.click(document.body)
-  // 搜索行是 ⌘K 面板的入口(一颗按钮):点它焦点落在它身上,再 Tab 就到下一行。
-  await page.getByTestId('sidebar-search-trigger').click()
+  // 搜索行是全局搜索的入口(一颗按钮):点它焦点落在它身上,再 Tab 就到下一行。这里没有挂搜索面板,登记一个只记次数的。
+  const openPanel = vi.fn()
+  const unregister = commandRegistry.register({ scopeId: 'app', getCommands: () => [{ id: 'app.globalSearch', execute: openPanel }] })
+  try { await page.getByTestId('sidebar-search-trigger').click() } finally { unregister() }
+  expect(openPanel).toHaveBeenCalledOnce()
   await userEvent.keyboard('{Tab}')
   await until('Tab reaches the settings row', () => document.activeElement === settingsRow)
   await settledOpacity(settingsCap, 1)

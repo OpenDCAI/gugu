@@ -28,6 +28,8 @@ export interface SearchView {
   hits: SearchHit[]
   counts: Record<SearchFacet, number>
   capped: boolean
+  /** With an in: chip: how many hits the same words have in every other conversation (null: not counted yet). */
+  elsewhere: { count: number; capped: boolean } | null
   loading: boolean
   error: Error | null
   taskIndex?: TaskTurnIndexStatus
@@ -74,16 +76,19 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   const from = scopes.find((chip) => chip.kind === 'from')
   const runnable = !!query && !unresolved
 
-  const messages = useQuery({
-    queryKey: ['global-search-messages', query, inChat?.chatId ?? null],
+  const searchChats = (chatId: string | null) => ({
+    queryKey: ['global-search-messages', query, chatId],
     queryFn: async () => {
-      const { data, error } = await chatDb.rpc('message_search_as', { p_chat_id: inChat?.chatId ?? null, p_query: query, p_limit: SEARCH_LIMIT })
+      const { data, error } = await chatDb.rpc('message_search_as', { p_chat_id: chatId, p_query: query, p_limit: SEARCH_LIMIT })
       if (error) throw new Error(error.message)
       return data as MessageRow[]
     },
-    enabled: runnable && !inTask,
     staleTime: 5_000,
   })
+  const messages = useQuery({ ...searchChats(inChat?.chatId ?? null), enabled: runnable && !inTask })
+  // The same words everywhere, for the line that says how many more the in: chip is hiding (the unscoped search).
+  const everywhere = useQuery({ ...searchChats(null), enabled: runnable && !!inChat })
+  const shownRow = (row: MessageRow) => row.content_type !== 'system' && (!from || row.sender_user_id === from.userId)
   const turns = useQuery({
     queryKey: ['global-search-task-turns', query],
     queryFn: async (): Promise<{ hits: TaskTurnHit[]; index: TaskTurnIndexStatus }> => {
@@ -99,7 +104,7 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   })
 
   const messageHits: SearchHit[] = inTask ? [] : (messages.data ?? [])
-    .filter((row) => row.content_type !== 'system' && (!from || row.sender_user_id === from.userId))
+    .filter(shownRow)
     .map((row) => ({ kind: 'message', id: `m:${row.id}`, group: row.chat_id, chatId: row.chat_id, messageId: row.id, senderId: row.sender_user_id,
       sender: row.sender_user_id === null ? null : row.sender_name, text: excerpt(row.content ?? '', query), at: row.created_at, file: row.file_item_id !== null }))
   const taskHits: SearchHit[] = !tasks || inChat || from ? [] : (turns.data?.hits ?? [])
@@ -121,8 +126,12 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   return {
     query, scopes, unresolved, hits: runnable ? shown : [], counts: runnable ? counts : { all: 0, message: 0, task: 0, file: 0 },
     capped: (messages.data?.length ?? 0) >= SEARCH_LIMIT || (turns.data?.hits.length ?? 0) >= SEARCH_LIMIT,
+    elsewhere: runnable && inChat && everywhere.data ? {
+      count: everywhere.data.filter((row) => row.chat_id !== inChat.chatId && shownRow(row)).length,
+      capped: everywhere.data.length >= SEARCH_LIMIT,
+    } : null,
     loading: runnable && (messages.isFetching || turns.isFetching || text !== typed),
-    error: (messages.error as Error | null) ?? (turns.error as Error | null),
+    error: (messages.error as Error | null) ?? (everywhere.error as Error | null) ?? (turns.error as Error | null),
     taskIndex: runnable && tasks && !inChat && !from ? turns.data?.index : undefined,
   }
 }

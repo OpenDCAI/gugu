@@ -25,7 +25,6 @@ import { useStripNarrow } from '../../session/renderer/features/tabs/tab-strip-n
 interface ChatHeaderActionsProps {
   isGroupChat: boolean
   isRoomChat: boolean
-  searchMode: boolean
   infoShown: boolean
   showHeaderMenu: boolean
   mobile?: boolean
@@ -36,7 +35,7 @@ interface ChatHeaderActionsProps {
     onReload: () => Promise<void>
   }
   moreButtonRef: RefObject<HTMLButtonElement | null>
-  onEnterSearchMode: () => void
+  onSearch: () => void
   onOpenFolder: () => void
   onOpenInfo: (page?: 'main' | 'members') => void
   onCloseInfo: () => void
@@ -46,7 +45,7 @@ interface ChatHeaderActionsProps {
 
 export const ChatHeaderActions = observer(function ChatHeaderActions({
   isGroupChat, isRoomChat, infoShown, showHeaderMenu, mobile, room, moreButtonRef,
-  onEnterSearchMode, onOpenFolder, onOpenInfo, onCloseInfo, onToggleHeaderMenu, onCloseHeaderMenu,
+  onSearch, onOpenFolder, onOpenInfo, onCloseInfo, onToggleHeaderMenu, onCloseHeaderMenu,
 }: ChatHeaderActionsProps) {
   const { t } = useTranslation('messaging')
   const { activeChatId } = useChatStore('activeChatId')
@@ -94,7 +93,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           <MenuItem onClick={() => openPopup('apps')} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>
           <MenuSeparator />
         </>}
-        <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onEnterSearchMode} icon={<Search size={16} />} shortcut={isRoomChat ? '⌘F' : undefined}>
+        <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onSearch} icon={<Search size={16} />} shortcut={isRoomChat ? '⌘F' : undefined}>
           {t(isRoomChat ? 'header.searchHistory' : 'header.searchChat')}
         </MenuItem>
         <MenuItem onClick={onOpenFolder} icon={<Folder size={16} />}>{folderName}</MenuItem>

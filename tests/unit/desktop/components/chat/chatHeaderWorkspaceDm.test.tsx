@@ -16,11 +16,10 @@ afterEach(() => { harness.cleanup() })
 const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: boolean }, onOpenFolder = vi.fn()) =>
   renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     ...props,
-    searchMode: false,
     infoShown: false,
     showHeaderMenu: true,
     moreButtonRef: createRef<HTMLButtonElement>(),
-    onEnterSearchMode: vi.fn(),
+    onSearch: vi.fn(),
     onOpenFolder,
     onOpenInfo: vi.fn(),
     onCloseInfo: vi.fn(),

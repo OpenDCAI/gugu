@@ -9,7 +9,6 @@ import type { FindStatus } from './use-find-bar';
 interface Props {
   isOpen: boolean;
   fullWidth?: boolean;
-  onSearchAll?: () => void;
   searchQuery: string;
   searchStatus: FindStatus;
   searchInputRef: RefObject<HTMLInputElement | null>;
@@ -21,7 +20,6 @@ interface Props {
 export function FindBar({
   isOpen,
   fullWidth = false,
-  onSearchAll,
   searchQuery,
   searchStatus,
   searchInputRef,
@@ -39,7 +37,6 @@ export function FindBar({
         // design.md 拒绝玻璃(「Decorative gradients, glows, blobs, textures, glass」),且浮层公式
         // 只有「实色底 + 圆角档 + 一层 lift」三件 —— 不叠描边。
         'absolute top-3 z-20 flex items-center gap-1 rounded-surface bg-background-quaternary p-1.5 shadow-lift',
-        onSearchAll && 'flex-wrap',
         fullWidth ? 'left-3 right-3 w-auto max-w-none' : 'right-3 w-[min(28rem,calc(100%-1.5rem))]'
       )}
     >
@@ -104,10 +101,6 @@ export function FindBar({
           <X className="size-3.5" />
         </Button>
       </div>
-      {onSearchAll && <div className="flex w-full items-center justify-between gap-2 px-1 text-xs text-foreground-muted">
-        <span>{translate('find.loadedOnly')}</span>
-        <Button type="button" variant="link" size="sm" onClick={onSearchAll}>{translate('find.searchAll')}</Button>
-      </div>}
     </div>
   );
 }

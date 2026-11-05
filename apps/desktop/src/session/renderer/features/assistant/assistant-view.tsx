@@ -13,8 +13,8 @@ import { usePanelScroll } from './use-panel-scroll';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { ChevronLeft, Search, Settings } from '@/lib/icons';
-import { assistantSlotKey, readAssistantShellBridge } from '@/lib/assistantShellBridge';
-import { UI_EVENTS } from '@/lib/uiEvents';
+import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
+import { searchInChat } from '@renderer/features/global-search/search-session';
 import { OPEN_ASSISTANT_TASK_CHAT, showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat';
 import type { ViewDefinition } from '@renderer/app/view-registry';
 import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
@@ -215,7 +215,8 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
                 className="ta-circle"
                 aria-label={t('top.search')}
                 title={t('top.search')}
-                onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: context.chatId, viewportKey: assistantSlotKey('chat') } }))}
+                disabled={!context.chatId}
+                onClick={() => { if (context.chatId) searchInChat(context.chatId) }}
                 data-testid="assistant-search"
               >
                 <Search />

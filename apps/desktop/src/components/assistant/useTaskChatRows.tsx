@@ -17,7 +17,7 @@ const log = rendererLogger('assistant/task-chat')
 const cache = new Map<string, TaskExchange[]>()
 const EMPTY: TaskExchange[] = []
 
-export function useTaskChatRows(messages: readonly MessageItem[], ownerId: string | undefined, agentId: string | null | undefined, visible: boolean, query: string) {
+export function useTaskChatRows(messages: readonly MessageItem[], ownerId: string | undefined, agentId: string | null | undefined, visible: boolean) {
   const task = useSyncExternalStore(subscribeAssistantTaskChats, () => readAssistantTaskChat(ownerId, agentId))
   const { t } = useTranslation('assistant')
   const key = task ? JSON.stringify([ownerId,task]) : ''
@@ -55,8 +55,8 @@ export function useTaskChatRows(messages: readonly MessageItem[], ownerId: strin
   const known=task?.workId&&ownerId?readCachedAssistantWorkDetail(ownerId,task.assistantId,task.workId,task.task.sessionId):null
   const knownExchanges=useMemo(()=>known?assistantWorkExchanges(known.events,known.work.work_id):null,[known])
   const exchanges = projection?.key === key ? projection.entries : knownExchanges??cache.get(key)??EMPTY
-  const allRows = useMemo(() => taskChatRows(messages, exchanges, task, query), [messages, exchanges, task, query])
-  const count = query ? Infinity : history.key === key ? history.count : 80
+  const allRows = useMemo(() => taskChatRows(messages, exchanges, task), [messages, exchanges, task])
+  const count = history.key === key ? history.count : 80
   const { rows, earlier } = useMemo(() => taskChatWindow(allRows, count), [allRows, count])
   const listedMessages = useMemo(() => rows.map((row) => row.message), [rows])
   const unavailable=projection?.key===key&&projection.error

@@ -137,13 +137,6 @@ function readerText(node: Nodes | MdastMention): string {
   return '';
 }
 
-/** The same visible-text projection as transcript blocks, without rendering or fetching anything. */
-export function documentToPlainText(text: string): string {
-  const parser = createMarkdownParser(TRANSCRIPT_DIALECT);
-  const tree = parser.runSync(parser.parse(text)) as Root;
-  return tree.children.map(readerText).join('\n\n');
-}
-
 /**
  * A literal `**` still waiting for its closing pair. remark leaves an unfinished emphasis opener as text;
  * painting it would flash the marker while the stream is still delivering the closer.

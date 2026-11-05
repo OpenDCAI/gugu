@@ -14,7 +14,7 @@ let harness: ReturnType<typeof createReactHarness>
 const request = (workId: string) => ({ workId,assistantId: 'assistant',taskAgentId: 'executor',task: { deviceId: 'offline',sessionId: 'worker' },assistants: [{ deviceId: 'offline-home',sessionId: 'home' }] })
 const event = (workId: string,content: string) => ({ work_id: workId,message_id: workId,seq: '1',from_session_id: 'home',to_session_id: 'worker',
   content,source_available: true,source_message_id: null,attachment_refs: [],platform_received_at: '2026-10-26T08:00:00Z' })
-function View() { const { rows,notice } = useTaskChatRows([],'owner','executor',true,''); return <>{notice}<p>{rows.map(row=>row.message.content).join(',')}</p></> }
+function View() { const { rows,notice } = useTaskChatRows([],'owner','executor',true); return <>{notice}<p>{rows.map(row=>row.message.content).join(',')}</p></> }
 beforeEach(() => { harness=createReactHarness(); cloud.history.mockReset(); cloud.list.mockReset(); cloud.watch.mockClear(); cloud.refresh=null; showAssistantTaskChat(null) })
 afterEach(() => { harness.cleanup(); showAssistantTaskChat(null) })
 it('reads cloud collaboration with every device offline and has no device retry or sync notice',async () => {

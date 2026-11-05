@@ -84,9 +84,7 @@ function withoutLiveStatus(profiles: Record<string, MemberProfileCardModel>): Re
 export interface MessageListRowProps {
   rows: ChatListRowItem[]
   messages: MessageItem[]
-  isFiltering: boolean
   mobile: boolean
-  highlight: string | undefined
   /** #1708 命中「来源消息跳转」时高亮闪烁的消息 id。 */
   flashMessageId: string | null | undefined
   memberReadSeqs: Record<string, number>
@@ -163,9 +161,7 @@ const MessageListRow = memo(function MessageListRow({
   showReplyQuote,
   rows,
   messages,
-  isFiltering,
   mobile,
-  highlight,
   flashMessageId,
   memberReadSeqs, deliveryWaits,
   isGroupChat,
@@ -225,12 +221,12 @@ const MessageListRow = memo(function MessageListRow({
   const sendState = held?.wait ?? computeSendState(msg, memberReadSeqs)
 
   // 连续消息合组：同一发送者、无时间分隔线切断、双方都是普通消息时，后续消息隐藏头像+名字/时间行，
-  // 只留气泡（间距也收紧）。搜索态(isFiltering)结果不连续，不合组。whisper 形态特殊，不参与合组。
-  const showTimeDivider = !isFiltering && shouldShowTimeDivider(messages, index)
+  // 只留气泡（间距也收紧）。whisper 形态特殊，不参与合组。
+  const showTimeDivider = shouldShowTimeDivider(messages, index)
   const prevMsg = prevRow?.type === 'message' ? prevRow.message : null
-  const groupedWithPrev = computeGroupedWithPrev({ isFiltering, showTimeDivider, prevMsg, msg, prevIsThreadRoot: false })
+  const groupedWithPrev = computeGroupedWithPrev({ showTimeDivider, prevMsg, msg, prevIsThreadRoot: false })
   const nextRow = rows[index + 1]
-  const groupedWithNext = nextRow?.type === 'message' && computeGroupedWithPrev({ isFiltering, showTimeDivider: !isFiltering && shouldShowTimeDivider(messages, index + 1), prevMsg: msg, msg: nextRow.message, prevIsThreadRoot: false })
+  const groupedWithNext = nextRow?.type === 'message' && computeGroupedWithPrev({ showTimeDivider: shouldShowTimeDivider(messages, index + 1), prevMsg: msg, msg: nextRow.message, prevIsThreadRoot: false })
   const anchoredTopics = topicAnchors?.get(msg.id)
   // @@@5856 自动调档那条系统消息用专门的版式渲染:居中、说清改了哪几个、就地一键全撤。
   const isAgentFloodNotice = msg.id === agentFloodNoticeMessageId && msg.content_type === 'system'
@@ -257,7 +253,6 @@ const MessageListRow = memo(function MessageListRow({
       groupedWithPrev={groupedWithPrev}
       groupedWithNext={groupedWithNext}
       onShowReadReceipt={onShowReadReceipt}
-      highlight={highlight}
       onQuote={onQuote} onShowMessage={onShowMessage}
       onForward={onForward}
       onDelete={onDelete}

@@ -20,7 +20,7 @@ describe('following the tail is derived from the at-bottom level', () => {
   async function setup() {
     const setFollowingTail = vi.fn()
     const isAtBottomRef = { current: false }
-    const input = { enabled: true, resetKey: 'chat-1#0#1', unreadNavigationPending: true, hasNewer: false, loading: false, preserving: false }
+    const input = { resetKey: 'chat-1#0#1', unreadNavigationPending: true, hasNewer: false, loading: false, preserving: false }
     let onAtBottomChange: (atBottom: boolean) => void = () => {}
     function Probe() {
       onAtBottomChange = useFollowingTail({ ...input, isPreservingPosition: () => input.preserving, isAtBottomRef, setFollowingTail }).onAtBottomChange
@@ -39,20 +39,6 @@ describe('following the tail is derived from the at-bottom level', () => {
     await view.render() // no second report: the reader never moved
     expect(view.setFollowingTail).toHaveBeenLastCalledWith(true)
     expect(view.isAtBottomRef.current).toBe(true)
-  })
-
-  it('keeps the loaded window off the tail while find owns the scroll, then resumes from its current level', async () => {
-    const view = await setup()
-    view.input.unreadNavigationPending = false
-    await view.render()
-    expect(view.setFollowingTail).toHaveBeenLastCalledWith(true)
-    view.input.enabled = false
-    await view.render()
-    expect(view.setFollowingTail).toHaveBeenLastCalledWith(false)
-    expect(view.isAtBottomRef.current).toBe(false)
-    view.input.enabled = true
-    await view.render()
-    expect(view.setFollowingTail).toHaveBeenLastCalledWith(true)
   })
 
   it('stays off the tail when the gate opens but the reader is not at the bottom (control)', async () => {

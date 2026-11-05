@@ -213,6 +213,7 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
             onOpenUserChat(target)
           } : undefined}
           onWhisper={renderedProfile.member.id !== currentUserId && onWhisper ? (target) => { setActiveProfile(null); onWhisper(target) } : undefined}
+          searchChatId={chatId}
           editControls={editControlsFor(renderedProfile.member)}
         />
       ) : null}

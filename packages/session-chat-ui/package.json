@@ -24,7 +24,6 @@
     "./layout-geometry": "./src/layout-geometry.ts",
     "./markdown-attachment-mentions": "./src/core/markdown/attachment-mentions.ts",
     "./markdown-html": "./src/core/markdown/to-html.ts",
-    "./find-highlight": "./src/find-highlight.ts",
     "./highlight": "./src/core/highlight/highlighter.ts",
     "./mermaid": "./src/core/mermaid/render.ts",
     "./svg": "./src/core/svg/figure.ts",

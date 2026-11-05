@@ -211,6 +211,13 @@ export function GlobalSearch({ tasks, onClose, onOpen }: { tasks: boolean; onClo
         ))}
       </div>
 
+      {hasQuery && view.elsewhere && chips.some((chip) => chip.kind === 'in') && (
+        <button type="button" data-testid="global-search-elsewhere" onClick={() => setChips(chips.filter((chip) => chip.kind !== 'in'))}
+          className="flex shrink-0 items-center border-t border-foreground/[0.08] px-4 py-2 text-left text-[length:var(--font-body)] text-foreground/60 hover:text-foreground">
+          {translate('globalSearch.elsewhere', { count: view.elsewhere.capped ? `${view.elsewhere.count}+` : String(view.elsewhere.count) })}
+        </button>
+      )}
+
       <div className="flex shrink-0 items-center gap-4 border-t border-foreground/[0.08] px-4 py-2 text-xs text-foreground/40 max-sm:hidden">
         <span className="flex items-center gap-1"><Shortcut hotkey="ArrowUp" variant="keycaps" /><Shortcut hotkey="ArrowDown" variant="keycaps" />{translate('globalSearch.hintSelect')}</span>
         <span className="flex items-center gap-1"><Shortcut hotkey="Tab" variant="keycaps" />{translate('globalSearch.hintFilter')}</span>

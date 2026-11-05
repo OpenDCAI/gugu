@@ -40,12 +40,11 @@ async function openMenu(mobile: boolean) {
   await renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     isGroupChat: true,
     isRoomChat: true,
-    searchMode: false,
     infoShown: false,
     showHeaderMenu: true,
     mobile,
     moreButtonRef: createRef<HTMLButtonElement>(),
-    onEnterSearchMode: vi.fn(),
+    onSearch: vi.fn(),
     onOpenFolder: vi.fn(),
     onOpenInfo: vi.fn(),
     onCloseInfo: vi.fn(),

@@ -176,8 +176,6 @@ export default {
     },
     "operationFailed": "The operation failed. Try again.",
     "pinnedMessage": "📌 One pinned message",
-    "searchMessages": "Search messages",
-    "searchNoResults": "No messages found for “{{query}}”",
     "selectedMessages": "{{count}} selected",
     "selectedMessages_one": "{{count}} selected",
     "selectedMessages_other": "{{count}} selected",

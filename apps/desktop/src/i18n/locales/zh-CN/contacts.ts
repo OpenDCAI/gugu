@@ -367,6 +367,7 @@ export default {
     "shareUnavailable": "咕咕号未分配，暂无法分享",
     "source": "来源",
     "unconfigured": "未配置",
+    "findMessages": "查找 TA 的消息",
     "viewProfile": "查看 {{name}} 的资料",
     "whisper": "悄悄话"
   },

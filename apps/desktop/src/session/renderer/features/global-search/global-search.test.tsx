@@ -24,7 +24,7 @@ vi.mock('@renderer/lib/ipc', async (original) => ({
   rpc: { search: { taskTurns: remote.turns, taskTurnIndexStatus: remote.indexStatus } },
 }))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: remote.messages } }))
-vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }))
+vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string, params?: object) => params ? `${key} ${JSON.stringify(params)}` : key }) }))
 
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
 Element.prototype.scrollIntoView ??= () => {}
@@ -203,7 +203,7 @@ describe('global search panel', () => {
     remote.indexStatus.mockResolvedValue({ state: 'preparing', done: 42, total: 100 })
     await render('回滚')
     expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
-    expect(host.querySelector('[role=status]')?.textContent).toBe('globalSearch.indexingTasksProgress')
+    expect(host.querySelector('[role=status]')?.textContent).toBe('globalSearch.indexingTasksProgress {"percent":42}')
     expect(options()).toHaveLength(3)
     expect(host.textContent).not.toContain('globalSearch.emptyFor')
     remote.indexStatus.mockResolvedValue({ state: 'ready' })
@@ -247,13 +247,13 @@ describe('global search panel', () => {
     remote.turns.mockClear()
     await act(async () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > button:not([role=option])')][0]!.click())
     await settle()
-    expect(remote.messages).toHaveBeenLastCalledWith('message_search_as', { p_chat_id: GROUP, p_query: '回滚', p_limit: 100 })
+    expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: GROUP, p_query: '回滚', p_limit: 100 })
     expect(remote.turns).not.toHaveBeenCalled()
   })
 
   it('typed in: resolves to a conversation by name; an unknown one finds nothing instead of searching everywhere', async () => {
     await render('in:设计 回滚')
-    expect(remote.messages).toHaveBeenLastCalledWith('message_search_as', { p_chat_id: OTHER, p_query: '回滚', p_limit: 100 })
+    expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: OTHER, p_query: '回滚', p_limit: 100 })
     remote.messages.mockClear()
     await act(async () => updateSearchSession({ text: 'in:不存在的群 回滚' }))
     await settle()
@@ -270,6 +270,19 @@ describe('global search panel', () => {
     await act(async () => options()[1]!.click())
     expect(remote.opened[1]).toEqual({ kind: 'session', sessionId: 's1', projectId: 'p1' })
     expect(takeTaskReveal('s1')).toBe(messageQuoteLink({ kind: 'session', sessionId: 's1', itemId: 's1:turn:s3:m' }))
+  })
+
+  it('scoped to one conversation, a line counts the hits in every other one and widens to them', async () => {
+    await act(async () => updateSearchSession({ chips: [{ kind: 'in', chatId: GROUP }] }))
+    await render('回滚')
+    expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: GROUP, p_query: '回滚', p_limit: 100 })
+    expect(remote.messages).toHaveBeenCalledWith('message_search_as', { p_chat_id: null, p_query: '回滚', p_limit: 100 })
+    const elsewhere = host.querySelector<HTMLElement>('[data-testid=global-search-elsewhere]')!
+    expect(elsewhere.textContent).toBe('globalSearch.elsewhere {"count":"1"}')
+    await act(async () => elsewhere.click())
+    await settle()
+    expect(host.querySelector('[data-testid=global-search-elsewhere]')).toBeNull()
+    expect(headers()).toEqual(['搜索测试群甲', '发布排查· globalSearch.task', '设计组'])
   })
 
   it('without local tasks (the phone) it searches chats only and has no task filter', async () => {
