@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { imSelectors, openImRepository as openRawRepository, type ImRepositoryTransaction } from '../../../../apps/desktop/src/lib/imRepository'
 import { readMessageCreatedRevision } from '../../../../apps/desktop/src/lib/accountRevisionCoordinator'
+import { createAccountCatchupPriority } from '../../../../apps/desktop/src/lib/accountCatchupPriority'
 import {
   ACCOUNT_REVISION_CURSOR_KEY,
   DRAIN_RETRY_DELAYS_MS,
@@ -57,6 +58,58 @@ describe('AccountRevisionRuntime', () => {
         return unsubscribe
       }),
     }
+  })
+
+  it('lets the foreground list/current conversation finish before fetching backlog', async () => {
+    const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    const priority = createAccountCatchupPriority()
+    const list = priority.begin(), conversation = priority.begin()
+    syncSince.mockResolvedValueOnce(page([operation(1, 'changed')])).mockResolvedValue(page([]))
+    const runtime = createAccountRevisionRuntime('account-a', repository, source, 100, priority.scheduling)
+    runtime.register('changed', (item, transaction) => transaction.putView('seen', item.revision))
+    runtime.start()
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(syncSince).not.toHaveBeenCalled()
+    list()
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(syncSince).not.toHaveBeenCalled()
+    conversation()
+    await runtime.whenIdle()
+    expect(imSelectors.view('seen')(repository.snapshot())).toBe('1')
+    runtime.stop()
+  })
+
+  it('holds an already fetched page outside the repository while a foreground read opens', async () => {
+    const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    const priority = createAccountCatchupPriority()
+    const response = deferred<AccountRevisionPage>()
+    syncSince.mockReturnValueOnce(response.promise).mockResolvedValue(page([]))
+    const runtime = createAccountRevisionRuntime('account-a', repository, source, 100, priority.scheduling)
+    runtime.register('changed', (item, transaction) => transaction.putView('seen', item.revision))
+    runtime.start()
+    await vi.waitFor(() => expect(syncSince).toHaveBeenCalledOnce())
+    const finish = priority.begin()
+    response.resolve(page([operation(1, 'changed')]))
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '0' })
+    finish()
+    await runtime.whenIdle()
+    expect(imSelectors.view('seen')(repository.snapshot())).toBe('1')
+    runtime.stop()
+  })
+
+  it('cancels a background turn on account stop without advancing its cursor', async () => {
+    const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    const priority = createAccountCatchupPriority()
+    const finish = priority.begin()
+    const runtime = createAccountRevisionRuntime('account-a', repository, source, 100, priority.scheduling)
+    runtime.start()
+    const stopped = runtime.whenIdle()
+    runtime.stop()
+    await expect(stopped).rejects.toMatchObject({ name: 'AbortError' })
+    finish()
+    expect(syncSince).not.toHaveBeenCalled()
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '0' })
   })
 
   it('u1 skips unknown events, remembers their first revision and warns once per runtime', async () => {
