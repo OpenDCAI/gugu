@@ -189,7 +189,7 @@ img.details-picture { object-fit: contain; }
 .menu-group > button { padding: var(--em-row-pad); width: 100%; border: 0; background: none; text-align: start; }
 .menu-submenu { position: absolute; left: 100%; top: 0; width: var(--submenu-width); padding: var(--em-spacing-xs); box-shadow: var(--em-shadow-lift); display: none; }
 .menu.submenu-left .menu-submenu { left: auto; right: 100%; }
-.menu-group:hover > .menu-submenu, .menu-group:focus-within > .menu-submenu { display: flex; }
+.menu-group:hover > .menu-submenu[data-open], .menu-group:focus-within > .menu-submenu[data-open] { display: flex; }
 .menu button:disabled { opacity: .5; cursor: default; }
 .rename-input { flex: 1; min-width: 0; }
 .empty { margin: var(--em-spacing-lg); color: var(--em-foreground-muted); }
@@ -281,16 +281,17 @@ body[data-mode='preview'] .doc-info { width: 100%; max-width: calc(720px + 112px
 body[data-mode='edit'] .editor .cm-gutters { display: none; }
 body[data-mode='edit'] .editor .cm-content { max-width: 720px; margin-inline: auto; padding: 32px 40px 96px; box-sizing: border-box; }
 @media (max-width: 640px) { body[data-mode='edit'] .editor .cm-content { padding: 16px 18px 80px; } }
+@media (hover: hover) { body[data-mode='edit'] .editor .cm-content { padding-left: 40px; } }
 /* An empty document: where its reading would be, what can be done (write, or ask an agent for a draft). */
 .doc-empty { min-height: 0; overflow: auto; }
 .doc-empty .row { justify-content: center; margin-top: var(--em-spacing-sm); }
 body.empty-doc .preview, body[data-mode='edit'] .doc-empty, body[data-kind='json'] .doc-empty { display: none; }
-/* The reading block under the pointer: its insertion and block actions in the left margin. */
-.block-controls { position: fixed; z-index: 9; display: flex; }
+/* The editing block: one control in its left margin. No read-mode paragraph listeners. */
+.block-controls { position: fixed; z-index: 9; display: flex; transform: translateX(calc(-100% - 8px)); }
 .block-handle { width: 22px; min-width: 0; height: 22px; min-height: 0; padding: 0; justify-content: center; border: 0; border-radius: var(--em-radius-document); background: transparent; color: var(--em-foreground-passive); }
 .block-handle:hover, .block-handle[aria-expanded='true'] { background: var(--em-hover); color: var(--em-foreground); }
-.block-handle gugu-icon { width: var(--em-icon-sm); height: var(--em-icon-sm); }
-body:not([data-state='doc']) .block-controls, body[data-mode='edit'] .block-controls { display: none; }
+.block-handle gugu-icon { width: var(--em-icon-sm); height: var(--em-icon-sm); transform: rotate(90deg); }
+body:not([data-state='doc']) .block-controls, body[data-mode='preview'] .block-controls { display: none; }
 body[data-mode='edit'] .panes, body[data-mode='preview'] .panes, body[data-kind='json'] .panes { grid-template-columns: 1fr; }
 body[data-mode='edit'] .preview, body[data-mode='preview'] .editor { display: none; }
 body[data-kind='json'] .modes, body[data-kind='json'] .preview { display: none; }

@@ -85,7 +85,7 @@ const gugu = {
 const ownStyle = document.createElement('style');
 const byId = (id: string) => document.getElementById(id)!;
 const controls = () => byId('block-controls');
-const handle = (id = 'block-insert') => byId(id) as HTMLButtonElement;
+const handle = (id = 'block-handle') => byId(id) as HTMLButtonElement;
 const editor = () => view.EditorView.findFromDOM(document.querySelector<HTMLElement>('.cm-editor')!)!;
 
 beforeAll(async () => {
@@ -106,7 +106,7 @@ beforeEach(async () => {
   const before = renders;
   editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: text } });
   await userEvent.keyboard('{Escape}');
-  await userEvent.click(byId('mode-preview'));
+  await userEvent.click(byId('mode-split'));
   const preview = byId('preview');
   if (preview.scrollTop !== 0) {
     const settled = new Promise<Event>((resolve) => preview.addEventListener('scroll', resolve, { once: true }));
@@ -128,7 +128,7 @@ afterAll(() => {
   ydoc.destroy();
 });
 
-async function pointer(x: number, y: number, type = 'mouseMoved', extra: Record<string, number> = {}) {
+async function pointer(x: number, y: number, type = 'mouseMoved', extra: Record<string, string | number> = {}) {
   // Same CDP coordinate mapping as the existing App UI/hover tests, including the test frame's scale.
   for (let current: Window = window; current.frameElement; current = current.parent) {
     const frame = current.frameElement as HTMLElement, box = frame.getBoundingClientRect();
@@ -139,23 +139,42 @@ async function pointer(x: number, y: number, type = 'mouseMoved', extra: Record<
   const session = cdp() as unknown as { send: (method: string, params: object) => Promise<unknown> };
   const click = type === 'mousePressed' || type === 'mouseReleased';
   await session.send('Input.dispatchMouseEvent', { type, x, y, button: click ? 'left' : 'none', buttons: type === 'mousePressed' ? 1 : 0, clickCount: click ? 1 : 0, ...extra });
+  await new Promise<void>((done) => requestAnimationFrame(() => done()));
 }
 
-async function openHandle(id = 'block-insert') {
-  const box = handle(id).getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
-  expect(handle(id).contains(document.elementFromPoint(x, y)), 'the visible handle is the actual pointer target').toBe(true);
+async function openHandle(insertion = true) {
+  const box = handle().getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+  expect(handle().contains(document.elementFromPoint(x, y)), 'the visible handle is the actual pointer target').toBe(true);
+  expect(document.getElementById('block-insert')).toBeNull();
+  expect(controls().querySelectorAll('button')).toHaveLength(1);
+  expect(handle().querySelector('gugu-icon')?.getAttribute('name')).toBe('more-horizontal');
+  expect(handle().querySelector('gugu-icon')?.shadowRoot?.querySelector('svg'), 'the built-in icon really renders').not.toBeNull();
   await pointer(x, y);
   await pointer(x, y, 'mousePressed');
   await pointer(x, y, 'mouseReleased');
   await until('the real block menu opens', () => !byId('menu').hidden);
-  const items = [...byId('menu').querySelectorAll('button')];
-  if (id === 'block-insert') {
-    expect(handle().querySelector('gugu-icon')?.getAttribute('name')).toBe('plus');
-    expect(items.map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider']);
-  } else {
-    expect(handle(id).textContent).toBe('⋮⋮');
-    expect([...byId('menu').querySelectorAll(':scope > button, :scope > .menu-group > button')].map((item) => item.textContent)).toEqual(file.readOnly ? ['Copy link to block', 'Cite in chat'] : ['Turn into ›', 'Duplicate', 'Move up', 'Move down', 'Delete', 'Copy link to block', 'Cite in chat']);
+  expect(byId('menu').querySelectorAll(':scope > .menu-separator')).toHaveLength(1);
+  const items = [...byId('menu').querySelectorAll<HTMLButtonElement>(':scope > button, :scope > .menu-group > button')];
+  expect(items.map((item) => item.textContent)).toEqual(['Insert below this paragraph ›', 'Turn into ›', 'Duplicate', 'Move up', 'Move down', 'Delete', 'Copy link to block', 'Cite in chat']);
+  if (insertion) {
+    const first = items[0]!;
+    const submenu = first.parentElement!.querySelector('.menu-submenu')!;
+    expect(submenu.childElementCount).toBe(0);
+    await userEvent.click(first);
+    await until('the insertion submenu is generated on expansion', () => submenu.querySelectorAll('button').length === 9);
+    expect([...submenu.querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider']);
   }
+}
+
+async function readMenu() {
+  await userEvent.click(byId('mode-preview'));
+  const box = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
+  await pointer(box.left + 30, box.top + box.height / 2);
+  expect(controls().hidden).toBe(true);
+  await pointer(box.left + 30, box.top + box.height / 2, 'mousePressed', { button: 'right', buttons: 2 });
+  await pointer(box.left + 30, box.top + box.height / 2, 'mouseReleased', { button: 'right' });
+  await until('reading right-click offers the existing block links', () => !byId('menu').hidden);
+  expect([...byId('menu').querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat']);
 }
 
 it('keeps the block through left padding, opens its menu, and changes only on another paragraph row', async () => {
@@ -177,7 +196,7 @@ it('keeps the block through left padding, opens its menu, and changes only on an
     await pointer(first.left + 50 + (actionBox.left + actionBox.width / 2 - first.left - 50) * step / 20, first.top + first.height / 2);
     expect(controls().hidden).toBe(false);
   }
-  await openHandle('block-handle');
+  await openHandle(false);
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   try {
     await userEvent.keyboard('{Escape}');
@@ -201,7 +220,7 @@ it('keeps the block through left padding, opens its menu, and changes only on an
   await pointer(gutter, (first.bottom + second.top) / 2);
   expect(controls().hidden, 'a paragraph gap keeps the previous handle').toBe(false);
   expect(handle().getBoundingClientRect().top).toBeCloseTo(placed.top);
-  await pointer(gutter, second.top + second.height / 2);
+  await pointer(second.left + 20, second.top + second.height / 2);
   expect(controls().hidden).toBe(false);
   expect(handle().getBoundingClientRect().top).toBeCloseTo(second.top + 2);
   await openHandle();
@@ -219,7 +238,7 @@ it('keeps the block through left padding, opens its menu, and changes only on an
 async function insertAtFirst(label: string) {
   const first = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
   await pointer(first.left + 40, first.top + first.height / 2);
-  await until('the paragraph insertion button appears', () => !controls().hidden);
+  await until('the single paragraph control appears', () => !controls().hidden);
   await openHandle();
   await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === label)!);
 }
@@ -266,7 +285,7 @@ it('inserts a file as a folder link, including an image chosen through File', as
 it.each([
   ['Heading', '## ', 'h2'], ['List', '- ', 'ul li'], ['To-do', '- [ ] ', 'ul li'],
   ['Quote', '> ', 'blockquote'], ['Code block', '```\n\n```', 'pre'], ['Divider', '***', 'hr'],
-])('inserts %s through + into the same Y.Text and preview', async (label, source, selector) => {
+])('inserts %s through the one block menu into the same Y.Text and preview', async (label, source, selector) => {
   await insertAtFirst(label);
   const at = text.indexOf('\n\nSecond paragraph');
   expect(file.text).toBe(`${text.slice(0, at)}\n\n${source}${text.slice(at)}`);
@@ -283,7 +302,7 @@ async function paragraphMenu(words: string) {
   const box = paragraph.getBoundingClientRect();
   await pointer(box.left + 30, box.top + box.height / 2);
   await until('the paragraph controls appear', () => !controls().hidden);
-  await openHandle('block-handle');
+  await openHandle(false);
 }
 
 async function actOnParagraph(words: string, action: string, turn?: string) {
@@ -312,7 +331,7 @@ it.each([
 async function showSource(source: string) {
   const before = renders;
   editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: source } });
-  await userEvent.click(byId('mode-preview'));
+  await userEvent.click(byId('mode-split'));
   await until('the new source is rendered', () => renders > before && file.text === source);
 }
 
@@ -352,7 +371,10 @@ it('keeps front matter fixed and exposes handles on table and rendered diagram w
 it('does not absorb a collaborator’s new paragraph appended at the old block end', async () => {
   await paragraphMenu('First paragraph keeps its own actions.');
   const at = file.text.indexOf('\n\nSecond paragraph');
+  const before = renders;
   ydoc.transact(() => ytext.insert(at, '\n\nRemote paragraph.'));
+  await until('the collaborative preview redraws while its block menu stays open', () => renders > before);
+  expect(byId('menu').hidden).toBe(false);
   await userEvent.click([...byId('menu').querySelectorAll('button')].find((item) => item.textContent === 'Delete')!);
   expect(file.text).toBe(text.replace('First paragraph keeps its own actions.\n\n', 'Remote paragraph.\n\n'));
 });
@@ -507,7 +529,7 @@ it.each([['Heading', '## '], ['List', '- '], ['Quote', '> ']])('turns an empty c
   await showSource('```\n```\n\nAfter.');
   const box = byId('preview').querySelector('.gg-md-code')!.getBoundingClientRect();
   await pointer(box.left + 30, box.top + box.height / 2);
-  await openHandle('block-handle');
+  await openHandle(false);
   const turn = [...byId('menu').querySelectorAll('button')].find((item) => item.textContent === 'Turn into ›')!;
   const at = turn.getBoundingClientRect();
   await pointer(at.left + at.width / 2, at.top + at.height / 2);
@@ -572,33 +594,46 @@ it('keeps an insertion attached to its paragraph while another editor changes Y.
   await until('the collaborative insertion also reaches the preview', () => !!byId('preview').querySelector('img.gg-md-img'));
 });
 
-it('keeps only link and whole-block citation actions for a read-only document', async () => {
-  file.readOnly = true;
-  const first = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
-  await pointer(first.left + 40, first.top + first.height / 2);
-  expect(controls().hidden).toBe(false);
-  expect(handle().hidden).toBe(true);
-  await openHandle('block-handle');
+it('keeps reading clean and offers block links on right-click', async () => {
+  await readMenu();
   await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Copy link to block')!);
-  await until('the read-only block link is copied', () => copied.at(-1) === 'gugu-file://reachability#3');
-  await actOnParagraph('First paragraph keeps its own actions.', 'Cite in chat');
+  await until('the reading block link is copied', () => copied.at(-1) === 'gugu-file://reachability#3');
+  await readMenu();
+  await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Cite in chat')!);
+  await until('reading cites the original source span', () => dispatch.mock.calls.length === 1);
+  expect(dispatch.mock.calls[0]).toEqual(['', { draft: true, refs: [expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '3' }) })] }]);
   expect(file.text).toBe(text);
 });
 
-it('keeps both mouse handles outside the text in a narrow reading pane and side-by-side view', async () => {
+it('keeps every side control hidden for a read-only document, with reading links still usable', async () => {
+  file.readOnly = true;
+  for (const mode of ['preview', 'edit', 'split']) {
+    await userEvent.click(byId(`mode-${mode}`));
+    expect(controls().hidden).toBe(true);
+  }
+  await readMenu();
+  await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Copy link to block')!);
+  await until('the read-only block link is copied', () => copied.at(-1) === 'gugu-file://reachability#3');
+  await readMenu();
+  await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Cite in chat')!);
+  await until('the read-only source span is cited', () => dispatch.mock.calls.length === 1);
+  expect(file.text).toBe(text);
+});
+
+it('keeps the single editing control outside the text in narrow source and side-by-side views', async () => {
   try {
-    for (const [mode, width] of [['preview', 480], ['split', 1100]] as const) {
+    for (const [mode, width] of [['edit', 480], ['split', 1100]] as const) {
       await page.viewport(width, 760);
       await userEvent.click(byId(`mode-${mode}`));
-      const paragraph = byId('preview').querySelector<HTMLElement>('p[data-line="3-3"]')!.getBoundingClientRect();
+      const paragraph = (mode === 'edit' ? [...byId('editor').querySelectorAll<HTMLElement>('.cm-line')].find((line) => line.textContent === 'First paragraph keeps its own actions.')! : byId('preview').querySelector<HTMLElement>('p[data-line="3-3"]')!).getBoundingClientRect();
       await pointer(paragraph.left + 40, paragraph.top + paragraph.height / 2);
-      await until('both block controls appear beside the paragraph', () => !controls().hidden);
+      await until('the single block control appears beside the paragraph', () => !controls().hidden);
       expect(controls().getBoundingClientRect().right, `${mode}: controls must not cover the paragraph`).toBeLessThan(paragraph.left);
-      await openHandle('block-handle');
+      await openHandle(false);
       await userEvent.keyboard('{Escape}');
     }
   } finally {
     await page.viewport(1100, 760);
-    await userEvent.click(byId('mode-preview'));
+    await userEvent.click(byId('mode-split'));
   }
 });

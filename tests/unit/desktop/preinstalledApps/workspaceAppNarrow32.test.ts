@@ -44,6 +44,7 @@ const gugu = {
       Object.assign(row, { name, displayName: name })
       return row
     }),
+    canDelete: vi.fn(async () => [true]),
   },
 }
 
@@ -107,8 +108,8 @@ describe('workspace App in a narrow pane (F32)', () => {
     $('more').click()
     expect($('menu').hidden).toBe(false)
     expect($('more').getAttribute('aria-expanded')).toBe('true')
-    expect([...$('menu').children].map((item) => item.textContent)).toEqual(['Download', 'Open with another App', 'Rename'])
-    ;($('menu').firstElementChild as HTMLButtonElement).click()
+    await vi.waitFor(() => expect([...$('menu').querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Copy link', 'Open with another App', 'Download', 'Rename', 'Move to…', 'Delete']))
+    ;([...$('menu').querySelectorAll('button')].find((item) => item.textContent === 'Download') as HTMLButtonElement).click()
     expect($('menu').hidden, 'choosing closes it').toBe(true)
     expect($('more').getAttribute('aria-expanded')).toBe('false')
     await vi.waitFor(() => expect(gugu.files.download).toHaveBeenCalledWith(expect.objectContaining({ id: 'big' })))

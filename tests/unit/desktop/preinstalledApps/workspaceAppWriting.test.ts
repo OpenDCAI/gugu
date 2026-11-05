@@ -15,7 +15,7 @@ import { EditorView } from '@codemirror/view'
 import * as lezerHighlight from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
 import * as autocomplete from '@codemirror/autocomplete'
-import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { until } from '../../../support/awaitCondition'
 // @ts-expect-error — the built-in App's source-edit commands are plain ES modules.
 import { isFrontmatter, listInsertion, moveBlock, previewBlock, sourceBlocks, turnBlockChanges } from '../../../../apps/desktop/preinstalled-apps/workspace/blocks.js'
@@ -75,8 +75,15 @@ const gugu = {
       return () => {}
     }),
   },
-  files: { viewPreferences: vi.fn(async () => ({ showAppData: false })), list: vi.fn(async () => [entry]), onChanged: vi.fn(() => () => {}), open: vi.fn(async () => file) },
+  files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })), list: vi.fn(async () => [entry]),
+    onChanged: vi.fn(() => () => {}), open: vi.fn(async () => file),
+    canDelete: vi.fn(async () => [true]), forward: vi.fn(async () => {}),
+    download: vi.fn(async () => true), openWith: vi.fn(async () => {}),
+  },
 }
+
+const previewPointerHandlers = new Set<EventListenerOrEventListenerObject>()
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const view = () => EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!
@@ -100,6 +107,16 @@ beforeAll(async () => {
   Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList
   const html = readFileSync(resolve(process.cwd(), 'apps/desktop/preinstalled-apps/workspace/index.html'), 'utf8')
   document.body.innerHTML = new DOMParser().parseFromString(html, 'text/html').body.innerHTML
+  const preview = $('preview')
+  const add = preview.addEventListener.bind(preview), remove = preview.removeEventListener.bind(preview)
+  vi.spyOn(preview, 'addEventListener').mockImplementation((type, listener, options) => {
+    if (type === 'pointermove' && listener) previewPointerHandlers.add(listener)
+    add(type, listener, options)
+  })
+  vi.spyOn(preview, 'removeEventListener').mockImplementation((type, listener, options) => {
+    if (type === 'pointermove' && listener) previewPointerHandlers.delete(listener)
+    remove(type, listener, options)
+  })
   Object.assign(globalThis, { gugu })
   Object.assign(window, { gugu })
   // @ts-expect-error — 内置 App 是不经构建的纯 ES module,没有类型;运行时 import 可用。
@@ -109,6 +126,134 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+describe('markdown redesign: the real document page', () => {
+  const frame = () => new Promise<void>((done) => requestAnimationFrame(() => done()))
+  const paragraph = () => $('preview').querySelector('p[data-line="6-6"]')!
+  const close = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+  beforeEach(async () => {
+    file.readOnly = false
+    close()
+    $('mode-preview').click()
+    await frame()
+  })
+
+  afterEach(() => {
+    file.readOnly = false
+    close()
+    $('mode-preview').click()
+  })
+
+  test('M1 reading has no paragraph pointermove listener', () => {
+    expect(previewPointerHandlers.size).toBe(0)
+  })
+
+  test('M1 reading pointer bursts do not measure blocks or their pane', async () => {
+    const block = paragraph()
+    const box = vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(new DOMRect(56, 100, 600, 30))
+    const pane = vi.spyOn($('preview'), 'getBoundingClientRect')
+    for (let n = 0; n < 20; n++) block.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 110 }))
+    await frame()
+    expect(box).not.toHaveBeenCalled()
+    expect(pane).not.toHaveBeenCalled()
+    expect($('block-controls').hidden).toBe(true)
+  })
+
+  test('M2 the insertion button is absent, with one standard vertical-more control', () => {
+    expect(document.getElementById('block-insert')).toBeNull()
+    expect($('block-controls').querySelectorAll('button')).toHaveLength(1)
+    expect($('block-handle').querySelector('gugu-icon')?.getAttribute('name')).toBe('more-horizontal')
+  })
+
+  test('M3 editing starts its block menu with insertion and constructs its nine items on expansion', async () => {
+    $('mode-split').click()
+    hoverBlock(paragraph())
+    await frame()
+    $('block-handle').click()
+    const first = $('menu').querySelector('button')!
+    expect(first.textContent).toBe('Insert below this paragraph ›')
+    expect($('menu').querySelectorAll(':scope > .menu-separator')).toHaveLength(1)
+    expect($('menu').querySelectorAll('.menu-submenu button')).toHaveLength(0)
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect([...$('menu').querySelectorAll('.menu-submenu button')].map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
+    close()
+  })
+
+  test('M5 reading right-click offers only block links and citing, with the original line fingerprint', async () => {
+    const block = paragraph()
+    block.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 80, clientY: 110 }))
+    expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat'])
+    menuItems()[0]!.click()
+    await until('the block link is copied', () => gugu.clipboard.writeText.mock.calls.length > 0)
+    expect(gugu.linkTo).toHaveBeenLastCalledWith(expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '6' }) }))
+    block.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    menuItems()[1]!.click()
+    await until('the block is cited', () => gugu.dispatch.mock.calls.length > 0)
+    expect(gugu.dispatch).toHaveBeenLastCalledWith('', { draft: true, refs: [expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '6', h: expect.any(String) }) })] })
+  })
+
+  test('M6 a read-only file has no side control in any mode', async () => {
+    file.readOnly = true
+    try {
+      for (const mode of ['preview', 'split', 'edit']) {
+        $(`mode-${mode}`).click()
+        hoverBlock(paragraph())
+        await frame()
+        expect($('block-controls').hidden).toBe(true)
+      }
+    } finally {
+      file.readOnly = false
+      $('mode-preview').click()
+    }
+  })
+
+  test('M7 the open document offers the same permitted file actions in the approved order', async () => {
+    $('more').click()
+    await frame()
+    expect(menuItems().map((item) => item.textContent)).toEqual(['Forward', 'Copy link', 'Open with another App', 'Download', 'Rename', 'Move to…', 'Delete'])
+    close()
+  })
+
+  test('M7 a read-only document never offers rename, move or delete even in a writable folder', () => {
+    file.readOnly = true
+    $('more').click()
+    const labels = menuItems().map((item) => item.textContent)
+    expect(labels).toEqual(['Forward', 'Copy link', 'Open with another App', 'Download'])
+  })
+
+  test('editing coalesces pointer bursts into one placement and one geometry read per frame', async () => {
+    $('mode-split').click()
+    const block = paragraph()
+    const box = vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(new DOMRect(56, 100, 600, 30))
+    for (let n = 0; n < 20; n++) block.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+    expect(box).not.toHaveBeenCalled()
+    await frame()
+    expect(box).toHaveBeenCalledTimes(1)
+    expect($('block-controls').hidden).toBe(false)
+    box.mockClear()
+    block.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+    $('mode-preview').click()
+    await frame()
+    expect(box).not.toHaveBeenCalled()
+    expect(previewPointerHandlers.size).toBe(0)
+    expect($('block-controls').hidden).toBe(true)
+  })
+
+  test('a keyboard-focused source block has the same menu without requiring preview hover', async () => {
+    $('mode-edit').click()
+    const coords = vi.spyOn(view(), 'coordsAtPos').mockReturnValue({ left: 56, right: 60, top: 100, bottom: 130 })
+    view().focus()
+    select(line(6).from, line(6).from)
+    await frame()
+    expect(coords).toHaveBeenCalledWith(line(6).from)
+    expect($('block-controls').hidden).toBe(false)
+    $('block-handle').click()
+    expect($('menu').querySelector('button')!.textContent).toBe('Insert below this paragraph ›')
+    close()
+    coords.mockRestore()
+  })
 })
 
 describe('folder documents: reading', () => {
@@ -130,12 +275,16 @@ describe('folder documents: reading', () => {
     ['Heading', '## ', 3], ['List', '* ', 2], ['To-do', '- [ ] ', 6],
     ['Quote', '> ', 2], ['Code block', '```\n\n```', 4], ['Divider', '***', 3],
   ])('%s inserts after the entire multi-line block, with its caret in the template', async (label, text, caret) => {
+    $('mode-split').click()
     const block = $('preview').querySelector('ul[data-line="3-4"]')!
     hoverBlock(block)
+    await new Promise<void>((done) => requestAnimationFrame(() => done()))
     expect($('block-controls').hidden).toBe(false)
-    $('block-insert').click()
-    expect(menuItems().map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
-    menuItems().find((item) => item.textContent === label)!.click()
+    $('block-handle').click()
+    $('menu').querySelector('button')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    const insertions = [...$('menu').querySelectorAll<HTMLButtonElement>('.menu-submenu button')]
+    expect(insertions.map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
+    insertions.find((item) => item.textContent === label)!.click()
     const at = TEXT.indexOf('- [x] 定了') + '- [x] 定了'.length
     const prefix = label === 'To-do' ? '\n' : '\n\n'
     expect(view().state.doc.toString()).toBe(`${TEXT.slice(0, at)}${prefix}${text}${TEXT.slice(at)}`)
@@ -147,13 +296,12 @@ describe('folder documents: reading', () => {
     $('mode-preview').click()
   })
 
-  test('read-only documents do not offer insertion', () => {
+  test('read-only documents offer block links and citing on right-click, without a side control', () => {
     file.readOnly = true
     try {
       hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
-      expect($('block-controls').hidden).toBe(false)
-      expect($('block-insert').hidden).toBe(true)
-      $('block-handle').click()
+      expect($('block-controls').hidden).toBe(true)
+      $('preview').querySelector('p[data-line="6-6"]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
       expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat'])
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
       view().focus()
@@ -166,7 +314,9 @@ describe('folder documents: reading', () => {
     const block = $('preview').querySelector('p[data-line="6-6"]')!
     vi.useFakeTimers()
     try {
+      $('mode-split').click()
       hoverBlock(block)
+      vi.advanceTimersToNextFrame()
       $('preview').dispatchEvent(new MouseEvent('pointerleave'))
       vi.advanceTimersByTime(149)
       expect($('block-controls').hidden).toBe(false)
@@ -183,6 +333,7 @@ describe('folder documents: reading', () => {
       expect($('block-controls').hidden).toBe(true)
 
       hoverBlock(block)
+      vi.advanceTimersToNextFrame()
       $('preview').dispatchEvent(new Event('scroll'))
       expect($('block-controls').hidden).toBe(true)
     } finally {
@@ -193,7 +344,9 @@ describe('folder documents: reading', () => {
   test('Escape keeps a focused handle through the hide grace; focus leaving hides it', () => {
     vi.useFakeTimers()
     try {
+      $('mode-split').click()
       hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
+      vi.advanceTimersToNextFrame()
       $('block-handle').click()
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
       expect(document.activeElement).toBe($('block-handle'))
