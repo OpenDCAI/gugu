@@ -34,10 +34,11 @@ describe('resolveAlias', () => {
 })
 
 describe('default highlighter', () => {
-  it('highlights the bundled languages without loading anything', () => {
+  it('keeps every grammar off the startup path: even typescript waits for load()', async () => {
     const hl = createDefaultHighlighter()
-    expect(hl.load?.('python')).toBeNull()
-    expect(colourCount(hl.highlight('def answer(): return 42', 'python'))).toBeGreaterThan(1)
+    expect(hl.highlight('const answer = 42', 'ts')).toBeNull()
+    await hl.load?.('ts')
+    expect(colourCount(hl.highlight('const answer = 42', 'ts'))).toBeGreaterThan(1)
   })
 
   it('highlights a lazily loaded language once its grammar has arrived', async () => {

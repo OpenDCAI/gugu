@@ -1,5 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
@@ -16,7 +16,6 @@ import { rowOpens, useLiveDeviceSessions } from '@/session/shared/remote-session
 import { MachinesPage } from './MachinesPage'
 import { ProjectsPage } from './ProjectsPage'
 import { SessionTimelinePage } from './SessionTimelinePage'
-import { CreateSessionPage } from './CreateSessionPage'
 import './agent-watch.css'
 import './phone-conversation.css'
 import { PhoneAgentGrants } from '../local-agent/PhoneAgentGrants'
@@ -24,6 +23,8 @@ import { PhoneAgentActions } from '../local-agent/PhoneAgentActions'
 import '@/i18n/registerMobileWorkspaceCatalog'
 
 const log = rendererLogger('mobile/agent-watch')
+// The composer thread (assistant-ui) loads when a new session is started, not with the projects tab.
+const CreateSessionPage = lazy(() => import('./CreateSessionPage').then((m) => ({ default: m.CreateSessionPage })))
 
 /**
  * 手机「项目」tab:项目页(根)→ 时间线,一条两层的栈;新建会话是从根页 + 推进去的两步。
@@ -178,29 +179,31 @@ export function AgentWatchPage({
 
   if (route.name === 'create' && device) {
     return (
-      <CreateSessionPage
-        key={`${ownerId}:${device.device_id}`}
-        device={device}
-        birthGroup={birthGroup}
-        onClearBirthGroup={() => setBirthGroup(null)}
-        onBack={goBack}
-        // 从群里新建的会话回到那个群;其余打开新会话,返回时回到项目页。
-        onCreated={(session, firstPrompt, result) => {
-          const phone = isPhoneDevice(device)
-          if (phone && result?.birthGroup?.status === 'failed') {
-            log.error({ deviceId: device.device_id, sessionId: session.conversationId, chatId: result.birthGroup.chatId, reason: result.birthGroup.error ?? null }, 'phone agent created but group join failed')
-            toast(tWorkspace('groupJoinFailed'), 'error', messageForUser(result.birthGroup.error))
-          }
-          const groupId = phone ? result?.birthGroup?.chatId : birthGroup?.chatId
-          if (groupId && onOpenGroupChat && (!phone || result?.birthGroup?.status === 'joined' || result?.birthGroup?.status === 'pending_approval')) {
-            if (phone && result?.birthGroup?.status === 'pending_approval') toast(tWorkspace('groupJoinPending'), 'success')
-            navigate([{ name: 'projects' }], 'replace')
-            onOpenGroupChat(groupId)
-            return
-          }
-          navigate([{ name: 'projects' }, { name: 'timeline', deviceId: device.device_id, session, firstPrompt }], 'replace')
-        }}
-      />
+      <Suspense fallback={null}>
+        <CreateSessionPage
+          key={`${ownerId}:${device.device_id}`}
+          device={device}
+          birthGroup={birthGroup}
+          onClearBirthGroup={() => setBirthGroup(null)}
+          onBack={goBack}
+          // 从群里新建的会话回到那个群;其余打开新会话,返回时回到项目页。
+          onCreated={(session, firstPrompt, result) => {
+            const phone = isPhoneDevice(device)
+            if (phone && result?.birthGroup?.status === 'failed') {
+              log.error({ deviceId: device.device_id, sessionId: session.conversationId, chatId: result.birthGroup.chatId, reason: result.birthGroup.error ?? null }, 'phone agent created but group join failed')
+              toast(tWorkspace('groupJoinFailed'), 'error', messageForUser(result.birthGroup.error))
+            }
+            const groupId = phone ? result?.birthGroup?.chatId : birthGroup?.chatId
+            if (groupId && onOpenGroupChat && (!phone || result?.birthGroup?.status === 'joined' || result?.birthGroup?.status === 'pending_approval')) {
+              if (phone && result?.birthGroup?.status === 'pending_approval') toast(tWorkspace('groupJoinPending'), 'success')
+              navigate([{ name: 'projects' }], 'replace')
+              onOpenGroupChat(groupId)
+              return
+            }
+            navigate([{ name: 'projects' }, { name: 'timeline', deviceId: device.device_id, session, firstPrompt }], 'replace')
+          }}
+        />
+      </Suspense>
     )
   }
 

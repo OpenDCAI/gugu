@@ -13,14 +13,7 @@
  * diff.module.css consume these exact var names via `.emdark:` variant classes.
  */
 
-import bash from '@shikijs/langs/bash';
-import javascript from '@shikijs/langs/javascript';
-import json from '@shikijs/langs/json';
-import python from '@shikijs/langs/python';
-import typescript from '@shikijs/langs/typescript';
-import type { LanguageRegistration, ThemeRegistrationRaw } from 'shiki/core';
-import { createHighlighterCoreSync } from 'shiki/core';
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
+import type { HighlighterCore, LanguageRegistration, ThemeRegistrationRaw } from 'shiki/core';
 import { BUNDLED_DARK_THEME, BUNDLED_LIGHT_THEME } from './bundled-themes';
 import type { LazyLangId } from './lazy-langs';
 
@@ -68,19 +61,17 @@ export interface ChatHighlighter {
 
 // ── Language registry ─────────────────────────────────────────────────────────
 
-/** Grammars bundled into the main chunk: highlightable synchronously from the start. */
-const EAGER_LANGS = { typescript, javascript, python, json, bash };
-
 type LangLoader = () => Promise<{ default: LanguageRegistration[] }>;
 
 /**
  * Grammars fetched on first use, each as its own chunk, so they cost nothing
- * until a transcript actually contains that language. Same set as the
- * session renderer's markdown highlighter. The import specifiers must stay
- * literal for the bundler; `satisfies` pins the keys to LAZY_LANG_IDS, which the
- * Vite configs pre-declare.
+ * until a transcript actually contains that language — the shiki core and its
+ * regex engine likewise load with the first grammar, so nothing of shiki is on
+ * the startup path. The import specifiers must stay literal for the bundler;
+ * `satisfies` pins the keys to LAZY_LANG_IDS, which the Vite configs pre-declare.
  */
 const LAZY_LANG_LOADERS: Record<string, LangLoader> = {
+  bash: () => import('@shikijs/langs/bash'),
   c: () => import('@shikijs/langs/c'),
   cpp: () => import('@shikijs/langs/cpp'),
   csharp: () => import('@shikijs/langs/csharp'),
@@ -90,21 +81,25 @@ const LAZY_LANG_LOADERS: Record<string, LangLoader> = {
   go: () => import('@shikijs/langs/go'),
   html: () => import('@shikijs/langs/html'),
   java: () => import('@shikijs/langs/java'),
+  javascript: () => import('@shikijs/langs/javascript'),
+  json: () => import('@shikijs/langs/json'),
   jsx: () => import('@shikijs/langs/jsx'),
   kotlin: () => import('@shikijs/langs/kotlin'),
   markdown: () => import('@shikijs/langs/markdown'),
   php: () => import('@shikijs/langs/php'),
+  python: () => import('@shikijs/langs/python'),
   ruby: () => import('@shikijs/langs/ruby'),
   rust: () => import('@shikijs/langs/rust'),
   sql: () => import('@shikijs/langs/sql'),
   swift: () => import('@shikijs/langs/swift'),
   toml: () => import('@shikijs/langs/toml'),
   tsx: () => import('@shikijs/langs/tsx'),
+  typescript: () => import('@shikijs/langs/typescript'),
   xml: () => import('@shikijs/langs/xml'),
   yaml: () => import('@shikijs/langs/yaml'),
 } satisfies Record<LazyLangId, LangLoader>;
 
-const SUPPORTED_LANGS = new Set([...Object.keys(EAGER_LANGS), ...Object.keys(LAZY_LANG_LOADERS)]);
+const SUPPORTED_LANGS = new Set(Object.keys(LAZY_LANG_LOADERS));
 
 const LANG_ALIASES: Record<string, string> = {
   ts: 'typescript',
@@ -139,26 +134,34 @@ export function resolveAlias(lang: string | undefined): string | undefined {
 
 // ── Default highlighter implementation ────────────────────────────────────────
 
-type SyncHighlighter = ReturnType<typeof createHighlighterCoreSync>;
-let _defaultHighlighter: SyncHighlighter | null = null;
+let _defaultHighlighter: HighlighterCore | null = null;
+let loadingCore: Promise<HighlighterCore> | null = null;
 
 /** Resolved language ids whose grammar is registered on the singleton. */
-const readyLangs = new Set<string>(Object.keys(EAGER_LANGS));
+const readyLangs = new Set<string>();
 /** In-flight grammar loads, so concurrent blocks share one import. */
 const loadingLangs = new Map<string, Promise<void>>();
 
-function getDefaultShikiHighlighter(): SyncHighlighter {
-  if (!_defaultHighlighter) {
-    _defaultHighlighter = createHighlighterCoreSync({
-      engine: createJavaScriptRegexEngine(),
-      langs: Object.values(EAGER_LANGS),
-      themes: [
-        BUNDLED_LIGHT_THEME as unknown as ThemeRegistrationRaw,
-        BUNDLED_DARK_THEME as unknown as ThemeRegistrationRaw,
-      ],
-    });
-  }
-  return _defaultHighlighter;
+function loadDefaultShikiHighlighter(): Promise<HighlighterCore> {
+  loadingCore ??= Promise.all([import('shiki/core'), import('shiki/engine/javascript')]).then(
+    ([core, engine]) => {
+      _defaultHighlighter = core.createHighlighterCoreSync({
+        engine: engine.createJavaScriptRegexEngine(),
+        langs: [],
+        themes: [
+          BUNDLED_LIGHT_THEME as unknown as ThemeRegistrationRaw,
+          BUNDLED_DARK_THEME as unknown as ThemeRegistrationRaw,
+        ],
+      });
+      return _defaultHighlighter;
+    },
+    (error: unknown) => {
+      // Forget the failed import so a later block can try again.
+      loadingCore = null;
+      throw error;
+    }
+  );
+  return loadingCore;
 }
 
 function loadLanguage(resolvedLang: string): Promise<void> | null {
@@ -167,9 +170,9 @@ function loadLanguage(resolvedLang: string): Promise<void> | null {
   if (!loader) return null;
   let pending = loadingLangs.get(resolvedLang);
   if (!pending) {
-    pending = loader().then(
-      (mod) => {
-        getDefaultShikiHighlighter().loadLanguageSync(mod.default);
+    pending = Promise.all([loadDefaultShikiHighlighter(), loader()]).then(
+      ([highlighter, mod]) => {
+        highlighter.loadLanguageSync(mod.default);
         readyLangs.add(resolvedLang);
         loadingLangs.delete(resolvedLang);
       },
@@ -189,7 +192,8 @@ function loadLanguage(resolvedLang: string): Promise<void> | null {
  * Pure — no internal cache. Caching is handled by ChatCaches in core/caches.ts.
  */
 export function computeHighlightRaw(code: string, resolvedLang: string): HighlightResult {
-  const hl = getDefaultShikiHighlighter();
+  const hl = _defaultHighlighter;
+  if (!hl) throw new Error(`[chat-ui] highlight "${resolvedLang}" before its grammar was loaded`);
   const result = hl.codeToTokens(code, {
     lang: resolvedLang,
     themes: { light: 'em-light', dark: 'em-dark' },
@@ -215,9 +219,8 @@ export function computeHighlightRaw(code: string, resolvedLang: string): Highlig
  * Shiki themes. Used automatically when no highlighter is injected through
  * ChatRootProps.
  *
- * ts/js/python/json/bash are highlightable immediately; the other common
- * languages in LAZY_LANG_LOADERS return null from `highlight()` until `load()`
- * has fetched their grammar.
+ * Every language returns null from `highlight()` until `load()` has fetched
+ * its grammar (and, the first time, the shiki core).
  */
 export function createDefaultHighlighter(): ChatHighlighter {
   return {

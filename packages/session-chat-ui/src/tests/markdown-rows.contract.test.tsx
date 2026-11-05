@@ -388,9 +388,7 @@ const codeHighlighted: Fixture = {
   block: { kind: 'code', id: 'md#6', lang: 'typescript', code: CODE_SOURCE },
   // Warm the highlight cache so Render takes its synchronous fast-path; the
   // idle path would otherwise leave every reading in the unhighlighted state.
-  prime: (ctx) => {
-    ctx.caches.highlight(CODE_SOURCE, 'typescript')
-  }
+  prime: (ctx) => ctx.caches.highlightWhenReady(CODE_SOURCE, 'typescript')
 }
 
 /**
