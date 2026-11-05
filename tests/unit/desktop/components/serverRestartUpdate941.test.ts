@@ -15,9 +15,12 @@ vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retry, res
 
 const current = '0.2.58-beta.1056.1'
 const target = '0.2.58-beta.1057.1'
+// The device was seen shortly before "now"; the clock is pinned so the 7-day long-offline rule never depends on the wall clock.
+const LAST_SEEN = '2026-10-29T00:00:00Z'
+const NOW = new Date('2026-10-29T00:05:00Z')
 function server(update: Device['capabilities']['server_update'] = { state: 'ready', version: target }, version = current): Device {
   return { device_id: 'remote', label: 'Remote', hostname: 'remote', platform: 'linux', status: 'online', is_online: true,
-    last_seen_at: '2026-10-29T00:00:00Z', capabilities: { terminals: [], runtimes: [], host_kind: 'server', server_confirmed_restart: true, app_version: version, server_update: { scope: 'account', ...update } } }
+    last_seen_at: LAST_SEEN, capabilities: { terminals: [], runtimes: [], host_kind: 'server', server_confirmed_restart: true, app_version: version, server_update: { scope: 'account', ...update } } }
 }
 let container: HTMLDivElement
 let root: Root
@@ -34,6 +37,7 @@ async function click(id: string) {
   await act(async () => { node(id)!.click() })
 }
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW)
   restart.mockReset().mockResolvedValue({ requested: true })
   busyAgents.mockReset().mockResolvedValue(undefined)
   retry.mockReset().mockResolvedValue(true)
@@ -304,7 +308,7 @@ describe('confirmed server update feedback', () => {
 
   it('bounds the wait for a confirming heartbeat and allows an explicit retry', async () => {
     await render()
-    vi.useFakeTimers()
+    vi.useFakeTimers(); vi.setSystemTime(NOW)
     await click('update-now'); await click('update-now-yes')
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
     expect(node('restarting')).toBeNull()
@@ -315,7 +319,7 @@ describe('confirmed server update feedback', () => {
   it.each(['version', 'outcome', 'no result'] as const)('waits silently beyond the deadline while offline, then handles %s online', async completion => {
     restart.mockResolvedValue({ requested: true, at: 42 })
     await render()
-    vi.useFakeTimers()
+    vi.useFakeTimers(); vi.setSystemTime(NOW)
     await click('update-now'); await click('update-now-yes')
     const offline = server()
     offline.is_online = false; offline.status = 'offline'
