@@ -602,6 +602,8 @@ export interface ProbeResult {
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
+  /** An OS termination signal is not a successful exit or a signing diagnosis. */
+  signal?: string | null;
   /** Number of live members observed after an isolated process-group timeout cleanup. */
   processGroupResidualCount?: number;
 }

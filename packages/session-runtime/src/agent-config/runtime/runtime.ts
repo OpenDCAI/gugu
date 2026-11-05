@@ -57,7 +57,7 @@ export class AgentConfigRuntime {
       this.agentsHost.dispose();
       this.mcpHost.dispose();
     });
-    this.install.initialize();
+    if (!deps.hostDependencyLedger) this.install.initialize();
     void this.mcp.initialize();
   }
 
@@ -77,10 +77,8 @@ export class AgentConfigRuntime {
   }
 
   /**
-   * 收下主进程那本账并**立刻重探一遍**(#6101)。
-   *
-   * 重探不是可选的:账换了(用户改了选择、咕咕装完写了记录),上一轮读数就是按旧账算的 ——
-   * 留着它等于把两套读数里旧的那套继续报出去。
+   * Consume the host owner’s ledger and completed readings together.
+   * A worker must not start another executable to re-create the same inventory.
    */
   async syncHostDependencyLedger(
     snapshot: HostDependencyLedgerSnapshot
@@ -93,6 +91,10 @@ export class AgentConfigRuntime {
       });
     }
     ledger.apply(snapshot);
+    if (snapshot.readings !== undefined) {
+      this.install.acceptHostReadings(snapshot.readings);
+      return ok();
+    }
     return this.install.refresh({});
   }
 

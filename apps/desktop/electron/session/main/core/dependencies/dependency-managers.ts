@@ -150,6 +150,12 @@ export async function getDependencyManager(): Promise<DesktopDependencyManager> 
 export async function ensureAgentDependenciesProbed(
   manager: DesktopDependencyManager
 ): Promise<void> {
+  // Phase-one rows are not completed probes. Join the owner’s running inventory first.
+  const existing = agentProbePromises.get(manager);
+  if (existing) {
+    await existing;
+    return;
+  }
   if (offeredAgentDependencies.every((dependency) => manager.get(dependency.id) !== undefined)) {
     // A defined state is only a cache entry, not proof that the executable is
     // still on disk. Revalidate the cheap PATH presence bit so removing or
@@ -158,9 +164,10 @@ export async function ensureAgentDependenciesProbed(
     if (await agentPathsStillConsistent(manager)) return;
   }
 
-  const existing = agentProbePromises.get(manager);
-  if (existing) {
-    await existing;
+  // Another caller may have started the inventory while this caller awaited PATH validation.
+  const revalidated = agentProbePromises.get(manager);
+  if (revalidated) {
+    await revalidated;
     return;
   }
 

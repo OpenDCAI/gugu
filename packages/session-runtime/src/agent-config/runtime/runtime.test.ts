@@ -7,6 +7,11 @@ import type {
   PluginFs,
   SubscriptionUsageReading,
 } from '@gugu/session-core/agents/plugins';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { NodeExecutionContext } from '@gugu/session-core/exec';
+import { HostDependencyManager, createReplicaLedger, type ReplicaHostDependencyLedger } from '@gugu/session-core/deps/runtime';
 import { AgentPluginHost, createPluginRegistry } from '@gugu/session-core/agents/plugins';
 import type { ExecContextOptions, IExecutionContext } from '@gugu/session-core/exec';
 import type { McpServer } from '@gugu/session-core/mcp';
@@ -788,6 +793,7 @@ describe('AgentConfigRuntime sign-in expiry (#6264)', () => {
 
 function makeRuntime(
   options: {
+    hostDependencyLedger?: ReplicaHostDependencyLedger;
     authCheckStatus?: (ctx: AgentAuthContext) => Promise<AgentAuthStatus>;
     logger?: Logger;
     ptySpawner?: PtySpawner;
@@ -915,6 +921,7 @@ function makeRuntime(
     runtime: new AgentConfigRuntime({
       scope,
       agentHost,
+      ...(options.hostDependencyLedger ? { hostDependencyLedger: options.hostDependencyLedger } : {}),
       ptySpawner: options.ptySpawner ?? new FakePtySpawner(),
       logger,
       ...(options.authExpiry ? { authExpiry: options.authExpiry } : {}),
@@ -1082,4 +1089,57 @@ it('cancelling a new isolated login preserves the original account, quota and lo
   expect(runtime.install.getAuth('claude').status).toMatchObject({ kind: 'authenticated', account: 'original@example.test' });
   expect(await runtime.readSubscriptionUsage('claude', original, false)).toMatchObject({ data: { kind: 'windows', readAt: 123 } });
   await runtime.dispose();
+});
+
+
+describe('host-owned startup inventory', () => {
+  it('uses the owner’s completed signal failure without initializing or re-probing in the worker', async () => {
+    const { runtime, exec } = makeRuntime({ hostDependencyLedger: createReplicaLedger() });
+    const failed = { id: 'claude', category: 'agent' as const, status: 'error' as const, version: null, path: '/opt/fake-agent', checkedAt: 123, error: 'Process terminated by SIGKILL' };
+    try {
+      await runtime.syncHostDependencyLedger({ ownedDirs: { ownedNpmRoots: [], ownedShimDirs: [], ownedMiseBinDirs: [] }, entries: [], readings: [failed] });
+      expect(runtime.agentsLiveHost().get(undefined)!.states.list.snapshot().data.claude.install).toEqual(failed);
+      expect(exec.exec).not.toHaveBeenCalled();
+    } finally { await runtime.dispose(); }
+  });
+
+  it('publishes a new owner reading after repair while preserving the worker’s independent auth state', async () => {
+    const { runtime, exec } = makeRuntime({ hostDependencyLedger: createReplicaLedger() });
+    const snapshot = (status: 'error' | 'available', version: string | null, checkedAt: number) => ({ ownedDirs: { ownedNpmRoots: [], ownedShimDirs: [], ownedMiseBinDirs: [] }, entries: [], readings: [{ id: 'claude', category: 'agent' as const, status, version, path: '/opt/fake-agent', checkedAt }] });
+    try {
+      runtime.install.updateAuth('claude', { status: { kind: 'authenticated' }, login: null });
+      await runtime.syncHostDependencyLedger(snapshot('error', null, 1));
+      await runtime.syncHostDependencyLedger(snapshot('available', '2.1.9', 2));
+      const row = runtime.agentsLiveHost().get(undefined)!.states.list.snapshot().data.claude;
+      expect(row.install).toEqual(snapshot('available', '2.1.9', 2).readings[0]);
+      expect(row.auth.status.kind).toBe('authenticated');
+      expect(exec.exec).not.toHaveBeenCalled();
+    } finally { await runtime.dispose(); }
+  });
+});
+
+
+describe('one startup probe across inventory and worker entrances', () => {
+  it.skipIf(process.platform === 'win32')('executes a signal-killed real CLI once and shares the same failure with both worker refreshes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'gugu-startup-signal-'));
+    const counter = join(dir, 'calls');
+    const ctx = new NodeExecutionContext();
+    const owner = new HostDependencyManager(ctx, {
+      dependencies: [{ id: 'claude', name: 'Claude test', category: 'agent', commands: [process.execPath], versionArgs: ['-e', `require('fs').appendFileSync(${JSON.stringify(counter)}, 'probe\\n'); process.kill(process.pid, 'SIGKILL')`], installCommands: {}, updates: { kind: 'none' } }],
+      installMethodDetector: { detect: async () => ({ kind: 'unknown', confidence: 'inferred' }), invalidate: () => {} },
+      logger: noopLogger,
+    });
+    const { runtime, exec } = makeRuntime({ hostDependencyLedger: createReplicaLedger() });
+    try {
+      await owner.probeAll();
+      const reading = owner.get('claude')!;
+      expect(reading.status).toBe('error');
+      const snapshot = { ownedDirs: { ownedNpmRoots: [], ownedShimDirs: [], ownedMiseBinDirs: [] }, entries: [], readings: [reading] };
+      await runtime.syncHostDependencyLedger(snapshot);
+      await runtime.syncHostDependencyLedger(snapshot);
+      expect((await readFile(counter, 'utf8')).trim().split('\n')).toEqual(['probe']);
+      expect(runtime.agentsLiveHost().get(undefined)!.states.list.snapshot().data.claude.install).toEqual(reading);
+      expect(exec.exec).not.toHaveBeenCalled();
+    } finally { await runtime.dispose(); ctx.dispose(); await rm(dir, { recursive: true, force: true }); }
+  });
 });
