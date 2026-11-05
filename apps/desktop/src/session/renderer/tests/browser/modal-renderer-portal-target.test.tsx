@@ -5,6 +5,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import { ModalRenderer } from '@renderer/lib/modal/modal-renderer';
@@ -77,4 +78,25 @@ it('lands in the page layer otherwise', async () => {
   await until('the dialog is open', () => dialogsIn(pageLayer) > 0);
   expect(dialogsIn(pageLayer)).toBe(1);
   expect(dialogsIn(settingsLayer)).toBe(0);
+});
+
+it('releases a closing dialog when its page is hidden and settings changes the portal', async () => {
+  confirm();
+  await until('the dialog is open', () => dialogsIn(pageLayer) === 1);
+  modalStore.closeModal();
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  pageLayer.style.contentVisibility = 'hidden';
+  pageLayer.style.transform = 'scale(0)';
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  modalStore.setPortalContainer(settingsLayer);
+  await until('the closed dialog releases both portal layers', () => dialogsIn(pageLayer) + dialogsIn(settingsLayer) === 0);
+});
+
+it('keeps an open confirmation cancellable after settings takes portal ownership', async () => {
+  confirm();
+  await until('the dialog is open', () => dialogsIn(pageLayer) === 1);
+  modalStore.setPortalContainer(settingsLayer);
+  await until('the dialog moves into settings', () => dialogsIn(settingsLayer) === 1);
+  await userEvent.click(page.getByRole('button', { name: 'Cancel', exact: true }));
+  await until('the moved confirmation closes', () => !modalStore.isOpen && dialogsIn(settingsLayer) === 0);
 });
