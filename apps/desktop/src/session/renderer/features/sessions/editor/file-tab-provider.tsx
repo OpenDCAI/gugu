@@ -3,8 +3,8 @@ import { createTabProvider } from '@renderer/features/tabs/core/tab-provider-reg
 import { registeredTabView } from '@renderer/features/tabs/core/tab-views';
 import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
 import { showModal } from '@renderer/lib/modal/modal-provider';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
-import { buildMonacoModelPath } from '@renderer/lib/monaco/monacoModelPath';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
+import { buildModelUri } from '@renderer/lib/text-model/model-uri';
 import { fileBaseName, filePathKey, resolveWorkspacePath } from '../stores/workspace-path';
 import { FileTabBarItem, FileTabBarItemDragPreview } from './file-tab-item';
 import { getFileModelManager } from './stores/file-model-manager';
@@ -66,7 +66,7 @@ export const fileTabProvider: TabProvider<'file', FilePayload, FileTabResource, 
     ): Promise<boolean> {
       if (entry.state.isExternal) return true;
       const sessionCtx = ctx as SessionTabContext;
-      const bufferUri = buildMonacoModelPath(sessionCtx.modelRootPath, entry.state.path);
+      const bufferUri = buildModelUri(sessionCtx.modelRootPath, entry.state.path);
       if (!modelRegistry.isDirty(bufferUri)) return true;
 
       return new Promise<boolean>((resolve) =>

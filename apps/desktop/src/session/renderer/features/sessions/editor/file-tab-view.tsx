@@ -2,7 +2,7 @@ import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import type { ResolvedTab, TabContentProps } from '@renderer/features/tabs/core/tab-provider';
 import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { workspaceBackend } from '../workspace-backend/workspace-backend';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@renderer/lib/ui/resizable';
@@ -17,8 +17,8 @@ import type { FileTabResource } from './stores/file-tab-resource';
 import { RetainedTabContent, useRetainedTabs } from '@renderer/features/tabs/retained-tab-content';
 
 /**
- * Mounts EditorProvider unconditionally so the Monaco instance persists across
- * tab switches. The Monaco host is overlaid and visibility-toggled rather than
+ * Mounts EditorProvider unconditionally so the editor view persists across
+ * tab switches. The editor host is overlaid and visibility-toggled rather than
  * unmounted, so cursor position and scroll survive kind transitions.
  */
 export const TabContent = observer(function FileTabContent({ host, ctx }: TabContentProps) {
@@ -35,7 +35,7 @@ function showsPreview(file: FileTabResource): boolean {
 }
 
 /**
- * Renders the Monaco source and/or preview for the active file tab.
+ * Renders the source editor and/or preview for the active file tab.
  *
  * 最近看过的预览挂着,切走只藏起来 —— 浏览到一半的 HTML 切回来还在原处,❌ 重新登记、重新加载、
  * 滚动归零。与其他页签共用保留上限:再早看过的释放,切回去重新加载。

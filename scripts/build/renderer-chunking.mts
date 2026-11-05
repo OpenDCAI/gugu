@@ -23,7 +23,7 @@ export function packageNameFromModuleId(id: string): string | null {
 
 // @@@exp-single-rollup (#2666) — 多入口下,「这个模块被哪些入口够得到」是分 chunk 的前提。
 // rollup 把 { getModuleInfo } 作为第二参传进 manualChunks,原实现只吃 id、把它扔了 —— 于是
-// 会话页入口独有的 Monaco/mermaid 也被无差别塞进咕咕的 vendor(实测 5.1MB → 11.9MB),
+// 会话页入口独有的大依赖(当时的 Monaco、mermaid) 也被无差别塞进咕咕的 vendor(实测 5.1MB → 11.9MB),
 // 且会话页的 devicon/katex/sonner CSS 漏进 index.html 的 vendor CSS(实测 320KB)。
 //
 // ⚠️ 不要用「从模块沿 importers 反向递归」求可达 —— 图有环,记忆化必须保守,10715 个模块上会

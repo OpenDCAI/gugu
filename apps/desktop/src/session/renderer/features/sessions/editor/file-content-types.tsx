@@ -2,7 +2,7 @@
  * FILE_CONTENT_TYPES — single source of truth for file rendering capabilities.
  *
  * Each entry declares:
- *   editable  — true when the file has a Monaco source view (text/csv/markdown/html/svg)
+ *   editable  — true when the file has an editable source view (text/csv/markdown/html/svg)
  *   Preview   — present when the file has a rendered preview component
  *
  * The FileContent container derives showSource / showPreview / canToggle from these
@@ -30,7 +30,7 @@ import type { FileContentType } from './stores/file-tab-resource';
 import type { FileTabResource } from './stores/file-tab-resource';
 
 export interface FileContentTypeDef {
-  /** True when the file type supports Monaco source editing. */
+  /** True when the file type supports source editing. */
   editable: boolean;
   /**
    * Present when the file type has a rendered preview component.

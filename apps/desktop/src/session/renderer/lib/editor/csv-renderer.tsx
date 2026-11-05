@@ -2,9 +2,9 @@ import { observer } from 'mobx-react-lite';
 import { useMemo } from 'react';
 import type { FileTabResource } from '@renderer/features/sessions/editor/stores/file-tab-resource';
 import { MAX_PREVIEW_COLUMNS, MAX_PREVIEW_ROWS, parseCsv } from '@renderer/lib/editor/csv-parser';
-import { ModelStatusOverlay } from '@renderer/lib/monaco/model-status-overlay';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
-import { useModelStatus } from '@renderer/lib/monaco/use-model';
+import { ModelStatusOverlay } from '@renderer/lib/text-model/model-status-overlay';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
+import { useModelStatus } from '@renderer/lib/text-model/use-model';
 
 interface CsvRendererProps {
   tab: FileTabResource;

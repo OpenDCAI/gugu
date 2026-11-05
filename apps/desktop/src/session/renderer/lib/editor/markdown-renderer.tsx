@@ -9,7 +9,7 @@ import {
   useWorkspaceId,
 } from '@renderer/features/sessions/session-view-context';
 import { useDelayedBoolean } from '@renderer/lib/hooks/use-delay-boolean';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { resolveWorkspaceResourcePath } from './workspace-resource-path';

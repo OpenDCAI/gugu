@@ -20,8 +20,8 @@ const graph: Record<string, { isEntry?: boolean; importedIds?: string[]; dynamic
   [`${NM}/mermaid/dist/mermaid.js`]: { importedIds: [`${NM}/zod/index.js`] },
   [`${NM}/react/index.js`]: {},
   [`${NM}/zod/index.js`]: {},
-  '/repo/apps/desktop/task-embedded.html': { isEntry: true, importedIds: [`${NM}/monaco-editor/esm/editor.js`] },
-  [`${NM}/monaco-editor/esm/editor.js`]: {},
+  '/repo/apps/desktop/task-embedded.html': { isEntry: true, importedIds: [`${NM}/mermaid/dist/mermaid.core.mjs`] },
+  [`${NM}/mermaid/dist/mermaid.core.mjs`]: {},
 }
 const ctx: ModuleGraphContext = {
   getModuleIds: () => Object.keys(graph),
@@ -45,6 +45,6 @@ describe('renderer vendor chunk', () => {
   })
 
   it('keeps packages only the task entry reaches out of the gugu vendor', () => {
-    expect(chunkOf(`${NM}/monaco-editor/esm/editor.js`)).toBeUndefined()
+    expect(chunkOf(`${NM}/mermaid/dist/mermaid.core.mjs`)).toBeUndefined()
   })
 })

@@ -1,4 +1,6 @@
+import { memo } from 'react'
 import { useShownAgentName } from '@/hooks/useShownAgentName'
+import type { AgentRowActions } from '@/hooks/useAgentRowActions'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { useAgentDisplayStatus } from '@/hooks/useAgentDisplayStatus'
 import { useRowContextMenu } from '@/hooks/useRowContextMenu'
@@ -12,17 +14,19 @@ import { SelectionCheckbox } from './ContactSearch'
 import { ContactRowContextMenu, ContactRowDeleteButton, type ContactRowMenuActions } from './ContactRowActions'
 import { agentAvatarClass, ct, rowKeyActivate } from './contactsPanelStyles'
 
-export function AgentContactRow({
+// @@@agent-row-memo - 一个 agent 变了只重画那一行:props 只有这一行自己的数据 + 一份稳定的动作,
+// 行里读的也都是按 id 选择的外部 store(在线态、身份目录、设备目录),❌ 整份通讯录 / 设备 context。
+export const AgentContactRow = memo(function AgentContactRow({
   contact,
   selected,
   multiSelected = false,
   selectionMode = false,
   pinned = false,
+  notifMuted = false,
   mobile = false,
   testId,
-  onSelect,
-  onToggleSelection,
-  menu
+  actions,
+  removeLabel
 }: {
   contact: ContactUser
   selected: boolean
@@ -31,16 +35,26 @@ export function AgentContactRow({
   multiSelected?: boolean
   selectionMode?: boolean
   pinned?: boolean
-  onSelect: () => void
-  onToggleSelection?: () => void
-  menu?: ContactRowMenuActions
+  notifMuted?: boolean
+  actions: AgentRowActions
+  /** 有右键菜单与删除钮时它们的那句「删除 / 移除」;没有菜单 = undefined。 */
+  removeLabel?: string
 }) {
   const { status, presence } = useAgentDisplayStatus(contact.id)
   const { tone, label: statusLabel } = useShownAgentContactStatus(contact.id, status, presence.presentation) // #7199 收回着 ≠ 不在线
   const { allowsLiveActions } = agentContactPresentation(status)
   const { menuPos, onContextMenu, closeMenu } = useRowContextMenu()
   const shownName = useShownAgentName({ name: displayName(contact), agentType: contact.agent_type, createdAt: selectionMode ? undefined : contact.created_at ?? undefined })
+  const menu: ContactRowMenuActions | undefined = removeLabel === undefined ? undefined : {
+    removeLabel, contact, isPinned: pinned, notifMuted,
+    onStartChat: actions.onStartChat ? () => actions.onStartChat?.(contact) : undefined,
+    onPin: () => actions.onPin(contact),
+    onMarkUnread: () => actions.onMarkUnread(contact),
+    onToggleNotif: () => actions.onToggleNotif(contact),
+    onRemove: () => actions.onRemove(contact)
+  }
   const rowActions = allowsLiveActions ? menu : undefined
+  const activate = () => (selectionMode ? actions.onToggleSelection(contact) : actions.onSelect(contact))
   return (
     <>
       {/* #3253 host 包一层：删除钮浮在行上而不是嵌进行里，行底色由 .gg-row-host:hover 接管
@@ -76,8 +90,8 @@ export function AgentContactRow({
             {statusLabel}
           </span>
         }
-        onClick={() => (selectionMode ? onToggleSelection?.() : onSelect())}
-        onKeyDown={rowKeyActivate(() => (selectionMode ? onToggleSelection?.() : onSelect()))}
+        onClick={activate}
+        onKeyDown={rowKeyActivate(activate)}
         onContextMenu={rowActions ? onContextMenu : undefined}
       />
       {rowActions ? (
@@ -89,4 +103,4 @@ export function AgentContactRow({
       ) : null}
     </>
   )
-}
+})

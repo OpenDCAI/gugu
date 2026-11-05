@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import type { TFunction } from 'i18next'
 import { messageActionItems, messageSelectionActionItems } from '../../../../apps/desktop/src/components/chat/messageActionItems'
+import { MessageSquare, Reply } from '../../../../apps/desktop/src/lib/icons'
 // Opt-in contract for the follow-up rollout; production defaults are covered separately.
 vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 const t = ((key: string) => key) as TFunction<'messaging'>
@@ -29,4 +30,9 @@ it('offers the existing reaction picker from a selected message and respects ret
   action!.onSelect!()
   expect(onShowReactions).toHaveBeenCalledOnce()
   expect(messageSelectionActionItems({ ...target, isRetracted: true }, t).find(item => item.key === 'react')?.disabled).toBe(true)
+})
+it('marks Open a topic with the topic icon, not the Reply arrow', () => {
+  const items = messageActionItems({ isRetracted: false, content: 'Alpha', onReply: vi.fn(), onOpenTopic: vi.fn() }, t)
+  expect(items.find(item => item.key === 'reply')?.icon).toBe(Reply)
+  expect(items.find(item => item.key === 'openTopic')?.icon).toBe(MessageSquare)
 })

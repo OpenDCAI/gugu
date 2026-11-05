@@ -4,7 +4,7 @@
 
 /**
  * Detect programming language from file path extension.
- * Returns a language identifier compatible with Monaco Editor.
+ * Returns a Prism-style language identifier.
  */
 export function getLanguageFromPath(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() || '';

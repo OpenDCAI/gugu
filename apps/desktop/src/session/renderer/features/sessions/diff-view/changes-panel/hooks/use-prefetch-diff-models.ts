@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { isBinaryForDiff } from '@renderer/lib/editor/fileKind';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
-import { buildMonacoModelPath } from '@renderer/lib/monaco/monacoModelPath';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
+import { buildModelUri } from '@renderer/lib/text-model/model-uri';
 import { getLanguageFromPath } from '@renderer/utils/languageUtils';
 import { HEAD_REF, STAGED_REF, type GitRef } from '@shared/core/git/types';
 
@@ -11,7 +11,7 @@ interface PrefetchEntry {
 }
 
 /**
- * Returns a stable callback that pre-warms Monaco models on hover so that when the user
+ * Returns a stable callback that pre-warms text models on hover so that when the user
  * clicks to open a diff the models are already loaded. Models are unregistered on unmount.
  * TTL eviction (60 s after last subscriber leaves) handles any remaining cleanup.
  *
@@ -42,7 +42,7 @@ export function usePrefetchDiffModels(
       if (isBinaryForDiff(filePath)) return;
       const language = getLanguageFromPath(filePath);
       const root = `workspace:${workspaceId}`;
-      const uri = buildMonacoModelPath(root, filePath);
+      const uri = buildModelUri(root, filePath);
       const entry: PrefetchEntry = { gitUris: [] };
 
       if (group === 'disk') {

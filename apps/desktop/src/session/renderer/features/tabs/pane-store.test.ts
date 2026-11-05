@@ -25,7 +25,7 @@ vi.mock('@renderer/lib/ipc', () => ({
   },
 }));
 
-vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({
+vi.mock('@renderer/lib/text-model/model-registry', () => ({
   modelRegistry: {
     dirtyUris: new Set<string>(),
     isDirty: vi.fn(() => false),

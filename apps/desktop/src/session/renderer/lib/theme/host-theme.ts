@@ -5,7 +5,7 @@
  * 于是同一个 `<html>` 上挂着两套互不相干的标记:`data-theme="light"`(咕咕)和
  * `class="emdark"`(会话页)。CSS 层面碰巧不出事——`EmdashSessionFrame` 会把跟随咕咕的
  * emlight/emdark 打在**挂载元素**上,离得近所以赢了根上那个错的。但读 JS 的那批消费者
- * (plugin-icon 选明暗图标变体、monaco、sonner、代码高亮)拿的是会话页那份,全都拿到 emdark。
+ * (plugin-icon 选明暗图标变体、代码编辑器、sonner、代码高亮)拿的是会话页那份,全都拿到 emdark。
  * owner 实遇的症状:亮色主题下 Grok 的图标是**白的**,画在白底上,那一行看起来就是个洞
  * (实测 fill=#fff、data-theme=light)。
  *

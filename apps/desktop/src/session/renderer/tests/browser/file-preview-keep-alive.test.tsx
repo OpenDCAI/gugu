@@ -44,7 +44,7 @@ vi.mock('@renderer/features/sessions/editor/stores/file-model-manager', () => ({
 vi.mock('@renderer/features/sessions/editor/stores/file-tab-resource', () => ({ FileTabResource: class {} }));
 vi.mock('@renderer/features/sessions/workspace-backend/workspace-backend', () => ({ workspaceBackend: vi.fn() }));
 vi.mock('@renderer/lib/modal/modal-provider', () => ({ showModal: vi.fn() }));
-vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({
+vi.mock('@renderer/lib/text-model/model-registry', () => ({
   modelRegistry: { deletedOnDisk: new Set(), isDirty: () => false },
 }));
 vi.mock('@renderer/localization/use-session-messages', () => ({

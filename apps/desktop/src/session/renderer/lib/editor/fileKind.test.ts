@@ -31,7 +31,7 @@ describe('#7191 Office 文件的种类', () => {
     for (const path of ['/tmp/a.xlsx', '/tmp/b.docx', '/tmp/c.pptx']) expect(attachmentOpenTarget(path)).toBe('editor');
   });
 
-  it('差异视图里 Office 文件按二进制处理(❌ 当文本塞进 Monaco)', () => {
+  it('差异视图里 Office 文件按二进制处理(❌ 当文本塞进编辑器)', () => {
     expect(isBinaryForDiff('a.xlsx')).toBe(true);
     expect(isBinaryForDiff('a.docx')).toBe(true);
     expect(isBinaryForDiff('a.ts')).toBe(false);

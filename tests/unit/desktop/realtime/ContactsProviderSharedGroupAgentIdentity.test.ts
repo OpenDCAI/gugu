@@ -133,6 +133,25 @@ describe('ContactsProvider shared-group Agent projection', () => {
 })
 
 
+describe('ContactsProvider keeps an unchanged contact the same object across a full re-read', () => {
+  it('a refetch that renames one agent replaces that contact only; the rest stay the objects rows already hold', async () => {
+    const agent = (id: string, name: string): ContactUser => ({ id, display_name: name, avatar: null, bio: null, type: 'agent', owner_user_id: 'user-1' })
+    contactsServiceMock.getContacts.mockResolvedValueOnce([agent('a', 'A'), agent('b', 'B'), agent('c', 'C')])
+    const harness = await renderProvider()
+    try {
+      const before = store!.contacts
+      expect(before.map((c) => c.display_name)).toEqual(['A', 'B', 'C'])
+      contactsServiceMock.getContacts.mockResolvedValueOnce([agent('a', 'A'), agent('b', 'B2'), agent('c', 'C')])
+      await act(async () => { await store!.refreshContacts() })
+      const after = store!.contacts
+      expect(after.map((c) => c.display_name)).toEqual(['A', 'B2', 'C'])
+      expect(after[0]).toBe(before[0])
+      expect(after[1]).not.toBe(before[1])
+      expect(after[2]).toBe(before[2])
+    } finally { harness.cleanup() }
+  })
+})
+
 describe('agent rename canonical publication #6021', () => {
   it('publishes the confirmed identity and normalized name through the existing local persistence bridge', async () => {
     const updated = { ...sharedGroupAgent, owner_user_id: 'user-1', display_name: '新名字' }

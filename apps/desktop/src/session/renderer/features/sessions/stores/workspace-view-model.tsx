@@ -2,7 +2,7 @@ import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 import type { ILifecycle } from '@gugu/session-shared';
-import { computed, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
+import { makeAutoObservable, observable, reaction, runInAction } from 'mobx';
 import { DefaultSessionSeeder } from '@renderer/features/sessions/default-session-seeder';
 import { startAppPlacementSync } from '@renderer/features/extensions/app-placement-sync';
 import {
@@ -15,7 +15,6 @@ import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab
 import { getDiffTabManager } from '@renderer/features/sessions/diff-view/stores/diff-tab-manager';
 import { DiffViewStore } from '@renderer/features/sessions/diff-view/stores/diff-view-store';
 import { EditorViewStore } from '@renderer/features/sessions/editor/stores/editor-view-store';
-import type { FileTabResource } from '@renderer/features/sessions/editor/stores/file-tab-resource';
 import { PreviewServerStore } from '@renderer/features/sessions/stores/preview-server-store';
 import { TerminalTabViewStore } from '@renderer/features/sessions/terminals/terminal-tab-view-store';
 import { type SidebarTab } from '@renderer/features/sessions/types';
@@ -47,15 +46,6 @@ import { resolveWorkspacePath } from './workspace-path';
 import { workspaceRegistry } from './workspace-registry';
 import { makeFileLinkHandlers } from './open-file-in-file-editor';
 import { workspaceReachLabel, type WorkspaceSurface, type WorkspaceSurfaceWorkspace } from '../workspace-backend/workspace-surface';
-
-export type RendererKind =
-  | 'monaco'
-  | 'markdown'
-  | 'diff'
-  | 'agents'
-  | 'browser'
-  | 'terminal'
-  | 'other-file';
 
 export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   sidebarTab: SidebarTab;
@@ -146,7 +136,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       terminalTabs: false,
       editorView: false,
       diffView: observable.ref,
-      activeRenderer: computed,
     });
 
     // Tell the engine whether this task is visible so panes can
@@ -324,18 +313,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   // -------------------------------------------------------------------------
   // Computed
   // -------------------------------------------------------------------------
-
-  get activeRenderer(): RendererKind {
-    const desc = this.activePane.activeEntry;
-    if (desc?.kind === 'diff') return 'diff';
-    if (desc?.kind === 'browser') return 'browser';
-    if (desc?.kind === 'terminal') return 'terminal';
-    const resource = this.activePane.activeResourceOfKind<FileTabResource>('file');
-    if (!resource) return 'agents';
-    if (resource.contentType === 'markdown' && resource.viewMode === 'preview') return 'markdown';
-    if (resource.contentType === 'text' || resource.viewMode === 'source') return 'monaco';
-    return 'other-file';
-  }
 
   get snapshot(): SessionViewSnapshot {
     return {

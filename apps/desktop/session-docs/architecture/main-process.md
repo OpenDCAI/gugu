@@ -11,7 +11,7 @@ The main process is organized into domain modules under `apps/desktop/electron/s
 - **app** — App lifecycle service and controller
 - **conversations** — Conversation CRUD and session start
 - **dependencies** — CLI agent detection, probing, dependency management
-- **editor** — Editor buffer service for Monaco integration
+- **editor** — Editor buffer service (crash-recovery drafts) for the file editor
 - **fs** — Filesystem operations with provider pattern (`local-fs.ts`, `ssh-fs.ts`)
 - **git** — Git operations (`git-service.ts`, `git-repo-utils.ts`, `detectGitInfo.ts`)
 - **github** — GitHub auth, PRs, issues, repos (via `gh` CLI)

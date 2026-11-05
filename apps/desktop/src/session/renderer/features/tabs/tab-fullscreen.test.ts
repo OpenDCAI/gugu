@@ -20,7 +20,7 @@ describe('tab full screen: Esc', () => {
     expect(escapeIsFree(add('<input />'))).toBe(false);
     expect(escapeIsFree(add('<div contenteditable="true"></div>'))).toBe(false);
     expect(escapeIsFree(add('<div class="xterm"><textarea class="xterm-helper-textarea"></textarea></div>').querySelector('textarea'))).toBe(false);
-    expect(escapeIsFree(add('<div class="monaco-editor"><span></span></div>').firstElementChild)).toBe(false);
+    expect(escapeIsFree(add('<div class="cm-editor"><span></span></div>').firstElementChild)).toBe(false);
     add('<div role="dialog"></div>');
     expect(escapeIsFree(document.body)).toBe(false);
   });

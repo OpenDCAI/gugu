@@ -13,10 +13,10 @@ import {
 import { CodeMirrorDiffEditor } from '@renderer/lib/codemirror/diff-editor';
 import { HtmlContentRenderer } from '@renderer/lib/editor/html-renderer';
 import { resolveWorkspaceResourcePath } from '@renderer/lib/editor/workspace-resource-path';
-import { ModelStatusOverlay } from '@renderer/lib/monaco/model-status-overlay';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
-import { buildMonacoModelPath } from '@renderer/lib/monaco/monacoModelPath';
-import { useModelStatus } from '@renderer/lib/monaco/use-model';
+import { ModelStatusOverlay } from '@renderer/lib/text-model/model-status-overlay';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
+import { buildModelUri } from '@renderer/lib/text-model/model-uri';
+import { useModelStatus } from '@renderer/lib/text-model/use-model';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import { getLanguageFromPath } from '@renderer/utils/languageUtils';
 import { HEAD_REF, STAGED_REF } from '@shared/core/git/types';
@@ -67,7 +67,7 @@ const TextDiffRenderer = observer(function TextDiffRenderer({ tab }: DiffFileRen
   const diffView = useWorkspaceSurface().diffView;
 
   const root = `workspace:${workspaceId}`;
-  const uri = buildMonacoModelPath(root, tab.path);
+  const uri = buildModelUri(root, tab.path);
   const language = getLanguageFromPath(tab.path);
 
   const originalUri = (() => {

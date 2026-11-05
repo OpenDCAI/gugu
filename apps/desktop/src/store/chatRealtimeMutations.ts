@@ -3,6 +3,7 @@ import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService } from '../lib/chat'
 import { cloudReadTarget, writeRead } from '../lib/readWriter'
 import { mergeMemberReadSeqs } from '@gugu/core/shared/ui/messageState'
+import { readsWholeChat } from '@gugu/core/shared/ui/chatModels'
 import { i18n } from '@/i18n'
 
 // @@@realtime-single-msg-mutations — 从 store/chat.tsx 抽出的「实时事件只改动单条消息」处理：全局删除
@@ -120,6 +121,26 @@ export async function persistManualUnread(
     console.error('[ChatStore] markUnread failed', error)
     showError(i18n.t('chatList.markUnreadFailed', { ns: 'messaging' }), 'error')
   }
+}
+
+/** A DM on screen is read whole (readsWholeChat); groups and topics only up to what is visible at the tail. */
+export function chatReadsWhole(chats: readonly ChatItem[], chatId: string): boolean {
+  const kind = chats.find((c) => c.id === chatId)?.kind
+  return !!kind && readsWholeChat(kind)
+}
+
+/** How far a read fact reaches: a DM (readsWholeChat) is read to its tail, every other chat up to what was seen. */
+export function wholeReadSeq(chats: readonly ChatItem[], chatId: string, seenSeq: number): number {
+  const chat = chats.find((c) => c.id === chatId)
+  return chat && readsWholeChat(chat.kind) ? Math.max(seenSeq, chat.next_message_seq - 1) : seenSeq
+}
+
+/** A message seen on screen moves the watermark; a DM clears its counters, other chats keep theirs until the tail is confirmed. */
+export function advanceSeenReadWatermark(chats: ChatItem[], chatId: string, seenSeq: number, patchChat: PatchChat): void {
+  const chat = chats.find((c) => c.id === chatId)
+  const seq = wholeReadSeq(chats, chatId, seenSeq)
+  if (chat && seq > chat.last_read_seq)
+    advanceReadWatermark(chats, chatId, seq, patchChat, readsWholeChat(chat.kind) ? undefined : { unread_count: chat.unread_count, unread_locator: chat.unread_locator })
 }
 
 export function advanceReadWatermark(

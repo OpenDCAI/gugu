@@ -1,10 +1,9 @@
 import { observer } from 'mobx-react-lite';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useTheme } from '@renderer/lib/hooks/useTheme';
-import { ModelStatusOverlay } from '@renderer/lib/monaco/model-status-overlay';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
-import { monacoBootstrap } from '@renderer/lib/monaco/monaco-bootstrap';
-import { useModelStatus } from '@renderer/lib/monaco/use-model';
+import { ModelStatusOverlay } from '@renderer/lib/text-model/model-status-overlay';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
+import { useModelStatus } from '@renderer/lib/text-model/use-model';
 import { log } from '@renderer/utils/logger';
 import { createDiffController } from './diff-controller';
 import { loadLanguage } from './languages';
@@ -31,10 +30,10 @@ export const CodeMirrorDiffEditor = observer(function CodeMirrorDiffEditor({ ori
     const original = modelRegistry.getModelByUri(originalUri);
     const modified = modelRegistry.getModelByUri(modifiedUri);
     if (!original || !modified) throw new Error('Ready diff models are missing');
-    void Promise.all([monacoBootstrap.init(), loadLanguage(modified.getLanguageId())]).then(([monaco, language]) => {
+    void loadLanguage(modified.languageId).then((language) => {
       if (disposed || !mount.current) return;
       controller = createDiffController({
-        parent: mount.current, monaco, original, modified, style: diffStyle, language,
+        parent: mount.current, original, modified, style: diffStyle, language,
         dark: effectiveTheme !== 'emlight', saved: modelRegistry.restoreDiffViewState(originalUri, modifiedUri),
         save: () => { void modelRegistry.saveFileToDisk(modifiedUri); },
       });

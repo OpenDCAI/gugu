@@ -1,6 +1,7 @@
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { AgentContactRow } from './contacts/AgentContactRow'
+import { useAgentRowActions } from '@/hooks/useAgentRowActions'
 import { contactAgents, peopleContacts } from './contacts/contactSelectors'
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
@@ -399,6 +400,7 @@ function ContactsThreeSectionSidebar({
     [onGroupPin, onGroupToggleNotif, onGroupLeaveOrDissolve, groupPinned, groupNotifMuted]
   )
   const [personCollapsed, setPersonCollapsed] = useState(false)
+  const agentRowActions = useAgentRowActions({ onSelect: onSelectContact, onToggleSelection: onToggleContact, onStartChat, onPin, onMarkUnread, onToggleNotif, onRemove })
 
   // #2598 三分区此前完全无排序(置顶点了位置不动 = 假开关)。置顶前置走 contactsListSort,与移动端同一条链路。
   const isContactPinned = useCallback((c: ContactUser) => contactPinned?.get(c.id) ?? false, [contactPinned])
@@ -457,15 +459,13 @@ function ContactsThreeSectionSidebar({
           onCreateGroup={onCreateGroup}
           renderAgent={(c) => (
             <AgentContactRow
-              key={c.id}
-              contact={c}
+              key={c.id} contact={c}
               selected={c.id === selectedContactId}
               multiSelected={selectedContactIds.has(c.id)}
               selectionMode={selectionMode && c.owner_user_id === currentUserId}
               pinned={isContactPinned(c)}
-              onSelect={() => onSelectContact(c)}
-              onToggleSelection={() => onToggleContact(c)}
-              menu={c.owner_user_id === currentUserId ? buildRowMenu(c) : undefined}
+              notifMuted={contactNotifMuted?.get(c.id) ?? false} actions={agentRowActions}
+              removeLabel={c.owner_user_id === currentUserId && onPin && onMarkUnread && onToggleNotif && onRemove ? getContactRemoveLabel(c) : undefined}
             />
           )}
           renderGroup={(g) => (

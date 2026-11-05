@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({
+vi.mock('@renderer/lib/text-model/model-registry', () => ({
   modelRegistry: {
     bufferVersions: new Map<string, number>(),
     getText: (uri: string) => (uri.endsWith('.html') ? '<html><head><title>Q3 report</title></head></html>' : null),
@@ -20,7 +20,7 @@ const ctx = {
 
 /**
  * #5585: a file outside every workspace used to get no model at all, so every preview
- * had to decide for itself whether to ask the tab or Monaco — and two of the four got
+ * had to decide for itself whether to ask the tab or the model registry — and two of the four got
  * it wrong. One address per tab is what removes that decision.
  */
 describe('FileTabResource.bufferUri', () => {

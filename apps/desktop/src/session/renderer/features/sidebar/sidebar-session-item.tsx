@@ -273,8 +273,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     (child) => moveSessionUnder(child, { projectId, sessionId, title: row.title }, sidebarStore.parentOf(child.sessionId))
   );
 
-  // @@@done-unread 「做完未读」= idle + 未 seen —— 表达方式见 sidebar-session-row。
-  const doneUnread = agentUserId ? presentation?.emphasis === true : row.status === 'idle' && !row.seen;
+  // @@@done-unread 「做完未读」= idle + 未 seen —— 表达方式见 sidebar-session-row。agent 发给主人的通知没读,
+  // 也只是这一行加粗,❌ 出数字(owner 11-05);数字只在聊天页那一行。
+  const doneUnread = (agentUserId ? presentation?.emphasis === true : row.status === 'idle' && !row.seen) || notificationCount > 0;
 
   // owner 10-28:会话列表里不标机器(机器只在悬停卡里写)。只剩一样:挂在父会话下、与父会话不在同一个项目行的 child 标它的项目。
   const projectLabel =
@@ -368,7 +369,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       lastInteractedAt={row.lastInteractedAt}
       schedule={row.schedule ?? null}
       doneUnread={doneUnread}
-      notificationCount={notificationCount}
       isActive={isActive}
       isCursor={isCursor}
       isPendingArchive={isPendingArchive}

@@ -57,7 +57,7 @@ interface EmdashAssets {
 /**
  * 会话页的一张构建 CSS,以 `<link rel="stylesheet">` 挂进 document.head(@@@entry-css-as-link)。
  * ❌ 别回到「取下文本、注成 <style>」:vite 的预载助手判断一张 CSS 是否已在，只认 `link[href]`。注成 <style> 时它认不出，
- * 只要某个动态 import 的依赖清单里出现了入口那张表(比如 Monaco 的 editor.main 静态引了入口 chunk),它就再插一个 link ——
+ * 只要某个动态 import 的依赖清单里出现了入口那张表(比如某个大编辑器包静态引了入口 chunk),它就再插一个 link ——
  * 477 KB 重新下载、重新解析、字体重新取(mac1 实测：第一次打开 diff 因此慢 40–50 ms)。用 link 挂，相对 url() 也按表自己的位置解析，
  * 不必再改写。
  */
@@ -356,15 +356,15 @@ const GUGU_SKIN_BRIDGE_CSS = `
    :where() 保零特异度,!important 只用来稳赢 preflight。
    .gg-md 的后代排除:共享 markdown 排版自己定字体(正文继承这里的 Sora、代码行 mono、公式 KaTeX),
    被钉成 Sora 的是代码里的着色 span 和整棵 KaTeX 子树。 */
-.gugu-skin :where(:not(code):not(pre):not(kbd):not(samp):not([class*='mono']):not(.monaco-editor):not(.monaco-editor *):not(.cm-editor):not(.cm-editor *):not(.xterm):not(.xterm *):not([class*='devicon']):not([class*='codicon']):not([data-chat-root]):not([data-chat-root] *):not(.gg-md *)) {
+.gugu-skin :where(:not(code):not(pre):not(kbd):not(samp):not([class*='mono']):not(.cm-editor):not(.cm-editor *):not(.xterm):not(.xterm *):not([class*='devicon']):not([class*='codicon']):not([data-chat-root]):not([data-chat-root] *):not(.gg-md *)) {
   font-family: var(--em-font-sans) !important;
 }
 /* 图标字体排除(找茬 #8):会话页带 devicon(woff/ttf,element 级 font-family:'devicon')做技术/语言
    图标——若被上面 !important 钉成 Sora 会渲成豆腐块。排除 devicon/codicon 类,让会话页自带的图标
-   字体声明生效(codicon 在 .monaco-editor 内已被排除)。icon = SVG(lucide 等)不受 font-family 影响。 */
+   字体声明生效。icon = SVG(lucide 等)不受 font-family 影响。 */
 
 /* 光排除还不够:排除只挡住"直接命中 mono 元素/子树"的那一条规则,但 Sora 仍会从
-   MONACO/XTERM 容器的祖先(被上面那条规则改成 Sora)顺着继承流进 .xterm/.monaco-editor
+   编辑器/XTERM 容器的祖先(被上面那条规则改成 Sora)顺着继承流进 .xterm/.cm-editor
    内部没有自己 font-family 声明的节点(实测验证:.xterm 根节点原本无显式声明,靠继承,
    排除后仍读到 Sora)。故这里对 mono 区域做一条正向兜底,显式钉回 --em-font-mono——
    真选择器(非 :where())给够特异度,不依赖 !important 同权重下的源序仲裁。 */
@@ -373,8 +373,6 @@ const GUGU_SKIN_BRIDGE_CSS = `
 .gugu-skin kbd,
 .gugu-skin samp,
 .gugu-skin [class*='mono'],
-.gugu-skin .monaco-editor,
-.gugu-skin .monaco-editor *,
 .gugu-skin .cm-editor,
 .gugu-skin .cm-editor *,
 .gugu-skin .xterm {

@@ -314,12 +314,28 @@ it.each(['dm', 'group'] as const)('inactive selected %s ignores real visible row
   expect(latestStore!.chats[0]).toMatchObject(tuple)
   expect(readMock).not.toHaveBeenCalled()
 })
-it.each(['dm', 'group'] as const)('active selected %s still acknowledges only the visible row with sparse counts intact', async kind => {
-  await open(kind)
+it('active selected group still acknowledges only the visible row with sparse counts intact', async () => {
+  await open('group')
   await activity(true)
   await act(async () => { latestStore!.markMessageVisible(visible()) })
   expect(latestStore!.chats[0]).toMatchObject({ ...tuple, last_read_seq: 5, read_state_version: 9 })
   expect(readMock.mock.calls.map(([target]) => target.kind)).toEqual(['main', 'receipt'])
+})
+// owner 11-05: opening a DM reads all of it; it is never read message by message.
+const dmReadWhole = { last_read_seq: 7, read_state_version: 9, unread_count: 0, unread_locator: null, is_marked_unread: false }
+it('active selected DM reads to its tail from any visible row and clears the count', async () => {
+  await open('dm')
+  await activity(true)
+  await act(async () => { latestStore!.markMessageVisible(visible()) })
+  expect(latestStore!.chats[0]).toMatchObject(dmReadWhole)
+  expect(readMock.mock.calls.filter(([target]) => target.kind === 'main').map(([target]) => target.seq)).toEqual([7])
+})
+it('opening a DM in the foreground reads it whole although its loaded tail is offscreen', async () => {
+  useRealList = true; measuredIds.add('peer-5')
+  host.active = true
+  await open('dm', [visible(5), visible(7)])
+  expect(latestStore!.chats[0]).toMatchObject(dmReadWhole)
+  expect(readMock.mock.calls.filter(([target]) => target.kind === 'main').map(([target]) => target.seq)).toEqual([7])
 })
 it('a previously active callback cannot acknowledge after the native host loses activity', async () => {
   await open('dm'); await activity(true)
@@ -330,7 +346,7 @@ it('a previously active callback cannot acknowledge after the native host loses 
   expect(readMock).not.toHaveBeenCalled()
 })
 it('foregrounding remeasures current visible rows once without a new message or list refresh', async () => {
-  await open('dm')
+  await open('group')
   reportVisible = true
   await act(async () => { await latestStore!.refreshMessages('chat-1') })
   expect(readMock).not.toHaveBeenCalled()
@@ -363,9 +379,9 @@ it('a self-authored DM row does not acquire an incoming receipt when foregrounde
   expect(readMock).not.toHaveBeenCalled()
 })
 
-it.each(['dm', 'group'] as const)('real MessageList remeasures %s on foreground and leaves its offscreen loaded tail unread', async kind => {
+it('real MessageList remeasures a group on foreground and leaves its offscreen loaded tail unread', async () => {
   useRealList = true; measuredIds.add('peer-5')
-  await open(kind, [visible(5), visible(7)])
+  await open('group', [visible(5), visible(7)])
   expect(harness!.container.querySelector('[data-msg-id="peer-5"]')).not.toBeNull()
   expect(latestStore!.chats[0]).toMatchObject(tuple)
   expect(readMock).not.toHaveBeenCalled()

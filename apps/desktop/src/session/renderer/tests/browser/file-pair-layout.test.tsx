@@ -22,7 +22,7 @@ vi.mock('@renderer/features/sessions/editor/file-content-toolbar', () => ({
   ),
 }));
 vi.mock('@renderer/features/sessions/workspace-backend/workspace-backend', () => ({ workspaceBackend: vi.fn() }));
-vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({ modelRegistry: { deletedOnDisk: new Set() } }));
+vi.mock('@renderer/lib/text-model/model-registry', () => ({ modelRegistry: { deletedOnDisk: new Set() } }));
 vi.mock('@renderer/localization/use-session-messages', () => ({
   useSessionMessages: () => ({ translate: (key: string) => key }),
 }));

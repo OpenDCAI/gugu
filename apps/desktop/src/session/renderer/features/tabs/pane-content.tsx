@@ -9,7 +9,8 @@ import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
 import { tabFullscreen, WORKSPACE_ANCHOR } from './tab-fullscreen';
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 
-const CONTENT_FOCUS_SELECTOR = '.native-edit-context, textarea:not([readonly]), webview, [data-browser-page], [contenteditable="true"]';
+// 文件编辑器收字的是 `.cm-content`(可编辑时 contenteditable)。浏览器页签的网页是主进程的 view,页签里只有它的占位 `[data-browser-page]`。
+const CONTENT_FOCUS_SELECTOR = '.cm-content, textarea:not([readonly]), webview, [data-browser-page], [contenteditable="true"]';
 const FULLSCREEN_STYLE = {
   position: 'fixed', positionAnchor: WORKSPACE_ANCHOR,
   top: 'anchor(top)', bottom: 'anchor(bottom)', left: 'anchor(left)', right: 'anchor(right)',

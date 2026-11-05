@@ -6,6 +6,7 @@ import { Avatar } from '@/components/Avatar'
 import { NewFriendsPanel } from '@/components/NewFriendsPanel'
 import { ContactDetail } from '@/components/contacts/ContactDetail'
 import { AgentContactRow } from '@/components/contacts/AgentContactRow'
+import { useAgentRowActions } from '@/hooks/useAgentRowActions'
 import { peopleContacts } from '@/components/contacts/contactSelectors'
 import { GroupInviteJoinModal } from '@/components/contacts/GroupInvite'
 import { rowKeyActivate } from '@/components/contacts/contactsPanelStyles'
@@ -170,6 +171,7 @@ export function PhonePartnersPage({
   const shownProjects = projects.filter((project) => matchesQuery(project.name, query))
   const shownFriends = friends.filter((friend) => matchesQuery(displayName(friend), query))
   const shownGroupAgents = groupAgents.filter(agent => matchesQuery(displayName(agent), query))
+  const groupAgentActions = useAgentRowActions({ onSelect: (agent) => push({ kind: 'friend', contactId: agent.id }) })
   const searching = query.trim() !== ''
 
   const projectPage = (page: Extract<PartnersPage, { kind: 'project' }>) => {
@@ -270,8 +272,7 @@ export function PhonePartnersPage({
               })}
               {shownGroupAgents.length ? <SectionLabel>{t('partners.groupAgents', { count: shownGroupAgents.length })}</SectionLabel> : null}
               {shownGroupAgents.map(agent => (
-                <AgentContactRow key={agent.id} contact={agent} mobile selected={false} testId="phone-partners-group-agent"
-                  onSelect={() => push({ kind: 'friend', contactId: agent.id })} />
+                <AgentContactRow key={agent.id} contact={agent} mobile selected={false} testId="phone-partners-group-agent" actions={groupAgentActions} />
               ))}
               {searching && !shownProjects.length && !shownFriends.length && !shownGroupAgents.length ? <div className="gg-partners-empty">{t('partners.noResults')}</div> : null}
             </div>
