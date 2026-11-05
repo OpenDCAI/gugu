@@ -60,7 +60,7 @@ import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
 import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { TabBarAddMenu } from '../session/renderer/features/sessions/tab-bar-actions'; import { useTabsReading } from './appSlot/useTabsReading'
-import { folderItem, isFolderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeChatTab, closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { folderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { useTopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import { topicService } from '@/lib/topics'
@@ -243,17 +243,14 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const opener = useChatOpener(activeChatId)
   const inBlock = Boolean(blockHost)
   const tabs = useTabsReading(() => {
-    if (!activeChatId) return { folder: null as ChatPanelTab | null, page: null as ChatPanelTab | null, chatUp: true, infoShown: false }
+    if (!activeChatId) return { page: null as ChatPanelTab | null, chatUp: true, infoShown: false }
     const panels = panelTabsOf(activeChatId)
     const focused = focusedChatTab(activeChatId)
-    // In a block the folder is pressed while it is on screen; without a strip (the phone) while it is the page in front.
-    const folder = panels.find((tab) => isFolderItem(tab.item) && (inBlock ? tab.shown : tab.tabId === focused?.tabId)) ?? null
     const full = panels.find((tab) => panelFull(activeChatId, tab.tabId)) ?? null
     const info = infoTabOf(activeChatId)
-    return { folder, page: full, chatUp: inBlock ? !full : focused?.kind !== 'panel', infoShown: inBlock ? Boolean(info?.shown) : focused?.kind === 'info' }
+    return { page: full, chatUp: inBlock ? !full : focused?.kind !== 'panel', infoShown: inBlock ? Boolean(info?.shown) : focused?.kind === 'info' }
   }, [activeChatId, inBlock])
   const handleOpenFolder = useCallback(() => { if (activeChatId) { closeRightSurfaces(); openPanelItem(activeChatId, folderItem()) } }, [activeChatId, closeRightSurfaces])
-  const handleCloseWorkspacePanel = useCallback(() => { if (activeChatId && tabs.folder) closeChatTab(activeChatId, tabs.folder.tabId) }, [activeChatId, tabs.folder])
   // A block draws its shown tabs in the engine's slots; without a strip, one focused page covers the chat (topics too).
   const coverChat = (page: ReactNode) => mobile ? <RightPanel>{page}</RightPanel> : <div className="absolute inset-0 z-20 flex flex-col bg-[var(--bg-primary)]">{page}</div>
   const inTabs = (topicPane: ReactNode, infoPage: () => ReactNode) => !activeChatId ? null : blockHost ? <ChatTabPortals chatId={activeChatId} panel={panelContent} topic={() => topicPane} info={infoPage} /> : <ChatTabPage chatId={activeChatId} panel={(tab) => coverChat(panelContent(tab))} topic={() => topicPane} info={() => coverChat(infoPage())} />
@@ -572,7 +569,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         isGroupChat={isGroupChat}
         isRoomChat={isRoomChatSurface}
         searchMode={searchMode}
-        folderShown={tabs.folder !== null}
         infoShown={tabs.infoShown}
         showHeaderMenu={showHeaderMenu}
         mobile={mobile}
@@ -585,7 +581,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         moreButtonRef={moreButtonRef}
         onEnterSearchMode={() => setSearchMode(true)}
         onOpenFolder={handleOpenFolder}
-        onCloseWorkspacePanel={handleCloseWorkspacePanel}
         onOpenInfo={(page) => { if (activeChatId) openInfoTab(activeChatId, page) }}
         onCloseInfo={() => { if (activeChatId) closeInfoTab(activeChatId) }}
         onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}

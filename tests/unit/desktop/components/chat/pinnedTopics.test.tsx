@@ -34,8 +34,8 @@ const summaries = topics.map((topic) => ({ chat_id: topic.id, name: topic.name, 
 function save(ids: string[], userId = 'u') { io.rows.set(`${userId}/chat:g`, { scope: 'chat:g', config: { pinnedTopicIds: ids }, updated_at: '2026-10-29T00:00:00.000Z' }) }
 const options = (userId = 'u') => ({ auth: { id: userId }, chat: { activeChatId: 'g', chats: topics } })
 const topicMenu = () => createNode(ChatHeaderActions, {
-  isGroupChat: true, isRoomChat: true, searchMode: false, folderShown: false, infoShown: false, showHeaderMenu: false,
-  moreButtonRef: createRef<HTMLButtonElement>(), onEnterSearchMode: vi.fn(), onOpenFolder: vi.fn(), onCloseWorkspacePanel: vi.fn(),
+  isGroupChat: true, isRoomChat: true, searchMode: false, infoShown: false, showHeaderMenu: false,
+  moreButtonRef: createRef<HTMLButtonElement>(), onEnterSearchMode: vi.fn(), onOpenFolder: vi.fn(),
   onOpenInfo: vi.fn(), onCloseInfo: vi.fn(), onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(),
 })
 const savedPins = () => (io.rows.get('u/chat:g')?.config as { pinnedTopicIds?: string[] } | undefined)?.pinnedTopicIds
