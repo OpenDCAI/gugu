@@ -970,6 +970,53 @@ if (args[0] === 'pr') {
       ).toBeUndefined()
       expect(parseJobOutputsAnnotations([{ title: JOB_OUTPUTS_MARKER, message: 'build true' }])).toBeUndefined()
     })
+
+    it('retains the original decision for a proven inherited decider after a single-job rerun', () => {
+      const profiles = realCiProfiles()
+      const runs = snapshot(profiles, {
+        [MAC]: skipped,
+        [ANDROID]: skipped,
+      })
+      const original = runs.find(run => run.name === DECIDER)!
+      const inherited = { ...original, id: original.id + 1000 }
+      runs.push(inherited)
+      const fetchAnnotations = vi.fn((id: number) => id === original.id
+        ? [{ title: JOB_OUTPUTS_MARKER, message: 'build=true desktop-mac=false android=false' }]
+        : [])
+
+      attachDeciderOutputs(runs, profiles, fetchAnnotations, id => id === inherited.id ? original.id : undefined)
+
+      expect(evaluateCheckSnapshots(profiles, [runs, runs])).toMatchObject({
+        verdict: 'GREEN', failed: [], missing: [], pending: [],
+        skippedNotDue: [`pull_request/${ANDROID}`, `pull_request/${MAC}`],
+      })
+    })
+
+    it.each(['unproven', 'failed-source', 'wrong-source', 'wrong-event', 'missing-source-marker',
+      'malformed-source', 'duplicate-source', 'malformed', 'duplicate'] as const)(
+      'does not replace missing or invalid current evidence with an unrelated decision: %s', (scenario) => {
+        const profiles = realCiProfiles()
+        const runs = snapshot(profiles, { [ANDROID]: skipped })
+        const original = runs.find(run => run.name === DECIDER)!
+        const inherited = { ...original, id: original.id + 1000 }
+        runs.push(inherited)
+        if (scenario === 'failed-source') original.conclusion = 'failure'
+        if (scenario === 'wrong-source') original.name = 'Another decider'
+        if (scenario === 'wrong-event') original.event = 'push'
+        const marker = { title: JOB_OUTPUTS_MARKER, message: 'build=true desktop-mac=true android=false' }
+        attachDeciderOutputs(runs, profiles, (id) => {
+          if (id === original.id) {
+            if (scenario === 'missing-source-marker') return []
+            if (scenario === 'malformed-source') return [{ ...marker, message: 'android false' }]
+            return scenario === 'duplicate-source' ? [marker, marker] : [marker]
+          }
+          if (scenario === 'malformed') return [{ ...marker, message: 'android false' }]
+          if (scenario === 'duplicate') return [marker, marker]
+          return []
+        }, id => id === inherited.id && scenario !== 'unproven' ? original.id : undefined)
+        expect(evaluateCheckSnapshots(profiles, [runs, runs]).verdict).toBe('RED')
+      },
+    )
   })
 
 
