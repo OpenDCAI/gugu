@@ -1,5 +1,6 @@
 import { createRoot, type Root } from 'react-dom/client'
 import type { ReactNode } from 'react'
+import { observeLocalDiagnosticRoot } from './localRendererDiagnostics'
 
 /**
  * 渲染入口**唯一**的挂载口。两个入口(`main.tsx` 的 `#root`、会话页 `embedded.tsx` 的
@@ -68,6 +69,7 @@ export function hasEntryRoot(container: Element): boolean {
  * 整个桌面端界面被会话页替换,而日志里一个字都没有。
  */
 export function renderEntryRoot(owner: string, container: Element, tree: ReactNode): Root {
+  observeLocalDiagnosticRoot(container.getRootNode())
   const existing = ENTRY_ROOTS.get(container)
   if (existing) {
     if (existing.owner !== owner) {

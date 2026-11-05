@@ -4,15 +4,18 @@ import { useLayoutEffect, useState } from 'react'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { cn } from '@/lib/cn'
 import { useUiPortalContainer } from '@gugu/session-ui/react/primitives'
+import { noteOverlayRequest } from '@/lib/localRendererDiagnostics'
 
 type ClassNameProp = { className?: string }
 
 
-function DialogRoot({ children, open, onOpenChangeComplete, ...props }: DialogPrimitive.Root.Props) {
+function DialogRoot({ children, open, onOpenChange, onOpenChangeComplete, ...props }: DialogPrimitive.Root.Props) {
   // Keep the last committed portal until Base UI finishes closing.
   const [retained, setRetained] = useState(() => children)
   useLayoutEffect(() => { if (open && children != null) setRetained(() => children) }, [open, children])
-  return <DialogPrimitive.Root {...props} open={open} onOpenChangeComplete={(next) => {
+  return <DialogPrimitive.Root {...props} open={open} onOpenChange={(next, details) => {
+    try { onOpenChange?.(next, details) } finally { noteOverlayRequest(details, 'app-dialog', next) }
+  }} onOpenChangeComplete={(next) => {
     if (!next && open) return
     if (!next) setRetained(null)
     onOpenChangeComplete?.(next)

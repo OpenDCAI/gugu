@@ -5,9 +5,12 @@ import { useUiPortalContainer } from '@gugu/session-ui/react/primitives';
 import { Button } from '@renderer/lib/ui/button';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { cn } from '@renderer/utils/utils';
+import { noteOverlayRequest } from '@/lib/localRendererDiagnostics';
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+function Dialog({ onOpenChange, ...props }: DialogPrimitive.Root.Props) {
+  return <DialogPrimitive.Root data-slot="dialog" {...props} onOpenChange={(next, details) => {
+    try { onOpenChange?.(next, details) } finally { noteOverlayRequest(details, 'session-dialog', next) }
+  }} />;
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {

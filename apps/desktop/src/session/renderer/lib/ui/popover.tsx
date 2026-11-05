@@ -4,9 +4,12 @@ import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import * as React from 'react';
 import { useUiPortalContainer } from '@gugu/session-ui/react/primitives';
 import { cn } from '@renderer/utils/utils';
+import { noteOverlayRequest } from '@/lib/localRendererDiagnostics';
 
-function Popover({ ...props }: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
+function Popover({ onOpenChange, ...props }: PopoverPrimitive.Root.Props) {
+  return <PopoverPrimitive.Root data-slot="popover" {...props} onOpenChange={(next, details) => {
+    try { onOpenChange?.(next, details) } finally { noteOverlayRequest(details, 'session-popover', next) }
+  }} />;
 }
 
 function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {

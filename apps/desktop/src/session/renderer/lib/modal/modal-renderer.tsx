@@ -12,6 +12,7 @@ import { useUiPortalContainer } from '@gugu/session-ui/react/primitives';
 import { Dialog, DialogOverlay, DialogPortal } from '@renderer/lib/ui/dialog';
 import { cn } from '@renderer/utils/utils';
 import { modalStore } from './modal-store';
+import { noteOverlayRequest } from '@/lib/localRendererDiagnostics';
 
 const SIZE_CLASSES: Record<ModalSize, string> = {
   xs: 'sm:max-w-xs',
@@ -94,10 +95,10 @@ export const ModalRenderer = observer(function ModalRenderer() {
       }
 
       const isPassiveDismiss = isOutsidePress || eventDetails.reason === 'escape-key';
-      if (modalStore.closeGuardActive && isPassiveDismiss) return;
+      if (modalStore.closeGuardActive && isPassiveDismiss) { noteOverlayRequest(eventDetails, 'session-modal', false, 'blocked-close-guard'); return; }
       ignoreNextOutsidePressRef.current = false;
       // Esc / 点外面也是关掉,走这个弹窗自己的 onClose(每个 setModal 都带):等它结果的调用方才听得到。
-      modalStore.activeModalArgs?.onClose();
+      noteOverlayRequest(eventDetails, 'session-modal', false, 'close-requested'); modalStore.activeModalArgs?.onClose();
     }
   };
 

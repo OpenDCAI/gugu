@@ -1,4 +1,5 @@
 import { makeAutoObservable, observable } from 'mobx';
+import { noteOverlayRequest } from '@/lib/localRendererDiagnostics';
 
 class ModalStore {
   activeModalId: string | null = null;
@@ -21,6 +22,7 @@ class ModalStore {
   }
 
   setModal(id: string, args: Record<string, any>) {
+    noteOverlayRequest(null, 'session-modal', true);
     if (this.activeModalId !== id) {
       this.previousFocus = document.activeElement as HTMLElement | null;
     }
@@ -34,6 +36,7 @@ class ModalStore {
    * 打开它的按钮带着键盘焦点环挂在一个人已经离开的地方(搜索框回车打开结果后那圈蓝框),还会抢走动作自己落下的焦点。
    */
   closeModal(outcome: 'completed' | 'dismissed' = 'dismissed') {
+    noteOverlayRequest(null, 'session-modal', false);
     if (outcome === 'completed') this.previousFocus = null;
     this.closeGuardActive = false;
     this.activeModalId = null;
