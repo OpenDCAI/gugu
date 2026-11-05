@@ -139,6 +139,79 @@ describe('the newer page is requested from the at-bottom level, not only from sc
   })
 })
 
+describe('pagination does not measure layout when no page can be requested', () => {
+  async function setup({ hasNewer = false, loadNewerPresent = true, loading = false, atBottom = true, firstSeq = 11, scrollTop = 10_000 } = {}) {
+    const scrollHeight = vi.fn(() => 11_503)
+    const clientHeight = vi.fn(() => 776)
+    const scroller = document.createElement('div')
+    Object.defineProperties(scroller, { scrollHeight: { get: scrollHeight }, clientHeight: { get: clientHeight } })
+    scroller.scrollTop = scrollTop
+    const loadOlder = vi.fn(async () => {})
+    const loadNewer = vi.fn(async () => {})
+    const window: HistoryWindow = { chatId: 'chat-1', messages: [{ id: 'm-first', seq: firstSeq }] as HistoryWindow['messages'],
+      firstItemIndex: HISTORY_START_INDEX, hasOlder: firstSeq !== 1, hasNewer, loading: loading ? 'newer' : null,
+      change: 'reset', navigation: 'reset', navigationVersion: 0, viewVersion: 1, newMessageCount: 0, latestSeen: 200 }
+    function Probe() {
+      useChatHistoryPagination({ resetKey: 'chat-1#0#1', messages: window.messages, enabled: true, scroller, atBottom,
+        loadOlder: () => loadOlder(), loadNewer: loadNewerPresent ? () => loadNewer() : undefined, window })
+      return null
+    }
+    const render = () => harness.render(createNode(Probe))
+    await render()
+    return { window, render, scrollHeight, clientHeight, loadOlder, loadNewer, scroller }
+  }
+
+  it('does not synchronously read dimensions on incoming tail updates when there is no newer page', async () => {
+    const view = await setup()
+    for (let seq = 12; seq < 22; seq++) {
+      view.window.messages = [...view.window.messages, { id: `m${seq}`, seq } as HistoryWindow['messages'][number]]
+      await view.render()
+    }
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    expect(view.clientHeight).not.toHaveBeenCalled()
+    expect(view.loadNewer).not.toHaveBeenCalled()
+    expect(view.loadOlder).not.toHaveBeenCalled()
+  })
+
+  it('does not measure a bottom check without a newer-page loader', async () => {
+    const view = await setup({ hasNewer: true, loadNewerPresent: false })
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    expect(view.clientHeight).not.toHaveBeenCalled()
+  })
+
+  it('does not measure while a page is already loading', async () => {
+    const view = await setup({ hasNewer: true, loading: true })
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    expect(view.clientHeight).not.toHaveBeenCalled()
+  })
+
+  it('requests a newer page when it becomes available under a reader already at the bottom', async () => {
+    const view = await setup({ scrollTop: 10_727 })
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    view.window.hasNewer = true
+    await view.render()
+    expect(view.loadNewer).toHaveBeenCalledOnce()
+    expect(view.scrollHeight).toHaveBeenCalled()
+  })
+
+  it('does not measure a scroll when both ends are exhausted', async () => {
+    const view = await setup({ firstSeq: 1, atBottom: false })
+    await act(async () => { view.scroller.dispatchEvent(new Event('scroll')) })
+    expect(view.scrollHeight).not.toHaveBeenCalled()
+    expect(view.clientHeight).not.toHaveBeenCalled()
+    expect(view.loadOlder).not.toHaveBeenCalled()
+    expect(view.loadNewer).not.toHaveBeenCalled()
+  })
+
+  it('still requests an older page at the physical top even when no newer page exists', async () => {
+    const view = await setup({ atBottom: false, scrollTop: 0 })
+    await act(async () => { view.scroller.dispatchEvent(new Event('scroll')) })
+    expect(view.loadOlder).toHaveBeenCalledOnce()
+    expect(view.loadNewer).not.toHaveBeenCalled()
+    expect(view.scrollHeight).toHaveBeenCalled()
+  })
+})
+
 describe('a tail-following window slides instead of shrinking in bulk', () => {
   const rows = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => message({ id: `m${from + index}`, seq: from + index, chat_id: 'chat-1' }))
   async function readHistoryThenReturn() {

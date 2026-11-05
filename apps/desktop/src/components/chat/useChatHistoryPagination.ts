@@ -33,10 +33,15 @@ export function useChatHistoryPagination({ resetKey, messages, enabled, scroller
   const atBeginning = messages.some((message) => message.seq === 1)
   const { capture, cancel, isRestoring } = useHistoryPageAnchor({ resetKey, enabled, scroller, window, onError })
   const requestAtEdge = useCallback((edges: 'both' | 'bottom') => {
-    if (!enabled || !scroller) return
-    if (scroller.scrollHeight - scroller.clientHeight <= 80 || window?.loading || isRestoring()) return
-    const request = edges === 'both' && !atBeginning && scroller.scrollTop <= 120 ? loadOlder
-      : window?.hasNewer && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 120 ? loadNewer : undefined
+    if (!enabled || !scroller || window?.loading || isRestoring()) return
+    const canLoadOlder = edges === 'both' && !atBeginning
+    const canLoadNewer = !!window?.hasNewer && !!loadNewer
+    // Tail updates invalidate this callback even when no newer page exists.
+    // Decide whether either direction can act before reading layout dimensions.
+    if (!canLoadOlder && !canLoadNewer) return
+    if (scroller.scrollHeight - scroller.clientHeight <= 80) return
+    const request = canLoadOlder && scroller.scrollTop <= 120 ? loadOlder
+      : canLoadNewer && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 120 ? loadNewer : undefined
     if (request) {
       capture()
       void request().catch((error: unknown) => { cancel(); if (onError) onError(error); else throw error })
