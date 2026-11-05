@@ -102,6 +102,24 @@ describe('Quick Chat cross-profile shortcut owner', () => {
     expect(overlaps).toEqual([])
   })
 
+  it('does not write foreground changes to the completed handoff connection', async () => {
+    const port = await freePort()
+    const b = candidate(port)
+    b.owner.setEnabled(true)
+    await acquired(b.owner)
+    const a = candidate(port)
+    a.onChange.mockImplementation((owned: boolean) => {
+      // Runs after listener acquisition ends the grant socket, before its close
+      // callback: an actual focus event can arrive in this same interval.
+      if (owned) queueMicrotask(() => a.owner.setForeground(false))
+    })
+    a.owner.setForeground(true)
+    a.owner.setEnabled(true)
+    await acquired(a.owner)
+    expect(a.onError).not.toHaveBeenCalled()
+    expect(b.owner.owns()).toBe(false)
+  })
+
   it('does not resurrect a disabled contender after a pending listen or connect', async () => {
     const port = await freePort()
     const a = candidate(port)

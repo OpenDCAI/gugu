@@ -166,7 +166,10 @@ export function createQuickChatShortcutOwner({ port, onChange, onError }: {
     listener.once('listening', () => {
       if (!current(request)) { listener.close(); return }
       change(true)
-      if (grant && !grant.destroyed) { grant.write('READY\n'); grant.end() }
+      if (grant && !grant.destroyed) {
+        if (peer === grant) peer = null
+        grant.end('READY\n')
+      }
       if (!foreground && pendingFocus) yieldTo(pendingFocus)
     })
     listener.listen({ host: '127.0.0.1', port, exclusive: true })
@@ -177,7 +180,7 @@ export function createQuickChatShortcutOwner({ port, onChange, onError }: {
       if (disposed || foreground === next) return
       foreground = next
       if (next) pendingFocus = null
-      peer?.write(next ? 'FOCUS\n' : 'BLUR\n')
+      if (peer && !peer.destroyed && !peer.writableEnded) peer.write(next ? 'FOCUS\n' : 'BLUR\n')
       if (!next && pendingFocus) yieldTo(pendingFocus)
     },
     setEnabled(next) {
