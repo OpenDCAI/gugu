@@ -119,7 +119,9 @@ describe('the folder\'s tools as tools.js gives them', () => {
       expect('chat_id' in props || 'item_id' in props, `${name} names its chat or file`).toBe(true)
       if (props.chat_id) expect(props.chat_id, name).toMatchObject({ type: 'string', format: 'gugu-chat' })
       if (props.item_id) expect(props.item_id, name).toMatchObject({ type: 'string', format: 'gugu-file' })
-      expect(tool.inputSchema.required, name).toContain(props.chat_id ? 'chat_id' : 'item_id')
+      // edit and delete take item_id or item_ids (one of them, checked in run); every other tool requires its own.
+      if (props.item_ids) expect(props.item_ids, name).toMatchObject({ type: 'array', items: { type: 'string', format: 'gugu-file' } })
+      else expect(tool.inputSchema.required, name).toContain(props.chat_id ? 'chat_id' : 'item_id')
       for (const [key, value] of Object.entries(props)) expect(nested(value), `${name}.${key} hides a chat or a file inside`).toEqual([])
     }
   })
@@ -489,7 +491,11 @@ describe('the tools and subfolders', () => {
     expect(calls.at(-1)).toEqual(['move', { id: DOC }, { folder: '合同/2026', name: 'notes.md' }])
     await edit.run({ item_id: DOC, name: '/notes.md' })
     expect(calls.at(-1)).toEqual(['move', { id: DOC }, { folder: '', name: 'notes.md' }])
-    await expect(edit.run({ item_id: DOC, name: '合同/' })).rejects.toThrow(/ends with \//)
+    // Ending in /: into that folder, its name kept (no name sent); / alone, the top.
+    expect(await edit.run({ item_id: DOC, name: '合同/' })).toMatchObject({ moved: { id: DOC } })
+    expect(calls.at(-1)).toEqual(['move', { id: DOC }, { folder: '合同' }])
+    await edit.run({ item_id: DOC, name: '/' })
+    expect(calls.at(-1)).toEqual(['move', { id: DOC }, { folder: '' }])
     await expect(edit.run({ item_id: DOC, name: '合同/taken.md' })).rejects.toThrow(/already has a file of that name/)
     // Control: a name without / renames in place, as before.
     await edit.run({ item_id: DOC, name: 'plain.md' })
@@ -499,5 +505,64 @@ describe('the tools and subfolders', () => {
   test('read on a folder says to list it', async () => {
     const { read } = await tools()
     await expect(read.run({ item_id: BOX })).rejects.toThrow(/is a folder: list it/)
+  })
+})
+
+// ws-batch(owner 11-05 msg:7d3bb92c):一组 id 挪进同一个文件夹 / 一起删;list 一次存下整份筛选结果。
+describe('several files at once: item_ids, and list save', () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, at) => `0d000000-0000-4000-8000-${String(at).padStart(12, '0')}`)
+  let files: Record<string, unknown>
+  beforeEach(() => {
+    files = (globalThis as unknown as { gugu: { files: Record<string, unknown> } }).gugu.files
+    files.move = async (ref: { id: string }, to: { folder: string; name?: string }) => {
+      calls.push(['move', ref, to])
+      if (ref.id === ids(3)[2]) throw coded('name-taken', 'workspace_name_taken: already exists in this folder')
+      return entry(ref.id, 'x.png', 'binary', { path: `${to.folder}/x.png` })
+    }
+  })
+
+  test('edit item_ids with a name ending in / moves them one by one, stopping at the first refusal and saying where', async () => {
+    const { edit } = await tools()
+    const [a, b, c, d] = ids(4)
+    expect(await edit.run({ item_ids: [a, b], name: '证据/2026-10-30/' })).toEqual({ moved: 2 })
+    expect(calls).toEqual([['move', { id: a }, { folder: '证据/2026-10-30' }], ['move', { id: b }, { folder: '证据/2026-10-30' }]])
+    calls.length = 0
+    expect(await edit.run({ item_ids: [a, b, c, d], name: '证据/' })).toEqual({ moved: 2, stopped_at: { id: c, error: expect.stringMatching(/already has a file of that name/) } })
+    expect(calls.map((call) => (call[1] as { id: string }).id)).toEqual([a, b, c])
+  })
+
+  test('item_ids: one of item_id or item_ids, at most 200, and in edit only with a folder name ending in /', async () => {
+    const { edit, delete: remove } = await tools()
+    for (const args of [{ item_ids: ids(2), name: '证据/x.png' }, { item_ids: ids(2), old: 'a', new: 'b' }, { item_ids: ids(2) }]) {
+      await expect(edit.run(args)).rejects.toThrow(/item_ids goes with a name ending in \/ alone/)
+    }
+    await expect(edit.run({ item_id: DOC, item_ids: ids(1), name: '证据/' })).rejects.toThrow(/item_id \(one file\) or item_ids/)
+    await expect(remove.run({})).rejects.toThrow(/item_id \(one file\) or item_ids/)
+    await expect(edit.run({ item_ids: ids(201), name: '证据/' })).rejects.toThrow(/at most 200/)
+    await expect(remove.run({ item_ids: [] })).rejects.toThrow(/at least one/)
+    expect(calls).toEqual([])
+  })
+
+  test('delete item_ids asks once whether each may be deleted: one refused, none deleted and those named; else one by one', async () => {
+    const { delete: remove } = await tools()
+    const [a, b, c] = ids(3)
+    const mine = new Set([a, c])
+    files.canDelete = async (refs: { id: string }[]) => (calls.push(['canDelete', refs]), refs.map((ref) => mine.has(ref.id)))
+    await expect(remove.run({ item_ids: [a, b, c] })).rejects.toThrow(new RegExp(`^nothing was deleted: you may not delete ${b} `))
+    expect(calls).toEqual([['canDelete', [{ id: a }, { id: b }, { id: c }]]])
+    calls.length = 0
+    expect(await remove.run({ item_ids: [a, c] })).toEqual({ deleted: 2 })
+    expect(calls).toEqual([['canDelete', [{ id: a }, { id: c }]], ['remove', { id: a }], ['remove', { id: c }]])
+  })
+
+  test('list save: every matching row, no window, as JSON in the agent\'s own folder on this computer; the answer is its path and count', async () => {
+    const { list } = await tools()
+    ENTRIES.splice(0, ENTRIES.length, ...ids(45).map((id, at) => entry(id, `shot-${at}.png`, 'binary')), entry(DOC, 'notes.md', 'text'))
+    const answer = (await list.run({ chat_id: CHAT, kind: 'file', rows: '1-5', save: true }, { agent: AGENT })) as { total: number; saved_to: string }
+    expect(answer).toEqual({ chat_id: CHAT, total: 45, saved_to: join(tmpdir(), 'gugu-workspace', AGENT.slice('user:'.length), CHAT, 'list.json') })
+    const saved = JSON.parse(readFileSync(answer.saved_to, 'utf8')) as { id: string; by: unknown; updated_at: string }[]
+    expect(saved.map((row) => row.id)).toEqual(ids(45))
+    expect(saved[0]).toMatchObject({ by, updated_at: '2026-10-11T00:00:00Z' })
+    await expect(list.run({ chat_id: CHAT, save: true })).rejects.toThrow(/^list: only an agent saves/)
   })
 })

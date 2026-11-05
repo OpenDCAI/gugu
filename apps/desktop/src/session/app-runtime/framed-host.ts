@@ -56,7 +56,7 @@ const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
   'chats.list', 'chats.members', 'projects.list', 'linkTo',
   'sessions.index', 'sessions.read',
   'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.read', 'appFiles.search', 'appFiles.recent', 'appFiles.create',
-  'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
+  'appFiles.remove', 'appFiles.canDelete', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
   'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload',
 ]);
 

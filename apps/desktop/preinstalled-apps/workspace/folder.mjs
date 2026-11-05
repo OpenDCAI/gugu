@@ -14,6 +14,28 @@ const CHAT = {
   description: 'The source group or private chat whose folder it is. A topic address uses its source folder. Use the delivery chat=, <project_group>\'s chat_id, or the number people see.',
 }
 const ITEM = { type: 'string', format: 'gugu-file', description: 'A file of a chat\'s folder: its id, as list or a gugu-file:// link gives it.' }
+/** At most this many files in one call (item_ids): its answer and its time stay bounded; more go in batches. */
+const MANY = 200
+const ITEMS = { type: 'array', items: ITEM, maxItems: MANY, description: `Several files instead of item_id, at most ${MANY} a call, one after another: the first refusal stops the rest.` }
+/** item_id or item_ids, one of them: the ids to work on. */
+function idsOf(item_id, item_ids) {
+  if ((item_id === undefined) === (item_ids === undefined)) throw new Error('give item_id (one file) or item_ids (several), one of them')
+  if (item_ids === undefined) return [item_id]
+  if (!Array.isArray(item_ids) || item_ids.length === 0) throw new Error('item_ids is a list of file ids, at least one')
+  if (item_ids.length > MANY) throw new Error(`item_ids takes at most ${MANY} files a call; give the rest in another call`)
+  return item_ids
+}
+/** One file after another until one is refused: how many went, and where it stopped (the ones after it were not tried). */
+async function oneByOne(ids, work) {
+  for (const [done, id] of ids.entries()) {
+    try {
+      await work(id)
+    } catch (error) {
+      return { done, stopped_at: { id, error: error.message } }
+    }
+  }
+  return { done: ids.length }
+}
 /** 子文件夹: a folder of a chat's folder, as the tools take it — by its path from the top, or its id. */
 const FOLDER = {
   type: 'string',
@@ -172,12 +194,15 @@ export function localFileName(name) {
  * for starting from a version gone by reads the new one beside the copy it changed, never over it. The same version read
  * again overwrites that version's copy. A call with no agent of its own is refused: never a folder every caller shares.
  */
-async function saveLocally(entry, data, agent) {
+function agentFolder(agent, what) {
   const who = String(agent ?? '').replace(/^user:/, '')
-  if (!/^[A-Za-z0-9-]+$/.test(who)) throw new Error('read: only an agent saves into a folder of its own on this computer, and this call names no agent')
+  if (!/^[A-Za-z0-9-]+$/.test(who)) throw new Error(`${what}: only an agent saves into a folder of its own on this computer, and this call names no agent`)
+  return join(tmpdir(), 'gugu-workspace', who)
+}
+async function saveLocally(entry, data, agent) {
   const version = Number(entry.version)
   if (!Number.isInteger(version)) throw new Error(`read: ${entry.name} came back with no version`)
-  const dir = join(tmpdir(), 'gugu-workspace', who, entry.id, `v${version}`)
+  const dir = join(agentFolder(agent, 'read'), entry.id, `v${version}`)
   await mkdir(dir, { recursive: true })
   const path = join(dir, localFileName(entry.savedName))
   await writeFile(path, data)
@@ -200,10 +225,11 @@ export const list = {
         description: 'document = a text or JSON file (read and edit it); file = stored bytes (an image, a PDF, a .pptx…); folder = a subfolder.',
       },
       rows: { type: 'string', description: 'Which rows: "20" the first 20 (default), "21-40" the next.' },
+      save: { type: 'boolean', description: 'Save every row that matches (no rows window) as JSON on this computer and answer with its path and count: pick ids there (by, updated_at, path) for item_ids.' },
     },
   },
   annotations: { readOnlyHint: true },
-  async run({ chat_id: given, folder, name, kind, rows }) {
+  async run({ chat_id: given, folder, name, kind, rows, save }, { agent } = {}) {
     const chat_id = chatOf(given)
     const window = windowOf(rows)
     if (folder !== undefined && typeof folder !== 'string') throw new Error('folder is a folder\'s path from the top (合同/2026) or its id; "" the top')
@@ -214,6 +240,13 @@ export const list = {
         (!name || entry.name.toLowerCase().includes(String(name).toLowerCase())) &&
         (!kind || kind === kindOf(entry)),
     )
+    if (save === true) {
+      const dir = join(agentFolder(agent, 'list'), chat_id)
+      await mkdir(dir, { recursive: true })
+      const path = join(dir, 'list.json')
+      await writeFile(path, JSON.stringify(await Promise.all(wanted.map(rowOf))))
+      return { chat_id, total: wanted.length, saved_to: path }
+    }
     const shown = wanted.slice(window.from - 1, window.to)
     const size = window.to - window.from + 1
     return {
@@ -330,23 +363,27 @@ export const create = {
 
 export const edit = {
   description:
-    'Change a file of a chat\'s folder in place: old → new in a text or JSON file (old must match exactly one place; everyone who has it open sees the change at once), path with expected_version gives a stored file its next version (the earlier ones are kept), name renames it — a name with / moves it (合同/2026/甲方.pdf; /甲方.pdf to the top), a folder too, with all in it.',
+    'Change a file of a chat\'s folder in place: old → new in a text or JSON file (old must match exactly one place; everyone who has it open sees the change at once), path with expected_version gives a stored file its next version (the earlier ones are kept), name renames it — a name with / moves it (合同/2026/甲方.pdf; /甲方.pdf to the top), a folder too, with all in it; a name ending in / (合同/2026/) moves it there keeping its name. item_ids with such a name moves several, stopping at the first refusal: moved counts them, stopped_at says which and why.',
   inputSchema: {
     type: 'object',
-    required: ['item_id'],
     properties: {
       item_id: ITEM,
+      item_ids: ITEMS,
       old: { type: 'string', description: 'The text to replace, copied exactly from read (without its header line). It must match one place.' },
       new: { type: 'string', description: 'What goes in its place. A JSON file must still be a JSON object afterwards.' },
       path: { type: 'string', description: 'Absolute path of a file on this computer: the stored file\'s next version, with expected_version.' },
       expected_version: { type: 'integer', description: 'With path: the version you started from, as read gave it. If the file is no longer that version, nothing is written: read it again.' },
       name: {
         type: 'string',
-        description: 'The file\'s new name: only its name changes. With /, its new place too: 合同/2026/甲方.pdf moves it into that folder (made when it is not there), /甲方.pdf to the top.',
+        description: 'The file\'s new name: only its name changes. With /, its new place too: 合同/2026/甲方.pdf moves it into that folder (made when it is not there), /甲方.pdf to the top; ending in / (合同/2026/, / the top) keeps its name.',
       },
     },
   },
-  async run({ item_id, old, new: next, path, expected_version, name }) {
+  async run({ item_id, item_ids, old, new: next, path, expected_version, name }) {
+    const ids = idsOf(item_id, item_ids)
+    if (item_ids !== undefined && (typeof name !== 'string' || !name.trim().endsWith('/') || old !== undefined || next !== undefined || path !== undefined)) {
+      throw new Error('item_ids goes with a name ending in / alone: the folder they all move into (合同/2026/, / the top)')
+    }
     // Before the count: expected_version alone (nothing else) is told what it goes with, not that edit takes one change.
     if (expected_version !== undefined && path === undefined) throw new Error('expected_version goes with path: the version a stored file\'s next version starts from')
     const asked = [old !== undefined || next !== undefined, path !== undefined, name !== undefined].filter(Boolean).length
@@ -354,22 +391,26 @@ export const edit = {
     if (name !== undefined) {
       if (typeof name !== 'string' || !name.trim()) throw new Error('name must not be empty')
       const wanted = name.trim()
-      const taken = (error) => {
+      const taken = (error, id) => {
         if (error?.code === 'name-taken') return new Error(`${wanted}: that folder already has a file of that name (case not counted) — pick another name`)
-        return said(error, item_id)
+        return said(error, id)
       }
-      // 子文件夹: a name with / says where it goes as well (a leading / is the top).
+      // 子文件夹: a name with / says where it goes as well (a leading / is the top); ending in /, only where.
       const slash = wanted.lastIndexOf('/')
+      const base = wanted.slice(slash + 1).trim()
+      const moveTo = (id) => gugu.files.move({ id }, { folder: wanted.slice(0, slash), ...(base ? { name: base } : {}) }).catch((error) => {
+        throw taken(error, id)
+      })
+      if (item_ids !== undefined) {
+        const { done, ...stopped } = await oneByOne(ids, moveTo)
+        return { moved: done, ...stopped }
+      }
       if (slash >= 0) {
-        const base = wanted.slice(slash + 1).trim()
-        if (!base) throw new Error(`name ${JSON.stringify(wanted)} ends with /: say the file's name after the folder`)
-        const moved = await gugu.files.move({ id: item_id }, { folder: wanted.slice(0, slash), name: base }).catch((error) => {
-          throw taken(error)
-        })
+        const moved = await moveTo(item_id)
         return { moved: { id: moved.id, name: moved.name, path: moved.path }, ...await linked(moved) }
       }
       const renamed = await gugu.files.rename({ id: item_id }, wanted).catch((error) => {
-        throw taken(error)
+        throw taken(error, item_id)
       })
       return { renamed: { id: renamed.id, name: renamed.name, path: renamed.path }, ...await linked(renamed) }
     }
@@ -409,13 +450,23 @@ export const edit = {
 
 const remove = {
   description:
-    'Delete a file from a chat\'s folder, with its kept versions — or a subfolder with everything in it. Only whoever made them (you, or your owner) can; a folder holding something you cannot delete is left as it is.',
-  inputSchema: { type: 'object', required: ['item_id'], properties: { item_id: ITEM } },
-  async run({ item_id }) {
-    await gugu.files.remove({ id: item_id }).catch((error) => {
-      throw said(error, item_id)
+    'Delete a file from a chat\'s folder, with its kept versions — or a subfolder with everything in it. Only whoever made them (you, or your owner) can; a folder holding something you cannot delete is left as it is. item_ids deletes several: if any of them may not be deleted, none is, and the answer names those.',
+  inputSchema: { type: 'object', properties: { item_id: ITEM, item_ids: ITEMS } },
+  async run({ item_id, item_ids }) {
+    const ids = idsOf(item_id, item_ids)
+    const gone = (id) => gugu.files.remove({ id }).catch((error) => {
+      throw said(error, id)
     })
-    return { deleted: item_id }
+    if (item_ids === undefined) {
+      await gone(item_id)
+      return { deleted: item_id }
+    }
+    // Asked for all of them at once first (the database's rule, the one its delete keeps): one refused, none deleted.
+    const may = await gugu.files.canDelete(ids.map((id) => ({ id })))
+    const refused = ids.filter((_, at) => !may[at])
+    if (refused.length) throw new Error(`nothing was deleted: you may not delete ${refused.join(', ')} (not in a chat you are in, or made by someone else; a folder, by what is in it)`)
+    const { done, ...stopped } = await oneByOne(ids, gone)
+    return { deleted: done, ...stopped }
   },
 }
 export { remove as delete }
