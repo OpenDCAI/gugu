@@ -21,7 +21,7 @@ const dist: Record<string, string> = {
 const keep = (files = dist) => phoneFiles(Object.keys(files), (f: string) => files[f], TASK)
 
 describe('phone web dir', () => {
-  it('drops what only the task entry can reach: its chunks, Monaco behind its dynamic import, its fonts', () => {
+  it('drops what only the task entry can reach: its chunks, a big editor behind its dynamic import, its fonts', () => {
     const kept = keep()
     for (const f of [TASK, 'assets/task-BBBBBBBB.js', 'assets/task-CCCCCCCC.css', 'assets/editor.main-GGGGGGGG.js', 'assets/ts.worker-HHHHHHHH.js', 'assets/devicon-IIIIIIII.ttf']) {
       expect(kept.has(f), f).toBe(false)

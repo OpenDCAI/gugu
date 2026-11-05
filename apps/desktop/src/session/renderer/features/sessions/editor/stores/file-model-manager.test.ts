@@ -34,7 +34,7 @@ vi.mock('@renderer/lib/ipc', () => ({
   },
 }));
 
-vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({
+vi.mock('@renderer/lib/text-model/model-registry', () => ({
   modelRegistry: {
     modelStatus: mocks.modelStatus,
     modelTotalSizes: mocks.modelTotalSizes,
@@ -46,7 +46,7 @@ vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({
 }));
 
 vi.mock('@renderer/utils/diffUtils', () => ({
-  getMonacoLanguageId: vi.fn(() => 'xml'),
+  getEditorLanguageId: vi.fn(() => 'xml'),
 }));
 
 import { FileModelManager } from './file-model-manager';
@@ -69,7 +69,7 @@ describe('FileModelManager', () => {
     mocks.diskVersions.clear();
   });
 
-  it('loads SVG source through Monaco so the preview has buffer content', async () => {
+  it('loads SVG source as a text model so the preview has buffer content', async () => {
     mocks.readFile.mockResolvedValue({
       success: true,
       data: {

@@ -1,14 +1,14 @@
 import { reaction, runInAction, type IReactionDisposer } from 'mobx';
 import { EDITOR_HARD_MAX_FILE_BYTES } from '@renderer/lib/editor/file-size-limits';
-import { getFileKind, isMonacoBackedKind } from '@renderer/lib/editor/fileKind';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
-import { buildMonacoModelPath, EXTERNAL_MODEL_ROOT } from '@renderer/lib/monaco/monacoModelPath';
-import { getMonacoLanguageId } from '@renderer/utils/diffUtils';
+import { getFileKind, isTextModelKind } from '@renderer/lib/editor/fileKind';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
+import { buildModelUri, EXTERNAL_MODEL_ROOT } from '@renderer/lib/text-model/model-uri';
+import { getEditorLanguageId } from '@renderer/utils/diffUtils';
 import type { FileTabResource } from './file-tab-resource';
 import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 
 /**
- * Context needed to register Monaco models for a file.
+ * Context needed to register text models for a file.
  * Mirrors the fields available in SessionTabContext.
  */
 export interface FileModelContext {
@@ -28,18 +28,18 @@ type EntryState =
   | { status: 'ready'; resources: ResourceSet };
 
 /**
- * Per-workspace ref-counted manager for Monaco model lifecycles.
+ * Per-workspace ref-counted manager for text model lifecycles.
  *
  * Replaces the union-of-paths reaction that previously lived in EditorViewStore.
  *
  * `acquire(path, resource, ctx)`:
- *   - First caller: triggers async Monaco model registration.
+ *   - First caller: triggers async text model registration.
  *   - Subsequent callers: immediately notifies the new resource with the
  *     current registration state (so multi-pane same-file tabs get their UI updated).
  *
  * `release(path, resource)`:
  *   - Removes the resource from the notification set.
- *   - When no resources remain, unregisters Monaco models.
+ *   - When no resources remain, unregisters the text models.
  *
  * Save/conflict/restore remain in EditorViewStore (not tab-owned).
  */
@@ -57,7 +57,7 @@ export class FileModelManager {
   }
 
   /**
-   * Register interest in the Monaco models for `path` from `resource`.
+   * Register interest in the text models for `path` from `resource`.
    * If models are already registered, notifies `resource` immediately.
    * If this is the first acquire for `path`, starts async model registration.
    */
@@ -111,8 +111,8 @@ export class FileModelManager {
   }
 
   /**
-   * Deregister interest in the Monaco models for `path` from `resource`.
-   * When no resources remain for `path`, unregisters the Monaco models.
+   * Deregister interest in the text models for `path` from `resource`.
+   * When no resources remain for `path`, unregisters the text models.
    */
   release(path: string, resource: FileTabResource): void {
     const entry = this._entries.get(path);
@@ -120,7 +120,7 @@ export class FileModelManager {
     entry.resources.delete(resource);
     if (entry.resources.size > 0) return;
 
-    // Last release — tear down Monaco models.
+    // Last release — tear down the text models.
     this._entries.delete(path);
     this._imageWatches.get(path)?.();
     this._imageWatches.delete(path);
@@ -164,7 +164,7 @@ export class FileModelManager {
   private async _registerModels(path: string, maxBytes?: number): Promise<void> {
     const kind = getFileKind(path);
 
-    // SVG is both previewable and editable. Keep it on the text/Monaco path so
+    // SVG is both previewable and editable. Keep it on the text-model path so
     // SvgRenderer can read the live buffer and source mode has a real model;
     // only raster images use the binary image reader.
     if (kind === 'image') {
@@ -195,8 +195,8 @@ export class FileModelManager {
       return;
     }
 
-    if (isMonacoBackedKind(kind)) {
-      const language = getMonacoLanguageId(path);
+    if (isTextModelKind(kind)) {
+      const language = getEditorLanguageId(path);
       const root = this._rootFor(path);
 
       try {
@@ -223,7 +223,7 @@ export class FileModelManager {
         return;
       }
 
-      const bufferUri = buildMonacoModelPath(root, path);
+      const bufferUri = buildModelUri(root, path);
       const diskUri = modelRegistry.toDiskUri(bufferUri);
       if (modelRegistry.modelStatus.get(diskUri) === 'too-large') {
         const totalSize = modelRegistry.modelTotalSizes.get(diskUri) ?? 0;
@@ -278,7 +278,7 @@ export class FileModelManager {
       return;
     }
 
-    // Non-Monaco, non-image (e.g. binary, PDF): treat as ready without model.
+    // Not a text model, not an image (e.g. binary, PDF): treat as ready without model.
     runInAction(() => {
       const entry = this._entries.get(path);
       if (!entry) return;
@@ -291,7 +291,7 @@ export class FileModelManager {
   }
 
   private _unregisterModels(path: string): void {
-    const uri = buildMonacoModelPath(this._ctx.modelRootPath, path);
+    const uri = buildModelUri(this._ctx.modelRootPath, path);
     modelRegistry.unregisterModel(uri);
     modelRegistry.unregisterModel(modelRegistry.toDiskUri(uri));
     void workspaceRpc(this._ctx.projectId).editor.clearBuffer(this._ctx.projectId, this._ctx.workspaceId, path);

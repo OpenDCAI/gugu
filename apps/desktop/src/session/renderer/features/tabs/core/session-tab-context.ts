@@ -17,6 +17,6 @@ export interface SessionTabContext extends TabViewContext {
   workspaceId: string;
   sessionId: string;
   workspacePath?: string;
-  /** Workspace-scoped prefix for Monaco model URIs: `workspace:<workspaceId>`. */
+  /** Workspace-scoped prefix for text model URIs: `workspace:<workspaceId>`. */
   modelRootPath: string;
 }

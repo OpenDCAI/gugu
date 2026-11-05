@@ -1,46 +1,36 @@
-import { autocompletion, completeAnyWord, completionKeymap } from '@codemirror/autocomplete';
-import { defaultKeymap, indentWithTab } from '@codemirror/commands';
-import { getOriginalDoc, goToNextChunk, goToPreviousChunk, MergeView, originalDocChangeEffect, unifiedMergeView } from '@codemirror/merge';
-import { search, searchKeymap } from '@codemirror/search';
-import { EditorSelection, EditorState, Text, type Extension } from '@codemirror/state';
-import { drawSelection, EditorView, keymap, lineNumbers } from '@codemirror/view';
-import type * as Monaco from 'monaco-editor';
+import { goToNextChunk, goToPreviousChunk, MergeView, originalDocChangeEffect, unifiedMergeView } from '@codemirror/merge';
+import { EditorSelection, type Extension } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { registerCodeEditorHistory } from '@renderer/lib/editor/activeCodeEditor';
 import type { DiffSideState, DiffViewState } from '@renderer/lib/editor/diff-view-state';
-import { bindModel, modelChanges } from './model-binding';
+import type { TextModel } from '@renderer/lib/text-model/text-model';
+import { codeEditorExtensions } from './code-editor';
+import { bindModel } from './model-binding';
 import { diffOverview } from './diff-overview';
-import { diffTheme } from './diff-theme';
 
-export function createDiffController({ parent, monaco, original, modified, style, language, dark, saved, save }: {
+export function createDiffController({ parent, original, modified, style, language, dark, saved, save }: {
   parent: HTMLElement;
-  monaco: typeof Monaco;
-  original: Monaco.editor.ITextModel;
-  modified: Monaco.editor.ITextModel;
+  original: TextModel;
+  modified: TextModel;
   style: 'split' | 'unified';
   language: Extension;
   dark: boolean;
   saved: DiffViewState | undefined;
   save: () => void;
 }) {
-  const writable = modified.uri.scheme === 'file';
+  const writable = modified.writable;
   const cleanups: Array<() => void> = [];
-  // Like Monaco's diff, one overview ruler: on the modified side (the only side in unified mode).
-  const extensions = (model: Monaco.editor.ITextModel, editable: boolean, overview: boolean): Extension[] => [
-    language, diffTheme(dark), lineNumbers(), drawSelection(), EditorView.lineWrapping,
-    EditorState.readOnly.of(!editable),
-    search({ top: true }), overview ? diffOverview : [],
-    autocompletion({ override: [completeAnyWord] }),
+  // One overview ruler, on the modified side (the only side in unified mode).
+  const extensions = (model: TextModel, editable: boolean, overview: boolean): Extension[] => [
     keymap.of([
       { key: 'Mod-s', run: () => { if (editable) save(); return true; } },
-      { key: 'Mod-z', run: () => { if (editable) { model.pushStackElement(); void model.undo(); } return true; } },
-      { key: 'Mod-Shift-z', run: () => { if (editable) void model.redo(); return true; } },
-      { key: 'Mod-y', run: () => { if (editable) void model.redo(); return true; } },
       { key: 'Alt-F5', run: goToNextChunk }, { key: 'Alt-Shift-F5', run: goToPreviousChunk },
-      ...completionKeymap, ...searchKeymap, indentWithTab, ...defaultKeymap,
     ]),
+    lineNumbers(), overview ? diffOverview : [],
+    codeEditorExtensions({ model, language, dark, editable }),
   ];
-  const config = (model: Monaco.editor.ITextModel, editable: boolean, overview: boolean) => ({
-    doc: Text.of(model.getLinesContent()), extensions: extensions(model, editable, overview),
+  const config = (model: TextModel, editable: boolean, overview: boolean) => ({
+    doc: model.doc, extensions: extensions(model, editable, overview),
   });
   let left: EditorView | null = null;
   let right: EditorView;
@@ -52,26 +42,25 @@ export function createDiffController({ parent, monaco, original, modified, style
     right = merge.b;
     scroll = merge.dom;
     merge.dom.style.cssText = 'height:100%;overflow:auto';
-    cleanups.push(bindModel(left, original, monaco));
+    cleanups.push(bindModel(left, original));
     destroy = () => merge.destroy();
   } else {
-    right = new EditorView({ parent, doc: Text.of(modified.getLinesContent()), extensions: [
-      extensions(modified, writable, true), unifiedMergeView({ original: Text.of(original.getLinesContent()), mergeControls: false }),
+    right = new EditorView({ parent, doc: modified.doc, extensions: [
+      extensions(modified, writable, true), unifiedMergeView({ original: original.doc, mergeControls: false }),
     ] });
     right.dom.style.height = '100%';
     scroll = right.scrollDOM;
-    const subscription = original.onDidChangeContent(event => {
-      right.dispatch({ effects: originalDocChangeEffect(right.state, modelChanges(getOriginalDoc(right.state), event)) });
-    });
-    cleanups.push(() => subscription.dispose());
+    cleanups.push(original.onDidChange(({ changes }) => {
+      right.dispatch({ effects: originalDocChangeEffect(right.state, changes) });
+    }));
     destroy = () => right.destroy();
   }
-  cleanups.push(bindModel(right, modified, monaco));
+  cleanups.push(bindModel(right, modified));
   for (const [view, model, editable] of [[left, original, false], [right, modified, writable]] as const) {
     if (!view) continue;
     cleanups.push(registerCodeEditorHistory({
       hasFocus: () => editable && view.hasFocus,
-      undo: () => { model.pushStackElement(); void model.undo(); }, redo: () => { void model.redo(); },
+      undo: () => { model.undo(view); }, redo: () => { model.redo(view); },
     }, listener => {
       view.contentDOM.addEventListener('focus', listener);
       return () => view.contentDOM.removeEventListener('focus', listener);

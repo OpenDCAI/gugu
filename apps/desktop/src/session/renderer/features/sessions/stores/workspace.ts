@@ -43,7 +43,7 @@ export class WorkspaceStore implements ILifecycle {
     this.gitWorktree.dispose();
     this.lifecycleScripts.dispose();
     // Last task on this workspace has been released (ref-count hit 0 in
-    // WorkspaceRegistryStore), so the per-workspace Monaco model manager and its
+    // WorkspaceRegistryStore), so the per-workspace text model manager and its
     // registered models can be torn down. No open editors remain at this point.
     releaseFileModelManager(this.workspaceId);
   }

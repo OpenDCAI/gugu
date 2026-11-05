@@ -6,7 +6,7 @@ import type { TabContentProps } from './tab-provider';
  *
  * provider(数据那半:initialize / dispose / commands / 页签条上那一枚)要同步可用:它沿着
  * app-state → session-store → WorkspaceViewModel → 页签注册表一路被同步构造,咕咕主界面(手机也是)启动时
- * 就够得着它。内容组件连着编辑器(Monaco)、对话面板(shiki)、diff 这些大依赖 —— 写在 provider 里,
+ * 就够得着它。内容组件连着编辑器(CodeMirror)、对话面板(shiki)、diff 这些大依赖 —— 写在 provider 里,
  * 它们就跟着进了手机的启动包,而手机从来不挂任务页。
  * ⇒ 内容组件放进只有任务页入口(embedded.tsx)import 的 session-tab-views,在那里 React.lazy 后登记到这里;
  *   provider 只留一个按 kind 取登记内容的薄壳。手机不加载任务页入口 ⇒ 那些 import() 手机够不着,不进手机包。

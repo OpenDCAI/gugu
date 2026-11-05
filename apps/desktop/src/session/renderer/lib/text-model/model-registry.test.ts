@@ -4,8 +4,8 @@ import {
   EDITOR_CONFIRM_FILE_BYTES,
   EDITOR_HARD_MAX_FILE_BYTES,
 } from '@renderer/lib/editor/file-size-limits';
-import { MonacoModelRegistry } from './monaco-model-registry';
-import { buildMonacoModelPath, EXTERNAL_MODEL_ROOT } from './monacoModelPath';
+import { TextModelRegistry } from './model-registry';
+import { buildModelUri, EXTERNAL_MODEL_ROOT } from './model-uri';
 
 const rpcState = vi.hoisted(() => ({
   indexContent: 'base' as string | null,
@@ -60,101 +60,7 @@ vi.mock('@renderer/lib/ipc', () => ({
   },
 }));
 
-class FakeModel {
-  private value: string;
-  private disposed = false;
-  private listeners = new Set<() => void>();
-
-  constructor(
-    value: string,
-    readonly uri: { toString(): string; scheme: string }
-  ) {
-    this.value = value;
-  }
-
-  getValue(): string {
-    return this.value;
-  }
-
-  setValue(value: string): void {
-    this.value = value;
-    for (const listener of this.listeners) listener();
-  }
-
-  /** 1 起的行列 → 偏移(与 Monaco 同一套坐标)。 */
-  private offsetAt(line: number, column: number): number {
-    const lines = this.value.split('\n');
-    let offset = 0;
-    for (let i = 0; i < line - 1; i += 1) offset += (lines[i]?.length ?? 0) + 1;
-    return offset + column - 1;
-  }
-
-  getPositionAt(offset: number): { lineNumber: number; column: number } {
-    const before = this.value.slice(0, offset).split('\n');
-    return { lineNumber: before.length, column: (before[before.length - 1]?.length ?? 0) + 1 };
-  }
-
-  /** Every edit in the model's coordinates before any of them, as Monaco takes them. */
-  applyEdits(
-    edits: Array<{ text: string; range?: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }>
-  ): void {
-    const edit = edits[0];
-    if (!edit) return;
-    if (!edit.range || edit.range.startLineNumber === undefined) {
-      this.setValue(edit.text);
-      return;
-    }
-    const spans = edits
-      .map(({ range, text }) => ({ start: this.offsetAt(range!.startLineNumber, range!.startColumn), end: this.offsetAt(range!.endLineNumber, range!.endColumn), text }))
-      .sort((a, b) => b.start - a.start);
-    let value = this.value;
-    for (const span of spans) value = value.slice(0, span.start) + span.text + value.slice(span.end);
-    this.setValue(value);
-  }
-
-  getFullModelRange(): unknown {
-    return {};
-  }
-
-  onDidChangeContent(listener: () => void): { dispose(): void } {
-    this.listeners.add(listener);
-    return { dispose: () => this.listeners.delete(listener) };
-  }
-
-  isDisposed(): boolean {
-    return this.disposed;
-  }
-
-  dispose(): void {
-    this.disposed = true;
-  }
-}
-
-function makeFakeMonaco() {
-  const models = new Map<string, FakeModel>();
-  return {
-    Uri: {
-      parse(value: string) {
-        return {
-          scheme: value.split(':')[0] ?? '',
-          toString: () => value,
-        };
-      },
-    },
-    editor: {
-      getModel(uri: { toString(): string }) {
-        return models.get(uri.toString()) ?? null;
-      },
-      createModel(content: string, _language: string, uri: { toString(): string; scheme: string }) {
-        const model = new FakeModel(content, uri);
-        models.set(uri.toString(), model);
-        return model;
-      },
-    },
-  };
-}
-
-describe('MonacoModelRegistry', () => {
+describe('TextModelRegistry', () => {
   beforeEach(() => {
     rpcState.indexContent = 'base';
     rpcState.refContent = 'base';
@@ -168,8 +74,7 @@ describe('MonacoModelRegistry', () => {
   // 打开它的那条路给的拼法(聊天里的文件链接带来的是 `/`)。这一处比较是「这条变更是不是这个
   // 模型的文件」的唯一判定,拼法不归一就永远 hit=0,改了盘上的文件、面板一直是旧的。
   it('把同一个文件的两种分隔符拼法认作同一个文件(否则盘上的变更永远 invalidate 不到)', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
 
     // 从聊天链接打开 —— 带来的是正斜杠拼法
     await registry.registerModel(
@@ -207,8 +112,7 @@ describe('MonacoModelRegistry', () => {
   });
 
   it('reads a file outside the workspace through readExternalFile and serves it as text', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
 
     const uri = await registry.registerModel(
       'project',
@@ -238,8 +142,7 @@ describe('MonacoModelRegistry', () => {
   // 旧代码这条读取不传上限,落到 `IFileSystem` 给 SSH 远程读盘设的 200 KB 默认值,
   // 于是 truncated=true、状态标成 too-large —— 源码和 HTML 预览一起没了。
   it('opens a half-megabyte file instead of calling it too large', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
 
     const totalSize = 505_582;
     const content = 'x'.repeat(totalSize);
@@ -282,8 +185,7 @@ describe('MonacoModelRegistry', () => {
   // 同一个默认值造成的丢数据:文件在外部被写大之后重读,半截正文覆盖缓冲区,
   // 用户下一次保存就把 cut 之后的内容写没了。
   it('refuses to overwrite the buffer with a truncated re-read', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
 
     const uri = await registry.registerModel(
       'project',
@@ -311,8 +213,7 @@ describe('MonacoModelRegistry', () => {
   // #5763 的判据:体积上限是「默认不替你打开」,不是一堵墙。同一个文件按确认门槛读被拒,
   // 按硬顶再读一次就该真的读进来 —— 第二次**不许**被 dedup 缓存喂回第一次那个「太大」。
   it('re-reads the same file when asked for a bigger limit', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
 
     const totalSize = 26_214_525;
     const content = 'x'.repeat(1000);
@@ -350,9 +251,8 @@ describe('MonacoModelRegistry', () => {
   });
 
   it.each([STAGED_REF, HEAD_REF])('shows a read error rather than an empty diff for %j', async ref => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
-    const uri = buildMonacoModelPath('workspace:workspace', 'file.ts');
+    const registry = new TextModelRegistry();
+    const uri = buildModelUri('workspace:workspace', 'file.ts');
     if (ref.kind === 'staged') rpcState.indexError = 'permission denied';
     else rpcState.refError = 'transport failed';
     await expect(registry.registerModel('project', 'workspace', 'workspace:workspace', 'file.ts', 'typescript', 'git', ref)).rejects.toThrow();
@@ -361,8 +261,7 @@ describe('MonacoModelRegistry', () => {
   });
 
   it('keeps a failed git refresh in error state and recovers on the next successful refresh', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
     const uri = await registry.registerModel('project', 'workspace', 'workspace:workspace', 'file.ts', 'typescript', 'git', HEAD_REF);
     const gitUri = registry.toGitUri(uri, HEAD_REF);
     rpcState.refError = 'connection failed';
@@ -377,8 +276,7 @@ describe('MonacoModelRegistry', () => {
   });
 
   it('clears a staged git model when the index no longer contains the file', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
 
     const projectId = 'project';
     const workspaceId = 'workspace';
@@ -407,8 +305,7 @@ describe('MonacoModelRegistry', () => {
   });
 
   it('clears a non-staged git model when the ref no longer contains the file', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
 
     const projectId = 'project';
     const workspaceId = 'workspace';
@@ -438,8 +335,7 @@ describe('MonacoModelRegistry', () => {
 
   // #6264:盘上的文件变了、编辑器里没有没存的修改 —— 缓冲区跟着换成新正文,只动变了的那一段。
   it('reloads an unchanged buffer from disk with a minimal edit', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
     fileMocks.readFile.mockImplementationOnce(async () => ({
       success: true,
       data: { content: 'line one\nline two\n', binary: false, truncated: false, totalSize: 18 },
@@ -457,8 +353,7 @@ describe('MonacoModelRegistry', () => {
 
   // 预览(HTML / markdown / SVG / CSV)只按 bufferVersions 重画:盘上换了正文,版本号必须跟着动,不然预览停在旧正文上。
   it('bumps the buffer version when a disk change lands in the buffer, so previews redraw', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
     fileMocks.readFile.mockImplementationOnce(async () => ({
       success: true,
       data: { content: '<h1>ONE</h1>\n', binary: false, truncated: false, totalSize: 13 },
@@ -478,8 +373,7 @@ describe('MonacoModelRegistry', () => {
 
   // #6264:文件在盘上被删掉 —— 页签据此标「已删除」(正文留着);再读到就不再标。
   it('marks a buffer as deleted on disk when the file is gone, and clears it when it comes back', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
     const uri = await registry.registerModel('project', 'workspace', '/ws', 'gone.md', 'markdown', 'disk');
     const diskUri = registry.toDiskUri(uri);
 
@@ -494,8 +388,7 @@ describe('MonacoModelRegistry', () => {
 
   // 读失败但文件还在(权限、一时没应答):❌ 标成已删除。
   it('does not call a file deleted when the read fails but the file still exists', async () => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
     const uri = await registry.registerModel('project', 'workspace', '/ws', 'locked.md', 'markdown', 'disk');
     fileMocks.readFile.mockImplementationOnce(async () => ({ success: false, error: { type: 'fs_error', message: 'EACCES' } }) as never);
     await registry.invalidateModel(registry.toDiskUri(uri));
@@ -506,15 +399,48 @@ describe('MonacoModelRegistry', () => {
   // Keep mine 把看板刚拖的卡退了回去。现在盘上的改动并进缓冲区,两边都留,缓冲区仍是没存,⌘S 写下并好的。
   const disk = (content: string) => ({ success: true, data: { content, binary: false, truncated: false, totalSize: content.length } });
   const openDirty = async (name: string, onDisk: string, mine: string) => {
-    const registry = new MonacoModelRegistry();
-    registry.notifyMonacoReady(makeFakeMonaco() as never);
+    const registry = new TextModelRegistry();
     fileMocks.readFile.mockImplementationOnce(async () => disk(onDisk));
     const uri = await registry.registerModel('project', 'workspace', '/ws', name, 'markdown', 'disk');
     await registry.registerModel('project', 'workspace', '/ws', name, 'markdown', 'buffer');
-    (registry.getModelByUri(uri) as unknown as FakeModel).setValue(mine);
+    const model = registry.getModelByUri(uri)!;
+    model.edit({ from: 0, to: model.doc.length, insert: mine });
     expect(registry.isDirty(uri)).toBe(true);
     return { registry, uri };
   };
+
+  it('a CRLF file stays CRLF through an edit, a disk merge and the save', async () => {
+    const registry = new TextModelRegistry();
+    fileMocks.readFile.mockImplementationOnce(async () => disk('a\r\nb\r\n'));
+    const uri = await registry.registerModel('project', 'workspace', '/ws', 'crlf.txt', 'plaintext', 'disk');
+    await registry.registerModel('project', 'workspace', '/ws', 'crlf.txt', 'plaintext', 'buffer');
+    const model = registry.getModelByUri(uri)!;
+    // Document coordinates: one character per line break.
+    model.edit({ from: 1, insert: 'X' });
+    expect(registry.getValue(uri)).toBe('aX\r\nb\r\n');
+    expect(registry.isDirty(uri)).toBe(true);
+    fileMocks.readFile.mockImplementationOnce(async () => disk('a\r\nb\r\nc\r\n'));
+    await registry.invalidateModel(registry.toDiskUri(uri));
+    expect(registry.getValue(uri)).toBe('aX\r\nb\r\nc\r\n');
+    expect(await registry.saveFileToDisk(uri)).toBe('aX\r\nb\r\nc\r\n');
+    expect(registry.isDirty(uri)).toBe(false);
+  });
+
+  it('a disk reload is not an undo step: undo takes back only your own edit', async () => {
+    const registry = new TextModelRegistry();
+    fileMocks.readFile.mockImplementationOnce(async () => disk('one\n'));
+    const uri = await registry.registerModel('project', 'workspace', '/ws', 'undo.txt', 'plaintext', 'disk');
+    await registry.registerModel('project', 'workspace', '/ws', 'undo.txt', 'plaintext', 'buffer');
+    const model = registry.getModelByUri(uri)!;
+    model.edit({ from: 0, insert: '> ' }, { userEvent: 'input.type' });
+    fileMocks.readFile.mockImplementationOnce(async () => disk('one\ntwo\n'));
+    await registry.invalidateModel(registry.toDiskUri(uri));
+    expect(registry.getValue(uri)).toBe('> one\ntwo\n');
+    expect(model.undo()).toBe(true);
+    expect(registry.getValue(uri)).toBe('one\ntwo\n');
+    expect(registry.isDirty(uri)).toBe(false);
+    expect(model.canUndo).toBe(false);
+  });
 
   it('merges a disk change into unsaved edits: both kept, no choice to make, still unsaved', async () => {
     const { registry, uri } = await openDirty('TODO.md', '## 待办\n- [ ] a\n- [ ] b\n## 进行中\n', '## 待办\n- [ ] a (mine)\n- [ ] b\n## 进行中\n');

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({
+vi.mock('@renderer/lib/text-model/model-registry', () => ({
   modelRegistry: {
     dirtyUris: new Set<string>(),
     toDiskUri: (uri: string) => uri.replace(/^file:\/\//, 'disk://'),

@@ -1,67 +1,73 @@
-import { EditorState, Text } from '@codemirror/state';
+import { EditorState } from '@codemirror/state';
 import { getChunks } from '@codemirror/merge';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
-import * as monaco from 'monaco-editor';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDiffController } from '@renderer/lib/codemirror/diff-controller';
+import { createFileEditor } from '@renderer/lib/codemirror/file-editor';
 import { bindModel } from '@renderer/lib/codemirror/model-binding';
-import { modelPosition } from '@renderer/lib/codemirror/model-position';
+import { TextModel } from '@renderer/lib/text-model/text-model';
 import { isMacHost } from '@shared/host-os';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => { cleanups.reverse().forEach(dispose => dispose()); cleanups.length = 0; });
+const mod = { [isMacHost() ? 'metaKey' : 'ctrlKey']: true };
 
 function setup(content: string) {
-  const model = monaco.editor.createModel(content, 'plaintext');
-  cleanups.push(() => model.dispose());
+  const model = new TextModel('file:///x.txt', 'plaintext', content);
   const view = (readOnly = false) => {
     const parent = document.body.appendChild(document.createElement('div'));
-    const editor = new EditorView({ parent, state: EditorState.create({
-      doc: Text.of(model.getLinesContent()), extensions: EditorState.readOnly.of(readOnly),
-    }) });
-    const unbind = bindModel(editor, model, monaco);
+    const editor = new EditorView({ parent, state: EditorState.create({ doc: model.doc, extensions: EditorState.readOnly.of(readOnly) }) });
+    const unbind = bindModel(editor, model);
     cleanups.push(() => { unbind(); editor.destroy(); parent.remove(); });
     return editor;
   };
   return { model, view };
 }
 
-describe('CM diff shares the workspace model', () => {
-  it('updates the initiating and other views only after the model change, with one undo stack', async () => {
+describe('CM views share the workspace model', () => {
+  it('updates the initiating and other views only after the model change, with one undo stack', () => {
     const { model, view } = setup('base');
     const source = view();
     const other = view();
     const order: string[] = [];
     // Registered after both view subscriptions: every model event has updated both projections.
-    const listener = model.onDidChangeContent(() => order.push(`${model.getValue()}|${source.state.doc}|${other.state.doc}`));
-    cleanups.push(() => listener.dispose());
+    cleanups.push(model.onDidChange(() => order.push(`${model.getValue()}|${source.state.doc}|${other.state.doc}`)));
+    source.dispatch({ selection: { anchor: 4 } });
     source.dispatch({ changes: { from: 4, insert: ' one' }, selection: { anchor: 8 } });
     expect(order).toEqual(['base one|base one|base one']);
     expect(source.state.selection.main.head).toBe(8);
-    model.pushStackElement();
-    // This represents an edit from the still-native ordinary file editor.
-    model.pushEditOperations(null, [{ range: new monaco.Range(1, 1, 1, 1), text: 'two ' }], () => null);
+    // An edit typed in the other view (the file editor while the diff is open) lands in the same history.
+    other.dispatch({ changes: { from: 0, insert: 'two ' }, selection: { anchor: 4 }, userEvent: 'input.type' });
     expect(source.state.doc.toString()).toBe('two base one');
-    expect(other.state.doc.toString()).toBe('two base one');
-    model.pushStackElement();
-    await model.undo();
+    expect(model.undo(other)).toBe(true);
     expect(source.state.doc.toString()).toBe('base one');
-    await model.undo();
+    // The cursor comes back only in the view that undid.
+    expect(other.state.selection.main.head).toBe(0);
+    expect(model.undo(source)).toBe(true);
     expect(source.state.doc.toString()).toBe('base');
     expect(other.state.doc.toString()).toBe('base');
-    await model.redo();
-    expect(source.state.doc.toString()).toBe('base one');
+    expect(source.state.selection.main.head).toBe(4);
+    expect(model.redo(source)).toBe(true);
     expect(other.state.doc.toString()).toBe('base one');
   });
 
-  it('keeps CRLF and UTF-16 coordinates consistent for edits from either engine', () => {
+  it('typing a word is one undo step, as it was in the old editor', () => {
+    const { model, view } = setup('');
+    const editor = view();
+    for (const [i, ch] of [...'word'].entries()) editor.dispatch({ changes: { from: i, insert: ch }, selection: { anchor: i + 1 }, userEvent: 'input.type' });
+    expect(model.getValue()).toBe('word');
+    model.undo(editor);
+    expect(model.getValue()).toBe('');
+  });
+
+  it('keeps CRLF and UTF-16 coordinates consistent', () => {
     const { model, view } = setup('一\r\n😀tail\r\nend');
     const source = view();
-    source.dispatch({ changes: { from: modelPosition(source.state.doc, { lineNumber: 2, column: 3 }), insert: '中\r\n文' } });
+    source.dispatch({ changes: { from: source.state.doc.line(2).from + 2, insert: '中\n文' } });
     expect(model.getValue()).toBe('一\r\n😀中\r\n文tail\r\nend');
-    model.pushEditOperations(null, [{ range: new monaco.Range(3, 2, 4, 1), text: '!' }], () => null);
+    model.edit({ from: source.state.doc.line(3).from + 1, to: source.state.doc.line(4).from, insert: '!' });
     expect(source.state.doc.toString()).toBe('一\n😀中\n文!end');
-    expect(modelPosition(source.state.doc, source.state.doc.line(2).from + 2)).toEqual({ lineNumber: 2, column: 3 });
+    expect(model.getValue()).toBe('一\r\n😀中\r\n文!end');
   });
 
   it('rejects user document changes on a read-only side while accepting model refreshes', () => {
@@ -72,21 +78,22 @@ describe('CM diff shares the workspace model', () => {
     expect(left.state.doc.toString()).toBe('old');
     model.setValue('new\r\nref');
     expect(left.state.doc.toString()).toBe('new\nref');
+    expect(model.getValue()).toBe('new\r\nref');
   });
 });
 
 describe('CM diff controller', () => {
   for (const style of ['split', 'unified'] as const) {
     it(`${style}: edits round-trip through the model and keep the diff current`, () => {
-      const original = monaco.editor.createModel('a\nb\n', 'plaintext', monaco.Uri.parse(`git://cm-${style}/x.txt`));
-      const modified = monaco.editor.createModel('a\nb\n', 'plaintext', monaco.Uri.parse(`file:///cm-${style}/x.txt`));
+      const original = new TextModel(`git://cm-${style}/x.txt`, 'plaintext', 'a\nb\n');
+      const modified = new TextModel(`file:///cm-${style}/x.txt`, 'plaintext', 'a\nb\n');
       const parent = document.body.appendChild(document.createElement('div'));
       parent.style.height = '200px';
       let saves = 0;
       const controller = createDiffController({
-        parent, monaco, original, modified, style, language: [], dark: false, saved: undefined, save: () => { saves++; },
+        parent, original, modified, style, language: [], dark: false, saved: undefined, save: () => { saves++; },
       });
-      cleanups.push(() => { controller.destroy(); parent.remove(); original.dispose(); modified.dispose(); });
+      cleanups.push(() => { controller.destroy(); parent.remove(); });
       const views = [...parent.querySelectorAll<HTMLElement>('.cm-editor')].map(dom => EditorView.findFromDOM(dom)!);
       const right = views[views.length - 1]!;
       expect(getChunks(right.state)?.chunks.length).toBe(0);
@@ -95,7 +102,7 @@ describe('CM diff controller', () => {
       expect(modified.getValue()).toBe('Xa\nb\n');
       expect(getChunks(right.state)?.chunks.length).toBe(1);
 
-      modified.pushEditOperations(null, [{ range: new monaco.Range(1, 1, 1, 2), text: '' }], () => null);
+      runScopeHandlers(right, new KeyboardEvent('keydown', { key: 'z', ...mod }), 'editor');
       expect(right.state.doc.toString()).toBe('a\nb\n');
       expect(getChunks(right.state)?.chunks.length).toBe(0);
 
@@ -103,7 +110,7 @@ describe('CM diff controller', () => {
       expect(getChunks(right.state)?.chunks.length).toBe(1);
       if (style === 'split') {
         const left = views[0]!;
-        // Read-only, yet still focusable for selection, copy and find (like Monaco's original side).
+        // Read-only, yet still focusable for selection, copy and find.
         expect(left.contentDOM.getAttribute('aria-readonly')).toBe('true');
         expect(left.contentDOM.contentEditable).toBe('true');
         left.dispatch({ changes: { from: 0, insert: 'no' } });
@@ -111,9 +118,37 @@ describe('CM diff controller', () => {
         expect(left.state.doc.toString()).toBe('a\nc\n');
       }
 
-      runScopeHandlers(right, new KeyboardEvent('keydown', { key: 's', [isMacHost() ? 'metaKey' : 'ctrlKey']: true }), 'editor');
+      runScopeHandlers(right, new KeyboardEvent('keydown', { key: 's', ...mod }), 'editor');
       expect(saves).toBe(1);
       expect(controller.snapshot().modified.ranges).toHaveLength(1);
     });
   }
+});
+
+describe('file editor', () => {
+  it('swaps files in one view, keeping each file\'s cursor, and edits the file\'s model', () => {
+    const editor = createFileEditor({ dark: false });
+    document.body.appendChild(editor.container).style.height = '300px';
+    cleanups.push(() => editor.destroy());
+    const states = new Map<string, Parameters<Parameters<typeof editor.attach>[2]>[1]>();
+    const save = (uri: string, state: Parameters<Parameters<typeof editor.attach>[2]>[1]) => { states.set(uri, state); };
+    const a = new TextModel('file:///a.ts', 'typescript', 'const a = 1;\n');
+    const b = new TextModel('disk:///b.ts', 'typescript', 'const b = 2;\n');
+
+    editor.attach(a, null, save);
+    editor.view.dispatch({ changes: { from: 13, insert: 'x' }, selection: { anchor: 14 }, userEvent: 'input.type' });
+    expect(a.getValue()).toBe('const a = 1;\nx');
+    editor.attach(b, null, save);
+    expect(editor.view.state.doc.toString()).toBe('const b = 2;\n');
+    // A disk:// snapshot is read-only in the editor.
+    editor.view.dispatch({ changes: { from: 0, insert: 'no' } });
+    expect(b.getValue()).toBe('const b = 2;\n');
+    editor.attach(a, states.get(a.uri) ?? null, save);
+    expect(editor.view.state.selection.main.head).toBe(14);
+    // The file switched away from no longer reaches the view.
+    b.setValue('changed');
+    expect(editor.view.state.doc.toString()).toBe('const a = 1;\nx');
+    editor.attach(null, null, save);
+    expect(editor.view.state.doc.length).toBe(0);
+  });
 });

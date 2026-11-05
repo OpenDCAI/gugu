@@ -440,7 +440,7 @@
   /* @@@shadow-layers-7333 — 视觉规范:浮层不是一团大投影,而是「半像素轮廓 + 近影 + 宽而弱的环境影」组合。
      三档各管一类:--shadow-lift 菜单/popover/tooltip/toast;--shadow-dialog 较大的 Sheet/Dialog 外壳;
      --shadow-composer 主输入入口。非浮层照旧不给阴影(靠表面分层)。半像素轮廓画在阴影里,不另加 border。 */
-  /* 两套取值各起一个名字:会话页的 .emlight / .emdark 作用域(看图面板、Monaco 取色探针)要能拿到**它那一套**,不跟宿主主题走。 */
+  /* 两套取值各起一个名字:会话页的 .emlight / .emdark 作用域(看图面板)要能拿到**它那一套**,不跟宿主主题走。 */
   --shadow-lift-dark: 0 0 0 0.5px rgb(255 255 255 / 0.16), 0 8px 28px rgb(0 0 0 / 0.36);
   --shadow-lift-light: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 3px 7.5px rgb(0 0 0 / 0.04), 0 0 20px rgb(0 0 0 / 0.05);
   --shadow-lift: var(--shadow-lift-dark);
@@ -737,7 +737,7 @@
    从 session/renderer/index.css 的 .emdark / .emlight 原样搬来(owner 10-28 批的 token 方案:颜色只在 tokens.css 里写)。
    这是终端内容的调色板(VS Code Dark+ / Light+),不是界面角色;pty.ts 的 readXtermCssVars 从计算样式读它们。
    选择器仍是会话页自己的 .emdark / .emlight,❌ 换成 :root / [data-theme]:这两个类也会被单独挂上
-   (浏览器面板固定 .emlight,Monaco 用带类的探针读两套颜色),作用域里的值必须是它那一套,不跟宿主走。
+   (浏览器面板固定 .emlight),作用域里的值必须是它那一套,不跟宿主走。
    live / shadow-lift 同理:引用上面按主题命名的那一份。 */
 .emdark {
   --live: var(--live-dark);

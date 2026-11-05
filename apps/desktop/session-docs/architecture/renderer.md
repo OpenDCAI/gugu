@@ -19,7 +19,7 @@ All paths are relative to `apps/desktop/`.
 
 ## Feature Areas (`apps/desktop/src/session/renderer/features/`)
 
-- `tasks/` — task experience: `conversations/`, `diff-view/`, `editor/` (Monaco, file tree),
+- `tasks/` — task experience: `conversations/`, `diff-view/`, `editor/` (CodeMirror file editor, file tree),
   `terminals/`, `create-session-modal/`, `issue-context/`, `session-config/`, `tabs/`, `stores/`
   (MobX task stores and `session-selectors.ts`), `hooks/`, `view/`
 - `projects/` — project management, settings panel, branch selector; `stores/` holds
@@ -38,7 +38,7 @@ All paths are relative to `apps/desktop/`.
 - `layout/` — layout, navigation, and panel drag providers
 - `commands/` — command registry (`registry.ts`) and view-level `commandProvider` hooks
 - `pty/` — frontend PTY sessions, pool provider, panes, prompt injection
-- `monaco/`, `editor/` — Monaco editor integration
+- `text-model/`, `codemirror/`, `editor/` — file text models and the CodeMirror editors
 - `stores/` — cross-feature stores (navigation, dependencies, resource monitor, ...)
 - `providers/`, `hooks/`, `components/`, `ui/`, `theme/` — shared providers, hooks, and UI primitives
 

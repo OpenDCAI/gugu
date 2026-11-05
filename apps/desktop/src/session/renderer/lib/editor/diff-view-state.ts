@@ -9,3 +9,8 @@ export interface DiffViewState {
   modified: DiffSideState;
   scrollTop: number;
 }
+
+/** The file editor's cursor and scroll for one buffer, kept across tab switches. */
+export interface FileViewState extends DiffSideState {
+  scrollTop: number;
+}

@@ -3,7 +3,7 @@
  *
  * Applies design-system colour tokens to body, scrollbars, and selection.
  * Intentionally avoids app-specific layout rules (height/overflow on html/body,
- * #root constraints, xterm/Monaco/diff integrations) — those belong in the
+ * #root constraints, xterm/CodeMirror/diff integrations) — those belong in the
  * consuming app's own stylesheet.
  *
  * This file is NOT part of the styles/global barrel so it doesn't fight the host

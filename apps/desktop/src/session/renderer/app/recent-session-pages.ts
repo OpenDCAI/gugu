@@ -10,7 +10,7 @@ export const PageShownContext = createContext(true);
 /**
  * @@@retained-session-pages — every session page you visited stays mounted, hidden, until it falls out of
  * the six most recent (owner 10-08, same as SpexCode's page pool): switching back only flips which one is
- * visible, so nothing is rebuilt (panes, Monaco, web pages, Review) and each page keeps its own geometry —
+ * visible, so nothing is rebuilt (panes, editors, web pages, Review) and each page keeps its own geometry —
  * a terminal's size comes from its own session's layout, never from the session shown before.
  * Hidden the way the chat surface is (lib/retainedSurface.ts): same box, so no hidden page measures a new
  * size; inert, so it takes no focus or keys.

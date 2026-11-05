@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// #1625 review: reused preview panels, CSP-blocked HTML, Monaco, PhotoSwipe and the main-process probe.
+// #1625 review: reused preview panels, CSP-blocked HTML, the code editor, PhotoSwipe and the main-process probe.
 import { createElement, act } from 'react'
 import type PhotoSwipe from 'photoswipe'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -85,35 +85,35 @@ it('an HTML page whose CSP blocked the injected script leaves Cmd+ to the window
   expect(n.contents.setZoomLevel).toHaveBeenCalledTimes(1)
 })
 
-it('Monaco follows the text/code preference and takes its pinch instead of its own global wheel zoom', async () => {
+it('the code editor follows the text/code preference and takes its pinch instead of window zoom', async () => {
   writeFileZoom('text-code', 1.5)
   const container = document.createElement('div')
   const inner = container.appendChild(document.createElement('div'))
   document.body.appendChild(container)
-  const editor = { updateOptions: vi.fn() }
+  const setFontSize = vi.fn()
   const innerWheel = vi.fn()
   inner.addEventListener('wheel', innerWheel)
-  const off = bindEditorFileZoom(container, editor, 13)
-  expect(editor.updateOptions).toHaveBeenLastCalledWith({ fontSize: 19.5 })
+  const off = bindEditorFileZoom(container, setFontSize, 13)
+  expect(setFontSize).toHaveBeenLastCalledWith(19.5)
 
   const wheel = new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true })
   inner.dispatchEvent(wheel)
   expect(wheel.defaultPrevented).toBe(true)
   expect(innerWheel).not.toHaveBeenCalled()
   expect(readFileZoom('text-code')).toBeGreaterThan(1.5)
-  expect(editor.updateOptions).toHaveBeenLastCalledWith({ fontSize: 13 * readFileZoom('text-code') })
+  expect(setFontSize).toHaveBeenLastCalledWith(13 * readFileZoom('text-code'))
 
   inner.dispatchEvent(new WheelEvent('wheel', { deltaY: 40, bubbles: true }))
   expect(innerWheel).toHaveBeenCalledTimes(1)
 
   inner.tabIndex = -1; inner.focus()
   expect(runScript(fileZoomScript('resetZoom'))).toBe(true)
-  expect(editor.updateOptions).toHaveBeenLastCalledWith({ fontSize: 13 })
+  expect(setFontSize).toHaveBeenLastCalledWith(13)
 
   off()
-  editor.updateOptions.mockClear()
+  setFontSize.mockClear()
   writeFileZoom('text-code', 2)
-  expect(editor.updateOptions).not.toHaveBeenCalled()
+  expect(setFontSize).not.toHaveBeenCalled()
   expect(container.hasAttribute(FILE_ZOOM_ATTRIBUTE)).toBe(false)
   container.remove()
 })
@@ -172,16 +172,16 @@ it('Ctrl+0 inside a focused code editor resets the content before capture-phase 
   writeFileZoom('text-code', 1.5)
   const container = document.body.appendChild(document.createElement('div'))
   const input = container.appendChild(document.createElement('textarea'))
-  const editor = { updateOptions: vi.fn() }
-  const off = bindEditorFileZoom(container, editor, 13)
-  // Like MonacoKeyboardBridge / captured commands: a document capture listener that claims Mod+0 (Focus Sidebar).
+  const setFontSize = vi.fn()
+  const off = bindEditorFileZoom(container, setFontSize, 13)
+  // Like CodeEditorKeyboardBridge / captured commands: a document capture listener that claims Mod+0 (Focus Sidebar).
   const appHotkey = vi.fn((event: KeyboardEvent) => { event.preventDefault(); event.stopPropagation() })
   document.addEventListener('keydown', appHotkey, true)
   input.focus()
   const reset = new KeyboardEvent('keydown', { key: '0', ctrlKey: true, bubbles: true, cancelable: true })
   input.dispatchEvent(reset)
   expect(readFileZoom('text-code')).toBe(1)
-  expect(editor.updateOptions).toHaveBeenLastCalledWith({ fontSize: 13 })
+  expect(setFontSize).toHaveBeenLastCalledWith(13)
   expect(appHotkey).not.toHaveBeenCalled()
   // Outside the viewer the app hotkey keeps Ctrl+0.
   const outside = document.body.appendChild(document.createElement('button'))

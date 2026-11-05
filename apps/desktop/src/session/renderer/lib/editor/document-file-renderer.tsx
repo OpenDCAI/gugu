@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { DocumentPreviewContent } from '@/components/chat/DocumentPreviewContent';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
-import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
+import { modelRegistry } from '@renderer/lib/text-model/model-registry';
 
 /**
  * 文件 tab 里的文档阅读器:PDF(#5269)与 Word / PPT / Excel(#7191)。

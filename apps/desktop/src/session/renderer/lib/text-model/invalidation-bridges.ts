@@ -2,13 +2,13 @@ import type { FileChange } from '@gugu/session-core/files';
 import { fileChangesChannel } from '@shared/core/fs/fsEvents';
 import { gitRepoUpdateChannel, gitWorktreeUpdateChannel } from '@shared/core/git/events';
 import { HEAD_REF, STAGED_REF } from '@shared/core/git/types';
-import type { MonacoModelRegistry } from './monaco-model-registry';
+import type { TextModelRegistry } from './model-registry';
 import { workspaceEvents } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { log } from '@renderer/utils/logger';
 
 /** Disk models for paths affected by a watch event (atomic saves often use create/delete, not modify). */
 function diskUrisForFileChange(
-  registry: MonacoModelRegistry,
+  registry: TextModelRegistry,
   workspaceId: string,
   change: FileChange
 ): string[] {
@@ -24,9 +24,9 @@ function diskUrisForFileChange(
  * Wire all three invalidation bridges for the given registry. Returns a
  * teardown function that removes all event subscriptions.
  *
- * Call once in `bootstrap()` after Monaco pool initialization.
+ * Call once in `bootstrap()`.
  */
-export function wireModelRegistryInvalidation(registry: MonacoModelRegistry): () => void {
+export function wireModelRegistryInvalidation(registry: TextModelRegistry): () => void {
   const refresh = (uri: string) => {
     void registry.invalidateModel(uri).catch(error => log.error('Failed to refresh editor model', { uri, error }));
   };

@@ -4,7 +4,7 @@
  *
  * These run in Chromium via @vitest/browser-playwright so they have real DOM
  * layout and Solid's reactive scheduler. They guard against regressions in the
- * Monaco-style model-swap introduced in the ChatView setModel refactor.
+ * Editor-style model-swap introduced in the ChatView setModel refactor.
  */
 
 import { DEFAULT_THEME } from '@session-chat/core/theme';

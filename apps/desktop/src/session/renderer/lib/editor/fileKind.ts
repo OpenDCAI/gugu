@@ -1,6 +1,6 @@
 import type { ManagedFileKind } from './types';
 
-/** Raster image extensions — rendered with <img>, not Monaco. */
+/** Raster image extensions — rendered with <img>, not the code editor. */
 export const RASTER_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp']);
 
 /** HTML extensions — rendered with the HTML preview iframe. */
@@ -8,7 +8,7 @@ export const HTML_EXTS = new Set(['html', 'htm']);
 
 /**
  * Known binary / non-text extensions — shown as "unsupported" instead of
- * attempting to load into Monaco.
+ * attempting to load into the code editor.
  */
 export const BINARY_EXTS = new Set([
   'exe',
@@ -113,12 +113,12 @@ export function isOfficeKind(kind: ManagedFileKind): kind is 'docx' | 'pptx' | '
   return kind === 'docx' || kind === 'pptx' || kind === 'xlsx';
 }
 
-/** True for files backed by Monaco text models for source editing and saving. */
-export function isMonacoBackedKind(kind: ManagedFileKind): boolean {
+/** True for files backed by text models for source editing and saving. */
+export function isTextModelKind(kind: ManagedFileKind): boolean {
   return kind === 'text' || isPreviewableKind(kind);
 }
 
-/** True for files the diff viewer must not load into Monaco. */
+/** True for files the diff viewer must not load as text. */
 export function isBinaryForDiff(filePath: string): boolean {
   const kind = getFileKind(filePath);
   return kind === 'binary' || kind === 'image' || kind === 'svg' || isOfficeKind(kind);
