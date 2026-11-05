@@ -29,7 +29,7 @@ import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { parseWidgetMessage } from '@gugu/core/shared/ui/widgetModels'
 import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
 import { DeferredEmojiQuickPicker } from './messageActionModules'
-import { MsgMoreMenu } from './MsgMoreMenu'
+import { MsgMoreMenu } from './MsgMoreMenu'; import { PhoneTextSelection } from './PhoneTextSelection'; import { bubbleMenuGestures, usePhoneMessageMenu } from './phoneMessageMenuState'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { BubbleSender, BubbleTime, ReadReceiptRing } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
@@ -192,6 +192,7 @@ export const MessageBubble = memo(function MessageBubble({
   }
   const [showMenu, setShowMenu] = useState(false)
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
+  const phone = usePhoneMessageMenu(compactMobile && showMenu)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
@@ -225,6 +226,7 @@ export const MessageBubble = memo(function MessageBubble({
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }, { originalContent: msg.content }); close() } : undefined,
     onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
+    onSelectText: compactMobile && msg.content_type === 'text' ? () => { phone.setSelecting(true); close() } : undefined,
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() }, onKeep: keepAction({ id: msg.id, mine: msg.is_mine, live: !!mediaAttachment && mediaAttachment.source.kind !== 'gone' }, close, toast, t),
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
@@ -412,14 +414,9 @@ export const MessageBubble = memo(function MessageBubble({
           <div
             ref={bubbleRef}
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
-            style={bubbleStyle} data-message-reply-footer={!showSender && !!replyQuote && showReplyQuote || undefined} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
-            {...longPress}
+            style={phone.selecting ? { ...bubbleStyle, userSelect: 'text', WebkitUserSelect: 'text', WebkitTouchCallout: 'default' } : bubbleStyle} data-message-reply-footer={!showSender && !!replyQuote && showReplyQuote || undefined} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
+            {...bubbleMenuGestures(longPress, openMenuAt, phone.selecting)}
             onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              openMenuAt(e.clientX, e.clientY)
-            }}
           >
             {/* 名字只在群里收到的、一组的第一条上(DM 头栏已经说了是谁);任务卡自己写着是谁发的。 */}
             {showSender && <BubbleSender member={memberProfile} displayName={avatarName} senderId={msg.sender_user_id} replyMark={replyQuote} />}
@@ -506,10 +503,11 @@ export const MessageBubble = memo(function MessageBubble({
       {/* ── More menu (hover-bar "More" button) — design #msgmenu, portalled ── */}
       {showMoreMenu && <MsgMoreMenu anchor={moreButtonRef} {...messageActions(() => setShowMoreMenu(false))} />}
 
-      {/* ── 右键:指针处的同一份菜单。手机长按:贴着气泡弹出同一份菜单(返回键先关它;owner 10-26 ❌ 底部抽屉) ── */}
-      {showMenu && (compactMobile
-        ? <MsgMoreMenu anchor={bubbleRef} selectableText={msg.content_type === 'text' ? msg.content ?? undefined : undefined} {...messageActions(() => setShowMenu(false))} />
-        : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />)}
+      {/* ── 右键:指针处的同一份菜单。手机长按:同一份动作,气泡浮起、菜单贴在它上下(owner 11-05 方案 A;返回键先关它) ── */}
+      {compactMobile
+        ? phone.mounted && <MsgMoreMenu lift={{ open: showMenu, bubble: bubbleRef, touchY: menuPos.y, mine: msg.is_mine }} {...messageActions(() => setShowMenu(false))} />
+        : showMenu && <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />}
+      {phone.selecting && <PhoneTextSelection bubble={bubbleRef} onCopy={(text) => { void handleCopyText(text || undefined); phone.setSelecting(false) }} onDone={() => phone.setSelecting(false)} />}
 
       {/* ── Emoji quick-picker (hover-bar "Add emoji" button) ── */}
       {showEmojiPicker && (

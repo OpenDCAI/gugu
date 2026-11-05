@@ -10,7 +10,7 @@ export type MessageActionTarget = {
   onReply?: () => void
   onQuoteSelection?: () => void
   onCopy?: (content?: string) => void
-  /** 手机才有:长按菜单里换成可选中的原文,挑一段复制(手机长按就是菜单,气泡本身不能选字)。 */
+  /** 手机才有:收起菜单,在气泡上原地选字(手机长按就是菜单,平时气泡不能选字)。 */
   onSelectText?: () => void
   onCopyLink?: () => void
   onOpenLink?: () => void
@@ -32,8 +32,6 @@ export type MessageActionItem = {
   onSelect?: () => void
   disabled?: boolean
   danger?: boolean
-  /** 点了不收菜单,在原浮层里换一屏。 */
-  keepOpen?: boolean
 }
 
 /** 一条消息能做的事。右键 / ⋯ / 长按 / 文件预览共用,按提供的 handler 取适合当前场景的动作。 */
@@ -48,7 +46,7 @@ export function messageActionItems(input: MessageActionTarget, t: TFunction<'mes
     !!target.onReply && { key: 'reply', icon: Reply, label: t('message.actions.reply'), onSelect: target.onReply, disabled: target.isRetracted },
     SELECTED_MESSAGE_QUOTES_ENABLED && !!target.onQuoteSelection && { key: 'quoteSelection', icon: Reply, label: t('message.actions.quoteSelection'), onSelect: target.onQuoteSelection, disabled: target.isRetracted },
     !!target.onCopy && { key: 'copy', icon: Copy, label: t('message.actions.copy'), onSelect: target.onCopy, disabled: !hasContent },
-    !!target.onSelectText && { key: 'selectText', icon: TextCursorInput, label: t('message.actions.selectText'), onSelect: target.onSelectText, disabled: !hasContent, keepOpen: true },
+    !!target.onSelectText && { key: 'selectText', icon: TextCursorInput, label: t('message.actions.selectText'), onSelect: target.onSelectText, disabled: !hasContent },
     !!target.onCopyLink && { key: 'copyLink', icon: Copy, label: t('message.actions.copyLink'), onSelect: target.onCopyLink, disabled: target.isRetracted },
     !!target.onOpenLink && { key: 'openLink', icon: ExternalLink, label: t('message.actions.openLink'), onSelect: target.onOpenLink, disabled: target.isRetracted },
     !!target.onOpenTopic && { key: 'openTopic', icon: MessageSquare, label: t('message.actions.openTopic'), onSelect: target.onOpenTopic, disabled: target.isRetracted },

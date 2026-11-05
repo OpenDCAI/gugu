@@ -88,6 +88,12 @@ export type MenuProps = MenuAnchorProps & {
   onClose?: () => void
   /** Accessible name for non-standard menu contents such as the quick reaction picker. */
   ariaLabel?: string
+  /** Default true. Keep the Menu mounted and flip this to false to let the popup play its exit animation. */
+  open?: boolean
+  /** Replaces the default menu surface: the caller draws its own popup (the phone long-press layer). */
+  popupClassName?: string
+  /** Renders a backdrop beneath the popup; a press on it is an outside press. */
+  backdropClassName?: string
 }
 
 // 按钮锚点离按钮 6px(与 DropdownMenu 同);指针锚点贴着指针。
@@ -103,6 +109,9 @@ export function Menu({
   children,
   onClose,
   ariaLabel,
+  open = true,
+  popupClassName,
+  backdropClassName,
 }: MenuProps) {
   const portalContainer = useUiPortalContainer()
   const pointAnchor = useMemo(() => (
@@ -111,17 +120,18 @@ export function Menu({
       : { getBoundingClientRect: () => new DOMRect(x, y, 0, 0) }
   ), [elementAnchor, x, y])
   // 开着的菜单也是盖在页面上的一层:安卓返回键先关它,❌ 让底下的页面退走、菜单浮在列表上。
-  useBackLayer(onClose)
+  useBackLayer(onClose, open)
 
   return (
     <MenuPrimitive.Root
-      open
+      open={open}
       modal={false}
       onOpenChange={(open) => {
         if (!open) onClose?.()
       }}
     >
       <MenuPrimitive.Portal container={portalContainer}>
+        {backdropClassName && <MenuPrimitive.Backdrop className={backdropClassName} />}
         <MenuPrimitive.Positioner
           className={cn('gg-menu-positioner window-no-drag-region', menuPositioner)}
           anchor={elementAnchor ?? pointAnchor}
@@ -137,10 +147,10 @@ export function Menu({
           style={{ zIndex }}
         >
           <MenuPrimitive.Popup
-            className={menuPopup}
+            className={popupClassName ?? menuPopup}
             data-occludes-browser-page
             aria-label={ariaLabel}
-            style={{ minWidth: Math.max(minWidth, 0), padding: menuSurfacePadding, ...style }}
+            style={popupClassName ? style : { minWidth: Math.max(minWidth, 0), padding: menuSurfacePadding, ...style }}
           >
             {children}
           </MenuPrimitive.Popup>
@@ -170,7 +180,7 @@ export interface MenuItemProps {
    * 这一格只是文字,不注册任何按键。
    */
   shortcut?: string
-  /** false = 点了菜单不收(在原浮层里换一屏,如「选择文字」);默认点了就收。 */
+  /** false = 点了菜单不收(如话题行的置顶开关);默认点了就收。 */
   closeOnClick?: boolean
   onClick?: () => void
   children: ReactNode
