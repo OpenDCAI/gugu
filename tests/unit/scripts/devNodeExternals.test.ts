@@ -109,9 +109,15 @@ describe('Electron development dependency externalization', () => {
     expect(output()).toContain('81003')
     expect(output()).toContain('91003')
     expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91003, 71001, 72001, 72002, 73001, 73001, 74001])
+    // Rollup emits END right after *starting* to watch the files it just built, not after the watcher
+    // is subscribed, and exposes no readiness signal. On macOS FSEvents an edit made in that window is
+    // never reported (mac1, 8 runs in parallel: 6 of 32 hung until the case cap). So the edit stays
+    // applied until the watcher reports it: this waits for that fact, and asserts the rebuild once.
     const rebuilt = completed()
-    writeFileSync(join(root, 'own.ts'), 'export const own = 91004')
-    await rebuilt
+    const edit = () => writeFileSync(join(root, 'own.ts'), 'export const own = 91004')
+    edit()
+    const reapply = setInterval(edit, 100)
+    await rebuilt.finally(() => clearInterval(reapply))
     expect(output()).toContain('91004')
     expect(output()).not.toContain('91003')
     expect(runArtifact(root)).toEqual([71001, 71002, 81002, 81003, 91004, 71001, 72001, 72002, 73001, 73001, 74001])
