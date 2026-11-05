@@ -9,7 +9,7 @@
 
 你把事情直接交给 Agent，它按任务需要调用工具和设备，组织协作，交回结果。
 
-[English](README.md) · **简体中文** · [关于咕咕](#关于咕咕) · [官网](https://gugu.nextmind.space/zh/) · [文档](https://gugu.nextmind.space/help/) · [产品对比](https://gugu.nextmind.space/help/comparison/overview/)
+[English](README.md) · **简体中文** · [关于咕咕](#关于咕咕) · [官网](https://gugu.nextmind.space/zh/) · [文档](https://gugu.nextmind.space/help/) · [产品对比](https://gugu.nextmind.space/help/comparison/overview/) · [微信群](#交流)
 
 [![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-C76B4A?style=flat-square)](#主要功能) [![Codex](https://img.shields.io/badge/agent-Codex-252525?style=flat-square)](#主要功能) [![MCP](https://img.shields.io/badge/tools-MCP-6A50D4?style=flat-square)](#主要功能) [![Skills](https://img.shields.io/badge/workflows-Skills-328788?style=flat-square)](#主要功能) [![Gugu Apps](https://img.shields.io/badge/extensions-Gugu%20Apps-E58F28?style=flat-square)](#主要功能)
 
@@ -221,6 +221,10 @@ App 从市场安装，版本和启用状态在客户端管理。
 | [OpenDCAI/gugu-supabase](https://github.com/OpenDCAI/gugu-supabase) | 账号、消息、同步、设备通信与权限 |
 
 配置与启动见[社区部署指南](docs/guides/self-hosting.zh-CN.md)，安装与检查见[贡献指南](CONTRIBUTING.zh-CN.md)。
+
+## 交流
+
+加入咕咕微信群，和团队及其他用户交流：打开[官网](https://gugu.nextmind.space/zh/)，点右下角的微信按钮，扫码进群。群二维码每周更新，以官网上的为准。
 
 ## 参与贡献
 
