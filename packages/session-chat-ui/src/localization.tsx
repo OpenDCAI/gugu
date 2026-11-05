@@ -125,6 +125,7 @@ const fallbackMessages = {
   'transcript.sendFailed': 'Send failed',
   'transcript.sendUnknown': 'Delivery unknown; not resent',
   'transcript.retrySend': 'Retry',
+  'transcript.resendInput': 'Resend',
   'transcript.processStepsOne': '{count} step',
   'transcript.processSteps': '{count} steps',
   'transcript.processEarlierParts': '{count} earlier parts',

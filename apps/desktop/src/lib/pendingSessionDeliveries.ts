@@ -22,6 +22,8 @@ export function projectSessionPendingDeliveries(previous: readonly PendingPrompt
     const prior = previous.find(input => input.id === id)
     const row = rows.find(input => input.messageId === id)
     if (!prior && !row) return []
+    // The host settled this unknown input from durable history outside the UI window.
+    if (prior?.delivery?.state === 'unknown' && !row) return []
     const input: PendingPrompt = prior ?? { id, text: row!.text, sentAt: row!.sentAt, received: readDeliveryEnvelope(row!.text) !== null,
       hostSequence: row!.seq, baselineMessageIds: sessionInputBaseline(turns).baseline,
       afterTurnId: turns.at(-1)?.id, held: true,
@@ -29,7 +31,7 @@ export function projectSessionPendingDeliveries(previous: readonly PendingPrompt
     const failedStart = view !== null && lifeHoldIsFailure(view.hold) && (row?.state === 'queued' || row?.state === 'dispatching')
     const stopped = view?.hold === 'user-stop' && row?.state === 'queued'
     const delivery: NonNullable<PendingPrompt['delivery']> = row?.state === 'unknown'
-      ? { state: 'unknown', retryable: false, error: row.failure ? messageForUser(row.failure) : undefined }
+      ? { state: 'unknown', retryable: row.resendable === true, error: row.failure ? messageForUser(row.failure) : undefined }
       : row?.state === 'failed' || failedStart
         ? { state: 'failed', retryable: failedStart, error: messageForUser(row?.failure ?? view?.failure?.message ?? '') }
         : row?.state === 'accepted' || (!row && view) ? { state: 'receiving' }

@@ -40,7 +40,7 @@ import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/se
 import { errorDetail, isDeepEqual } from '@gugu/session-shared';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { flushSync } from 'react-dom';
-import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
+import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, retryUnknownSessionInput, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeHoldIsFailure, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
 import { sendHeldInputNow } from './send-held-input-now';
@@ -1119,6 +1119,10 @@ export class AcpChatStore {
   }
 
   retryPendingInput(itemId?: string): void {
+    if (itemId && this.chatState.session.state.pendingMessages.some(input => input.id === itemId && input.delivery?.state === 'unknown')) {
+      if (sessionLifeView(this.runtimeSessionId)?.pending.items.some(row => row.messageId === itemId && row.resendable)) void retryUnknownSessionInput(this.runtimeSessionId, itemId).catch(error => this._toastError('acpFailure.sendMessage', error));
+      return;
+    }
     if (itemId && this.isRejectedInput(itemId)) {
       void changeRejectedSessionInput(itemId, { kind: 'retry' }).catch(error => this._toastError('acpFailure.sendMessage', error));
       return;

@@ -7,7 +7,7 @@
 import type { ChatAttachment, ChatItem, TranscriptTurn, TurnProcessItem } from '@session-chat/model';
 import type { ToolNode } from '@gugu/session-core/acp/client';
 import { nativeMessageKey } from '@gugu/session-core/session-record/native-read';
-import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { deliverySourceIds as sourceMessageIds } from '@gugu/core/local/agent/deliveryIdentity';
 
 export type PendingPrompt = {
   id: string;
@@ -85,10 +85,6 @@ function splitTools(items: readonly ToolNode[], anchor: string, suffix: string):
     if (split) return { before: [...items.slice(0, i), { ...item, children: split.before }],
       after: [...(split.after.length ? [{ ...item, id: `${item.id}@${suffix}`, children: split.after }] : []), ...items.slice(i + 1)] };
   }
-}
-
-function sourceMessageIds(text: string): string[] {
-  return readDeliveryEnvelope(text)?.segments.flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId.replace(/^msg:/, '')] : []) ?? [];
 }
 
 /** A new history seed or an unrelated active turn is not a receipt for this input. */
@@ -202,7 +198,7 @@ export function projectPendingMessages(committed: readonly TranscriptTurn[], act
     const known = input.nativeEcho ?? remembered?.get(input.id) ?? (ids.length ? undefined : findPendingPromptEcho(input, all));
     for (const { turn, messages } of native) for (const { item, sourceIds } of messages) {
       const landed = known ? nativeMessageKey(item.id) === nativeMessageKey(known.itemId)
-        : item.id === input.id || (input.id.length >= 16 && item.id.includes(input.id))
+        : (item.kind === 'message' && item._meta?.guguClientMessageId === input.id) || item.id === input.id || (input.id.length >= 16 && item.id.includes(input.id))
           || (ids.length ? ids.every(id => sourceIds.has(id)) : pendingPromptLanded(input, [{ ...turn, items: [item] }]));
       if (landed) match = { turnId: turn.id, itemId: item.id };
     }
@@ -228,7 +224,8 @@ export function projectPendingMessages(committed: readonly TranscriptTurn[], act
     let changed = false;
     const items = turn.items.map((item, index) => {
       const input = inputs[index];
-      if (!input?.delivery) return item;
+      // A native user input is positive delivery evidence, even when its turn ended in an error.
+      if (!input?.delivery || input.delivery.state === 'unknown') return item;
       changed = true;
       return { ...item, sendStatus: input.delivery };
     });

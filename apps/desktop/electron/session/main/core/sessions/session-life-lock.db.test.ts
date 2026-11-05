@@ -22,7 +22,7 @@ beforeEach(async () => {
 afterEach(() => { blocker.close(); fixture.close(); mocks.db = undefined; });
 
 function lock() { blocker.exec("BEGIN IMMEDIATE; UPDATE projects SET name='locked' WHERE id='p'"); }
-function rig() {
+function rig(ownedBy = async () => true) {
   let exit: Parameters<LegAdapter['onExit']>[1] | undefined;
   const run = vi.fn<(at: StageName) => void>();
   const dispatch = vi.fn<LegAdapter['dispatch']>(async () => ({ result: 'accepted', nativeReceiptId: 'native' }));
@@ -36,7 +36,7 @@ function rig() {
         return (at === 'identity' ? { kind: 'bound', agentUserId: 'agent' } : { at, gen: ctx.gen, timing: 'next-tool-call' }) as StageOut[K];
       }, dispatch, teardown,
       onExit: (_have, cb) => { exit = cb; return () => {}; } }),
-    forks: () => [], allForks: () => [], parentOf: () => null, ownedBy: async () => true,
+    forks: () => [], allForks: () => [], parentOf: () => null, ownedBy,
     markRead: async () => {}, reportFailure: async () => {}, publish: () => {}, removed: () => {}, failed, now: Date.now });
   return { owner, store, failed, run, dispatch, teardown, exit: () => exit!({ cause: { name: 'Exit', message: 'gone' }, code: 1, signal: null }),
     send: (id: string) => owner.enqueue({ sessionId: 's', messageId: id, text: id, kind: 'ordinary' }) };
@@ -128,4 +128,115 @@ it('contains a permanent fault-commit failure without poisoning the next explici
   r.send('after-fault'); await r.owner.quiescent('s');
   expect(r.dispatch).toHaveBeenCalledTimes(1);
   await r.owner.signOut();
+});
+
+
+function interrupted(id = 'interrupted') {
+  const input = { sessionId: 's', messageId: id, text: 'original envelope', kind: 'session-direct' as const };
+  const seq = lifeStore.enqueue(input).seq;
+  lifeStore.commit('s', [{ e: 'write-receipt', seq, receipt: { state: 'dispatching', attempt: 1 as never } }]);
+  return { input, seq };
+}
+
+it('restart claims unknown without dispatch; a durable echo settles it automatically without starting', async () => {
+  const { seq } = interrupted(); const r = rig(); await r.owner.signIn('A');
+  expect(lifeStore.row('s', seq).state).toBe('unknown');
+  expect(r.dispatch).not.toHaveBeenCalled();
+  await r.owner.reconcileUnknownRows('s', async input => { expect(input.id).toBe('interrupted'); return 'native-user'; });
+  expect(lifeStore.row('s', seq).state).toBe('accepted');
+  expect(r.run).not.toHaveBeenCalled(); expect(r.dispatch).not.toHaveBeenCalled();
+});
+
+it('a missing echo stays unknown across opening; only an explicit resend dispatches the original row once', async () => {
+  const { seq } = interrupted(); const r = rig(); await r.owner.signIn('A');
+  await r.owner.reconcileUnknownRows('s', async () => null);
+  expect(lifeStore.row('s', seq).state).toBe('unknown'); expect(r.dispatch).not.toHaveBeenCalled();
+  await Promise.all([r.owner.retryUnknownRow('s', 'interrupted', async () => null), r.owner.retryUnknownRow('s', 'interrupted', async () => null)]);
+  await vi.waitFor(() => expect(r.dispatch).toHaveBeenCalledTimes(1));
+  expect(lifeStore.row('s', seq).message).toMatchObject({ id: 'interrupted', text: 'original envelope' });
+  expect(fixture.sqlite.prepare("SELECT count(*) AS n FROM session_pending WHERE session_id='s'").get()).toEqual({ n: 1 });
+});
+
+it('rechecks history on click: a newly landed input is accepted without a second dispatch', async () => {
+  const { seq } = interrupted(); const r = rig(); await r.owner.signIn('A');
+  await r.owner.retryUnknownRow('s', 'interrupted', async () => 'native-after-open');
+  expect(lifeStore.row('s', seq).state).toBe('accepted'); expect(r.dispatch).not.toHaveBeenCalled();
+});
+
+it('history read failure cannot requeue an unknown receipt', async () => {
+  const { seq } = interrupted(); const r = rig(); await r.owner.signIn('A');
+  await expect(r.owner.retryUnknownRow('s', 'interrupted', async () => { throw new Error('history unavailable'); })).rejects.toThrow('history unavailable');
+  expect(lifeStore.row('s', seq).state).toBe('unknown'); expect(r.dispatch).not.toHaveBeenCalled();
+});
+
+it('sign-out during history lookup cannot requeue or dispatch on another account', async () => {
+  const { seq } = interrupted(); const r = rig(); await r.owner.signIn('A');
+  let finish!: (value: string | null) => void;
+  const lookup = new Promise<string | null>(resolve => { finish = resolve; });
+  let entered!: () => void; const began = new Promise<void>(resolve => { entered = resolve; });
+  const retry = r.owner.retryUnknownRow('s', 'interrupted', () => { entered(); return lookup; });
+  await began; await r.owner.signOut(); finish(null);
+  await expect(retry).rejects.toThrow('session changed');
+  expect(lifeStore.row('s', seq).state).toBe('unknown'); expect(r.dispatch).not.toHaveBeenCalled();
+});
+
+it('rejects a foreign account and never clears an archived session hold', async () => {
+  const { seq } = interrupted(); let own = true; const r = rig(async () => own); await r.owner.signIn('A');
+  own = false;
+  await expect(r.owner.retryUnknownRow('s', 'interrupted', async () => null)).rejects.toThrow('account cannot');
+  own = true; await r.owner.interrupt('s', { k: 'interrupt', reason: 'archive' });
+  await expect(r.owner.retryUnknownRow('s', 'interrupted', async () => null)).rejects.toThrow('cannot resend');
+  expect(lifeStore.row('s', seq).state).toBe('unknown'); expect(r.dispatch).not.toHaveBeenCalled();
+});
+
+
+it('a stop completed during recovery wins over the older resend intent', async () => {
+  const { seq } = interrupted(); const r = rig(); await r.owner.signIn('A');
+  let finish!: (value: string | null) => void, entered!: () => void;
+  const lookup = new Promise<string | null>(resolve => { finish = resolve; });
+  const began = new Promise<void>(resolve => { entered = resolve; });
+  const retry = r.owner.retryUnknownRow('s', 'interrupted', () => { entered(); return lookup; });
+  await began;
+  await r.owner.interrupt('s', { k: 'interrupt', reason: 'user-stop' });
+  expect(r.owner.read('s')).toMatchObject({ kind: 'dormant', hold: 'user-stop' });
+  finish(null);
+  await expect(retry).rejects.toThrow('session changed');
+  expect(lifeStore.row('s', seq).state).toBe('unknown');
+  expect(r.owner.read('s')).toMatchObject({ kind: 'dormant', hold: 'user-stop' });
+  expect(r.run).not.toHaveBeenCalled(); expect(r.dispatch).not.toHaveBeenCalled();
+});
+
+it('a fresh explicit resend after the stop is allowed without replaying a second copy', async () => {
+  interrupted(); const r = rig(); await r.owner.signIn('A');
+  await r.owner.interrupt('s', { k: 'interrupt', reason: 'user-stop' });
+  await r.owner.retryUnknownRow('s', 'interrupted', async () => null);
+  await vi.waitFor(() => expect(r.dispatch).toHaveBeenCalledTimes(1));
+});
+
+
+it('a refused foreign input never creates an entry that a later sign-out can mutate', async () => {
+  const { seq } = interrupted();
+  lifeStore.commit('s', [{ e: 'write-receipt', seq, receipt: { state: 'unknown' } }]);
+  const r = rig(async () => false); await r.owner.signIn('A');
+  await expect(r.owner.retryUnknownRow('s', 'interrupted', async () => null)).rejects.toThrow('account cannot');
+  await r.owner.signOut();
+  expect(lifeStore.read('s').hold).toBeNull();
+  expect(lifeStore.row('s', seq).state).toBe('unknown');
+});
+
+
+it('sign-out during the ownership check cannot create a late recovery entry', async () => {
+  const { seq } = interrupted();
+  lifeStore.commit('s', [{ e: 'write-receipt', seq, receipt: { state: 'unknown' } }]);
+  let check: () => Promise<boolean> = async () => false;
+  const r = rig(() => check()); await r.owner.signIn('A');
+  let finish!: (value: boolean) => void, entered!: () => void;
+  const began = new Promise<void>(resolve => { entered = resolve; });
+  check = () => { entered(); return new Promise<boolean>(resolve => { finish = resolve; }); };
+  const retry = r.owner.retryUnknownRow('s', 'interrupted', async () => null);
+  await began; await r.owner.signOut(); finish(true);
+  await expect(retry).rejects.toThrow('account cannot');
+  check = async () => false;
+  await r.owner.signIn('B'); await r.owner.signOut();
+  expect(lifeStore.read('s').hold).toBeNull(); expect(lifeStore.row('s', seq).state).toBe('unknown');
 });

@@ -174,7 +174,7 @@ describe('incoming delivery custody', () => {
     expect(projectSessionPendingDeliveries(initial, view([{ ...a, state: 'accepted' }, b]), [stored]).map(input => input.id)).toEqual(['b'])
   })
 
-  it('decorates the last real echo of unknown inbox receipts without duplicating or mutating history', () => {
+  it('clears an unknown marker on a real echo without duplicating or mutating history', () => {
     const a = { ...row('a', 1, 'unknown'), kind: 'inbox-batch' as const }
     const history = [turn('old-replay', a.text), turn('final-echo', a.text)]
     const inputs = projectSessionPendingDeliveries([], view([a]), history)
@@ -183,7 +183,7 @@ describe('incoming delivery custody', () => {
     expect(projectSessionPendingDeliveries(inputs, null, history)[0]?.delivery).toMatchObject({ state: 'unknown', retryable: false })
     expect(result.waiting).toEqual([])
     expect(result.committed[0]).toBe(history[0])
-    expect(result.committed[1]?.items[0]).toMatchObject({ sendStatus: { state: 'unknown', retryable: false } })
+    expect(result.committed[1]?.items[0]).not.toHaveProperty('sendStatus')
     expect(history[1]?.items[0]).not.toHaveProperty('sendStatus')
     const narrowed = projectSessionPendingDeliveries(inputs, view([a]), [])
     expect(narrowed[0]?.nativeEcho).toEqual({ turnId: history[1]!.id, itemId: history[1]!.items[0]!.id })
@@ -264,10 +264,10 @@ it('bounds the search and hands an out-of-budget receipt to its later native his
   const native = turn('late-native', envelope('late'))
   const landed = projectPendingMessages([native, ...bounded.turns, ...newest], null, inputs)
   expect(landed.waiting).toEqual([])
-  expect(landed.committed.flatMap(t => t.items.filter(item => 'sendStatus' in item))).toHaveLength(1)
+  expect(landed.committed.flatMap(t => t.items.filter(item => 'sendStatus' in item))).toHaveLength(0)
   const later = projectPendingMessages([turn('earlier-page', 'Earlier question'), ...landed.committed], null, inputs)
   expect(later.waiting).toEqual([])
-  expect(later.committed.flatMap(t => t.items.filter(item => 'sendStatus' in item)).map(item => item.id)).toEqual([native.items[0]!.id])
+  expect(later.committed.flatMap(t => t.items.filter(item => 'sendStatus' in item))).toEqual([])
 })
 
 it('does not merge a history page beyond the byte budget', async () => {
@@ -312,7 +312,7 @@ it('finds a plain unknown receipt using the complete anchor context, without sen
   expect(found[0]?.nativeEcho).toEqual({ turnId: native.id, itemId: native.items[0]!.id })
   const projection = projectPendingMessages([anchor, native], null, found)
   expect(projection.waiting).toEqual([])
-  expect(projection.committed[1]?.items[0]).toMatchObject({ sendStatus: { state: 'unknown' } })
+  expect(projection.committed[1]?.items[0]).not.toHaveProperty('sendStatus')
   expect(projectSessionPendingDeliveries(found, view([]), [anchor, native])).toEqual([])
 })
 
@@ -325,5 +325,26 @@ it('rechecks mutable active messages instead of caching an incomplete native env
   active.items.push({ ...turn('later-native', input.text).items[0]!, seq: 1 })
   const projection = projectPendingMessages([], active, pending, cache)
   expect(projection.waiting).toEqual([])
-  expect(projection.active?.items[1]).toMatchObject({ sendStatus: { state: 'unknown' } })
+  expect(projection.active?.items[1]).toMatchObject({ id: 'later-native:native-user', role: 'user' })
+  expect(projection.active?.items[1]).not.toHaveProperty('sendStatus')
+})
+
+
+it('offers explicit recovery only when the host advertises it, and never resends during projection', () => {
+  const receipt = { ...row('restart-input', 1, 'unknown'), resendable: true }
+  const inputs = projectSessionPendingDeliveries([], view([receipt]), [])
+  expect(inputs[0]?.delivery).toEqual({ state: 'unknown', retryable: true, error: undefined })
+  const native = { ...turn('recovered', 'different display text'), outcome: { kind: 'error' as const, reason: 'prompt_failed' as const },
+    items: [{ ...turn('recovered', 'different display text').items[0]!, _meta: { guguClientMessageId: receipt.messageId } }] }
+  const result = projectPendingMessages([native], null, inputs)
+  expect(result.waiting).toEqual([])
+  expect(result.committed[0]?.items[0]).not.toHaveProperty('sendStatus')
+  const remembered = projectSessionPendingDeliveries(inputs, view([receipt]), [native])
+  expect(projectPendingMessages([], null, remembered).waiting).toEqual([])
+})
+
+
+it('removes a host-reconciled unknown even when its native echo is beyond the UI window', () => {
+  const inputs = projectSessionPendingDeliveries([], view([{ ...row('older-than-budget', 1, 'unknown'), resendable: true }]), [])
+  expect(projectSessionPendingDeliveries(inputs, view([]), [turn('latest', 'Unrelated')])).toEqual([])
 })

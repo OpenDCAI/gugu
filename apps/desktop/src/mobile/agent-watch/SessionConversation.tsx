@@ -278,6 +278,11 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   // phone draft must not rebuild the history before its outbox commit can run.
   const commands = useMemo<ChatCommands>(() => ({
     ...rejectedInputCommands,
+    onRetrySend: id => {
+      const input = received.current.inputs.find(input => input.id === id && input.delivery?.state === 'unknown')
+      if (!input) return rejectedInputCommands.onRetrySend?.(id)
+      if (input.delivery?.retryable) void machineRpc(deviceId, local).sessions.lifeRetryUnknown(sessionId, id).catch(error => setBackgroundError(messageForUser(error)))
+    },
     ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
     onOpenFile: ({ path, source }) => openFile(path, source),
