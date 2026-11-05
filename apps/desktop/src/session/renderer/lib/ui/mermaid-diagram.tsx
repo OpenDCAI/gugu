@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { cn } from '@renderer/utils/utils';
-import { MermaidDiagramDialog } from './mermaid-diagram-dialog';
 import { MermaidDiagramPreview } from './mermaid-diagram-preview';
 import { createMermaidRenderId, renderMermaidDiagram } from '@gugu/session-chat-ui/mermaid';
+
+// The pan/zoom viewer loads with the first diagram drawn, not with every markdown surface.
+const MermaidDiagramDialog = lazy(() => import('./mermaid-diagram-dialog').then((m) => ({ default: m.MermaidDiagramDialog })));
 
 interface MermaidDiagramProps {
   chart: string;
@@ -91,12 +93,14 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, isDark, c
         compact={compact}
         onExpand={() => setIsExpanded(true)}
       />
-      <MermaidDiagramDialog
-        open={isExpanded}
-        svg={visibleState.svg}
-        renderKey={visibleState.key}
-        onOpenChange={setIsExpanded}
-      />
+      <Suspense fallback={null}>
+        <MermaidDiagramDialog
+          open={isExpanded}
+          svg={visibleState.svg}
+          renderKey={visibleState.key}
+          onOpenChange={setIsExpanded}
+        />
+      </Suspense>
     </>
   );
 };

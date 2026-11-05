@@ -367,6 +367,8 @@ describe('AgentWatchPage native back routing', () => {
     await act(async () => {
       (harness.container.querySelector('[data-testid="open-device"]') as HTMLButtonElement).click()
     })
+    // CreateSessionPage is React.lazy: it renders once its chunk resolves.
+    await act(async () => { await import('../../../apps/desktop/src/mobile/agent-watch/CreateSessionPage') })
     expect(harness.container.querySelector('[data-testid="create"]')?.getAttribute('data-device-id')).toBe('device-1')
     expect(onRouteChange).toHaveBeenLastCalledWith('create')
     await act(async () => {
@@ -386,6 +388,8 @@ describe('AgentWatchPage native back routing', () => {
     await harness.render(createNode(AgentWatchPage, { active: true, onExit: vi.fn() }))
     await act(async () => { (harness.container.querySelector('[data-testid="create-agent"]') as HTMLButtonElement).click() })
     await act(async () => { (harness.container.querySelector('[data-testid="open-device"]') as HTMLButtonElement).click() })
+    // CreateSessionPage is React.lazy: it renders once its chunk resolves.
+    await act(async () => { await import('../../../apps/desktop/src/mobile/agent-watch/CreateSessionPage') })
     await act(async () => { (harness.container.querySelector('[data-testid="create-done"]') as HTMLButtonElement).click() })
     expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
     await act(async () => { (harness.container.querySelector('[data-testid="timeline-back"]') as HTMLButtonElement).click() })
