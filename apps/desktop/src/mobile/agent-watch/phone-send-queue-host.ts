@@ -37,7 +37,7 @@ export function watchPhoneSessionSendQueues(accountId: string, options?: { phone
     let subscribed = false
     let connected = true
     let epoch = 0
-    let failedSettlement = false
+    const failedSettlements = new Set<string>()
     let queuedIds = ''
     let replying = false
     const queueIds = (prompts: { id: string }[] | undefined) => JSON.stringify((prompts ?? []).map(prompt => prompt.id))
@@ -63,7 +63,8 @@ export function watchPhoneSessionSendQueues(accountId: string, options?: { phone
     })
     const stopSettled = phone ? () => {} : remote.onMachineEvent(deviceId, sessionTurnSettledChannel, receipt => {
       if (receipt.sessionId !== sessionId) return
-      failedSettlement = receipt.status === 'failed'
+      if (receipt.status === 'failed') failedSettlements.add(receipt.referenceId)
+      else failedSettlements.delete(receipt.referenceId)
       changed()
     })
     return {
@@ -91,7 +92,7 @@ export function watchPhoneSessionSendQueues(accountId: string, options?: { phone
         }
         // Provider JSONL can omit its end marker; only the native durable foreground owns ACP completion.
         const record = native?.ok ? native.value : null
-        return { ready: readingEpoch === epoch && connected && !failedSettlement && !snapshot.liveReply && !snapshot.queuedPrompts?.length
+        return { ready: readingEpoch === epoch && connected && !failedSettlements.size && !snapshot.liveReply && !snapshot.queuedPrompts?.length
           && !snapshot.settlements?.some(settlement => settlement.state === 'pending') && (!record || (!record.hasNewer && !record.activeTurn)),
         turns: record ? record.turns : snapshot.turns }
       },

@@ -117,6 +117,41 @@ it('keeps a failed durable writer blocked instead of using an older successful n
   expect(delivered).not.toHaveBeenCalled()
 })
 
+it('only clears a failed write after a successful receipt for that same reference', async () => {
+  remote.native.mockResolvedValue({ ok: true, value: record([], turn('current-native')) })
+  stop = watchPhoneSessionSendQueues('owner')
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(1))
+  remote.native.mockResolvedValue({ ok: true, value: record([turn('old-native', { kind: 'done' })]) })
+  remote.events.get('session:turn-settled')!({ sessionId: 'session', referenceId: 'current-source', status: 'failed', cause: { message: 'disk unavailable' } } as never)
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(2))
+  remote.events.get('session:turn-settled')!({ sessionId: 'session', referenceId: 'old-source', status: 'persisted' } as never)
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(3))
+  await outbox.flush()
+  expect(delivered).not.toHaveBeenCalled()
+  expect(rows.get('first')?.sendQueue).toBeDefined()
+  remote.native.mockResolvedValue({ ok: true, value: record([turn('current-native', { kind: 'done' })]) })
+  remote.events.get('session:turn-settled')!({ sessionId: 'session', referenceId: 'current-source', status: 'persisted' } as never)
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledTimes(1))
+})
+
+it('retains other failed references when one write is successfully retried', async () => {
+  remote.native.mockResolvedValue({ ok: true, value: record([], turn('current-native')) })
+  stop = watchPhoneSessionSendQueues('owner')
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(1))
+  for (const [index, referenceId] of ['first-failed', 'second-failed'].entries()) {
+    remote.events.get('session:turn-settled')!({ sessionId: 'session', referenceId, status: 'failed', cause: { message: 'disk unavailable' } } as never)
+    await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(index + 2))
+  }
+  remote.native.mockResolvedValue({ ok: true, value: record([turn('first-retried', { kind: 'done' })]) })
+  remote.events.get('session:turn-settled')!({ sessionId: 'session', referenceId: 'first-failed', status: 'persisted' } as never)
+  await vi.waitFor(() => expect(remote.native).toHaveBeenCalledTimes(4))
+  await outbox.flush()
+  expect(delivered).not.toHaveBeenCalled()
+  remote.native.mockResolvedValue({ ok: true, value: record([turn('second-retried', { kind: 'done' })]) })
+  remote.events.get('session:turn-settled')!({ sessionId: 'session', referenceId: 'second-failed', status: 'persisted' } as never)
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledTimes(1))
+})
+
 it.each(['disconnect', 'account-change', 'dispose'] as const)('ignores a late completed native read after %s', async reason => {
   const pending = Promise.withResolvers<unknown>()
   remote.native.mockReturnValueOnce(pending.promise)
