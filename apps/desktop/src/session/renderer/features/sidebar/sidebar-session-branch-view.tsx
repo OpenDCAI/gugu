@@ -16,29 +16,27 @@ export function SidebarSessionBranchCount({ summary, expanded, onToggle }: {
   const states = summary.active.map(({ presentation, count }) =>
     `${translate(`agentStatus.${presentation.label}`)} ${count}`).join(', ');
   return (
-    <span className="flex shrink-0 items-center group-hover/row:invisible" style={{ width: 'var(--session-branch-column-width, 56px)' }}>
     <button
       type="button"
       data-session-branch-count={summary.total}
-      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm bg-foreground/5 px-1 text-[length:var(--font-caption)] leading-none text-foreground-muted tabular-nums hover:bg-foreground/10"
+      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm group-hover/row:hidden bg-foreground/5 px-1 text-[length:var(--font-caption)] leading-none text-foreground-muted tabular-nums hover:bg-foreground/10"
       aria-label={`${translate(expanded ? 'sidebar.collapseChildSessions' : 'sidebar.expandChildSessions')}: ${label}`}
       aria-expanded={expanded}
       title={states ? `${label}: ${states}` : label}
       onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
       onClick={(event) => { event.stopPropagation(); onToggle?.(); }}
     >
-      <span data-branch-total style={{ width: 'var(--session-branch-total-width, 14px)' }} className="shrink-0 text-right">{summary.total}</span>
+      <span data-branch-total>{summary.total}</span>
       {!expanded && summary.active.length > 0 ? <>
         <span aria-hidden className="mx-px h-2.5 border-l border-foreground/10" />
         {summary.active.map(({ presentation, count }) => (
           <span key={presentation.tone} className="inline-flex items-center gap-[3px]">
             <span className="inline-flex size-[9px] shrink-0 items-center justify-center"><AgentStatusGlyph presentation={presentation} label={translate(`agentStatus.${presentation.label}`)} variant="2" /></span>
-            <span data-branch-running style={{ width: 'var(--session-branch-running-width, 7px)' }} className="text-right">{count}</span>
+            <span data-branch-running>{count}</span>
           </span>
         ))}
       </> : null}
     </button>
-    </span>
   );
 }
 

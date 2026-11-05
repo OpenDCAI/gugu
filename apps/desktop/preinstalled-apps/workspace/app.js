@@ -637,7 +637,6 @@ function renderChrome() {
     $(`fmt-${fmt}`).setAttribute('aria-label', t[fmt])
     $(`fmt-${fmt}`).title = t[fmt]
   }
-  $('block-insert').setAttribute('aria-label', t.insertBelow)
   $('block-handle').setAttribute('aria-label', t.blockActions)
   $('doc-empty-title').textContent = t.emptyTitle
   $('doc-empty-hint').textContent = t.emptyHint
@@ -1176,12 +1175,21 @@ async function moveTo(entry, folderId) {
 // 「移动到…」: every folder of the chat, the top first, each under the one it is in; not the entry itself or what is
 // under it (a folder cannot go inside itself). Where it is now is marked and cannot be picked.
 async function showMoveDialog(entry) {
+  if (!canWriteHere() || entry.systemRole || state.current?.entry.id === entry.id && state.current.file.readOnly) return
+  // A document page has no directory subscription. Read its chat only when Move is chosen; reuse the same tree below.
   if (state.ctx.file) {
-    const context = state.ctx
-    if (entry.chat !== context.chat?.id) return
-    state.root = 'chat'
-    await refreshList()
-    if (state.ctx !== context || !canWrite() || state.listError) return
+    const current = state.current, file = state.ctx.file, chat = state.ctx.chat?.id
+    try {
+      const entries = await gugu.files.list({ chat: entry.chat })
+      if (state.current !== current || state.ctx.file?.id !== file.id || state.ctx.file?.chat !== file.chat
+        || state.ctx.chat?.id !== chat || !canWriteHere() || current?.file.readOnly) return
+      state.entries = entries
+    } catch (error) {
+      if (state.current === current && state.ctx.file?.id === file.id && state.ctx.chat?.id === chat) {
+        showBanner(error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message }), 'error')
+      }
+      return
+    }
   }
   const t = state.t
   const off = new Set(isFolder(entry) ? [entry.id, ...under(entry.id).map((e) => e.id)] : [])
@@ -1567,21 +1575,51 @@ function mayDelete(entry) {
   return deletable.get(key)
 }
 
+// The seven file-level actions: all of an open document's ⋯, and the first group of the list's menu for the same file.
+function fileActions(target, entry, canDelete = false) {
+  const t = state.t
+  const readOnly = state.current?.entry.id === entry.id && state.current.file.readOnly
+  const writable = canWriteHere() && !entry.systemRole && !readOnly
+  return [
+    ...(canForward() ? [{ text: t.forward, run: () => forwardEntries([entry]) }] : []),
+    { text: t.copyLink, run: () => copyLink(entry) },
+    { text: t.openWith, run: () => openInHost(entry, true) },
+    { text: t.download, run: () => downloadEntry(entry) },
+    ...(writable ? [
+      { text: t.rename, run: () => startRename(target, entry) },
+      { text: t.move, run: () => showMoveDialog(entry) },
+    ] : []),
+    ...(writable && canDelete ? [{ text: t.remove, run: () => removeFile(entry), ask: t.confirmRemove }] : []),
+  ]
+}
+
+// Preserve the existing immediate-open and per-version deletion authorization for both entry points.
+function showFileMenu(anchor, entry, items, context = {}) {
+  const said = deletableSaid.get(deletableKey(entry))
+  toggleMenu(anchor, items(said === true), { ...context, entry })
+  const opened = $('menu').firstElementChild
+  if (said === undefined) {
+    void mayDelete(entry).then((yes) => {
+      if (!yes || state.menuAnchor !== anchor || $('menu').firstElementChild !== opened) return
+      closeMenu()
+      toggleMenu(anchor, items(true), { ...context, entry })
+    })
+  }
+}
+
 function rowMenu(li, entry, canDelete = false) {
   const t = state.t
   const folder = isFolder(entry)
   const open = { text: t.open, run: () => folder ? enterFolder(entry.id) : openFile(entry) }
-  const openWith = { text: t.openWith, run: () => openInHost(entry, true) }
   const change = canWriteHere() && !entry.systemRole
     ? [{ text: t.rename, run: () => startRename(li, entry) }, { text: t.move, run: () => showMoveDialog(entry) }] : []
   const remove = canWriteHere() && !entry.systemRole && canDelete
     ? [{ text: t.remove, run: () => removeFile(entry), ask: folder && under(entry.id).length ? fmt(t.confirmRemoveFolder, { n: under(entry.id).length }) : t.confirmRemove }] : []
-  const groups = [[open, ...(!folder ? [{ text: t.openNewTab, run: () => openFile(entry, 'newTab') }, { text: t.openBeside, run: () => openFile(entry, 'beside') }] : [])]]
-  if (folder) groups.push(change)
+  const groups = []
+  if (folder) groups.push([open], change, remove)
   else {
-    const use = [...(canForward() ? [{ text: t.forward, run: () => forwardEntries([entry]) }] : []),
-      { text: t.download, run: () => downloadEntry(entry) }, { text: t.copyLink, run: () => copyLink(entry) }]
-    if (entry.sourceMessageIds?.length) use.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds.at(-1)) })
+    const navigation = [open, { text: t.openNewTab, run: () => openFile(entry, 'newTab') }, { text: t.openBeside, run: () => openFile(entry, 'beside') }]
+    if (entry.sourceMessageIds?.length) navigation.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds.at(-1)) })
     const detail = { text: t.details, run: () => showDetails(entry) }
     const select = { text: t.pick, run: () => { state.selecting = true; pick(entry.id, 'toggle') } }
     const keep = []
@@ -1595,25 +1633,12 @@ function rowMenu(li, entry, canDelete = false) {
       ] })
     }
     if (touchPane?.matches) {
-      groups.push(use, [...change.slice(0, 1), select], [{ text: t.more, children: [openWith, ...change.slice(1), ...keep, detail] }])
+      groups.push(fileActions(li, entry, canDelete), navigation, [select], [{ text: t.more, children: [...keep, detail] }])
     } else {
-      groups[0].push(openWith)
-      groups.push(use, change, keep, [select, detail])
+      groups.push(fileActions(li, entry, canDelete), navigation, keep, [select, detail])
     }
   }
-  groups.push(remove)
   return groups.filter((group) => group.length).flatMap((group, i) => i ? [{ separator: true }, ...group] : group)
-}
-
-// The row and the document toolbar use the same asynchronous delete capability answer.
-function showEntryMenu(anchor, entry, items, context) {
-  const said = deletableSaid.get(deletableKey(entry))
-  toggleMenu(anchor, items(said === true), context)
-  if (said === undefined) void mayDelete(entry).then((yes) => {
-    if (!yes || state.menuAnchor !== anchor) return
-    closeMenu()
-    toggleMenu(anchor, items(true), context)
-  })
 }
 
 function fileMenu(li, open, entry) {
@@ -1621,8 +1646,7 @@ function fileMenu(li, open, entry) {
     const picked = !isFolder(entry) && state.picked.size
     const context = { point, entry: picked ? null : entry, selection: picked }
     if (picked) return toggleMenu(open, [...pickedActions(), { separator: true }, { text: state.t.pickCancel, run: clearPicks }], context)
-    // The menu opens at once; 删除 joins it when the answer is back and says yes (at once, when it is already known).
-    showEntryMenu(open, entry, (yes) => rowMenu(li, entry, yes), context)
+    showFileMenu(open, entry, (yes) => rowMenu(li, entry, yes), context)
   }
   let timer = null
   let held = false
@@ -1901,6 +1925,7 @@ function closeCurrent() {
   const current = state.current
   if (!current) return
   state.current = null
+  syncBlockControls()
   for (const off of current.offs) off()
   current.unbind?.()
   current.view?.destroy()
@@ -1970,6 +1995,7 @@ async function mountText(current, preview) {
     if (state.current !== current) return
     md.render($('preview'), file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
     current.previewPending = false
+    syncBlockControls()
     previewMarks()
     // A task is ticked where it is read (its line's [ ] / [x], below); not in a file this person may only read.
     for (const box of $('preview').querySelectorAll('li > input[type=checkbox], li > p:first-child > input[type=checkbox]')) box.disabled = !!file.readOnly
@@ -1991,6 +2017,7 @@ async function mountText(current, preview) {
     extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension, blockCompletions(current, cm)],
   })
   current.unbind = gugu.bind.codemirror(current.view, file)
+  syncBlockControls()
   showPlace()
 }
 
@@ -2024,6 +2051,7 @@ function placeSelectionBar() {
 
 function selectionWatch(cm) {
   return cm.EditorView.updateListener.of((update) => {
+    if (update.view.hasFocus && (update.focusChanged || update.selectionSet || update.docChanged)) showBlockHandle({ editorView: update.view })
     if (!update.selectionSet && !update.docChanged) return
     const { doc, selection } = update.state
     const { view } = update
@@ -2250,11 +2278,14 @@ function format(kind) {
   view.focus()
 }
 
-// Reading with a pointer: + inserts after the top-level block's source span. The bound editor owns writes and undo;
+// Editing a block: one control uses the existing source span. The bound editor owns writes and undo;
 // the file's existing anchor follows that position while a picker is open or another person edits the document.
 let handleBlock = null
+let handleFrame = null
+let handleTarget = null
 let handleHideTimer = null
 let blockPointerMenu = false
+let blockControlsListening = false
 
 function cancelBlockHandleHide() {
   clearTimeout(handleHideTimer)
@@ -2271,6 +2302,11 @@ function scheduleBlockHandleHideUnlessHovered() {
 }
 
 function hideBlockHandle(force = false) {
+  if (force) {
+    if ($('block-controls').contains(state.menuAnchor)) closeMenu()
+    if (handleFrame !== null) cancelAnimationFrame(handleFrame)
+    handleFrame = handleTarget = null
+  }
   cancelBlockHandleHide()
   if (!force && $('block-controls').contains(document.activeElement)) return
   if (force || $('menu').hidden || !$('block-controls').contains(state.menuAnchor)) {
@@ -2280,41 +2316,82 @@ function hideBlockHandle(force = false) {
   }
 }
 
-function showBlockHandle(event) {
-  cancelBlockHandleHide()
-  if (!state.current?.view) return hideBlockHandle(true)
-  if (touchPane?.matches || state.current.previewPending || state.current.file.type !== 'text') return hideBlockHandle()
-  const root = $('preview').firstElementChild
-  const pane = $('preview').getBoundingClientRect()
-  let block = null
-  // The reading column's left padding belongs to the block's row too: the pointer crosses it to reach its +.
-  for (const node of root?.children ?? []) {
-    if (!node.dataset.line) continue
-    const box = node.getBoundingClientRect()
-    if (box.top > event.clientY) break
-    if (box.bottom < event.clientY) continue
-    if (event.clientX >= pane.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) {
-      block = node
-      break
+function blockControlsEnabled() {
+  const current = state.current
+  return !!current?.view && current.file.type === 'text' && !current.file.readOnly && !current.view.state.readOnly
+    && !current.previewPending && !touchPane?.matches && document.body.dataset.mode !== 'preview'
+}
+
+function syncBlockControls(reposition = false) {
+  const enabled = blockControlsEnabled()
+  const changed = enabled !== blockControlsListening
+  if (changed) {
+    blockControlsListening = enabled
+    for (const id of ['preview', 'editor']) {
+      const root = $(id)
+      const bind = enabled ? root.addEventListener.bind(root) : root.removeEventListener.bind(root)
+      bind('pointermove', showBlockHandle)
+      bind('pointerenter', cancelBlockHandleHide)
+      bind('pointerleave', scheduleBlockHandleHide)
+      bind('scroll', hideBlockHandleOnScroll)
     }
   }
-  if (!block) return
-  const span = spanOf(block.dataset.line)
-  const current = state.current
-  $('block-insert').hidden = current.file.readOnly || current.view.state.readOnly
-  if (block === handleBlock && !$('block-controls').hidden) return
-  try {
-    if (!previewBlock(current.view.state, state.cm, span)) return hideBlockHandle(true)
-  } catch (error) {
+  if (!enabled || changed || reposition) {
     hideBlockHandle(true)
-    return showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+    if (enabled && state.current.view.hasFocus) showBlockHandle({ editorView: state.current.view })
   }
-  handleBlock = block
-  const box = block.getBoundingClientRect()
+}
+
+function hideBlockHandleOnScroll() {
+  hideBlockHandle(true)
+}
+
+function showBlockHandle(event) {
+  if (!blockControlsEnabled()) return hideBlockHandle(true)
+  cancelBlockHandleHide()
+  handleTarget = { target: event.target, editorView: event.editorView }
+  if (handleFrame === null) handleFrame = requestAnimationFrame(() => {
+    try { placeBlockHandle() } catch (error) {
+      hideBlockHandle(true)
+      showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+    }
+  })
+}
+
+function placeBlockHandle() {
+  handleFrame = null
+  const target = handleTarget
+  handleTarget = null
+  if (!target || !blockControlsEnabled()) return hideBlockHandle(true)
+  const current = state.current, view = current.view
+  let element = target.target instanceof Element ? target.target : target.target?.parentElement
+  let span, editor = target.editorView === view
+  if (editor || $('editor').contains(element)) {
+    editor = true
+    const line = element?.closest('.cm-line')
+    const position = line ? view.posAtDOM(line, 0) : view.state.selection.main.head
+    // Use the editor's available tree; a decorative control must not force parsing on a keystroke.
+    if (!state.cm.language.syntaxTreeAvailable(view.state, position)) return hideBlockHandle(true)
+    let block = state.cm.language.syntaxTree(view.state).resolveInner(position, 1)
+    while (block.parent?.parent) block = block.parent
+    if (!block.parent || isFrontmatter(block)) return hideBlockHandle(true)
+    span = [view.state.doc.lineAt(block.from).number, view.state.doc.lineAt(Math.max(block.from, block.to - 1)).number]
+  } else {
+    element = element?.closest('[data-line]')
+    const root = $('preview').firstElementChild
+    if (!element || !root?.contains(element)) return
+    while (element.parentElement !== root) element = element.parentElement
+    span = spanOf(element.dataset.line)
+    if (!previewBlock(view.state, state.cm, span)) return hideBlockHandle(true)
+  }
+  // One placement per frame, one geometry call; reading mode never registers this path.
+  const box = editor ? view.coordsAtPos(view.state.doc.line(span[0]).from) : element.getBoundingClientRect()
+  if (!box) return hideBlockHandle(true)
+  handleBlock = { span, element, editor }
   const handle = $('block-controls')
-  handle.hidden = false
   handle.style.top = `${box.top + 2}px`
-  handle.style.left = `${Math.max(pane.left + 2, box.left - handle.offsetWidth - 6)}px`
+  handle.style.left = `${Math.max(28, box.left)}px`
+  handle.hidden = false
 }
 
 // Opposite associations retain the first and last characters. A deleted block collapses the range, so the next
@@ -2390,15 +2467,9 @@ function insertionItems(current, range, below = true) {
   }))
 }
 
-function insertMenu() {
-  const current = state.current, span = spanOf(handleBlock?.dataset.line)
-  if (!current?.view || current.previewPending || !span || current.file.readOnly || current.view.state.readOnly) return
-  toggleMenu($('block-insert'), [{ label: state.t.insertBelow }, ...insertionItems(current, blockRange(current, span))])
-}
-
 function blockMenu() {
   const current = state.current, block = handleBlock
-  const span = spanOf(block?.dataset.line)
+  const span = block?.span
   if (!current?.view || current.previewPending || !span) return
   const t = state.t, range = blockRange(current, span)
   const at = resolvedRange(current, range)
@@ -2411,6 +2482,7 @@ function blockMenu() {
     return { text: doc.sliceString(at.from, at.to), lines: [doc.lineAt(at.from).number, doc.lineAt(at.to).number] }
   }
   const edits = [
+    { text: t.insertBelow, children: () => insertionItems(current, range) },
     { text: t.turnInto, children: ['heading', 'list', 'quote', 'code'].map((kind) => ({
       text: t[INSERT_BLOCKS.find((item) => item.id === kind).label],
       run: () => changeBlock(current, range, (doc, at) => {
@@ -2430,9 +2502,34 @@ function blockMenu() {
   ]
   toggleMenu($('block-handle'), [
     ...(!current.file.readOnly && !current.view.state.readOnly ? edits : []),
-    [t.copyBlockLink, blockAction(() => { const p = pick(); return copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) })],
-    [t.citeBlock, blockAction(() => cite(current, [pick()], state.held))],
+    ...blockLinks(current, pick),
   ])
+}
+
+function blockLinks(current, pick) {
+  return [
+    [state.t.copyBlockLink, blockAction(() => { const p = pick(); return copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) })],
+    [state.t.citeBlock, blockAction(() => cite(current, [pick()], state.held))],
+  ]
+}
+
+function readBlockMenu(event) {
+  const current = state.current
+  if (document.body.dataset.mode !== 'preview' || current?.file.type !== 'text' || current.previewPending) return
+  let block = event.target.closest('[data-line]')
+  const root = $('preview').firstElementChild
+  if (!block || !root?.contains(block)) return
+  while (block.parentElement !== root) block = block.parentElement
+  const span = spanOf(block.dataset.line)
+  if (!span) return
+  // Like the existing native selection menu, capture the source now; no editor/module wait on the read path.
+  const text = current.file.text, lines = text.split('\n')
+  if (span[1] > lines.length) return
+  const captured = { entry: current.entry, file: { type: 'text', text } }
+  const pick = () => ({ text: lines.slice(span[0] - 1, span[1]).join('\n'), lines: span })
+  event.preventDefault()
+  event.stopPropagation()
+  toggleMenu(block, blockLinks(captured, pick), { point: { x: event.clientX, y: event.clientY } })
 }
 
 function blockCompletions(current, cm) {
@@ -2576,6 +2673,7 @@ function watchStatus(current) {
   const show = (status) => {
     if (state.current !== current) return
     const t = state.t
+    syncBlockControls()
     const badge = $('doc-status')
     badge.dataset.status = status
     badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
@@ -2607,6 +2705,7 @@ function goneState(current) {
     })
   }
   document.body.classList.add('gone')
+  syncBlockControls()
   refreshList()
 }
 
@@ -2719,6 +2818,7 @@ function applyMode() {
   const mode = narrowPane?.matches && state.mode === 'split' ? 'preview' : state.mode
   document.body.dataset.mode = mode
   for (const m of ['edit', 'split', 'preview']) $(`mode-${m}`).setAttribute('aria-selected', String(m === mode))
+  syncBlockControls(true)
 }
 
 // The page's one menu (#menu): file context menus and the open file's actions. At the pointer or control, above when there
@@ -2756,20 +2856,36 @@ function toggleMenu(anchor, items, context = {}) {
     if (title) item.title = title
     if (disabled) item.disabled = true
     let submenu = null
+    const childItems = () => typeof children === 'function' ? children() : children
+    const expand = () => {
+      if (!submenu) return
+      if (!submenu.childElementCount) submenu.append(...nodes(childItems()))
+      submenu.dataset.open = ''
+      item.setAttribute('aria-expanded', 'true')
+    }
     item.onclick = () => {
-      if (submenu) return void submenu.querySelector('button:not(:disabled)')?.focus()
+      if (submenu) { expand(); return void submenu.querySelector('button:not(:disabled)')?.focus() }
       if (ask && item.textContent !== ask) return void (item.textContent = ask)
       closeMenu()
-      if (children) toggleMenu(anchor, [{ text: `‹ ${text}`, run: () => toggleMenu(anchor, items, context) }, { separator: true }, ...children], context)
+      if (children) toggleMenu(anchor, [{ text: `‹ ${text}`, run: () => toggleMenu(anchor, items, context) }, { separator: true }, ...childItems()], context)
       else run()
     }
     if (children && !touchPane?.matches) {
       const group = Object.assign(document.createElement('div'), { className: 'menu-group', role: 'presentation' })
       submenu = Object.assign(document.createElement('div'), { className: 'menu-submenu card list', role: 'menu' })
-      submenu.append(...nodes(children))
       group.append(item, submenu)
+      group.onpointerenter = expand
       item.onkeydown = (event) => {
-        if (event.key === 'ArrowRight') { event.preventDefault(); submenu.querySelector('button:not(:disabled)')?.focus() }
+        if (event.key === 'ArrowRight') { event.preventDefault(); expand(); submenu.querySelector('button:not(:disabled)')?.focus() }
+      }
+      submenu.onkeydown = (event) => {
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          event.stopPropagation()
+          delete submenu.dataset.open
+          item.setAttribute('aria-expanded', 'false')
+          item.focus()
+        }
       }
       return group
     }
@@ -3132,20 +3248,9 @@ function start() {
   $('open-with').onclick = () => {
     if (state.shown) openInHost(state.shown, true)
   }
-  // The same menu at every width; the wide pane also keeps its Download and Open with shortcuts.
   $('more').onclick = () => {
     const entry = state.shown
-    if (!entry) return
-    const writable = canWrite() && !entry.systemRole && !state.current?.file.readOnly
-    showEntryMenu($('more'), entry, (canDelete) => [
-      ...(state.current?.file.type === 'text' ? [{ text: state.t.split, run: () => setMode('split') }] : []),
-      ...(canForward() ? [{ text: state.t.forward, run: () => forwardEntries([entry]) }] : []),
-      { text: state.t.copyLink, run: () => copyLink(entry) },
-      { text: state.t.openWith, run: () => openInHost(entry, true) },
-      { text: state.t.download, run: downloadShown },
-      ...(writable ? [{ text: state.t.rename, run: () => startRename($('doc-title'), entry) }, { text: state.t.move, run: () => showMoveDialog(entry) }] : []),
-      ...(writable && canDelete ? [{ text: state.t.remove, run: () => removeFile(entry), ask: state.t.confirmRemove }] : []),
-    ], { entry })
+    if (entry) showFileMenu($('more'), entry, (yes) => fileActions($('doc-title'), entry, yes))
   }
   document.addEventListener('pointerdown', (event) => {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()
@@ -3179,14 +3284,10 @@ function start() {
     button.addEventListener('pointerdown', (event) => event.preventDefault())
     button.onclick = () => format(button.dataset.fmt)
   }
-  $('preview').addEventListener('pointermove', showBlockHandle)
-  $('preview').addEventListener('pointerenter', cancelBlockHandleHide)
-  $('preview').addEventListener('pointerleave', scheduleBlockHandleHide)
-  $('preview').addEventListener('scroll', () => hideBlockHandle(true))
+  $('preview').addEventListener('contextmenu', readBlockMenu)
   $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
   $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
   $('block-controls').addEventListener('focusout', scheduleBlockHandleHideUnlessHovered)
-  $('block-insert').onclick = (event) => openBlockMenu(event, insertMenu)
   $('block-handle').onclick = (event) => openBlockMenu(event, blockMenu)
   $('preview').addEventListener('change', tickTask)
   $('empty-write').onclick = () => {

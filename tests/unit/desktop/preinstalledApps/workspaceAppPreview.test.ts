@@ -53,9 +53,9 @@ const gugu = {
   bind: { codemirror: vi.fn(() => () => {}) },
   files: {
     viewPreferences: vi.fn(async () => ({ showAppData: false })),
-    canDelete: vi.fn(async () => [false]),
     list: vi.fn(async () => [entry]),
     rename: vi.fn(async (_entry: typeof entry, _name: string) => {}),
+    canDelete: vi.fn(async () => [true]),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async () => { await Promise.resolve(); return file }),
   },

@@ -273,11 +273,7 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
       onDragCancel={clearDragPointerY}
     >
       <SortableContext items={projectDndIds} strategy={verticalListSortingStrategy}>
-        <div className={cn('pt-1 pb-1', sidebarGroupInsetX)} style={{
-          '--session-branch-total-width': `${sidebarStore.sessionBranchColumnMetrics.totalWidth}px`,
-          '--session-branch-running-width': `${sidebarStore.sessionBranchColumnMetrics.runningWidth}px`,
-          '--session-branch-column-width': `${sidebarStore.sessionBranchColumnMetrics.width}px`,
-        } as React.CSSProperties}>
+        <div className={cn('pt-1 pb-1', sidebarGroupInsetX)}>
           <SidebarSessionBranchNavigation />
           <div
             ref={listRef}

@@ -87,6 +87,11 @@ import {
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { useNavigate } from '@renderer/lib/layout/navigation-actions';
 import type { SessionCondition as ChatSessionCondition } from '@gugu/session-chat-ui';
+
+/** 面板手上的那一行:按钮带着处理函数。写进 store 的只有数据,处理函数留在面板上(`onConditionAction` 按序号取)。 */
+type PanelCondition = Omit<ChatSessionCondition, 'actions'> & {
+  actions?: readonly { label: string; pending?: boolean; run: (anchor?: HTMLElement) => void }[];
+};
 import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { nudgeWorkspace } from '@renderer/features/sessions/stores/workspace-nudges';
 import { machineLabel } from '@renderer/lib/machine-clients';
@@ -1809,6 +1814,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   // 「正在打开引擎会话」一类的启动步骤对用户不存在。要人做的事(登录、会员)照常在下面说。
   // 「重来」在途:按钮停下,❌ 连点各投一遍首轮。
   const [restarting, setRestarting] = useState(false);
+  const conditionRuns = useRef<readonly ((anchor?: HTMLElement) => void)[]>([]);
   useEffect(() => {
     if (!store) return;
     // 有没有可重来的首轮,**进这一行之前就知道**(同 ProviderSessionMissingView 的判据)。
@@ -1816,7 +1822,12 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId)?.data
         .firstUtterance
     );
-    const setCondition = store.chatState.session.setCondition;
+    const setCondition = (condition: PanelCondition | null) => {
+      conditionRuns.current = condition?.actions?.map((action) => action.run) ?? [];
+      store.chatState.session.setCondition(
+        condition && { ...condition, actions: condition.actions?.map(({ label, pending }) => ({ label, pending })) },
+      );
+    };
     const error = store.loadError;
     if (!error && membershipLock) {
       // #7056 会员中途到期:说清原因、给两条去路;发送键在输入框那一格已经停下了。
@@ -1861,7 +1872,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       return;
     }
     const retry = { label: translate('transcript.condition.retry'), run: () => store.retry() };
-    const condition = ((): ChatSessionCondition => {
+    const condition = ((): PanelCondition => {
       switch (error.kind) {
         case 'harness_not_installed':
           // 引擎不在盘上 —— 重试修不好它,所以这一行 ❌ 不给「再试一次」,给安装入口。
@@ -2217,6 +2228,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         }
       },
       // 列表末尾那一行后台任务上的两颗键(原来在右上角「摘要」卡里)。停 = 真停;× = 只收起,它照旧在跑。
+      onConditionAction: ({ index, anchor }) => conditionRuns.current[index]?.(anchor),
       onStopBackgroundTask: ({ stopId }) => store?.stopSubagent(stopId),
       onDismissBackgroundTask: ({ entryId }) => {
         if (store) dismissSubagent(store.sessionId, entryId);

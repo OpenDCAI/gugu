@@ -41,7 +41,7 @@
         <div class="modes" role="tablist" aria-labelledby="doc-title">
           <button id="mode-preview" role="tab" type="button"></button>
           <button id="mode-edit" role="tab" type="button"></button>
-          <button id="mode-split" role="tab" type="button" hidden></button>
+          <button id="mode-split" role="tab" type="button"></button>
         </div>
         <div id="doc-info" class="doc-info" hidden></div>
         <span id="doc-status" class="status"></span>
@@ -70,10 +70,9 @@
   <div id="menu" class="menu card list" role="menu" hidden></div>
   <!-- The frame dragged across the list. -->
   <div id="lasso" class="lasso" hidden></div>
-  <!-- The hovered source block: insert below it, or act on it. -->
+  <!-- One action control for a source block, only while editing. -->
   <div id="block-controls" class="block-controls" hidden>
-    <button id="block-insert" class="block-handle" type="button" aria-haspopup="menu" aria-expanded="false"><gugu-icon name="plus"></gugu-icon></button>
-    <button id="block-handle" class="block-handle" type="button" aria-haspopup="menu" aria-expanded="false">⋮⋮</button>
+    <button id="block-handle" class="block-handle" type="button" aria-haspopup="menu" aria-expanded="false"><gugu-icon name="more-horizontal"></gugu-icon></button>
   </div>
   <!-- 「移动到…」: every folder of the chat, the top first; a press moves the file there. -->
   <div id="move-dialog" class="dialog" role="dialog" aria-modal="true" hidden>

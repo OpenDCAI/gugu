@@ -76,7 +76,7 @@ const boundaryRows = [
       code: 'provider-session-missing',
       hasVisibleHistory: true,
       detail: 'Session not found: sess_abc',
-      actions: [{ label: '重新打开', run: () => undefined }],
+      actions: [{ label: '重新打开' }],
     },
     row: 'session-condition',
     slots: ['session-condition-label', 'session-condition-action'],
