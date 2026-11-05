@@ -157,7 +157,12 @@ it.each((['accepted', 'failed'] as const).flatMap(result => (['append', 'replace
   await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click()
   await until('durable custody has started', () => send.mock.calls.length === 1)
   expect(page.getByTestId('prompt-editor').element().textContent).toBe(submitted)
-  await page.getByTestId('prompt-editor').fill(live)
+  // Not fill(): on a contenteditable it selects through the DOM and presses Delete before ProseMirror has read
+  // that selection (selectionchange is async). Under load the Delete hit a caret and nothing was replaced.
+  // Replace the words the way a person does: select all through the editor's own keymap, then type.
+  await page.getByTestId('prompt-editor').click()
+  await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}')
+  await userEvent.keyboard(live || '{Backspace}')
   await act(async () => { commit(); await send.mock.results[0].value.catch(() => {}) })
   const expected = result === 'accepted' && live === submitted ? '' : live
   const current = page.getByTestId('prompt-editor').element().textContent!
