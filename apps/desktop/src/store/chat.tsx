@@ -8,7 +8,7 @@ import { chatService } from '../lib/chat'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
 import { useAuth } from './auth'
 import { useToast, type ToastType } from '../components/toastContext'
-import { chatAttention, readsWholeChat, upsertChatRow } from '@gugu/core/shared/ui/chatModels'
+import { chatAttention, upsertChatRow } from '@gugu/core/shared/ui/chatModels'
 import { writeRead } from '../lib/readWriter'
 import { useGroupCreation } from './useGroupCreation'
 import { mergeMessagesById, optimisticReplyFields, upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
@@ -31,7 +31,7 @@ import { bindOutboxActions, createOutboxWiring, type OutboxWiring } from './chat
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
 import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, useDraftQuotesStore, type RefreshChatsOptions } from './chatContext'
-import { advanceReadWatermark, wholeReadSeq, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen, isChatOnScreen, isAppActive, useAppActive } from '../lib/onScreenChat'
+import { advanceReadWatermark, advanceSeenReadWatermark, chatReadsWhole, wholeReadSeq, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen, isChatOnScreen, isAppActive, useAppActive } from '../lib/onScreenChat'
 import { useMessageReadFailures, useMessageSnapshotEpochs } from './chatMessageReads'
 import { useChatConversation, type ChatConversationAccess } from './useChatConversation'
 import { useActiveChatTransitionState } from './activeChatTransition'; import { fetchChatHistoryPage, restoreChatHistoryAnchor, openCachedChatWindow, useChatWindowCache, type WindowObserver } from './chatWindowPublication'
@@ -274,9 +274,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (activeChatIdRef.current !== chatId) return
     setActiveChatIdState(null)
   }, [cache, invalidateMessageSnapshots, setActiveChatIdState])
-  // A DM on screen is read whole (readsWholeChat); groups and topics only up to what is visible at the tail.
-  const isWholeRead = useCallback((id: string) => { const kind = chatsRef.current.find((row) => row.id === id)?.kind; return !!kind && readsWholeChat(kind) }, [chatsRef])
-  const canAcknowledgeOpenChat = useCallback((id: string) => isWholeRead(id) || (cache.isFollowingTail(id) && !unreadNavigationRef.current?.ownsChat(id)), [cache, isWholeRead]), visibleSeqOfChat = useCallback((id: string) => isWholeRead(id) ? Number.POSITIVE_INFINITY : maxMainlineSeq(cache.rows(id)), [cache, isWholeRead])
+  const canAcknowledgeOpenChat = useCallback((id: string) => chatReadsWhole(chatsRef.current, id) || (cache.isFollowingTail(id) && !unreadNavigationRef.current?.ownsChat(id)), [cache, chatsRef]), visibleSeqOfChat = useCallback((id: string) => chatReadsWhole(chatsRef.current, id) ? Number.POSITIVE_INFINITY : maxMainlineSeq(cache.rows(id)), [cache, chatsRef])
   // @@@chat-projection — 会话列表的每一发云端取数都经投影(spec I7 唯一属主):按键取数、按戳 join,
   // 一条通知的代价与账号里有多少会话无关。绑定的三件事在 chatProjectionBinding.ts。
   const chatProjection = useChatProjectionBinding({
@@ -345,9 +343,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
 
   const noteCommittedMessages = useCallback((chatId: string, messages: readonly MessageItem[]) => {
     const seq = wholeReadSeq(chatsRef.current, chatId, maxMainlineSeq(messages))
-    if (userId && cache.isObserved(chatId) && chatOnScreen() === chatId && (isWholeRead(chatId) || (cache.isFollowingTail(chatId)
-      && !unreadNavigationRef.current?.ownsChat(chatId))) && seq > 0) advanceReadWatermark(chatsRef.current, chatId, seq, patchChat)
-  }, [cache, chatsRef, isWholeRead, patchChat, userId])
+    if (userId && cache.isObserved(chatId) && chatOnScreen() === chatId && canAcknowledgeOpenChat(chatId) && seq > 0) advanceReadWatermark(chatsRef.current, chatId, seq, patchChat)
+  }, [cache, canAcknowledgeOpenChat, chatsRef, patchChat, userId])
 
   /** 返回 false = 未落窗(未登录或快照 epoch 已变被拒收)。 */
   const applyMessagesSnapshot = useCallback((chatId: string, msgs: MessageItem[], readSeqs: Record<string, number> | null, epoch: number, verifiedCoverage = true): boolean => {
@@ -484,12 +481,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!userId || !appActive || !isAppActive() || !cache.isObserved(chatId)) return
     const receipts = cache.readReceipts(chatId)
     if (message.seq > 0 && !message.is_mine && !message.thread_root_id && !unreadNavigationRef.current?.ownsChat(chatId)
-      && cache.rows(chatId).some((row) => row.id === message.id)) {
-      const chat = chatsRef.current.find((row) => row.id === chatId)
-      const seq = wholeReadSeq(chatsRef.current, chatId, message.seq)
-      if (chat && seq > chat.last_read_seq)
-        advanceReadWatermark(chatsRef.current, chatId, seq, patchChat, readsWholeChat(chat.kind) ? undefined : { unread_count: chat.unread_count, unread_locator: chat.unread_locator })
-    }
+      && cache.rows(chatId).some((row) => row.id === message.id)) advanceSeenReadWatermark(chatsRef.current, chatId, message.seq, patchChat)
     if (!message.to_user_ids?.includes(userId) || message.sender_user_id === userId
       || message.delivery_status === 'read' || receipts.has(message.id)) return
     receipts.add(message.id)
