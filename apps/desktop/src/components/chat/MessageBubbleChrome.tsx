@@ -15,6 +15,30 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react'
 // 气泡自己的「谁说的 / 什么时候」(owner 10-25「名字进气泡、时间进右下角」,照 Telegram):
 // 名字在气泡第一行、小一号、按这个人的颜色;时间在气泡右下角,和最后一行正文同一行。
 
+// @@@owner-fit-batch - every sender row shares one observer: its first delivery comes after layout and before paint, and it
+// measures all rows before toggling any. A per-row measure read layout right after the previous row's write, so opening a
+// conversation forced one full layout per agent message (owner-scale switch profile: ~0.5 s of a 2 s switch).
+let ownerFit: ResizeObserver | undefined
+function ownerFitObserver(): ResizeObserver {
+  return ownerFit ??= new ResizeObserver((entries) => {
+    const rows = [...new Set(entries.map((entry) => entry.target.closest<HTMLElement>('.msg-sender')))].filter((row) => row !== null)
+    const hidden = rows.map(ownerLabelOverflows)
+    rows.forEach((row, index) => row.toggleAttribute('data-owner-hidden', hidden[index]))
+  })
+}
+
+function ownerLabelOverflows(row: HTMLElement): boolean {
+  const name = row.querySelector<HTMLElement>('.msg-sender-name')
+  const owner = row.querySelector<HTMLElement>('[data-message-agent-owner]')
+  if (!name || !owner) return false
+  const text = document.createRange(); text.selectNodeContents(name)
+  const mark = row.querySelector<HTMLElement>('.gg-chat-reply-quote')
+  const gap = parseFloat(getComputedStyle(row).columnGap)
+  const available = row.clientWidth - text.getBoundingClientRect().width - (mark?.getBoundingClientRect().width ?? 0) - gap * (mark ? 2 : 1)
+  // Keep a readable ellipsis and its padding, or hide the entire secondary label.
+  return available < parseFloat(getComputedStyle(owner).fontSize) + 2 * gap
+}
+
 /** 群里收到的消息、组首那一条:名字 + 归属小标签(「我的 agent」「Alice 的 agent」)。
  *  色相来自头像实际身体色;助理沿已保存的形象,亮度/彩度随主题(tokens.css)。 */
 export function BubbleSender({ member, displayName, senderId, replyMark }: { member: MemberProfileCardModel | null; displayName?: string; senderId: string | null; replyMark?: ReactNode }) {
@@ -34,20 +58,10 @@ export function BubbleSender({ member, displayName, senderId, replyMark }: { mem
   useLayoutEffect(() => {
     const row = rowRef.current
     const name = row?.querySelector<HTMLElement>('.msg-sender-name')
-    const owner = row?.querySelector<HTMLElement>('[data-message-agent-owner]')
-    if (!row || !name || !owner) return
-    const measure = () => {
-      const text = document.createRange(); text.selectNodeContents(name)
-      const mark = row.querySelector<HTMLElement>('.gg-chat-reply-quote')
-      const gap = parseFloat(getComputedStyle(row).columnGap)
-      const available = row.clientWidth - text.getBoundingClientRect().width - (mark?.getBoundingClientRect().width ?? 0) - gap * (mark ? 2 : 1)
-      // Keep a readable ellipsis and its padding, or hide the entire secondary label.
-      row.toggleAttribute('data-owner-hidden', available < parseFloat(getComputedStyle(owner).fontSize) + 2 * gap)
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
+    if (!row || !name || !row.querySelector('[data-message-agent-owner]')) return
+    const observer = ownerFitObserver()
     observer.observe(row); observer.observe(name)
-    return () => observer.disconnect()
+    return () => { observer.unobserve(row); observer.unobserve(name) }
   }, [tag, name, hasReply, target])
   return (
     <div ref={rowRef} data-message-who="true" data-message-sender-name="true" className="msg-sender" style={{ '--member-hue': hue } as React.CSSProperties}>
