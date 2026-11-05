@@ -28,6 +28,7 @@ import type { MeasureCtx } from '@session-chat/core/define';
 import { readableLabel, rowTranslator } from '../readable-label';
 import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
+import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import type { SessionConditionItem } from '@session-chat/model';
 import { boundaryAction, boundaryLabel, boundaryRow, boundaryRule } from './boundary.css';
 
@@ -71,6 +72,7 @@ export const sessionConditionUnitDef = defineUnit<SessionConditionItem, { rowH: 
 
   Render(props) {
     const translate = useChatTranslator();
+    const commands = useCommands();
     const layout = () => boundaryLayout(props.data, props.ctx.measureCtx!());
     const label = () => conditionLabel(props.data, translate);
 
@@ -91,13 +93,13 @@ export const sessionConditionUnitDef = defineUnit<SessionConditionItem, { rowH: 
           {layout().text}
         </span>
         <For each={props.data.actions ?? []}>
-          {(action) => (
+          {(action, index) => (
             <button
               type="button"
               data-slot="session-condition-action"
               class={boundaryAction}
               disabled={action.pending}
-              onClick={event => action.run(event.currentTarget)}
+              onClick={event => commands().onConditionAction?.({ index: index(), anchor: event.currentTarget })}
             >
               {action.label}
             </button>

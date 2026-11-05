@@ -264,6 +264,8 @@ export type ChatCommands = {
    * 宿主不接 ⇒ 没有 ×。
    */
   onDismissBackgroundTask?: (arg: { entryId: string }) => void;
+  /** 列表末尾「当前状态」那一行上按了第 `index` 颗键(`SessionCondition.actions` 的序号);做什么由宿主定。 */
+  onConditionAction?: (arg: { index: number; anchor: HTMLElement }) => void;
 };
 
 export type ScrollToItemOptions = {

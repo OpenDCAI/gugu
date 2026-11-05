@@ -622,7 +622,11 @@ export type SessionConditionItem = {
    * 后者读作「我登好了，接着来」，❌ 不能用「重试」顶替。
    */
   /** `pending`: its call is in flight; the button is disabled until it settles (a second click would repeat it). */
-  actions?: readonly { label: string; run: (anchor?: HTMLElement) => void; pending?: boolean }[];
+  /**
+   * 只是数据:按下第几颗由 `ChatCommands.onConditionAction` 交给宿主。这一格住在比聊天面板长寿的 chat state 里,
+   * ❌ 放闭包 —— 闭包抓着写它的那块面板,面板卸下后整棵聊天树(DOM 加上 listener)都会被它留住。
+   */
+  actions?: readonly { label: string; pending?: boolean }[];
   /** 行文案里的占位值(按 code 取到的那句文案里要填的空)。 */
   labelValues?: Readonly<Record<string, string | number>>;
 };
