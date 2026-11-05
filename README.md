@@ -9,7 +9,7 @@
 
 Hand a task to an Agent. It calls on tools and devices as needed, coordinates the work and brings back the result.
 
-**English** · [简体中文](README.zh-CN.md) · [About Gugu](#about-gugu) · [Website](https://gugu.nextmind.space/en/) · [Docs](https://gugu.nextmind.space/help/en/) · [Compare products](https://gugu.nextmind.space/help/en/comparison/overview/)
+**English** · [简体中文](README.zh-CN.md) · [About Gugu](#about-gugu) · [Website](https://gugu.nextmind.space/en/) · [Docs](https://gugu.nextmind.space/help/en/) · [Compare products](https://gugu.nextmind.space/help/en/comparison/overview/) · [WeChat group](#community)
 
 [![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-C76B4A?style=flat-square)](#key-features) [![Codex](https://img.shields.io/badge/agent-Codex-252525?style=flat-square)](#key-features) [![MCP](https://img.shields.io/badge/tools-MCP-6A50D4?style=flat-square)](#key-features) [![Skills](https://img.shields.io/badge/workflows-Skills-328788?style=flat-square)](#key-features) [![Gugu Apps](https://img.shields.io/badge/extensions-Gugu%20Apps-E58F28?style=flat-square)](#key-features)
 
@@ -227,6 +227,12 @@ See the [product comparison](https://gugu.nextmind.space/help/en/comparison/over
 | [OpenDCAI/gugu-supabase](https://github.com/OpenDCAI/gugu-supabase) | Accounts, messages, sync, device communication and permissions |
 
 See the [community setup guide](docs/guides/self-hosting.md) for configuration and startup, and [Contributing](CONTRIBUTING.md) for installation and checks.
+
+## Community
+
+Scan to join the Gugu WeChat group and talk with the team and other users:
+
+<img src="https://gugu.nextmind.space/gugu-assets/wechat-group-qr.png" width="220" alt="Gugu WeChat group QR code">
 
 ## Contributing
 
