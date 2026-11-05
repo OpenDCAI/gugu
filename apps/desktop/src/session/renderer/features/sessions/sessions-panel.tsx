@@ -4,7 +4,7 @@ import { PermissionBand } from '@gugu/session-ui/react/components';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
-import { sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus';
+import { composerLayerHoldsFocus, sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 // TODO(conversations-extraction): Pass task context actions into the panel as composition.
@@ -106,7 +106,7 @@ export const SessionsPanel = observer(function SessionsPanel() {
   const findBar = useFindBar({ rootRef: terminalContainerRef, backend: findBackend });
 
   useEffect(() => {
-    if (!autoFocus) return;
+    if (!autoFocus || composerLayerHoldsFocus()) return;
     if (terminalRef.current) {
       terminalRef.current.focus();
       focusPendingRef.current = false;

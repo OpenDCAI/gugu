@@ -56,7 +56,7 @@ import { IntegrationIcon } from '@renderer/features/integrations/integration-ico
 import { useConnectedIssueProviders } from '@renderer/features/integrations/use-connected-issue-providers';
 import { usePromptLibrary } from '@renderer/features/library/prompts/use-prompt-library';
 import { asMounted, getProjectStore, getProjectViewStore } from '@renderer/features/projects/stores/project-selectors';
-import { sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus';
+import { composerLayerHoldsFocus, sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
 // TODO(conversations-extraction): Inject task editor/file-opening behavior into ACP chat.
 import {
@@ -367,7 +367,7 @@ const ComposerForStore = observer(function ComposerForStore({
   // 对话页后面(隐藏);启动时恢复会话在后台挂上这里,抢走对话页输入框的焦点,用户打的字进了看不见的这一格。
   const shouldAutoFocus = sessionNavigationFocus.focusLayer !== 'nav';
   useEffect(() => {
-    if (!shouldAutoFocus || !isEmbedVisible()) return;
+    if (!shouldAutoFocus || !isEmbedVisible() || composerLayerHoldsFocus()) return;
     editorApiRef.current?.focus();
   }, [shouldAutoFocus]);
 
