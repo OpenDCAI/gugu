@@ -224,7 +224,9 @@ App 从市场安装，版本和启用状态在客户端管理。
 
 ## 交流
 
-加入咕咕微信群，和团队及其他用户交流：打开[官网](https://gugu.nextmind.space/zh/)，点右下角的微信按钮，扫码进群。群二维码每周更新，以官网上的为准。
+扫码加入咕咕微信群，和团队及其他用户交流：
+
+<img src="https://gugu.nextmind.space/gugu-assets/wechat-group-qr.png" width="220" alt="咕咕微信群二维码">
 
 ## 参与贡献
 

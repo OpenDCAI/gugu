@@ -230,7 +230,9 @@ See the [community setup guide](docs/guides/self-hosting.md) for configuration a
 
 ## Community
 
-Join the Gugu WeChat group to talk with the team and other users: open the [website](https://gugu.nextmind.space/en/) and click the WeChat button in the bottom-right corner, then scan the QR code. The group QR code changes every week, so the website always has the current one.
+Scan to join the Gugu WeChat group and talk with the team and other users:
+
+<img src="https://gugu.nextmind.space/gugu-assets/wechat-group-qr.png" width="220" alt="Gugu WeChat group QR code">
 
 ## Contributing
 
