@@ -2,24 +2,10 @@ import { action, makeObservable, observable } from 'mobx';
 import type { PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 
 /**
- * 常驻扩展的页住在根层(extension-view-layer);会话里那一格、它的整页、群右栏那一格只是它此刻落在哪里。
- *
- * **群里的页从生到死只属于那个群**(摩擦单 F48,`chat:<chatId>`):页的 context 里 chatId 一生不变,
- * App 不用写「我的页换了群」的代码 —— 换到另一个群就是另一张页。
- * **声明了每个任务一份的页签同理**(`perSession`,#7317,`session:<sessionId>`):那张页一生只属于那个任务,
- * 两个任务并排时各是各的;换到另一个任务就是另一张页。
- * **群以外只有一张**(`app`):一个 App 只有一份、放在哪就在哪(behavior tab-extensions,#7052)——
- * 从一条会话挪到另一条、挪去它的整页,都是这同一张页跟过去,不重建;「现在在哪条会话」由 retarget 告诉它
- * (behavior tab-extensions「挪地方、切会话时它纹丝不动」)。
- *
- * 这张表记的是「此刻落在哪里」:按页(App 的 tab 类型 + 地方),当前被哪一格认领着、那一格的 DOM 元素在哪、
- * 它属于哪个任务 / 项目 / 会话 / 群。根层的页据此把自己挪过去并告诉桥「现在是给谁看的」。
- *
- * 页**有人要它才建**:第一次有格认领它的那一刻,❌ 装好就在后台起一张谁也没要的页(摩擦单 F3)。
- * 没人看的页(绑定过的:一次也没绑上就被放下的不留,见 `release`)藏起来活着,回来时立刻就在、原样;每个 App 最多留 RESIDENT_PAGES_KEPT 张没人看的,
- * 再多就销毁最久没用的那张 —— 回到那里时新开一张,群里开着哪个文件由右栏自己记着(摩擦单 F29)。
- *
- * 文件页同样常驻,按地方与文件各一份:回来时保留编辑器和同步副本,从不把另一份文件交给旧页。
+ * Each navigation context owns its App pages: resource container + tab id + optional file id.
+ * A hidden bound page remains resident under the existing idle-page limit. Reclaiming that exact
+ * context restores its page; another task, chat, file or tab gets a distinct page and presentation.
+ * Slots still claim lazily, only while visible. No page is allocated merely by installing an App.
  */
 export interface ExtensionViewClaim {
   takeOpening?: () => PreparedChatFile | undefined;
@@ -34,7 +20,7 @@ export interface ExtensionViewClaim {
   resourceChat?: string;
   /**
    * 任务里那一格所在的对话(`AppWhere.conversation`):主人和这个任务的 agent 的私聊(群右栏的那一格就是 `chatId`)。页的
-   * context 带上 `chat`(真源原则 13:只是事实,不是目标);❌ 不决定常驻页分几份 —— 那只看 `chatId`。
+   * context 带上 `chat`(真源原则 13:只是事实,不是目标);❌ 不决定页的归属 —— 那由宿主给出的资源容器和 tabId 决定。
    */
   conversation?: string;
   /** 这一格的页签每个任务一份(manifest `perSession`):页属于 `sessionId` 那个任务,不跟着挪。 */
@@ -43,8 +29,12 @@ export interface ExtensionViewClaim {
    * 这一格用这个 App 打开的群文件。页从第一个调用起 context.file 就是它,一生不换文件。
    */
   itemId?: string;
+  viewState?: Record<string, unknown>;
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
   /** 那一格的内容区。根层量它的框来摆页、报尺寸。 */
   element: HTMLElement;
+  /** The owning pane survives its slot being removed during history navigation or close. */
+  focusContent?: () => void;
 }
 
 /** 一张常驻页:哪个 App 的哪一类 tab,住在哪个地方。 */
@@ -54,18 +44,18 @@ export interface ExtensionResidentPage {
   /** 群、每任务一份的任务或 App;文件页再带文件的 id。页的一生不变。 */
   place: string;
   itemId?: string;
+  /** The slot (task, tab) it was made for: when that tab closes, nothing can claim it again. */
+  slot: string;
 }
 
 /** 每个 App 最多留几张没人看的常驻页(有格正认领着的不算,也从不销毁)。 */
 export const RESIDENT_PAGES_KEPT = 3;
 
-/**
- * 一格属于的地方:群右栏那一格是它的群;每任务一份的页签在任务里那一格是那个任务;别处(会话里、它的整页)都是群以外那一张。
- * 每任务一份的页签不在任何任务里(整页、单独成窗)时也落到 `app`:那张页知道自己不在任务里,说一句就是。
- */
-export function residentPlace(target: { chatId?: string; sessionId?: string; perSession?: boolean; itemId?: string }): string {
-  const place = target.chatId ? `chat:${target.chatId}` : target.perSession && target.sessionId ? `session:${target.sessionId}` : 'app';
-  return target.itemId ? `${place}:file:${target.itemId}` : place;
+/** Stable page identity within its host-owned resource container and navigation context. */
+export function residentPlace(target: { chatId?: string; sessionId?: string; tabId?: string; perSession?: boolean; itemId?: string }): string {
+  const place = target.chatId ? `chat:${target.chatId}` : target.sessionId ? `session:${target.sessionId}` : 'app';
+  const page = target.itemId ? `${place}:file:${target.itemId}` : place;
+  return target.tabId ? `${page}:tab:${target.tabId}` : page;
 }
 
 export function residentPageKey(kind: string, place: string): string {
@@ -107,7 +97,7 @@ class ExtensionViewStore {
   private readonly boundPages = new Set<string>();
 
   constructor() {
-    makeObservable(this, { claim: action, release: action, forgetOpened: action, forgetIdle: action, forgetSlot: action });
+    makeObservable(this, { claim: action, release: action, forgetOpened: action, forgetIdle: action, forgetSlot: action, closeSlot: action });
   }
 
   /** The page now drawing this claim is bound (the layer says so). A claim already released: nothing to note. */
@@ -138,7 +128,7 @@ class ExtensionViewStore {
     const place = residentPlace(claim);
     const key = residentPageKey(kind, place);
     if (!this.residentPages.has(key)) {
-      this.residentPages.set(key, { key, kind, place, ...(claim.itemId ? { itemId: claim.itemId } : {}) });
+      this.residentPages.set(key, { key, kind, place, slot: slotKey(target.sessionId, target.tabId), ...(claim.itemId ? { itemId: claim.itemId } : {}) });
     }
     this.usedAt.set(key, nextUse++);
     const stack = this.stacks.get(key) ?? [];
@@ -159,6 +149,13 @@ class ExtensionViewStore {
   /** 那一格被关掉了。 */
   forgetSlot(sessionId: string | null, tabId: string): void {
     this.slotPages.delete(slotKey(sessionId, tabId));
+  }
+
+  /** That tab is closed: every page it held (shown or in its history) goes now, its webview with it. */
+  closeSlot(sessionId: string | null, tabId: string): void {
+    const slot = slotKey(sessionId, tabId);
+    this.slotPages.delete(slot);
+    for (const page of [...this.residentPages.values()]) if (page.slot === slot) this.drop(page.key);
   }
 
   release(kind: string, token: number): void {

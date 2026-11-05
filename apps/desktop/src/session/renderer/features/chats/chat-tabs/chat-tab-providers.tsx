@@ -9,6 +9,7 @@ import { RailAppIcon } from '@/components/RailAppIcon';
 import { FileHostMark } from '@/components/appSlot/FileHostMark';
 import { openFileStorageSettings, useFileHost } from '@/lib/fileHost';
 import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
+import { extensionViewStore } from '@renderer/features/extensions/extension-view-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { declaredMenuCommands, runExtensionCommand } from '@renderer/features/extensions/extension-commands';
 import { ExtensionTabBadge } from '@renderer/features/extensions/extension-tab-badge';
@@ -20,7 +21,6 @@ import { parseExtensionTabKind } from '@shared/extensions/manifest';
 import { groupPageSlot, isFolderItem, panelItemKey, type PanelItem } from './chat-panel-item';
 import { takeRestore } from './chat-tab-restores';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
-import { PairPlacementContext } from '@renderer/features/tabs/pair-placement-context';
 import { RetainedTabContent, useRetainedTabs } from '@renderer/features/tabs/retained-tab-content';
 
 /** The chat itself: its messages and composer, first in its strip, never closed. */
@@ -40,7 +40,6 @@ export type ChatTopicState = { topicChatId: string; name: string };
 export type ChatInfoState = { group: boolean; page?: 'main' | 'members' | 'announcement'; at?: number };
 
 /** A list of rows: as wide as the drawers it replaces (spec session-page「并排」: a page declares its width beside the chat). */
-const CHAT_INFO_SIDE_WIDTH = 360;
 
 /** The chat a strip belongs to (its place, `chat-layouts`). */
 export const chatIdOfView = (ctx: TabViewContext): string => (ctx.place?.kind === 'chat' ? ctx.place.chatId : '');
@@ -81,8 +80,8 @@ const ChatTabContent = observer(function ChatTabContent(_props: TabContentProps)
 
 export const chatTabProvider = createTabProvider<typeof CHAT_TAB_KIND, ChatTabState, TabResource>({
   kind: CHAT_TAB_KIND,
-  pairRank: 0,
-  mount: 'single',
+  conversation: true,
+
   resourceKey: () => 'chat',
   // 别的页签的页、对话的名字和右端按钮都由对话画:它一直挂着(没上屏就藏着)。
   keepMounted: true,
@@ -164,11 +163,10 @@ const ShellTabSlots = observer(function ShellTabSlots({ host, ctx, kind }: TabCo
   const chatId = chatIdOfView(ctx);
   const tabs = host.resolvedTabs;
   const retained = useRetainedTabs(tabs.map((tab) => tab.tabId), tabs.filter((tab) => tab.isActive).map((tab) => tab.tabId));
-  const place = useContext(PairPlacementContext);
   return (
     <>
       {tabs.filter((tab) => tab.kind === kind && retained.has(tab.tabId)).map((tab) => (
-        <ShellTabSlot key={tab.tabId} chatId={chatId} tab={tab} host={host} style={tab.isActive ? place?.(tab.tabId) ?? undefined : undefined} />
+        <ShellTabSlot key={tab.tabId} chatId={chatId} tab={tab} host={host} />
       ))}
     </>
   );
@@ -187,23 +185,21 @@ function PanelTabContent(props: TabContentProps) {
 
 export const chatPanelTabProvider = createTabProvider<typeof CHAT_PANEL_TAB_KIND, PanelItem, TabResource>({
   kind: CHAT_PANEL_TAB_KIND,
-  placesPairItself: true,
-  mount: 'single',
+
   resourceKey: panelItemKey,
-  // An App's own page beside the chat is as wide as its manifest says (`sideWidth`); a file, in it or the host's preview, is
-  // the chat's peer: half each.
-  sideWidth: (item) => (item.kind && !item.itemId ? installedExtensionsStore.sideWidth(item.kind) : undefined),
   // The host's preview holds a message and a file version of this moment: gone with the window, as before.
   isPersistent: (item) => item.kind !== null,
   initialize: stateResource,
   // Closing hands back what it was opened from (a link's message, a topic's attachment: the topic again) — once the tab is
   // gone (the engine removes it after this answer), as closeChatTab does.
-  onBeforeClose: (entry, _resource, ctx) => {
+  onBeforeClose: (entry, _resource, ctx, request) => {
+    if (request.navigation) return true;
     const restore = takeRestore(chatIdOfView(ctx), entry.state);
     if (restore) setTimeout(restore, 0);
     return true;
   },
   dispose: (entry, _resource, ctx) => extensionSurfaceStore.forget(null, groupPageSlot(chatIdOfView(ctx), entry.tabId)),
+  closed: (tabId, ctx) => extensionViewStore.closeSlot(null, groupPageSlot(chatIdOfView(ctx), tabId)),
   TabBarItem: PanelTabItem,
   TabBarItemDragPreview: PanelTabDragPreview,
   TabContent: PanelTabContent,
@@ -224,10 +220,8 @@ function TopicTabContent(props: TabContentProps) {
 
 export const chatTopicTabProvider = createTabProvider<typeof CHAT_TOPIC_TAB_KIND, ChatTopicState, TabResource>({
   kind: CHAT_TOPIC_TAB_KIND,
-  pairRank: 1,
-  placesPairItself: true,
-  mount: 'single',
-  resourceKey: () => 'topic',
+
+  resourceKey: (state) => state.topicChatId,
   // As before: the topic beside a group is this window's; a restart opens the group alone.
   isPersistent: () => false,
   initialize: stateResource,
@@ -257,10 +251,8 @@ function InfoTabContent(props: TabContentProps) {
 
 export const chatInfoTabProvider = createTabProvider<typeof CHAT_INFO_TAB_KIND, ChatInfoState, TabResource>({
   kind: CHAT_INFO_TAB_KIND,
-  placesPairItself: true,
-  mount: 'single',
-  resourceKey: () => 'info',
-  sideWidth: () => CHAT_INFO_SIDE_WIDTH,
+
+  resourceKey: (state) => `${state.page}:${state.at ?? ''}`,
   initialize: stateResource,
   dispose: () => {},
   TabBarItem: InfoTabItem,

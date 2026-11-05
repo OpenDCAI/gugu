@@ -10,5 +10,5 @@ export async function openChatResource(target: { projectId: string; sessionId: s
   if (!view) throw new Error('The agent session is unavailable for this resource');
   const panel = ownedAgentResourceTabs().read(chatId, sourceTabId);
   if (!panel) throw new Error('The authorized chat resource is no longer open');
-  view.paneLayout.open('chat-resource', { chatId, sourceTabId, item: panel.item }, { beside: true });
+  view.paneLayout.open('chat-resource', { chatId, sourceTabId, item: panel.item }, { from: null, intent: 'beside' });
 }

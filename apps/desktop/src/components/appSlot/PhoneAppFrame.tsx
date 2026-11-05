@@ -43,6 +43,9 @@ interface FramedPage {
 export function PhoneAppFrame({
   kind,
   tabId,
+  viewState,
+  navigation,
+  onNavigate,
   chatId,
   itemId,
   widget,
@@ -56,6 +59,9 @@ export function PhoneAppFrame({
   kind: string
   /** The slot it is drawn in: what the page says about itself is kept by it. */
   tabId: string
+  viewState?: Record<string, unknown>
+  navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean }
+  onNavigate?: (delta: -1 | 1) => Promise<boolean>
   chatId: string | null
   /** Made for that file: keeps it for life (the slot keys the frame so). */
   itemId?: string
@@ -73,6 +79,8 @@ export function PhoneAppFrame({
   const extensionId = kind.split('.')[0] ?? kind
   const tabName = kind.slice(extensionId.length + 1)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
+  const navigateRef = useRef(onNavigate)
+  navigateRef.current = onNavigate
   const hostRef = useRef<ReturnType<typeof hostAppFrame> | null>(null)
   const [workingCopy, setWorkingCopy] = useState<{ path: string; readFileChunk: (input: SessionpageOpenedFileReadRequest) => Promise<SessionpageOpenedFileChunk> } | null>(null)
   const onOpenWithRef = useRef(onOpenWith)
@@ -121,6 +129,8 @@ export function PhoneAppFrame({
   bindingRef.current = {
     extensionId,
     tabId,
+    viewState,
+    navigation,
     tabName,
     chatId,
     ...(session ? { session } : {}),
@@ -144,6 +154,7 @@ export function PhoneAppFrame({
         else followLink({ kind: 'session', sessionId, deviceId: listed.row.deviceId })
         return { shown: true }
       },
+      navigate: (delta) => navigateRef.current?.(delta) ?? Promise.resolve(false),
       openWith: (detail) => onOpenWithRef.current(detail),
       openWorkingCopy: (path, read) => setWorkingCopy({ path, readFileChunk: ({ offset, length }) => read(offset, length) }),
       // The slot this frame is in draws it (AppPeekSlot), as main's peek on the desktop.

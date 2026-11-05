@@ -53,9 +53,9 @@ async function header(kind: 'group' | 'topic' | 'dm', options: { mobile?: boolea
   const chat = { id: 'chat', kind, is_pinned: options.pinned ?? false, notification_level: options.muted ? 'none' : 'all' }
   const props = {
     isGroupChat: kind === 'group', isRoomChat: kind !== 'dm', mobile: options.mobile,
-    searchMode: false, folderShown: false, infoShown: options.infoShown ?? false, showHeaderMenu: options.menu ?? false,
+    searchMode: false, infoShown: options.infoShown ?? false, showHeaderMenu: options.menu ?? false,
     room, moreButtonRef: createRef<HTMLButtonElement>(),
-    onEnterSearchMode, onOpenFolder, onCloseWorkspacePanel: vi.fn(), onOpenInfo, onCloseInfo,
+    onEnterSearchMode, onOpenFolder, onOpenInfo, onCloseInfo,
     onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(),
   }
   await renderWithAppProviders(harness, createNode('div', { 'data-chat-area-header': '' }, createNode(ChatHeaderActions, props)), {
@@ -189,7 +189,8 @@ describe('final group toolbar v4', () => {
     expect(setChatNotificationLevel).toHaveBeenCalledWith('chat', 'none')
     expect(document.querySelector('[data-testid="group-header-menu"]')).not.toBeNull()
     if (kind === 'dm') {
-      await clickElement(button('文件夹')!)
+      expect(button('文件夹'), 'a private chat has no header folder button, like a group').toBeUndefined()
+      await clickElement(menuItem('文件夹')!)
       expect(onOpenFolder).toHaveBeenCalledOnce()
     }
   })

@@ -67,7 +67,7 @@ describe('an already-open live file is shown before metadata validation', () => 
     let presented!: (value: ExtensionHostActionResult) => void;
     deliver.mockImplementationOnce(() => new Promise((resolve) => { presented = resolve; }));
     const pending = openWith({ ref: { chat: CHAT, id: 'item-1' } });
-    await vi.waitFor(() => expect(deliver).toHaveBeenCalledWith(expect.anything(), { kind: 'openChatFile', chatId: CHAT, itemId: 'item-1', onlyIfOpen: 'pdf.viewer' }));
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledWith(expect.anything(), { kind: 'openChatFile', chatId: CHAT, itemId: 'item-1', onlyIfOpen: 'pdf.viewer', intent: 'navigate' }));
     expect(openWithTarget).not.toHaveBeenCalled();
     presented({ chat: CHAT });
     expect(await pending).toMatchObject({ ok: true });
@@ -126,7 +126,7 @@ describe('files.openWith(file, { peek: true }): beside the page that asked (G1)'
     expect(await openWith({ ref: { id: 'item-1' }, peek: true })).toEqual({ ok: true, value: undefined });
     expect(deliver.mock.calls[0]![0]).toMatchObject({ sessionId: null, tabId: 'dock' });
     expect(actions()).toEqual([
-      { kind: 'peek', target: { kind: 'chat', detail: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file, choice: { kind: 'none' } } } },
+      { kind: 'peek', target: { kind: 'chat', detail: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file, choice: { kind: 'none' }, intent: 'navigate' } } },
     ]);
   });
 
@@ -143,6 +143,6 @@ describe('files.openWith(file, { peek: true }): beside the page that asked (G1)'
 
   it('without peek: the chat previews the same unclaimed file, without refusing the caller', async () => {
     expect(await openWith({ ref: { id: 'item-1' } })).toMatchObject({ ok: true });
-    expect(actions()).toEqual([{ kind: 'openWith', detail: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file, choice: { kind: 'none' } } }]);
+    expect(actions()).toEqual([{ kind: 'openWith', detail: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file, choice: { kind: 'none' }, intent: 'navigate' } }]);
   });
 });

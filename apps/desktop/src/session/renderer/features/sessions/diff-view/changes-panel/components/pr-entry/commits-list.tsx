@@ -253,7 +253,7 @@ const CommitFilesList = observer(function CommitFilesList({ commit }: { commit: 
         },
         status: change.status,
       },
-      { preview: true }
+      { intent: 'navigate' }
     );
   };
 
@@ -272,7 +272,7 @@ const CommitFilesList = observer(function CommitFilesList({ commit }: { commit: 
         },
         status: change.status,
       },
-      { preview: false }
+      { intent: 'newTab' }
     );
   };
 

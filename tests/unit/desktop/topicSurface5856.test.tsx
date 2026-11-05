@@ -51,7 +51,7 @@ vi.mock('../../../apps/desktop/src/lib/chatMessageWriter', () => ({
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
 // The topic open beside a group is its tab (chat-tabs), kept for the window: each case starts with none.
-const { closeTopicTab, openPanelItem, closeChatTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { closeTopicTab, openPanelItem, topicTabOf, closeChatTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 type Surface = ReturnType<typeof useTopicSurface>
 
 function topic(overrides: Partial<TopicSummary> = {}): TopicSummary {
@@ -194,7 +194,7 @@ describe('分栏里 @ 到的人写进 to_user_ids', () => {
     await openSplit()
     const history = surface!.splitLine.messageWindow
     actionsOf.mockClear()
-    const board = await act(async () => openPanelItem('chat-A', { kind: 'kanban.board', title: 'Board' }))
+    const board = await act(async () => openPanelItem('chat-A', { kind: 'kanban.board', title: 'Board' }, { from: topicTabOf('chat-A')!.tabId, intent: 'newTab' }))
     expect(surface!.splitTopic).toBeNull()
     expect(surface!.topic?.chatId).toBe('topic-1')
     expect(surface!.splitLine.messageWindow).toBe(history)

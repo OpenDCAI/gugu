@@ -70,7 +70,7 @@ describe('换一种展示:同一条会话的对话页签原地换种类', () => 
   /** 按顺序开好这几枚,并盯着这一块有没有哪一刻一枚页签都没有(keepBlockFilled 看的就是这个)。 */
   function blockWith(tabs: Array<[kind: string, state: Record<string, string>]>) {
     const layout = new PaneLayoutStore(registry, ctx);
-    for (const [kind, state] of tabs) layout.open(kind, state);
+    for (const [kind, state] of tabs) layout.open(kind, state, { from: null, intent: 'newTab' });
     let sawEmpty = false;
     const stop = reaction(
       () => layout.groups.length === 1 && layout.groups[0].pane.tabOrder.length === 0,

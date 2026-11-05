@@ -50,7 +50,7 @@ export const reviewTabProvider: TabProvider<
   ReviewTabOpenArgs
 > = createTabProvider({
   kind: 'review',
-  mount: 'single',
+
   resourceKey: (state) => state.sessionId,
   onBeforeOpen(_args: ReviewTabOpenArgs, ctx: TabViewContext): ReviewTabState {
     return { sessionId: ctx.viewId };

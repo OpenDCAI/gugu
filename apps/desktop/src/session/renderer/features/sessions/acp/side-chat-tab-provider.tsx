@@ -76,7 +76,8 @@ export const sideChatTabProvider: TabProvider<
   SideChatOpenArgs
 > = createTabProvider({
   kind: 'side-chat',
-  mount: 'single',
+  conversation: true,
+
   resourceKey: (state) => state.runtimeView.id,
   isPersistent: () => false,
   onBeforeOpen: (args) => ({

@@ -110,7 +110,7 @@ beforeEach(() => {
       id, state: 'provisioned', workspaceId: `workspace-${id}`,
       get data() { return manager.sessions.get(id)!.data; },
       get displayName() { return manager.sessions.get(id)!.data.title; },
-      viewModel: { paneLayout: { groups: [{ pane: { tabOrder: ['existing-tab'] } }], open: fixture.opened } },
+      viewModel: { paneLayout: { groups: [{ pane: { tabOrder: ['existing-tab'], entries: new Map([['existing-tab', { tabId: 'existing-tab', kind: 'file', state: {} }]]) } }], open: fixture.opened } },
     } as unknown as SessionPageStore);
   }
   fixture.projects = {
@@ -176,7 +176,7 @@ describe('renderer task opening and empty Recent', () => {
     expect(taskRows()).toEqual(freshIds);
 
     openOld();
-    expect(fixture.opened).toHaveBeenCalledWith('acp-chat', { sessionId: OLD }, { preview: false });
+    expect(fixture.opened).toHaveBeenCalledWith('acp-chat', { sessionId: OLD }, { from: null, intent: 'newTab' });
     await emptyPalette();
     expect(taskRows()).toEqual([OLD, ...freshIds.slice(0, 9)]);
     expect(fixture.results.map(row => row.id)).toEqual(freshIds);

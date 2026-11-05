@@ -20,7 +20,7 @@ export interface FileOpenArgs {
 export const fileTabProvider: TabProvider<'file', FilePayload, FileTabResource, FileOpenArgs> =
   createTabProvider({
     kind: 'file',
-    mount: 'single',
+
     resourceKey: (s: FilePayload) => filePathKey(s.path),
 
     // 工作区外的路径同样归一斜杠:原样留着的 `C:\…` 拆不出文件名,页签名就成了整条路径。

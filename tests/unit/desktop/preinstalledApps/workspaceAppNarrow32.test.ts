@@ -141,7 +141,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     const files = document.querySelector('.files')!
     // The kinds, the order and the view under the search, then the filters; 子文件夹: the crumbs between them and the list (hidden at the top), then the
     // list's own line for what went wrong.
-    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 8)).toEqual(['files-head', 'pick-bar', 'files-tools', 'chips', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
+    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 8)).toEqual(['files-toolbar', 'pick-bar', 'list-banner', 'files-empty', 'file-list'])
     expect($('pick-bar').hidden).toBe(true)
   })
 
@@ -190,7 +190,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     expect(gugu.setTabTitle).toHaveBeenLastCalledWith('renamed.md')
     expect(gugu.files.open).toHaveBeenCalledTimes(opens)
     expect(file.close).not.toHaveBeenCalled()
-    expect(getComputedStyle($('doc-title')).display, 'the host takes over the title again after renaming').toBe('none')
+    expect(getComputedStyle($('doc-title')).display, 'the compact breadcrumb title remains in the one toolbar').not.toBe('none')
 
     const cancel = rename()
     cancel.value = 'discarded.md'

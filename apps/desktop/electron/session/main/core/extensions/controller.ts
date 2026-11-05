@@ -252,6 +252,8 @@ export const extensionsController = createRPCController({
    * can never hand one extension another's grants.
    */
   bindSurface: async (args: {
+    navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
+    viewState?: Record<string, unknown>;
     resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;
@@ -412,6 +414,8 @@ export const extensionsController = createRPCController({
    * 与 bindSurface 分开:bind 只在这张页第一次出现时做一次;之后每切一次会话走这条。
    */
   retargetSurface: async (args: {
+    viewState?: Record<string, unknown>;
+    navigation?: { canBack: boolean; canForward: boolean; backToConversation?: boolean };
     resourceChat?: string;
     opening?: import('@shared/extensions/app-runtime-protocol').PreparedChatFile;
     webContentsId: number;

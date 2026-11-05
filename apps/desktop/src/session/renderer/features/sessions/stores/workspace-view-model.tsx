@@ -29,14 +29,14 @@ import {
 } from '@shared/core/sessions/sessionEvents';
 import { sessionTabKind } from '@renderer/features/sessions/session-tab-kind';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
-import { closeTabsOfSession, findChatPaneId, findConversationAnchor } from '../view/session-pane-policy';
+import { closeTabsOfSession, findChatPaneId, sessionConversationTabId } from '../view/session-pane-policy';
 import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
-import { browserAddressKey } from '@shared/browser';
 import type {
   DiffViewSnapshot,
   SessionViewSnapshot,
   TerminalDrawerActiveItem,
+  TabOpenIntent,
 } from '@shared/view-state';
 import { sessionTabView } from '../session-tab-registry';
 import { PrStore } from './pr-store';
@@ -116,7 +116,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     };
     this.paneLayout = sessionTabView.createPaneLayoutStore(sessionCtx, {
       // 一条会话一条页签条:分屏只有并排一种(spec session-page「并排」)。
-      singleStrip: true,
       onActiveTabChange: (tabId) => {
         if (!tabId) return;
         appState.history.push({
@@ -128,7 +127,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       },
     });
     // agent 打开的、从对话里点开的开在这条会话自己的对话右边(spec session-page「并排」)。
-    this.paneLayout.setPairAnchor(() => findConversationAnchor(this.paneLayout, this.sessionId));
     this._seeder = new DefaultSessionSeeder(this.sessionId, this.paneLayout);
     this.terminalTabs = new TerminalTabViewStore(() => terminalRegistry.get(this.sessionId) ?? null);
     this.editorView = new EditorViewStore(this.paneLayout, sessionData.projectId, workspaceId);
@@ -221,7 +219,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       this.paneLayout.open(
         sessionTabKind(next.data.runtime),
         { sessionId: next.data.id },
-        { preview: false, target: { paneId: displayedInPaneId } }
+        { from: null, intent: 'newTab', target: { paneId: displayedInPaneId } }
       );
     });
   }
@@ -261,7 +259,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       this.openFile(output.path, { beside: true });
       return;
     }
-    this.showPage(output.url, { preview: false, reload: false, beside: true });
+    this.showPage(output.url, { reload: false, beside: true });
   }
 
   /**
@@ -276,39 +274,26 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   showPage(
     url: string,
     {
-      preview,
       reload,
+      intent = 'navigate',
       beside = false,
       activate = true,
+      from = beside ? sessionConversationTabId(this.paneLayout, this.sessionId) : this.activePane.resolvedActiveTabId ?? null,
     }: {
-      preview: boolean;
       reload: boolean;
+      intent?: TabOpenIntent;
       /** 开在对话右边并排(spec session-page「并排」)。 */
       beside?: boolean;
       /** 和 beside 一起:agent 打开的传 false —— 用户正看着别的就不切走,一对只在页签条上连好。 */
       activate?: boolean;
+      from?: string | null;
     }
   ): void {
-    const key = browserAddressKey(url);
-    for (const group of this.paneLayout.groups) {
-      const tab = group.pane.resolvedTabs.find(
-        (t) => t.kind === 'browser' && browserAddressKey((t.resource as BrowserTabResource).session?.currentUrl ?? '') === key
-      );
-      if (!tab) continue;
-      if (!preview) group.pane.pin(tab.tabId);
-      // `beside`:同一页已经开着 = 请到对话右边,❌ 新开一枚(spec session-page「并排」)。
-      if (!beside || !this.paneLayout.showBeside(tab.tabId, { reveal: activate })) {
-        this.paneLayout.setActiveGroup(group.paneId);
-        group.pane.setActiveTab(tab.tabId);
-      }
-      if (reload) browserControlsRegistry.get((tab.resource as BrowserTabResource).browserId)?.adapter?.reload();
-      return;
+    this.paneLayout.open('browser', { initialUrl: url }, { from, intent, activate });
+    if (reload) {
+      const resource = this.activePane.activeResourceOfKind<BrowserTabResource>('browser');
+      if (resource) browserControlsRegistry.get(resource.browserId)?.adapter?.reload();
     }
-    if (beside) {
-      this.paneLayout.open('browser', { initialUrl: url }, { preview, beside: true, activate });
-      return;
-    }
-    this.activePane.open('browser', { initialUrl: url }, { preview });
   }
 
   get isViewActive(): boolean {
@@ -561,7 +546,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   async openTerminalAsTab(shell?: TerminalShellId): Promise<void> {
     const terminalId = await this._createDefaultTerminal(shell);
     if (!terminalId) return;
-    this.paneLayout.open('terminal', { terminalId, preview: false });
+    this.paneLayout.open('terminal', { terminalId }, { from: null, intent: 'newTab' });
   }
 
   async openNewTerminal(shell?: TerminalShellId): Promise<string | undefined> {

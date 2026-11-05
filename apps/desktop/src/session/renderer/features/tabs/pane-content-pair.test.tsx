@@ -1,220 +1,183 @@
+import { DndContext } from '@dnd-kit/core';
 import { JSDOM } from 'jsdom';
 import { observer } from 'mobx-react-lite';
-import React, { act, useContext, useEffect } from 'react';
+import React, { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TabContentProps } from './core/tab-provider';
 import { createTabProvider, createTabRegistry } from './core/tab-provider-registry';
-import { PairPlacementContext } from './pair-placement-context';
 import { PaneContent } from './pane-content';
 import { PaneContext } from './pane-context';
 import { PaneLayoutStore } from './pane-layout-store';
 import { tabFullscreen } from './tab-fullscreen';
+import { commandRegistry } from '@renderer/lib/commands/registry';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-/**
- * 同一种两页并排(spec session-page「并排」):自己摆两页的那种(网页)两页都不挪地方 —— 挪进另起的一份内容
- * 就是重新挂一次,网页会重新加载。每页挂上一次计一次数。
- */
-const mounts = new Map<string, number>();
-
-function Page({ tabId }: { tabId: string }) {
-  useEffect(() => {
-    mounts.set(tabId, (mounts.get(tabId) ?? 0) + 1);
-  }, [tabId]);
-  return null;
-}
-
-function contentOf(kind: string) {
-  return observer(function Content({ host }: TabContentProps) {
-    const place = useContext(PairPlacementContext);
-    return (
-      <>
-        {host.resolvedTabs
-          .filter((tab) => tab.kind === kind)
-          .map((tab) => (
-            <div key={tab.tabId} data-tab={tab.tabId} data-shown={tab.isActive} style={(tab.isActive && place?.(tab.tabId)) || undefined}>
-              <Page tabId={tab.tabId} />
-            </div>
-          ))}
-      </>
-    );
-  });
-}
-
-function provider(kind: string, placesPairItself: boolean) {
-  return createTabProvider({
-    kind,
-    placesPairItself,
-    resourceKey: (state: { id: string }) => state.id,
-    initialize: () => ({ dispose: () => {} }),
-    dispose: () => {},
-    TabBarItem: () => null,
-    TabBarItemDragPreview: () => null,
-    TabContent: contentOf(kind),
-  });
-}
-
-const ctx = { viewId: 's1', projectId: 'p1', workspaceId: 'w1', sessionId: 's1', modelRootPath: 'workspace:w1' };
-
 let root: Root;
 let dom: JSDOM;
+const mounts = new Map<string, number>();
+function Page({ id }: { id: string }) { useEffect(() => { mounts.set(id, (mounts.get(id) ?? 0) + 1); }, [id]); return <div data-page={id} />; }
+const Content = observer(({ host }: TabContentProps) => <>{host.resolvedTabs.map((tab) => <Page key={tab.tabId} id={tab.tabId} />)}</>);
+const provider = createTabProvider({ kind: 'page', resourceKey: (s: { id: string }) => s.id, initialize: () => ({ dispose() {} }), dispose() {}, TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: Content });
 
-function mountTwo(kind: 'page' | 'file') {
-  const registry = createTabRegistry([provider('chat', false), provider('page', true), provider('file', false)] as const);
-  const layout = new PaneLayoutStore(registry, ctx, undefined, { singleStrip: true });
-  layout.open('chat', { id: 'conv' });
-  layout.open(kind, { id: 'a' }, { preview: false });
-  layout.open(kind, { id: 'b' }, { preview: false, activate: false });
-  const group = layout.groups[0];
-  const pane = group.pane;
-  const idOf = (id: string) => [...pane.entries.values()].find((e) => (e.state as { id: string }).id === id)!.tabId;
-  act(() =>
-    root.render(
-      <PaneContext.Provider value={{ paneId: group.paneId, pane, isFocusedPane: true }}>
-        <PaneContent hideTabBar />
-      </PaneContext.Provider>
-    )
-  );
-  const placed = (id: string) => {
-    const el = dom.window.document.querySelectorAll<HTMLElement>(`[data-tab="${idOf(id)}"]`);
-    return [...el].map((node) => `${node.dataset.shown}:${node.style.left || '-'}/${node.style.top || '-'}`);
-  };
-  return { pane, a: idOf('a'), b: idOf('b'), placed };
-}
+beforeEach(() => {
+  mounts.clear(); dom = new JSDOM('<div id="root"></div>');
+  vi.stubGlobal('window', dom.window); vi.stubGlobal('document', dom.window.document); vi.stubGlobal('navigator', dom.window.navigator); vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
+  // Fixture tab ids are UUIDs, already valid CSS identifiers.
+  vi.stubGlobal('CSS', { escape: (id: string) => id });
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  root = createRoot(dom.window.document.getElementById('root')!);
+});
+afterEach(() => { act(() => { tabFullscreen.exit(); root.unmount(); }); vi.unstubAllGlobals(); });
 
-describe('并排:同一种两页时内容不挪地方', () => {
-  beforeEach(() => {
-    mounts.clear();
-    dom = new JSDOM('<div id="root"></div>');
-    vi.stubGlobal('window', dom.window);
-    vi.stubGlobal('document', dom.window.document);
-    vi.stubGlobal('navigator', dom.window.navigator);
-    vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        disconnect() {}
-      }
-    );
-    root = createRoot(dom.window.document.getElementById('root')!);
-  });
-  afterEach(() => {
-    act(() => root.unmount());
-    vi.unstubAllGlobals();
+describe('each actual pane owns its content', () => {
+  it('hands focus from the retained folder guest to the new page before history shortcuts are used', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const folder = createTabProvider({ ...provider, kind: 'folder', keepMounted: true,
+      TabContent: () => <webview tabIndex={0} data-folder-guest="" /> });
+    const file = createTabProvider({ ...provider, kind: 'file',
+      TabContent: () => <div tabIndex={-1} data-browser-page="" /> });
+    const layout = new PaneLayoutStore(createTabRegistry([folder, file]), { viewId: 'guest-focus-history' });
+    const tabId = layout.open('folder', { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    layout.open('folder', { id: 'retained-folder' }, { from: tabId, intent: 'newTab' });
+    layout.focusedPane.setActiveTab(tabId);
+    const group = layout.groups[0];
+    act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>));
+    const guest = dom.window.document.querySelector<HTMLElement>('[data-folder-guest]')!;
+    guest.focus();
+    expect(dom.window.document.activeElement).toBe(guest);
+    await act(async () => { layout.open('file', { id: 'notes.txt' }, { from: tabId, intent: 'navigate' }); });
+    expect(dom.window.document.querySelector('[data-folder-guest]')).toBe(guest);
+    expect(dom.window.document.activeElement).toBe(dom.window.document.querySelector('[data-browser-page]'));
+    commandRegistry.setContext(dom.window.document.activeElement as HTMLElement);
+    await act(async () => { expect(commandRegistry.dispatch('app.navigateBack')).toBe(true); });
+    expect(group.pane.entries.get(tabId)?.kind).toBe('folder');
+    layout.dispose();
   });
 
-  it('两个网页并排、拆开、再并排、改成上下:两页一次都不重新挂,各摆一边', () => {
-    const { pane, a, b, placed } = mountTwo('page');
-    expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
-
-    act(() => void pane.splitTab(b, 'right'));
-    expect(placed('a')).toEqual(['true:0px/0px']);
-    expect(placed('b')).toEqual(['true:50%/0px']);
-
-    act(() => pane.separatePair());
-    act(() => pane.toggleSplit());
-    act(() => void pane.splitTab(b, 'bottom'));
-    expect(placed('b')).toEqual(['true:0px/50%']);
-    expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
-  });
-
-  it('对照:不自己摆两页的那种,另一页挪进单独的一份 = 重新挂一次(计数抓得到)', () => {
-    const { pane, b } = mountTwo('file');
-    act(() => void pane.splitTab(b, 'right'));
-    expect(mounts.get(b)).toBe(2);
-  });
-
-  it('uses the shared fullscreen layer and restores the divider without remounting', () => {
-    const { pane, a, b } = mountTwo('page');
-    act(() => pane.splitTab(b, 'right'));
-    const divider = () => dom.window.document.querySelector<HTMLElement>('[data-pair-divider]');
-    expect(divider()?.style.zIndex).toBe('var(--z-pane-divider)');
+  it('focuses the new host page when a click navigates from a resident guest outside the pane', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const folder = createTabProvider({ ...provider, kind: 'folder', TabContent: () => <div data-folder-slot="" /> });
+    const file = createTabProvider({ ...provider, kind: 'file', TabContent: () => <div tabIndex={-1} data-browser-page="" /> });
+    const layout = new PaneLayoutStore(createTabRegistry([folder, file]), { viewId: 'resident-click-history' });
+    const tabId = layout.open('folder', { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    const group = layout.groups[0];
+    act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>));
+    const flushFrames = () => { for (const frame of frames.splice(0)) frame(0); };
+    flushFrames();
+    // Electron delivers the file click through the App bridge. Its resident
+    // webview is rooted outside PaneContent, so the pane's DOM-focus guard
+    // cannot transfer focus. Keep that placement and use the real open route.
+    const guest = dom.window.document.createElement('webview');
+    guest.tabIndex = 0;
+    dom.window.document.body.append(guest);
+    guest.addEventListener('click', () => { layout.open('file', { id: 'f02.txt' }, { from: tabId, intent: 'navigate' }); });
     try {
-      act(() => pane.tabFill(b)!.toggle());
-      const fullscreen = dom.window.document.querySelector<HTMLElement>('[data-tab-fullscreen]')!;
-      expect(fullscreen.style.position).toBe('fixed');
-      expect(fullscreen.style.zIndex).toBe('var(--z-pane-fullscreen)');
-      expect(divider()).toBeNull();
-      expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
-    } finally {
-      act(() => tabFullscreen.exit());
-    }
-    expect(dom.window.document.querySelector('[data-tab-fullscreen]')).toBeNull();
-    expect(divider()?.style.zIndex).toBe('var(--z-pane-divider)');
-    expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
+      guest.focus();
+      expect(dom.window.document.querySelector('[data-folder-slot]')!.contains(guest)).toBe(false);
+      await act(async () => { guest.click(); });
+      await act(async () => { flushFrames(); });
+      expect(group.pane.entries.get(tabId)?.kind).toBe('file');
+      expect(dom.window.document.activeElement).toBe(dom.window.document.querySelector('[data-browser-page]'));
+      // No intervening click on the file body. Native Cmd+[ / Cmd+] is a
+      // separate Electron acceptance cell; here use its existing commands.
+      commandRegistry.setContext(dom.window.document.activeElement as HTMLElement);
+      await act(async () => { expect(commandRegistry.dispatch('app.navigateBack')).toBe(true); });
+      expect(group.pane.entries.get(tabId)?.kind).toBe('folder');
+      await act(async () => { expect(commandRegistry.dispatch('app.navigateForward')).toBe(true); });
+      expect(group.pane.entries.get(tabId)?.state).toEqual({ id: 'f02.txt' });
+      expect(group.pane.tabOrder).toEqual([tabId]);
+    } finally { guest.remove(); layout.dispose(); }
   });
 
-  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'unmount'] as const)(
-    'shields embedded pages during divider dragging and restores them on %s',
-    (ending) => {
-      const { pane, b } = mountTwo('page');
-      act(() => pane.splitTab(b, 'right'));
-      const divider = dom.window.document.querySelector<HTMLElement>('[data-pair-divider]')!;
-      vi.spyOn(divider.closest<HTMLElement>('.bg-tab-face')!, 'getBoundingClientRect').mockReturnValue({
-        left: 0, top: 0, width: 1000, height: 600,
-      } as DOMRect);
-      const shielded = () => dom.window.document.documentElement.hasAttribute('data-gugu-dragging');
-      let captured = false;
-      const capture = vi.fn(() => {
-        expect(shielded()).toBe(true);
-        captured = true;
-      });
-      Object.assign(divider, {
-        setPointerCapture: capture,
-        hasPointerCapture: () => captured,
-        releasePointerCapture: () => { captured = false; },
-      });
-      const pointer = (type: string, clientX = 400) => {
-        const event = new dom.window.MouseEvent(type, { bubbles: true, button: 0, buttons: 1, clientX });
-        Object.defineProperty(event, 'pointerId', { value: 17 });
-        act(() => { divider.dispatchEvent(event); });
-      };
-
-      expect(shielded()).toBe(false);
-      pointer('pointerdown');
-      expect(capture).toHaveBeenCalledWith(17);
-      expect(shielded()).toBe(true);
-      pointer('pointermove');
-      expect(pane.pairShare).toBe(0.4);
-
-      if (ending === 'unmount') act(() => root.render(null));
-      else if (ending === 'blur') act(() => { dom.window.dispatchEvent(new dom.window.Event('blur')); });
-      else pointer(ending);
-      expect(shielded()).toBe(false);
-      expect(captured).toBe(false);
-      pointer('pointermove', 600);
-      expect(pane.pairShare).toBe(0.4);
-    },
-  );
-
-  it.each(['a', 'b'] as const)('shows only fullscreen page %s and restores its pair without remounting', (selected) => {
-    const { pane, a, b, placed } = mountTwo('page');
-    act(() => {
-      pane.splitTab(b, 'right');
-      pane.setPairRatio(0.4);
-      pane.setActiveTab(selected === 'a' ? a : b);
-    });
-    const before = pane.snapshot;
-    const positions = [placed('a'), placed('b')];
-    expect(pane.shownTabIds).toEqual([a, b]);
-    expect(positions).toEqual([['true:0px/0px'], ['true:40%/0px']]);
-
+  it('leaves host input focus alone for an inactive open', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    const layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'inactive-open-focus' });
+    const tabId = layout.open('page', { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    const group = layout.groups[0];
+    act(() => root.render(<PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>));
+    for (const frame of frames.splice(0)) frame(0);
+    const input = dom.window.document.createElement('input'); dom.window.document.body.append(input); input.focus();
     try {
-      act(() => tabFullscreen.toggle(pane, selected === 'a' ? a : b));
-      expect(pane.shownTabIds).toEqual([selected === 'a' ? a : b]);
-      expect(placed(selected)).toEqual(['true:-/-']);
-      expect(placed(selected === 'a' ? 'b' : 'a')).toEqual(['false:-/-']);
-      expect(pane.snapshot).toEqual(before);
-      expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
-    } finally {
-      act(() => tabFullscreen.exit());
-    }
+      await act(async () => { layout.open('page', { id: 'background' }, { from: tabId, intent: 'newTab', activate: false }); });
+      for (const frame of frames.splice(0)) frame(0);
+      expect(dom.window.document.activeElement).toBe(input);
+      expect(group.pane.resolvedActiveTabId).toBe(tabId);
+    } finally { input.remove(); layout.dispose(); }
+  });
 
-    expect([placed('a'), placed('b')]).toEqual(positions);
-    expect(pane.snapshot).toEqual(before);
+  it('does not take focus while a same-tab navigation is waiting for close confirmation', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
+    let finish!: (allowed: boolean) => void;
+    const confirm = new Promise<boolean>((resolve) => { finish = resolve; });
+    const guarded = createTabProvider({ ...provider, onBeforeClose: () => confirm });
+    const layout = new PaneLayoutStore(createTabRegistry([guarded]), { viewId: 'confirm-before-focus' });
+    const tabId = layout.open('page', { id: 'current' }, { from: null, intent: 'newTab' })!;
+    const focus = vi.fn(); layout.focusedPane.setContentFocuser(focus);
+    try {
+      layout.open('page', { id: 'next' }, { from: tabId, intent: 'navigate' });
+      expect(focus).not.toHaveBeenCalled();
+      finish(false); await confirm;
+      expect(focus).not.toHaveBeenCalled();
+      expect(layout.focusedPane.entries.get(tabId)?.state).toEqual({ id: 'current' });
+    } finally { finish(false); layout.dispose(); }
+  });
+
+  it('dispatches the existing back/forward commands only into the pane that owns the focused element', async () => {
+    const layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'pane-history-keys' });
+    const a = layout.open('page', { id: 'folder' }, { from: null, intent: 'newTab' })!;
+    const b = layout.open('page', { id: 'other' }, { from: null, intent: 'newTab' })!;
+    layout.splitPane(layout.activePaneId, 'right', b);
+    layout.open('page', { id: 'README' }, { from: a, intent: 'navigate' });
+    const first = layout.groups.find((group) => group.pane.entries.has(a))!.pane;
+    act(() => root.render(<>{layout.groups.map((group) => <PaneContext.Provider key={group.paneId} value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: group.pane === first }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>));
+    commandRegistry.setContext(dom.window.document.querySelector<HTMLElement>(`[data-page="${a}"]`)!);
+    await act(async () => { expect(commandRegistry.dispatch('app.navigateBack')).toBe(true); });
+    expect(first.entries.get(a)?.state).toEqual({ id: 'folder' });
+    expect(layout.groups.find((group) => group.pane.entries.has(b))!.pane.entries.get(b)?.state).toEqual({ id: 'other' });
+    await act(async () => { expect(commandRegistry.dispatch('app.navigateForward')).toBe(true); });
+    expect(first.entries.get(a)?.state).toEqual({ id: 'README' });
+    layout.dispose();
+  });
+
+  it('offers an explicit return to the conversation after a narrow open without changing the layout', async () => {
+    const conversation = createTabProvider({ ...provider, kind: 'conversation', conversation: true });
+    const layout = new PaneLayoutStore(createTabRegistry([provider, conversation]), { viewId: 'narrow-conversation-return' });
+    const source = layout.open('conversation', { id: 'conversation' }, { from: null, intent: 'newTab' })!;
+    layout.focusedPane.setDimensions(390, 620);
+    const tree = JSON.stringify(layout.layout);
+    const file = layout.open('page', { id: 'file' }, { from: source, intent: 'navigate' })!;
+    expect(layout.groups).toHaveLength(1);
+    expect(layout.focusedPane.tabOrder).toEqual([source, file]);
+    const group = layout.groups[0];
+    act(() => root.render(<DndContext><PaneContext.Provider value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent /></PaneContext.Provider></DndContext>));
+    const back = dom.window.document.querySelector<HTMLButtonElement>('[data-testid="tab-return-conversation"]');
+    expect(back).not.toBeNull();
+    expect(back!.closest('[data-tabbar-actions]')).not.toBeNull();
+    await act(async () => { back!.click(); });
+    expect(layout.focusedPane.resolvedActiveTabId).toBe(source);
+    expect(layout.focusedPane.tabOrder).toEqual([source, file]);
+    expect(JSON.stringify(layout.layout)).toBe(tree);
+    layout.dispose();
+  });
+
+  it('fullscreen preserves both mounted page resources and the actual split', () => {
+    const layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'real-pane-content' });
+    const a = layout.open('page', { id: 'a' }, { from: null, intent: 'newTab' })!;
+    const b = layout.open('page', { id: 'b' }, { from: null, intent: 'newTab' })!;
+    layout.splitPane(layout.activePaneId, 'right', b);
+    act(() => root.render(<>{layout.groups.map((group) => <PaneContext.Provider key={group.paneId} value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>));
+    const before = JSON.stringify(layout.snapshot);
     expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
+    act(() => tabFullscreen.toggle(layout.focusedPane, b));
+    expect(dom.window.document.querySelector<HTMLElement>('[data-tab-fullscreen]')?.style.position).toBe('fixed');
+    act(() => tabFullscreen.exit());
+    expect(JSON.stringify(layout.snapshot)).toBe(before);
+    expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
+    layout.dispose();
   });
 });

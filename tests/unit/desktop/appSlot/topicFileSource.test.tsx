@@ -27,7 +27,7 @@ function Entry({ topic }: { topic: string }) {
   return createElement('button', { onClick: () => preview.open({ kind: 'file', fileName: 'README.md', mimeType: 'text/markdown', sizeBytes: 100, source: { kind: 'item', itemId: 'shared-file', version: 1 } }, { id: `message-${topic}`, chat_id: topic } as MessageItem) }, 'Open attachment')
 }
 
-it('carries the actual attachment click through file resolution into the topic/file pair; the latest source wins', async () => {
+it('carries the actual attachment click through file resolution into the conversation companion; the latest source wins', async () => {
   vi.mocked(appsHere!.groupFileOpener).mockImplementation(async () => ({ success: true, data: {
     chatId: group, itemId: 'shared-file', name: 'README.md', typedName: 'README.md',
     choice: { kind: 'one', candidate: { tabKind: 'workspace.file', suffix: '.md' } },
@@ -39,7 +39,12 @@ it('carries the actual attachment click through file resolution into the topic/f
   const layout = chatLayoutOf(group)
   const pane = layout.groups[0]!.pane
   const file = panelTabsOf(group)[0]!.tabId
-  expect(pane.livePair).toMatchObject({ anchor: topicTabOf(group)!.tabId, side: file })
+  const chat = pane.tabOrder[0]!
+  // v3: the topic's place (the conversation's companion) navigates to the file; the topic stays one Back away.
+  const companion = layout.groups[1]!.pane
+  expect(companion.resolvedActiveTabId).toBe(file)
+  expect(companion.entries.get(file)!.history?.pages.map((page) => page.kind)).toContain('chat-topic')
+  expect(topicTabOf(group)).toBeNull()
   expect(panelTabsOf(group)[0]!.item.message?.chat_id).toBe('topic-a')
   act(() => openTopicTab(group, { topicChatId: 'topic-b', name: 'B' }))
   await harness.render(createElement(Entry, { topic: 'topic-b' }))
@@ -47,6 +52,5 @@ it('carries the actual attachment click through file resolution into the topic/f
   await until('the latest message replaced the source', () => panelTabsOf(group)[0]?.item.message?.chat_id === 'topic-b')
   expect(panelTabsOf(group)).toHaveLength(1)
   expect(panelTabsOf(group)[0]!.tabId).toBe(file)
-  expect(pane.livePair).toMatchObject({ anchor: topicTabOf(group)!.tabId, side: file })
-  expect(layout.groups).toHaveLength(1)
+  expect(layout.groups.map((g) => g.pane.resolvedActiveTabId)).toEqual([chat, file])
 })

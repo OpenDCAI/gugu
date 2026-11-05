@@ -29,6 +29,7 @@ export const HOST_CALLS = {
   'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
   'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
   getContext: { verb: 'getContext' },
+  navigationGo: { verb: 'navigationGo' },
   showContextMenu: { verb: 'showContextMenu' },
   getAppState: { verb: 'getAppState' },
   openBrowserTab: { verb: 'openBrowserTab', pack: (url: string) => ({ url }) },

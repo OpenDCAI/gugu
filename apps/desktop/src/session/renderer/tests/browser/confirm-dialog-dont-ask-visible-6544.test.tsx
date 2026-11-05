@@ -54,8 +54,9 @@ afterEach(async () => {
 });
 
 type Cell = {
-  confirmLabelKey: 'task.archiveTaskConfirm' | 'chat.cancelAndSend';
-  dontAskAgainKey: 'task.archiveDontAskAgain' | 'chat.cancelAndSendDontAskAgain';
+  confirmLabelKey: 'task.archiveTaskConfirm' | 'chat.cancelAndSend' | 'task.closeSessionOnly';
+  cancelLabelKey?: 'task.closeSessionAndTabs';
+  dontAskAgainKey?: 'task.archiveDontAskAgain' | 'chat.cancelAndSendDontAskAgain';
   variant: 'default' | 'destructive';
   scopeLabelKey?: 'task.archiveSessionWithChildrenOne';
 };
@@ -85,8 +86,9 @@ async function mountDialog(locale: 'en-US' | 'zh-CN', cell: Cell) {
             title={translateSessionMessage('task.archiveTaskTitle')}
             description={translateSessionMessage('task.archiveSessionDescription')}
             confirmLabel={translateSessionMessage(cell.confirmLabelKey)}
+            cancelLabel={cell.cancelLabelKey ? translateSessionMessage(cell.cancelLabelKey) : undefined}
             variant={cell.variant}
-            dontAskAgainLabel={translateSessionMessage(cell.dontAskAgainKey)}
+            dontAskAgainLabel={cell.dontAskAgainKey ? translateSessionMessage(cell.dontAskAgainKey) : undefined}
             scopeLabel={cell.scopeLabelKey ? translateSessionMessage(cell.scopeLabelKey) : undefined}
             onSuccess={() => undefined}
             onClose={() => undefined}
@@ -103,7 +105,7 @@ async function mountDialog(locale: 'en-US' | 'zh-CN', cell: Cell) {
   await Promise.all(dialog!.getAnimations({ subtree: true }).map((animation) => animation.finished));
   const footer = dialog?.querySelector<HTMLElement>('[data-slot="dialog-footer"]');
   const dontAsk = [...(footer?.querySelectorAll<HTMLElement>('label') ?? [])].find((label) =>
-    label.textContent?.includes(translateSessionMessage(cell.dontAskAgainKey))
+    cell.dontAskAgainKey && label.textContent?.includes(translateSessionMessage(cell.dontAskAgainKey))
   );
   const checkbox = dontAsk?.querySelector<HTMLElement>('[data-slot="checkbox"]');
   const buttons = [...(footer?.querySelectorAll<HTMLElement>('[data-slot="button"]') ?? [])];
@@ -141,4 +143,12 @@ it.each(CELLS)('%s: the whole "don\'t ask again" checkbox stays inside the dialo
   for (const button of buttons) expectInside(button, dialog!, `button "${button.textContent}"`);
   // 页脚自己也不许横向溢出:溢出就一定有东西被裁,只是这次裁到的不一定是复选框。
   expect(footer!.scrollWidth, 'footer overflows horizontally').toBeLessThanOrEqual(footer!.clientWidth + 1);
+});
+
+it('keeps both close-session choices inside the narrow dialog, with only-session as the default', async () => {
+  const { dialog, footer, buttons } = await mountDialog('en-US', { confirmLabelKey: 'task.closeSessionOnly', cancelLabelKey: 'task.closeSessionAndTabs', variant: 'default' });
+  expect(buttons).toHaveLength(2);
+  for (const button of buttons) expectInside(button, dialog!, button.textContent ?? 'close choice');
+  expect(footer!.scrollWidth).toBeLessThanOrEqual(footer!.clientWidth + 1);
+  expect(buttons[1].textContent).toContain(translateSessionMessage('task.closeSessionOnly'));
 });

@@ -30,8 +30,7 @@ export class Resource implements TabResource {
 /** A resource tab has no IM transcript: its only body is the shell's authorized file/App portal. */
 export const chatResourceTabProvider = createTabProvider<'chat-resource', State, Resource>({
   kind: 'chat-resource',
-  mount: 'single',
-  placesPairItself: true,
+
   resourceKey: state => `${state.chatId}:${panelItemKey(state.item)}`,
   isPersistent: state => state.item.kind !== null,
   initialize: (entry, handle) => new Resource(entry, handle),

@@ -2,7 +2,8 @@ import { observer } from 'mobx-react-lite'
 import { Fragment, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { chatTabSlotKey, readShellSlots } from '../../lib/shellSlots'
-import { focusedChatTab, infoTabOf, panelTabOf, panelTabsOf, returnToOf, topicTabOf, type ChatPanelTab } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { chatLayoutOf, focusedChatTab, infoTabOf, panelTabOf, panelTabsOf, topicTabOf, type ChatPanelTab } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { PaneContext } from '@renderer/features/tabs/pane-context'
 
 const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
 
@@ -29,7 +30,10 @@ export const ChatTabPortals = observer(function ChatTabPortals({ chatId, panel, 
     <>
       {panelTabsOf(chatId).map((tab) => {
         const element = entries.get(chatTabSlotKey(chatId, tab.tabId))
-        return element ? createPortal(panel(tab), element, tab.tabId) : null
+        const layout = chatLayoutOf(chatId)
+        const owner = [...layout.groups, ...layout.windowPanes.values()].find(({ pane }) => pane.entries.has(tab.tabId))
+        // A portal inherits the shell's React context, not the pane around its DOM slot.
+        return element && owner ? createPortal(<PaneContext.Provider value={{ pane: owner.pane, paneId: owner.paneId, isFocusedPane: tab.focused && tab.shown }}>{panel(tab)}</PaneContext.Provider>, element, tab.tabId) : null
       })}
       {topicTab && topicSlot ? createPortal(topic(), topicSlot, topicTab.tabId) : null}
       {infoTab && infoSlot ? createPortal(info(), infoSlot, infoTab.tabId) : null}
@@ -53,7 +57,5 @@ export const ChatTabPage = observer(function ChatTabPage({ chatId, panel, topic,
   if (focused?.kind === 'info') return <>{info()}</>
   const tab = focused?.kind === 'panel' ? panelTabOf(chatId, focused.tabId) : null
   if (!tab) return null
-  let root = tab.tabId
-  for (let back = returnToOf(chatId, root); back && panelTabOf(chatId, back); back = returnToOf(chatId, back)) root = back
-  return <Fragment key={root}>{panel(tab)}</Fragment>
+  return <Fragment key={tab.tabId}>{panel(tab)}</Fragment>
 })

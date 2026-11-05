@@ -50,7 +50,7 @@ export function createTabView<const P extends readonly AnyTabProvider[]>(
   /** Creates a typed PaneLayoutStore suitable for threading into a MobX state tree. */
   function createPaneLayoutStore(
     ctx: TabViewContext,
-    opts?: { onActiveTabChange?: (tabId: string | undefined) => void; singleStrip?: boolean }
+    opts?: { onActiveTabChange?: (tabId: string | undefined) => void }
   ): PaneLayoutStore<R> {
     return new PaneLayoutStore<R>(registry, ctx, factoryOpts?.makePersistor?.(ctx), opts);
   }
@@ -89,7 +89,7 @@ export function createTabView<const P extends readonly AnyTabProvider[]>(
       isOpen: layout.isOpen(kind, resourceKey),
       isActive: layout.isActiveInFocusedPane(kind, resourceKey),
       isActiveAnyPane: layout.isActiveInAnyPane(kind, resourceKey),
-      open: (args: OpenArgsOf<R, K>, config?: TabOpenOptions) => layout.open(kind, args, config),
+      open: (args: OpenArgsOf<R, K>, config: TabOpenOptions) => layout.open(kind, args, config),
     };
   }
 

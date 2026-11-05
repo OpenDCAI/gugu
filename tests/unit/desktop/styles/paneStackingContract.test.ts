@@ -5,6 +5,7 @@ const read = (path: string) => readFileSync(new URL(`../../../../${path}`, impor
 const css = read('apps/desktop/src/styles/tokens.css')
 const layer = read('apps/desktop/src/session/renderer/features/extensions/extension-view-layer.tsx')
 const pane = read('apps/desktop/src/session/renderer/features/tabs/pane-content.tsx')
+const tree = read('apps/desktop/src/session/renderer/features/tabs/pane-tree-view.tsx')
 const screen = read('apps/desktop/src/session/renderer/app/screen-frame.tsx')
 const menu = read('packages/session-ui/src/react/primitives/dropdown-menu/dropdown-menu.css.ts')
 
@@ -31,8 +32,8 @@ describe('workspace surfaces share one stacking contract', () => {
 
   it('prevents the pane, divider and menu from choosing independent numeric levels', () => {
     expect(pane).toContain("zIndex: 'var(--z-pane-fullscreen)'")
-    expect(pane).toContain("zIndex: 'var(--z-pane-divider)'")
-    const divider = pane.slice(pane.indexOf('const PairDivider'))
+    expect(tree).toContain("zIndex: 'var(--z-pane-divider)'")
+    const divider = tree.slice(tree.indexOf('const Cut'))
     expect(divider).not.toMatch(/\bz-\d+\b/)
     expect(screen).toMatch(/<ResizableHandle\s+style=\{\{ zIndex: 'var\(--z-pane-divider\)' \}\}/)
     expect(screen).not.toMatch(/<ResizableHandle[^>]*\bz-\d+\b/)

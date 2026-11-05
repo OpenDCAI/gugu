@@ -99,13 +99,13 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           // #6780 旧侧栏的两个页签由会话里的 review 页签和文件夹 App 接班(旧的 setSidebarTab 已无处挂载)。
           // 开页签与空态、「+」菜单点按钮是同一个动作;两种都是 single 挂载,已开着就只激活、❌ 开第二个。
           execute() {
-            sessionView?.paneLayout.open('review', {});
+            sessionView?.paneLayout.open('review', {}, { from: null, intent: 'newTab' });
           },
         },
         {
           ...sidebarFilesDef,
           execute() {
-            sessionView?.paneLayout.open(WORKSPACE_APP_KIND, {}, { preview: false });
+            sessionView?.paneLayout.open(WORKSPACE_APP_KIND, {}, { from: null, intent: 'newTab' });
           },
         },
         // ── Terminals ─────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
         {
           ...openBrowserDef,
           execute() {
-            sessionView?.paneLayout.open('browser', {});
+            sessionView?.paneLayout.open('browser', {}, { from: null, intent: 'newTab' });
             sessionView?.setFocusedRegion('main');
           },
         },

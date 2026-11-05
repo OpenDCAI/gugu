@@ -983,7 +983,7 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false, 'resource')
-    expect(takeChatAsk('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail, fromPage: true })
+    expect(takeChatAsk('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail })
   })
 
   it('a message file request keeps its originating message for the native preview actions', async () => {

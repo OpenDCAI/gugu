@@ -686,7 +686,7 @@ function InnerLayout({
     // up — the one on screen stays — and its panel opens it as the host resolved it, the way a link to it opens.
     const onOpenWith = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenWithDetail>).detail
-      if (detail) bringUp(detail.chatId, (chatId) => askChat(chatId, { itemId: detail.itemId, opener: detail, fromPage: true }), true)
+      if (detail) bringUp(detail.chatId, (chatId) => askChat(chatId, { itemId: detail.itemId, opener: detail, ...(detail.from ? { from: detail.from } : {}) }), true)
     }
     // A card's Open action names a chat: it comes up, and its panel opens the App (ChatAreaPanel takes it).
     const onOpenInChat = (event: Event) => {

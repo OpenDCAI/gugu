@@ -1,3 +1,4 @@
+import type { TabOpenIntent } from '@shared/view-state';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { FileOpenerCandidate } from './file-openers';
@@ -254,6 +255,13 @@ export function openWithTabOf(options: Record<string, unknown>): string | undefi
   if (typeof options.tab !== 'string' || !options.tab.trim()) throw invalidPlace('openWith tab must be a non-empty tab name');
   if (options.ask === true) throw invalidPlace('openWith tab and ask cannot be combined');
   return options.tab;
+}
+
+/** The host validates page input; ordinary file clicks use the existing preview slot. */
+export function openWithIntentOf(options: Record<string, unknown>): TabOpenIntent {
+  if (!Object.hasOwn(options, 'intent')) return 'navigate';
+  if (options.intent !== 'navigate' && options.intent !== 'newTab' && options.intent !== 'beside') throw invalidPlace('openWith intent must be navigate, newTab or beside');
+  return options.intent;
 }
 
 /** A chat's id, as getContext() and every entry carry it (`send` takes the same, app-send-core.ts). */
@@ -528,6 +536,10 @@ export type HostToFrame =
  */
 export const APP_OPEN_WITH_EVENT = 'gugu:app-open-with';
 export interface AppOpenWithDetail {
+  intent?: TabOpenIntent;
+  /** Host-owned source context, never accepted from the guest's arguments. */
+  from?: string;
+  viewState?: Record<string, unknown>;
   /** Refresh this already-open App tab after it was shown; never activate a late validation result. */
   background?: boolean;
   /** Host-only, one-shot authorization carried to the file's binding. Contains no document content. */

@@ -56,7 +56,7 @@ describe('startAppPlacementSync', () => {
     });
   });
 
-  it('摆在这条会话的 App 页签留着;摆在别处、哪都没摆的收掉 —— 对话与内置页签不碰', () => {
+  it("keeps each task's independent App contexts regardless of the old placement table", () => {
     appPlacementStore.place('timer.main', { projectId: 'p', sessionId: 'a' });
     const a = fakeSession();
     a.add('chat', 'acp-chat', { sessionId: 'a' });
@@ -69,12 +69,12 @@ describe('startAppPlacementSync', () => {
     b.add('chat', 'acp-chat', { sessionId: 'b' });
     b.add('t', 'timer.main', { instanceId: 'old' });
     const stopB = startAppPlacementSync(b.layout, 'b');
-    expect(b.tabs()).toEqual(['chat']);
+    expect(b.tabs()).toEqual(['chat', 't']);
     stopA();
     stopB();
   });
 
-  it('放到另一条会话 = 从原来那条拿走:写一下摆放,原来那条自己收掉', () => {
+  it('changing an old placement never removes an independent tab', () => {
     appPlacementStore.place('timer.main', { projectId: 'p', sessionId: 'a' });
     const a = fakeSession();
     a.add('t', 'timer.main', {});
@@ -82,7 +82,7 @@ describe('startAppPlacementSync', () => {
     expect(a.tabs()).toEqual(['t']);
 
     appPlacementStore.place('timer.main', { projectId: 'p', sessionId: 'b' });
-    expect(a.tabs()).toEqual([]);
+    expect(a.tabs()).toEqual(['t']);
     stop();
   });
 
@@ -96,7 +96,7 @@ describe('startAppPlacementSync', () => {
     stop();
   });
 
-  it('#7317 每个任务一份的页签:每条会话都留着自己那一枚,不看摆放 —— 不声明的照旧只留一处(对照)', () => {
+  it('both declared and ordinary Apps keep their own context in each task', () => {
     appPlacementStore.place('timer.main', { projectId: 'p', sessionId: 'a' });
     const a = fakeSession();
     a.add('screen', 'computer.screen', {});
@@ -106,13 +106,13 @@ describe('startAppPlacementSync', () => {
     b.add('timer', 'timer.main', {});
     const stopA = startAppPlacementSync(a.layout, 'a');
     const stopB = startAppPlacementSync(b.layout, 'b');
-    expect([a.tabs(), b.tabs()]).toEqual([['screen', 'timer'], ['screen']]);
+    expect([a.tabs(), b.tabs()]).toEqual([['screen', 'timer'], ['screen', 'timer']]);
     expect(appPlacementStore.of('computer.screen')).toBeUndefined();
     stopA();
     stopB();
   });
 
-  it('#7317 每个任务一份的页签自己记着:App 清单还没读到(启动时)或 App 已不在,也不收 —— 没记着的照旧收(对照)', () => {
+  it('a pending manifest does not destroy restored App contexts', () => {
     runInAction(() => {
       installedExtensionsStore.manifests = [];
     });
@@ -120,7 +120,7 @@ describe('startAppPlacementSync', () => {
     a.add('mine', 'computer.screen', { perSession: true });
     a.add('unknown', 'computer.screen', {});
     const stop = startAppPlacementSync(a.layout, 'a');
-    expect(a.tabs()).toEqual(['mine']);
+    expect(a.tabs()).toEqual(['mine', 'unknown']);
     stop();
   });
 

@@ -1,3 +1,4 @@
+import type { TabOpenIntent } from '@shared/view-state';
 import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../gugu-reason';
 import { log } from '@renderer/utils/logger';
@@ -73,7 +74,7 @@ import type { FileTabResource } from './stores/file-tab-resource';
 const MAX_COPY_FILE_BYTES = 10 * 1024 * 1024;
 const ROW_HEIGHT = 28;
 
-export type FileTreeOpenHandler = (path: string, preview: boolean) => void;
+export type FileTreeOpenHandler = (path: string, intent: TabOpenIntent) => void;
 
 // 平台是稳定枚举，只在展示边界映射成本地化标签。
 const PLATFORM = detectPlatform();
@@ -124,7 +125,7 @@ function followMovedFiles(surface: ReturnType<typeof useWorkspaceSurface>, from:
       const resource = tab.resource as FileTabResource;
       if (!isWithinPath(resource.path, from) || resource.isDirty) continue;
       void pane.closeTab(tab.tabId);
-      if (to) pane.open('file', { path: to + resource.path.slice(from.length) }, { preview: false });
+      if (to) pane.open('file', { path: to + resource.path.slice(from.length) }, { intent: 'newTab' });
     }
   }
 }
@@ -270,21 +271,21 @@ const FileTreeRow = observer(function FileTreeRow({
     });
   };
 
-  const open = (preview: boolean) => {
-    if (onOpenFile) onOpenFile(node.path, preview);
-    else openFile({ path: node.path }, { preview });
+  const open = (intent: TabOpenIntent = 'navigate') => {
+    if (onOpenFile) onOpenFile(node.path, intent);
+    else openFile({ path: node.path }, { from: surface.paneLayout.focusedPane.resolvedActiveTabId ?? null, intent });
   };
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onSelect();
     if (isExpandable) toggleExpand();
-    else if (isOpenable) open(true);
+    else if (isOpenable) open(e.altKey ? 'beside' : e.metaKey || e.ctrlKey ? 'newTab' : 'navigate');
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isOpenable) open(false);
+    if (isOpenable) open('navigate');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -292,7 +293,7 @@ const FileTreeRow = observer(function FileTreeRow({
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       if (isExpandable) toggleExpand();
-      else if (isOpenable) open(e.key === ' ');
+      else if (isOpenable) open(e.altKey ? 'beside' : e.metaKey || e.ctrlKey ? 'newTab' : 'navigate');
     }
     if (isExpandable && e.key === 'ArrowRight' && !isExpanded) toggleExpand();
     if (isExpandable && e.key === 'ArrowLeft' && isExpanded) toggleExpand();
@@ -434,6 +435,8 @@ const FileTreeRow = observer(function FileTreeRow({
         tabIndex={0}
         draggable={!renaming}
         onClick={handleClick}
+        onMouseDown={(event) => { if (event.button === 1) event.preventDefault(); }}
+        onAuxClick={(event) => { if (event.button === 1 && isOpenable) { event.preventDefault(); open('newTab'); } }}
         onDoubleClick={handleDoubleClick}
         onKeyDown={handleKeyDown}
         onDragStart={handleDragStart}
@@ -489,6 +492,11 @@ const FileTreeRow = observer(function FileTreeRow({
         )}
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {isOpenable && <>
+          <ContextMenuItem onClick={() => open('newTab')}>{translate('tabs.openNew')}</ContextMenuItem>
+          <ContextMenuItem onClick={() => open('beside')}>{translate('tabs.openBeside')}</ContextMenuItem>
+          <ContextMenuSeparator />
+        </>}
         <ContextMenuItem onClick={() => onNew('file')}>
           <FilePlus2 className="size-4" />
           {translate('fileTree.newFile')}
@@ -744,8 +752,8 @@ export const EditorFileTree = observer(function EditorFileTree({
     await files?.registerDir(edit.dir, true);
     // 照 VS Code:新文件建好就打开,新文件夹建好就展开。
     if (edit.mode === 'file') {
-      if (onOpenFile) onOpenFile(result.value.path, false);
-      else surface.paneLayout.open('file', { path: result.value.path }, { preview: false });
+      if (onOpenFile) onOpenFile(result.value.path, 'navigate');
+      else surface.paneLayout.open('file', { path: result.value.path }, { from: null, intent: 'newTab' });
     } else await expand(result.value.path);
   };
 

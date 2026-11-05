@@ -8,7 +8,7 @@ import { toast } from '@renderer/lib/hooks/use-toast';
 import { openApp } from './app-dock';
 import { declaredMenuCommands, declaredToolbarCommands, runExtensionCommand } from './extension-commands';
 import { extensionSurfaceStore } from './extension-surface-store';
-import { extensionViewStore, residentPageKey } from './extension-view-store';
+import { extensionViewStore } from './extension-view-store';
 import { installedExtensionsStore, type ExtensionTabContributionEntry } from './installed-extensions-store';
 
 /** The dock chooses the existing page; its toolbar/menu's binding delivers the command once it is ready. */
@@ -16,12 +16,12 @@ async function openAndRun(tab: ExtensionTabContributionEntry, commandId: string)
   const opened = openApp(tab.extensionId, tab.kind.slice(tab.extensionId.length + 1));
   revealSessionpage();
   const sessionId = opened !== 'own' && 'session' in opened ? opened.session : null;
-  const place = sessionId && tab.perSession ? `session:${sessionId}` : 'app';
   const target = () => {
     const windowed = auxWindows.windowOfApp(tab.kind);
     if (windowed) return { sessionId: null, tabId: `window:${windowed.id}` };
-    const claim = extensionViewStore.claims.get(residentPageKey(tab.kind, place));
-    return claim && (claim.sessionId ?? null) === sessionId ? { sessionId, tabId: claim.tabId } : null;
+    const claims = [...extensionViewStore.claims].filter(([key, claim]) => key.startsWith(`${tab.kind}\u0000`) && !claim.chatId && !claim.itemId && (claim.sessionId ?? null) === sessionId).map(([, claim]) => claim);
+    // A global command cannot silently pick between two independent contexts.
+    return claims.length === 1 ? { sessionId, tabId: claims[0]!.tabId } : null;
   };
   try {
     await when(() => {

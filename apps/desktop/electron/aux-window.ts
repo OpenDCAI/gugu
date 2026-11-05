@@ -4,6 +4,7 @@ import { TRAFFIC_LIGHT_POSITION } from '@shared/window-chrome-native'
 import { hardenWebPreferences } from './devtools-lock'
 import { openBuildTagLayer } from './build-tag-window'
 import { serveWindowLayers, windowLayerOptions, windowLayerResponse } from './window-layers'
+import { attachTabHistorySwipe } from './tab-history-swipe'
 
 /**
  * 咕咕的子窗口(一整块会话、一个 App 单独成窗,照 VS Code 的浮动编辑器窗口):渲染层 `window.open` 一扇同源空白窗,
@@ -101,7 +102,7 @@ export function attachAuxWindows(main: BrowserWindow, backgroundColor: () => str
     if (own) {
       specialChildren.add(child)
       own.adopt(child)
-    }
+    } else attachTabHistorySwipe(child)
     // Windows / Linux 的应用菜单挂在每扇窗上:主窗无边框看不见它,子窗用系统标题栏,就在标题栏下面多出一排英文
     // 「File Edit View Window」(2026-10-10 win-dev 实拍)。这扇窗不要菜单(Electron 文档:win.removeMenu 去掉单扇窗的菜单);
     // 顺带去掉它的快捷键 —— 「重新加载」会把这扇窗换成空白页,画在里面的那块跟着没了。

@@ -40,7 +40,7 @@ const { ChatStoreProvider } = await import('../../../../apps/desktop/src/store/c
 const { installedExtensionsStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
 const { UI_EVENTS } = await import('../../../../apps/desktop/src/lib/uiEvents')
 const { folderItem } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item')
-const { askChat, openPanelItem, panelTabsOf, returnToOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { askChat, openPanelItem, panelTabsOf, chatPaneOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 const { grantableBy } = await import('../../../../apps/desktop/src/session/shared/extensions/attachment-install')
 const { PHONE_CAPABILITIES } = await import('../../../../apps/desktop/src/components/appSlot/phoneApps')
 
@@ -98,22 +98,22 @@ describe('the chat on screen answers 「在本群打开」 (useChatOpener)', () 
     askNow('source-1', { app: 'board' })
     const tab = shownPanelTab('source-1')
     expect(tab?.item).toMatchObject({ kind: 'board.main' })
-    expect(returnToOf('source-1', tab!.tabId), 'an App opened from the chat has no 上一页').toBeNull()
+    expect(chatPaneOf('source-1', tab!.tabId)?.navigationOf(tab!.tabId)?.index).toBe(0)
   })
 
   it('a page beside the chat asked: the tab on screen is the 上一页 of what it opens; an App asked there has none (owner 10-24)', async () => {
     install(app([OWN_PAGE]))
     await harness.render(createElement(Chat, { id: 'source-panel' }))
     const folder = openPanelItem('source-panel', folderItem())!
-    askNow('source-panel', { itemId: 'F1', opener: fileOpener('source-panel', 'F1'), fromPage: true })
+    askNow('source-panel', { itemId: 'F1', opener: fileOpener('source-panel', 'F1'), from: folder })
     const file = shownPanelTab('source-panel')
     expect(file?.item).toMatchObject({ itemId: 'F1' })
-    expect(returnToOf('source-panel', file!.tabId)).toBe(folder)
+    expect(file!.tabId).toBe(folder); expect(chatPaneOf('source-panel', folder)?.navigationOf(folder)?.index).toBe(1)
     askNow('source-panel', { app: 'board' })
     const board = shownPanelTab('source-panel')
     expect(board?.item).toMatchObject({ kind: 'board.main' })
     expect(board?.item.itemId).toBeUndefined()
-    expect(returnToOf('source-panel', board!.tabId)).toBeNull()
+    expect(chatPaneOf('source-panel', board!.tabId)?.navigationOf(board!.tabId)?.index).toBe(2)
   })
 
   it('another chat than the one on screen is not answered here', async () => {

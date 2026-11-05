@@ -72,6 +72,17 @@ export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
 const FOLLOW_STILL_FRAMES = 10;
 const FOLLOW_MAX_MS = 2_000;
 
+function releaseHiddenFocus(box: HTMLElement, claim?: ExtensionViewClaim): void {
+  const focused = box.ownerDocument.activeElement;
+  if (!(focused instanceof HTMLElement) || !box.contains(focused)) return;
+  // A resident guest is outside its pane and can retain native focus after
+  // DOM blur. Use the existing window host-focus route, then its pane context.
+  void rpc.browser.focusHost(box.ownerDocument.defaultView?.name ?? '')
+    .catch((error: unknown) => log.warn('Failed to return extension focus to its host:', error));
+  focused.blur();
+  claim?.focusContent?.();
+}
+
 interface Surface {
   partition: string;
   entryUrl: string;
@@ -243,6 +254,8 @@ export const ExtensionPage = observer(function ExtensionPage({
         conversation: claim?.chatId ?? claim?.conversation ?? null,
         ...(claim?.resourceChat ? { resourceChat: claim.resourceChat } : {}),
         tabId: claim?.tabId ?? '',
+        viewState: claim?.viewState,
+        navigation: claim?.navigation,
         ...(claim?.itemId ? { itemId: claim.itemId } : {}),
         ...(claim?.takeOpening ? { opening: claim.takeOpening() } : {}),
       };
@@ -350,13 +363,14 @@ export const ExtensionPage = observer(function ExtensionPage({
   useLayoutEffect(
     () => inline ? undefined : reaction(
         () => claimOf(),
-        (claim) => {
+        (claim, previous) => {
           teardownRef.current?.();
           teardownRef.current = null;
           const box = boxRef.current;
           const layer = layerRef.current;
           if (!box || !layer) return;
           if (!claim) {
+            releaseHiddenFocus(box, previous);
             box.style.visibility = 'hidden';
             if (managed) box.style.opacity = '0';
             box.inert = true;
@@ -370,6 +384,7 @@ export const ExtensionPage = observer(function ExtensionPage({
               clip.height > 0 &&
               claim.element.isConnected &&
               claim.element.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+            if (!shown) releaseHiddenFocus(box, claim);
             box.style.left = `${clip.left}px`;
             box.style.top = `${clip.top}px`;
             box.style.width = `${clip.width}px`;

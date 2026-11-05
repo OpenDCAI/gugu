@@ -8,7 +8,6 @@ export function TabTitle({
    * 而草稿那条贴条压根没有 pane。
    */
   isFocusedPane = true,
-  isPreview,
   hasError,
   maxWidth = 'max-w-[200px]',
   className,
@@ -16,7 +15,6 @@ export function TabTitle({
 }: {
   isActive: boolean;
   isFocusedPane?: boolean;
-  isPreview?: boolean;
   hasError?: boolean;
   maxWidth?: string;
   className?: string;
@@ -27,7 +25,6 @@ export function TabTitle({
       className={cn(
         'truncate p-1 text-sm opacity-85 group-hover:opacity-100 transition-opacity',
         maxWidth,
-        isPreview && 'italic',
         isActive && isFocusedPane && 'opacity-100',
         hasError && 'text-foreground-destructive',
         className

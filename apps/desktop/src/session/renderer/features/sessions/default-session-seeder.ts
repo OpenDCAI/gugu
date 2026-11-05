@@ -67,9 +67,9 @@ export class DefaultSessionSeeder {
     const sessionId = this.sessionId;
     runInAction(() => {
       if (store.data.runtime === 'acp') {
-        this.paneLayout.open('acp-chat', { sessionId }, { preview: false });
+        this.paneLayout.open('acp-chat', { sessionId }, { from: null, intent: 'newTab' });
       } else {
-        this.paneLayout.open('session', { sessionId }, { preview: false });
+        this.paneLayout.open('session', { sessionId }, { from: null, intent: 'newTab' });
       }
     });
   }

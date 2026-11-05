@@ -4,6 +4,7 @@ import { showModal } from '@renderer/lib/modal/modal-provider';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
 import { getSessionView } from './stores/session-selectors';
+import { readStripTabs } from '@renderer/features/tabs/tab-bar/tab-overflow';
 
 /** 这一块会话自己那枚对话页签的类型(终端形态 / 通用形态)。 */
 const OWN_CONVERSATION_KINDS = new Set(['session', 'acp-chat']);
@@ -57,15 +58,15 @@ export function confirmCloseSessionTab(
         count: others.size,
         kinds: kindsOf(layout, others),
       }),
-      confirmLabel: translateSessionMessage('task.closeSessionAndTabs'),
-      cancelLabel: translateSessionMessage('task.closeSessionOnly'),
+      confirmLabel: translateSessionMessage('task.closeSessionOnly'),
+      cancelLabel: translateSessionMessage('task.closeSessionAndTabs'),
       variant: 'default',
-      onSuccess: () => {
+      onCancel: () => {
         if (decided) return;
         decided = true;
         void closeTabs(layout, others).then(() => resolve(true));
       },
-      onCancel: () => decide(true),
+      onSuccess: () => decide(true),
       onClose: () => decide(false),
     });
   });
@@ -86,13 +87,14 @@ export function otherTabs(layout: LayoutLike, sessionId: string): ReadonlySet<st
 }
 
 function kindsOf(layout: LayoutLike, ids: ReadonlySet<string>): string {
+  // Reuse the strip's presentation, as the existing overflow menu does.
+  const names = new Map(typeof document === 'undefined' ? [] : readStripTabs(document).map((tab) => [tab.tabId, tab.label]));
   const labels: string[] = [];
   for (const { pane } of layout.groups) {
     for (const id of pane.tabOrder) {
       if (!ids.has(id)) continue;
       const key = KIND_LABEL[pane.entries.get(id)?.kind ?? ''] ?? 'task.closeSessionKindOther';
-      const label = translateSessionMessage(key);
-      if (!labels.includes(label)) labels.push(label);
+      labels.push(names.get(id) || translateSessionMessage(key));
     }
   }
   return labels.join(translateSessionMessage('task.closeSessionKindSeparator'));

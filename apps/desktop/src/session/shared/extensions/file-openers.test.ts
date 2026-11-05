@@ -128,6 +128,15 @@ describe('「用哪个打开」 names Apps (摩擦单 F26)', () => {
 });
 
 describe('a file name as a person reads it (摩擦单 F39, F73: the list and the picker alike)', () => {
+  it.each([
+    ['群公告.md', '.md'],
+    ['group-meta.json', '.json'],
+    ['todo.txt', '.txt'],
+    ['banner.png', '.png'],
+  ])('keeps the complete stored name %s for a generic claimed suffix', (name, suffix) => {
+    expect(displayNameOf(name, suffix)).toBe(name);
+  });
+
   it('without the suffix it is claimed by, whatever its case; the whole name when that would leave nothing or it does not end so', () => {
     expect(displayNameOf('friday-dinner.vote.json', '.vote.json')).toBe('friday-dinner');
     expect(displayNameOf('Friday.VOTE.json', '.vote.json')).toBe('Friday');

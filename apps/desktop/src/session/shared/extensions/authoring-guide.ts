@@ -208,10 +208,11 @@ Free:
   \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\`; \`agentId\` is \`user:<uuid>\`.
   Local \`root\` needs \`files:*\`; remote sessions carry \`deviceId\` instead. \`file\`: open with \`files.open(ctx.file)\`.
   \`operator\`: \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`. \`capabilities\`: current grants, reflecting revocations.
+- \`gugu.navigation.go(-1|1)\` → boolean; own history/chat opener. State: \`getContext().navigation\`.
 - \`onContextChanged(fn)\` → theme, language, visibility and size changes; member changes only through API 26. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu; returns id or null.
-- \`setTabTitle(title)\` → title (max 48); file tabs use it as a tooltip. Host Back closes the file tab.
+- \`setTabTitle(title)\` → title (max 48); file tabs use it as a tooltip. Back/forward stay local.
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
 - \`reportError(message)\` → shown to the person. Never fail silently.
@@ -584,7 +585,8 @@ Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
 - A working copy lists one folder: \`gugu.files.list({ workspace, folder })\` (\`''\` top). Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A working copy (\`folder\`: below it only): \`{ kind: 'changes', changes }\` or \`resync\`.
-- \`gugu.files.openWith(entry)\` (click/key): specific claim or "always use"; \`{ ask: true }\`: pick among all.
+- \`gugu.files.openWith(entry)\`: claim or "always use"; \`{ ask: true }\`: pick among all.
+  Default \`intent: 'preview'\`; double-click: \`intent: 'pinned'\`.
   \`{ at }\`: opener's \`link\` place. Unclaimed: preview, or details/download. \`{ peek: true }\`: beside this page
   (always for project files). Gone/unreadable: \`not-found\`.
 - \`gugu.files.openWith(entry, { tab: 'explore' })\`: your own tab claiming the chat file in \`opensFiles.chat\`;

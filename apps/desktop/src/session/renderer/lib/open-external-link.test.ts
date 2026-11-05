@@ -92,7 +92,8 @@ describe('confirmOpenExternalLink', () => {
   it('opens the link as a browser tab in the session', () => {
     const calls: string[] = [];
     const sessionView = {
-      paneLayout: {
+      activePane: {
+        resolvedActiveTabId: 'source',
         open: vi.fn((kind: string, args: { initialUrl?: string }) => {
           calls.push(`open:${kind}:${args.initialUrl}`);
         }),

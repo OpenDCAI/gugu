@@ -58,9 +58,6 @@ export const TabContextMenu = observer(function TabContextMenu({
   const index = host.resolvedTabs.findIndex((t) => t.tabId === tab.tabId);
   const count = host.resolvedTabs.length;
   const engineCommands: TabCommand[] = [
-    ...(tab.isPreview
-      ? [{ id: 'engine:keep-open', label: translate('tabs.keepOpen'), group: 'close' as const, run: () => host.pin(tab.tabId) }]
-      : []),
     {
       id: 'engine:close',
       label: translate('tabs.close'),
@@ -101,9 +98,6 @@ export const TabContextMenu = observer(function TabContextMenu({
   };
   const splitCommands: TabCommand[] = [
     // 并排的一对:「拆开」= 两枚都变回普通页签,点着的那枚占满(spec session-page「并排」,照 Chrome「Separate views」)。
-    ...(tab.pairRole
-      ? [{ id: 'engine:separate-pair', label: translate('tabs.separatePair'), group: 'split' as const, run: () => host.separatePair() }]
-      : []),
     {
       id: 'engine:split-right',
       label: translate('tabs.splitRight'),

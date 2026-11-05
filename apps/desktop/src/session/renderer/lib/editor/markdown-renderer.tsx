@@ -63,7 +63,7 @@ export const MarkdownEditorRenderer = observer(function MarkdownEditorRenderer({
         resourcePath: href,
       });
       if (!target) return false;
-      pane.open('file', { path: target }, { preview: false });
+      pane.open('file', { path: target }, { intent: 'navigate' });
       // `./other.md#section` (#6950): the path opens the file, the fragment is where its preview lands.
       const fragment = href.includes('#') ? href.slice(href.indexOf('#') + 1) : '';
       if (fragment) {
@@ -108,7 +108,7 @@ export const MarkdownEditorRenderer = observer(function MarkdownEditorRenderer({
           content={content}
           density="comfortable"
           frontmatter
-          className="mx-auto w-full max-w-3xl px-6 py-6"
+          className="mx-auto w-full max-w-3xl px-6 pt-1 pb-6"
           resolveImage={resolveImage}
           onOpenLink={openWorkspaceLink}
         /></div>
