@@ -885,6 +885,8 @@ test('revoking OS permission after a successful phone read prevents data from re
     assert.ok(permissionChecks.length > 0)
     for (const check of permissionChecks) assert.deepEqual(check, ['permissions.check', { groups: ['calendar'], requirements: [] }])
     assert.equal(fx.messages.some((message) => message.p_content.includes('private-calendar-fixture-9123')), false)
+    // turn_failed precedes the asynchronous status publication; inspect its settled error report.
+    await until(() => fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)?.[1].p_agent_status === 'error', fx.events)
     const report = fx.calls.filter(([name]) => name === 'set_agent_runtime_state').at(-1)[1]
     assert.equal(typeof report.p_last_action_at, 'string')
   } finally { await fx.close() }

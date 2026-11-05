@@ -910,15 +910,43 @@ async function assertRecipientsAreMembers(chatId, toUserIds, deps) {
   }
 }
 
+function addressMentionSpans(text) {
+  const addresses = [...String(text ?? '').matchAll(/@((?:user|gugu|session):[A-Za-z0-9_-]+)/g)].map(match => match[1])
+  // Address lexing is separate; mention boundaries still use the shared grammar.
+  return findMentionSpans(text, addresses)
+}
+
 // Recipient ids and visible @mentions must express the same group routing decision.
-export function reconcileMentionExpression(members, content, toUserIds, exemptIds = []) {
+export function reconcileMentionExpression(members, content, toUserIds, exemptIds = [], sessionPeers = []) {
   const text = String(content ?? '')
   const declared = toUserIds || []
   const declaredSet = new Set(declared)
   const exempt = new Set(exemptIds)
   const named = members.filter((m) => m.display_name)
-  const typedNames = new Set(findMentionSpans(text, named.map((m) => m.display_name)).map((span) => span.name))
+  const byAddress = new Map(named.flatMap(m => [
+    [`user:${m.id}`, m],
+    ...(m.gugu_number ? [[`gugu:${m.gugu_number}`, m]] : []),
+  ]))
+  for (const peer of Array.isArray(sessionPeers) ? sessionPeers : []) {
+    const member = named.find(m => m.id === peer?.identity?.users?.id)
+    if (member && peer.sessionId) byAddress.set(`session:${peer.sessionId}`, member)
+  }
+  const addresses = addressMentionSpans(text)
+  const typedNames = new Set(findMentionSpans(text, named.map((m) => m.display_name))
+    .filter(span => !addresses.some(address => span.start < address.end && address.start < span.end))
+    .map((span) => span.name))
   const mentioned = new Set(named.filter((m) => typedNames.has(m.display_name)).map((m) => m.id))
+  const unresolved = new Set()
+  let normalized = ''
+  let cursor = 0
+  for (const span of addresses) {
+    const member = byAddress.get(span.name)
+    normalized += text.slice(cursor, span.start) + (member ? '@' + member.display_name : text.slice(span.start, span.end))
+    cursor = span.end
+    if (member) mentioned.add(member.id)
+    else unresolved.add(span.name)
+  }
+  normalized += text.slice(cursor)
   const mentionsAll = findMentionSpans(text, ['all'], { ignoreCase: true }).length > 0
   const mismatches = named
     .filter((m) => mentioned.has(m.id) && !declaredSet.has(m.id) && !declaredSet.has('*') && !exempt.has(m.id))
@@ -930,7 +958,7 @@ export function reconcileMentionExpression(members, content, toUserIds, exemptId
     const m = named.find((x) => x.id === uid)
     if (m) prefixes.push('@' + m.display_name)
   }
-  return { content: prefixes.length ? `${prefixes.join(' ')} ${text}` : text, mismatches }
+  return { content: prefixes.length ? `${prefixes.join(' ')} ${normalized}` : normalized, mismatches: [...mismatches, ...unresolved] }
 }
 
 // @@@3643 群规每次现取:它会被群主随时改,记忆化会让 agent 按一份作废的规矩行事。
@@ -1466,10 +1494,18 @@ async function handleMessage(args, deps) {
       // 话题里 @ 失败是那个人**根本没进来**(join_topic_participants 只认 to_user_ids)。
       const isGroupOrTopic = kind === 'group' || kind === 'topic'
       if (isGroupOrTopic && (addressesNobody || toUserIds?.length || String(args.text ?? '').includes('@'))) {
-        const peerIds = memberRows.map((r) => r.user_id).filter((uid) => uid !== deps.context.agentId)
-        const users = await restGetInBatches(peerIds, (batch) =>
-          deps.restGet(`users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type`, 'identity'))
-        const rec = reconcileMentionExpression(users, args.text, toUserIds, source ? [source.sender_user_id] : [])
+        const bodyAddresses = addressMentionSpans(args.text)
+        // The addressability gate also admits source-group recipients not yet in a topic. Resolve their
+        // body aliases too, without widening the existing non-address/bare-name lookup path.
+        const peerIds = [...new Set([...memberRows.map(r => r.user_id), ...(bodyAddresses.length ? toUserIds : [])])]
+          .filter(uid => uid !== deps.context.agentId && uid !== '*')
+        const needsSessions = bodyAddresses.some(span => span.name.startsWith('session:'))
+        const [users, sessionPeers] = await Promise.all([
+          restGetInBatches(peerIds, (batch) =>
+            deps.restGet(`users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type,gugu_number`, 'identity')),
+          needsSessions && deps.context.runHostAction ? deps.context.runHostAction({ action: 'peers' }) : [],
+        ])
+        const rec = reconcileMentionExpression(users, args.text, toUserIds, source ? [source.sender_user_id] : [], sessionPeers)
         if (rec.mismatches.length) {
           throw new Error(
             `正文 @ 了 ${rec.mismatches.join('、')}，但 to_user_ids 没有他们——话里说的和消息做的必须一致。` +

@@ -317,6 +317,27 @@ describe('#5856 topic_ 域:agent 直接操作话题', () => {
     expect(calls.inserts[0][1].to_user_ids).toEqual([PEER])
   })
 
+  describe('typed mentions of source members outside a topic', () => {
+    for (const tool of ['message_send', 'topic_invite']) {
+      test.each([`user:${PEER}`, 'gugu:4242', 'session:source-peer'])(`${tool} normalizes @%s before the recipient joins`, async (address) => {
+        const { deps, calls } = topicHarness()
+        const receipt = await callToolImpl({ ...TEST_CONTEXT, runHostAction: async () => [
+          { sessionId: 'source-peer', identity: { users: { id: PEER } } },
+        ] }, tool, { chat_id: TOPIC_CHAT, to_user_ids: [`user:${PEER}`], text: `Please @${address}, join.` }, deps)
+        expect(String(receipt)).toMatch(/sent|invited/)
+        expect(calls.inserts).toHaveLength(1)
+        expect(calls.inserts[0][1]).toMatchObject({ content: 'Please @Bob, join.', to_user_ids: [PEER] })
+      })
+    }
+    test('does not treat an unrelated body identity as an addressable source recipient', async () => {
+      const { deps, calls } = topicHarness()
+      await expect(callTool('message_send', {
+        chat_id: TOPIC_CHAT, to_user_ids: [`user:${PEER}`], text: `@user:${OUTSIDER} please`,
+      }, deps)).rejects.toThrow(`user:${OUTSIDER}`)
+      expect(calls.inserts).toHaveLength(0)
+    })
+  })
+
   test('topic_invite 不传 text 就报错,且在任何 REST 之前', async () => {
     const { deps, calls } = topicHarness()
     await expect(callTool('topic_invite', { chat_id: TOPIC_CHAT, to_user_ids: [`user:${PEER}`] }, deps))
