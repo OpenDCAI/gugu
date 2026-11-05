@@ -18,8 +18,6 @@ Database setup and authorization follow the backend repository's documentation.
 - Issue first: open or claim an issue before you start; describe the implementation when closing it.
 - Branch from the latest `origin/dev` and target `dev` in pull requests. `main` is the release channel; maintainers handle promotion.
 - Merging needs passing checks and review; do not merge your own PR. The required checks are whatever the repository currently enforces.
-- When a CI check goes red, look the failing test up first: `node scripts/flake-check.mjs <test name or file>` reads `.github/flake-registry.json`. A match only explains the history; it never makes a red check acceptable, and a match on a fixed entry is a new defect.
-- Register a flake there once it is understood; when its cause is removed, set it to `fixed` with the PR number and keep the entry.
 - Use dedicated test accounts and isolated data. Never touch production, other people's instances or shared tool installations.
 - Keep secrets, login sessions and private operational details out of Git, issues and chat.
 - Product specifications are maintained privately by the maintainers; when a change alters user-facing behavior, describe the intended behavior in the issue or PR.

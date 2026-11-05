@@ -1,69 +1,82 @@
 {
-  "version": 1,
   "flakes": [
     {
-      "test": "Failed to import test file (any file in the session browser project)",
-      "file": "apps/desktop/src/session/renderer/tests/browser/",
-      "symptom": "Session browser project: \"Failed to import test file ... Caused by: TypeError: Failed to fetch dynamically imported module: http://localhost:<port>/...test.tsx\"; the file runs 0 tests and later files report \"Failed to run the test\". Seen on input-area-mention-escape, input-area-slash-draft and others.",
-      "status": "open",
-      "fixPr": null,
-      "firstRun": "https://github.com/GUYI-AI/gugu/actions/runs/41903402541"
+      "test": "Failed to import test file",
+      "location": "apps/desktop/src/session/renderer/tests/browser",
+      "suite": "vitest (session-browser)",
+      "status": "known-risk",
+      "symptom": "Session browser project: \"Failed to import test file .../<name>.test.tsx\" caused by \"TypeError: Failed to fetch dynamically imported module: http://localhost:<port>/...test.tsx?import\"; the file runs 0 tests and a later file reports \"Failed to run the test\". Hit input-area-mention-escape, input-area-slash-draft and others, never a fixed file.",
+      "evidence": "CI runs https://github.com/GUYI-AI/gugu/actions/runs/41903402541 and https://github.com/GUYI-AI/gugu/actions/runs/41997775721, on PRs whose diffs do not reach the failing files. Not optimizeDeps: the browser server logs no dependency re-optimization or reload in either run. The import fetch fails under 0.4 s after start. Chromium refuses fetches past a per-renderer outstanding-request limit (net::ERR_INSUFFICIENT_RESOURCES), and one composer-graph import issues about 1,700 requests; what exhausts the budget is not yet found. Reproduced once locally under heavy concurrent load; 16 later full runs green."
     },
     {
-      "test": "#2503 用量与订阅积分的诚实性",
-      "file": "tests/unit/desktop/components/UsageCreditsTruthfulness2503.test.ts",
-      "symptom": "Unit tests: \"Cannot find module .../@visactor/vchart/esm/util/id\". The bare-name vi.mock missed the product import, so the real chart loaded under Node ESM.",
+      "test": "tests/unit/desktop/components/UsageCreditsTruthfulness2503.test.ts",
+      "location": "tests/unit/desktop/components/UsageCreditsTruthfulness2503.test.ts",
+      "suite": "vitest (gugu)",
       "status": "fixed",
-      "fixPr": 1723,
-      "firstRun": "https://github.com/GUYI-AI/gugu/actions/runs/41955271605"
+      "issue": 1723,
+      "fixed_by": 1723,
+      "symptom": "Unit tests: \"Cannot find module .../@visactor/vchart/esm/util/id\", reported in whichever test was running when the lazy chart import settled.",
+      "note": "The bare-name vi.mock('@visactor/react-vchart') registered an id the product import never hits (the package is installed only under apps/desktop), so the real chart loaded under Node ESM, which rejects vchart's extensionless imports. Fixed by mocking the apps/desktop path, as CreditChartsV2.test.ts does; filePreviewZoom's pdfjs mock had the same miss. First CI sighting: https://github.com/GUYI-AI/gugu/actions/runs/41955271605"
     },
     {
-      "test": "externalizes installed CommonJS packages, bundles ESM and local source, and rebuilds changes",
-      "file": "tests/unit/scripts/devNodeExternals.test.ts",
-      "symptom": "macOS tooling job: the case hits the 60 s cap. The edit landed before the file watcher subscribed, so no rebuild came.",
+      "test": "tests/unit/scripts/devNodeExternals.test.ts > Electron development dependency externalization > externalizes installed CommonJS packages, bundles ESM and local source, and rebuilds changes",
+      "location": "tests/unit/scripts/devNodeExternals.test.ts:85",
+      "suite": "vitest (tooling)",
       "status": "fixed",
-      "fixPr": 1723,
-      "firstRun": "https://github.com/GUYI-AI/gugu/actions/runs/41945123872"
+      "issue": 1723,
+      "fixed_by": 1723,
+      "symptom": "macOS tooling job: the case runs to the 60 s cap and never sees the rebuild.",
+      "note": "Rollup emits END as soon as it starts watching, before FSEvents has subscribed; an edit made in that window is never reported. The test now keeps the edit applied until the watcher reports it. mac 8 parallel x 6 rounds: parent 7/48 hung, fix 0/48. First CI sighting: https://github.com/GUYI-AI/gugu/actions/runs/41945123872"
     },
     {
-      "test": "B-life-first: record each actual paint boundary before Q starts",
-      "file": "apps/desktop/src/session/renderer/tests/browser/pending-input-position-1344.test.tsx",
-      "symptom": "Session browser project: 60 s hang with \"[awaiting-fact] the same queued identity has the saved text — last observed: false\". Text was typed before the composer entered edit mode.",
+      "test": "apps/desktop/src/session/renderer/tests/browser/pending-input-position-1344.test.tsx",
+      "location": "apps/desktop/src/session/renderer/tests/browser/pending-input-position-1344.test.tsx",
+      "suite": "vitest (session-browser)",
       "status": "fixed",
-      "fixPr": 1723,
-      "firstRun": "https://github.com/GUYI-AI/gugu/actions/runs/41970754276"
+      "issue": 1723,
+      "fixed_by": 1723,
+      "symptom": "Case \"B-life-first: record each actual paint boundary before Q starts\" hangs to the 60 s cap with \"[awaiting-fact] the same queued identity has the saved text — last observed: false\".",
+      "note": "The test typed as soon as the outbox row carried the edit reservation, before the composer re-rendered in edit mode, so the text went to the normal draft. It now waits for the enabled edit-mode Cancel button. A probe delaying only the store's mirror by 300 ms reproduces the CI signature on the parent. First CI sighting: https://github.com/GUYI-AI/gugu/actions/runs/41970754276"
     },
     {
-      "test": "preserves words typed during durable custody (failed / clear)",
-      "file": "apps/desktop/src/session/renderer/tests/browser/phone-local-queue-1451.test.tsx",
-      "symptom": "expected 'queued original' to be ''. Playwright fill() pressed Delete before ProseMirror read the DOM selection, so nothing was deleted.",
+      "test": "apps/desktop/src/session/renderer/tests/browser/phone-local-queue-1451.test.tsx",
+      "location": "apps/desktop/src/session/renderer/tests/browser/phone-local-queue-1451.test.tsx",
+      "suite": "vitest (session-browser)",
       "status": "fixed",
-      "fixPr": 1730,
-      "firstRun": null
+      "issue": 1730,
+      "fixed_by": 1730,
+      "symptom": "Case \"preserves words typed during durable custody (failed / clear)\": expected 'queued original' to be ''.",
+      "note": "Playwright fill() on a contenteditable selects through the DOM and presses Delete; ProseMirror reads that selection only on the async selectionchange event, so under load Delete hit the caret and removed nothing. The test now selects through the editor's own keymap. 16 runs on 8 cores: parent 8/16 red, fix 32/32 green."
     },
     {
-      "test": "Android Gradle build",
-      "file": "apps/mobile/android/app/build.gradle",
-      "symptom": "\"A problem occurred starting process 'command node'\", then \"does not specify compileSdk\". A reused Gradle daemon started without node on its PATH.",
+      "test": "android-build: Gradle cannot start process 'command node'",
+      "location": "apps/mobile/android/app/build.gradle",
+      "suite": "ci",
       "status": "fixed",
-      "fixPr": 1730,
-      "firstRun": null
+      "issue": 1730,
+      "fixed_by": 1730,
+      "symptom": "\"A problem occurred starting process 'command node'\", followed by \"does not specify compileSdk\".",
+      "note": "build.gradle ran \"node\" by bare name; Java resolves it through the PATH the reused Gradle daemon was started with, so a daemon started from a shell without node failed every build it served. android-gradle-build.sh now passes its own absolute node as -PguguNode and fails without one."
     },
     {
-      "test": "k4 releases an actual files.read during backoff without another fetch",
-      "file": "apps/desktop/electron/session/main/core/extensions/extension-program-cancellation.test.ts",
-      "symptom": "Red under a loaded full test:unit: vi.waitFor gave up after its 1 s default; the late call leaked into the next case.",
+      "test": "apps/desktop/electron/session/main/core/extensions/extension-program-cancellation.test.ts > R3 program lifetime reaches the existing byte recovery > k4 releases an actual files.read during backoff without another fetch",
+      "location": "apps/desktop/electron/session/main/core/extensions/extension-program-cancellation.test.ts:53",
+      "suite": "vitest (session-main)",
       "status": "fixed",
-      "fixPr": 1730,
-      "firstRun": null
+      "issue": 1730,
+      "fixed_by": 1730,
+      "symptom": "Red only in a loaded full test:unit: the wait for the dispatched program call gives up, and the late call leaks into the next case.",
+      "note": "vi.waitFor's 1 s default deadline; now waits with until() from tests/support/awaitCondition.ts. 24 parallel runs on 4 cores: parent 18/24 red, fix 24/24 green."
     },
     {
-      "test": "a delayed %s stays %s",
-      "file": "apps/desktop/electron/session/main/core/extensions/extension-program-resource-cancellation.test.ts",
-      "symptom": "Red under a loaded full test:unit: vi.waitFor gave up after its 1 s default; the late call leaked into the next case (\"expected [workspace_move_as] to deeply equal []\").",
+      "test": "apps/desktop/electron/session/main/core/extensions/extension-program-resource-cancellation.test.ts",
+      "location": "apps/desktop/electron/session/main/core/extensions/extension-program-resource-cancellation.test.ts",
+      "suite": "vitest (session-main)",
       "status": "fixed",
-      "fixPr": 1730,
-      "firstRun": null
+      "issue": 1730,
+      "fixed_by": 1730,
+      "symptom": "Cases \"a delayed <method> stays <state>\" go red only in a loaded full test:unit; the late call then leaks into the next case: \"expected [workspace_move_as] to deeply equal []\".",
+      "note": "Same cause and fix as extension-program-cancellation.test.ts: vi.waitFor's 1 s default deadline, replaced by until(). 24 parallel runs on 4 cores: parent 18/24 red, fix 24/24 green."
     }
   ]
 }

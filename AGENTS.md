@@ -17,6 +17,13 @@ Use the Node version in .node-version and the pnpm version in package.json. Foll
 
 Use a dedicated branch/worktree for substantive work and link the issue in a PR. Confirm Git identity before committing; do not append AI or Co-Authored-By signatures. Report actual validation and remaining limits.
 
+Is a failing test yours, or a known flake? Look it up before investigating: `pnpm flake:check <test name as the runner printed it>` (or `node scripts/flake-registry.mjs <name>`); `pnpm flake:list` prints the whole registry and `pnpm flake:fields` what a lookup searches. `.github/flake-registry.json` records known flaky tests with their symptom, the tracking issue or PR, and for fixed ones the PR that fixed them. Read the status rather than treating any hit as an excuse:
+- `open`: known flaky and unfixed. Not yours; cite the issue explicitly rather than silently re-running.
+- `known-risk`: someone judged this site fragile and recorded why, but did not file it. Read the evidence and decide; it excuses nothing on its own.
+- `fixed`: a fresh failure is a NEW defect. The entry describes the old symptom precisely so you can tell a regression from the original flake.
+
+If you prove a failure is a pre-existing flake, add it to the registry in the same PR. A hit never makes a red check mergeable.
+
 Community development uses a dedicated user-owned Supabase project and the user's own model/CLI. Never test against official production services. Test app instances must explicitly set both GUGU_HOME and GUGU_USER_DATA_DIR to isolated paths. Preserve other running apps and sessions.
 
 Maintain existing UI typography, colors and layout when fixing behavior. Renderer view models belong in apps/desktop, not packages/core. Public API permissions remain explicit; new backend functions start closed until a migration grants the intended role.
