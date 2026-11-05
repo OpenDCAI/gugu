@@ -2020,7 +2020,11 @@ async function handleGroup(args, deps) {
   if (args.action === 'info') return JSON.stringify(await admin.info(chatId))
   if (args.action === 'leave') return JSON.stringify(await admin.remove(chatId, deps.context.agentId))
   if (args.action === 'remove' || args.action === 'role') {
-    const [member] = await resolveRecipientAddresses(decodeRecipientList([args.member], 'member'), deps, 'member')
+    const listen = args.action === 'role' && args.listen_mode !== undefined
+    if (listen && args.role !== undefined) throw new Error('group_set_role: pass role or listen_mode, not both')
+    const [member] = listen && args.member === undefined ? [deps.context.agentId]
+      : await resolveRecipientAddresses(decodeRecipientList([args.member], 'member'), deps, 'member')
+    if (listen) return JSON.stringify(await admin.setListenMode(chatId, member, args.listen_mode))
     return JSON.stringify(args.action === 'remove' ? await admin.remove(chatId, member) : await admin.setRole(chatId, member, args.role))
   }
   if (args.action === 'join-requests') return admin.joinRequests(chatId)
@@ -2717,8 +2721,13 @@ export const TOOL_DEFS = [
   },
   {
     name: 'group_set_role', writer: true,
-    description: 'Set one group member to admin or member, as an admin yourself. The group owner cannot be changed or demoted.',
-    schema: z.object({ chat_id: chatIdSchema, member: z.string().trim().min(1).describe('The member as user:<uuid>, gugu:<number>, aid:<Agent ID>, or session:<id> on this machine.'), role: z.enum(['admin', 'member']) }),
+    description: 'Set one group member’s role as an admin, or an Agent’s listen_mode: yourself, or another group Agent as an admin. Pass role or listen_mode; omit member only for your own listen_mode. The group owner cannot be changed or demoted.',
+    schema: z.object({
+      chat_id: chatIdSchema,
+      member: z.string().trim().min(1).describe('The member as user:<uuid>, gugu:<number>, aid:<Agent ID>, or session:<id> on this machine. Omit only for your own listen_mode.').optional(),
+      role: z.enum(['admin', 'member']).optional(), listen_mode: z.enum(['active', 'passive']).optional(),
+    }).refine(args => args.listen_mode === undefined ? args.member !== undefined && args.role !== undefined : args.role === undefined,
+      'Pass member and role, or listen_mode (omit member for yourself)'),
     handler: (args, deps) => handleGroup({ ...args, action: 'role' }, deps),
   },
   {
