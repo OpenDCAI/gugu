@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useLocale } from '@/i18n';
 import type { SessionMessageLookupKey } from './messages';
 import { translateSessionMessage, type SessionMessageValues } from './locale-store';
@@ -9,8 +10,8 @@ import { translateSessionMessage, type SessionMessageValues } from './locale-sto
  */
 export function useSessionMessages() {
   const { resolvedLocale: locale } = useLocale();
-  return {
+  return useMemo(() => ({
     locale,
     translate: (key: SessionMessageLookupKey, values?: SessionMessageValues) => translateSessionMessage(key, values),
-  };
+  }), [locale]);
 }
