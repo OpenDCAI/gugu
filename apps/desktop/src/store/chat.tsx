@@ -36,7 +36,7 @@ import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions,
 import { advanceReadWatermark, advanceSeenReadWatermark, chatReadsWhole, wholeReadSeq, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { chatOnScreen, isChatOnScreen, isAppActive, useAppActive } from '../lib/onScreenChat'
 import { useMessageReadFailures, useMessageSnapshotEpochs } from './chatMessageReads'
 import { useChatConversation, type ChatConversationAccess } from './useChatConversation'
-import { useActiveChatTransitionState } from './activeChatTransition'; import { fetchChatHistoryPage, restoreChatHistoryAnchor, openCachedChatWindow, useChatWindowCache, type WindowObserver } from './chatWindowPublication'
+import { useActiveChatTransitionState } from './activeChatTransition'; import { fetchChatHistoryPage, restoreChatHistoryAnchor, fetchThreadMessages, openCachedChatWindow, useChatWindowCache, type WindowObserver } from './chatWindowPublication'
 import {
   INITIAL_PAGE,
   NEWER_PAGE,
@@ -620,7 +620,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     setThreadMessagesFor(chatId, [])
     void (async () => {
       try {
-        const msgs = await chatService.getThreadMessages(chatId, rootId, userId)
+        const msgs = await fetchThreadMessages(chatId, rootId, userId, rows => { if (cache.isObserved(chatId) && cache.view(chatId).activeThreadRootId === rootId) setThreadMessagesFor(chatId, rows) })
         // 落地+竞态守卫+@@@1886 开话题即推水位——与 heal 的话题落地共用卫星实现(乐观行保留)。
         applyThreadSnapshot({ chatId, rootId, msgs, chats: chatsRef.current, setThreadMessages: (update) => setThreadMessagesFor(chatId, update), patchChat,
           activeChatId: () => cache.isObserved(chatId) ? chatId : null, activeThreadRootId: () => cache.view(chatId).activeThreadRootId })
