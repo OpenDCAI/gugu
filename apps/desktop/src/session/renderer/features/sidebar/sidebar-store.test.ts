@@ -801,6 +801,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     label: () => 'd22',
     homeDir: () => '/root',
     sessionsOf: () => ({ sessions: [...listed.values()], live: true }),
+    session: (_deviceId: string, id: string) => listed.get(id) ?? null,
   };
   beforeEach(() => listed.clear());
 
@@ -1303,6 +1304,7 @@ describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在
       machineOf: (id) => id === 'remote-project' ? 'other-machine' : null,
       label: () => 'Other machine', homeDir: () => null,
       sessionsOf: () => ({ sessions: listed, live: true }),
+      session: (_deviceId, id) => listed.find((session) => session.conversationId === id) ?? null,
     };
     store.projectOrder = ['project-a', 'project-b', 'remote-project'];
     store.sidebarProjects.forEach((project) => store.ensureProjectExpanded(project.id));

@@ -76,7 +76,7 @@ const task = (id: string, status: 'needs_user' | 'error' | 'working' | 'idle', u
 function desktopDot(sessions: readonly SessionpageSessionSummary[]): number {
   const project = { id: 'local', createdAt: '2026-10-01T00:00:00.000Z', mountedProject: { sessionManager: { sessions: new Map() } } }
   const store = new SidebarStore({ projects: new Map([['local', project]]) } as unknown as ConstructorParameters<typeof SidebarStore>[0])
-  store.machines = { machineOf: () => 'mac', label: () => 'mac', homeDir: () => '/work', connected: () => true, sessionsOf: () => ({ live: true, sessions }) }
+  store.machines = { machineOf: () => 'mac', label: () => 'mac', homeDir: () => '/work', connected: () => true, sessionsOf: () => ({ live: true, sessions }), session: (_deviceId, id) => sessions.find(session => session.conversationId === id) ?? null }
   return store.needsYouCountForProject('local')
 }
 

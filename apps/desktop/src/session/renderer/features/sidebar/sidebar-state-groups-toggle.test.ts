@@ -4,6 +4,7 @@ import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@renderer/features/sessions/se
 import { sidebarStateGroup } from './session-groups';
 import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation';
 import { SidebarStore } from './sidebar-store';
+import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 
 type SidebarProjectManager = ConstructorParameters<typeof SidebarStore>[0];
 
@@ -89,13 +90,15 @@ describe('sidebar state groups toggle', () => {
     for (const online of [false, true]) {
       const projectId = 'remote-attention-project';
       const store = new SidebarStore(projectManagerWith(projectId, 'remote-host'));
+      const sessions = (['needs_user', 'error'] as const).map(status => ({
+        conversationId: status, projectId, title: status, runtime: 'acp', harness: 'codex',
+        agentStatus: status, status: { status, detail: null }, supported: true, lastInteractedAt: null, unseen: true,
+      }) as SessionpageSessionSummary);
       store.machines = {
         machineOf: () => 'remote-host', label: () => 'remote-host', homeDir: () => '/work',
         connected: () => online,
-        sessionsOf: () => ({ live: online, sessions: ['needs_user', 'error'].map(status => ({
-          conversationId: status, projectId, title: status, runtime: 'acp', harness: 'codex',
-          agentStatus: status, status: { status, detail: null }, supported: true, lastInteractedAt: null, unseen: true,
-        })) }),
+        sessionsOf: () => ({ live: online, sessions }),
+        session: (_deviceId, id) => sessions.find(session => session.conversationId === id) ?? null,
       };
       expect(store.needsYouCountForProject(projectId)).toBe(online ? 2 : 0);
       expect(store.placement.entries.get(projectId)?.map(entry => entry.group)).toEqual(['needs-you', 'needs-you']);
