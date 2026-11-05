@@ -7,13 +7,13 @@
 - `apps/desktop/electron/session/main/core/dependencies/dependency-managers.ts`
 - `apps/desktop/electron/session/main/core/pty/`
 
-## Current Providers (30)
+## Current Providers (31)
 
-codex, claude, grok, devin, qwen, droid, antigravity, cursor, copilot, amp, commandcode, gemini, opencode, hermes, auggie, kimi, kilocode, kiro, cline, continue, codebuff, mistral, junie, oh-my-pi, pi, qoder, mimocode, zero, zcode, codebuddy
+codex, claude, grok, devin, qwen, droid, antigravity, cursor, copilot, amp, commandcode, gemini, opencode, hermes, auggie, kimi, kilocode, kiro, cline, continue, codebuff, mistral, junie, oh-my-pi, pi, qoder, mimocode, zero, zcode, codebuddy, dsh
 
-## Current ACP-Capable Providers (24)
+## Current ACP-Capable Providers (25)
 
-codex, claude, grok, devin, qwen, droid, cursor, copilot, gemini, opencode, hermes, auggie, kimi, kilocode, kiro, cline, mistral, junie, oh-my-pi, pi, qoder, mimocode, zcode, codebuddy
+codex, claude, grok, devin, qwen, droid, cursor, copilot, gemini, opencode, hermes, auggie, kimi, kilocode, kiro, cline, mistral, junie, oh-my-pi, pi, qoder, mimocode, zcode, codebuddy, dsh
 
 ## Provider Metadata Includes
 
@@ -35,6 +35,7 @@ or notify an inferred status for that event.
 - Agents that cannot receive an interactive initial prompt via argv or stdin use keystroke
   injection — Gugu types the prompt into the TUI after startup.
 - `apps/desktop/electron/session/main/core/agent-hooks/agent-hook-service.ts` forwards hook events to renderer windows and can show OS notifications. It also writes hook config files for hook-capable providers, including `.claude/settings.local.json`, `.qwen/settings.json`, and provider-specific global hook files.
+- DeepSeek Harness (`dsh`) is offered only through its standard ACP profile (`dsh --profile acp --patch <session patch>`). It has no `session/load`; Gugu reattaches with ACP `session/resume`. Its permission preset is fixed when a session is created (`DSH_PERMISSION_MODE`), and every session disables its session-log and plugin-inventory uploads and its feedback telemetry.
 - Qwen Code hooks use the documented Qwen settings schema in `.qwen/settings.json`. Gugu installs command hooks for permission requests and session end/stop events while preserving unrelated user hooks.
 
 ## Adding Or Changing A Provider

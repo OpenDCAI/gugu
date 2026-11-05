@@ -1093,6 +1093,7 @@ export const MODEL_CONFIG_DIALECTS = [
   'copilot-provider-env',
   'zcode-provider-table',
   'codebuddy-settings-env',
+  'dsh-patch-document',
 ] as const;
 
 export type ModelConfigDialect = (typeof MODEL_CONFIG_DIALECTS)[number];

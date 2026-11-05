@@ -5,6 +5,7 @@ import { harnessPlatform as claude } from './impl/claude/platform';
 import { harnessPlatform as codebuddy } from './impl/codebuddy/platform';
 import { harnessPlatform as codex } from './impl/codex/platform';
 import { harnessPlatform as copilot } from './impl/copilot/platform';
+import { harnessPlatform as dsh } from './impl/dsh/platform';
 import { harnessPlatform as gemini } from './impl/gemini/platform';
 import { harnessPlatform as hermes } from './impl/hermes/platform';
 import { harnessPlatform as kimi } from './impl/kimi/platform';
@@ -20,6 +21,7 @@ export const PLATFORM_DECLARATIONS = {
   codebuddy,
   codex,
   copilot,
+  dsh,
   gemini,
   hermes,
   kimi,

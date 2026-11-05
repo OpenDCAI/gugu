@@ -7,6 +7,7 @@ import { icon as icon_claude } from './impl/claude/icon';
 import { icon as icon_cline } from './impl/cline/icon';
 import { icon as icon_codebuff } from './impl/codebuff/icon';
 import { icon as icon_codebuddy } from './impl/codebuddy/icon';
+import { icon as icon_dsh } from './impl/dsh/icon';
 import { icon as icon_codex } from './impl/codex/icon';
 import { icon as icon_commandcode } from './impl/commandcode/icon';
 import { icon as icon_continue } from './impl/continue/icon';
@@ -39,6 +40,7 @@ export const agentIcons: Readonly<Record<string, PluginIconAsset>> = {
   'cline': icon_cline,
   'codebuff': icon_codebuff,
   'codebuddy': icon_codebuddy,
+  'dsh': icon_dsh,
   'codex': icon_codex,
   'commandcode': icon_commandcode,
   'continue': icon_continue,

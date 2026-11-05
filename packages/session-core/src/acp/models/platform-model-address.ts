@@ -36,10 +36,20 @@ export function claudePlatformModelOption(modelId: string, contextWindow: number
  */
 const ZCODE_PLATFORM_OPTION_PREFIX = 'gugu-platform\\';
 
+/**
+ * DeepSeek Harness 的 ACP `model` 选项值是 `[provider, model]` 的 JSON 串(dsh-acp 实测:
+ * `["deepseek-official","deepseek-v4.1-flash"]`);平台会话的模型表由 impl/dsh 的物化器写在 `deepseek-official`
+ * 这条路由下。
+ */
+const DSH_PLATFORM_OPTION_PREFIX = '["deepseek-official","';
+
 /** 去掉平台寻址前缀(或 Claude 的 `[1m]` 后缀)后的 id;都不带就返回 null(不认识的写法 ❌ 猜)。 */
 export function platformModelIdFromNativeOption(optionId: string): string | null {
   for (const prefix of [PLATFORM_NATIVE_OPTION_PREFIX, ZCODE_PLATFORM_OPTION_PREFIX]) {
     if (optionId.startsWith(prefix)) return optionId.slice(prefix.length) || null;
+  }
+  if (optionId.startsWith(DSH_PLATFORM_OPTION_PREFIX) && optionId.endsWith('"]')) {
+    return optionId.slice(DSH_PLATFORM_OPTION_PREFIX.length, -2) || null;
   }
   if (optionId.endsWith(CLAUDE_1M_MODEL_SUFFIX)) {
     return optionId.slice(0, -CLAUDE_1M_MODEL_SUFFIX.length) || null;
