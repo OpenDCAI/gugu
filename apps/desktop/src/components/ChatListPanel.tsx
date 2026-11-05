@@ -1,6 +1,7 @@
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
-import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
+import { memo, useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
+import { useStableHandler } from '@/hooks/useStableHandler'
 import { useTranslation } from 'react-i18next'
 import { BellOff, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, Search, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
@@ -144,24 +145,34 @@ const SUNK_SECTION_STYLE: React.CSSProperties = {
 
 // ── Chat row ───────────────────────────────────────────────────────────────────
 
+/** 一列会话行共用的那一份动作:身份不随列表重渲染而换,行(memo)才认得出「我这一行没变」。 */
+export interface ChatRowActions {
+  activate: (chat: ChatItem, beside: boolean) => void
+  /** 点话题子行:开它的分栏(selectChat),❌ 不走来源行的「重复点击收起」。 */
+  openTopic: (topic: ChatItem, beside: boolean) => void
+  toggleTopics: (chatId: string) => void
+  pin: (chat: ChatItem) => void
+  setNotificationLevel: (chatId: string, level: NotificationLevel) => void
+  remove: (chatId: string) => void
+  focus: (chatId: string) => void
+  keyDown: (event: Parameters<KeyboardEventHandler<HTMLDivElement>>[0], chat: ChatItem) => void
+}
+
 interface ChatRowProps {
   chat: ChatItem
+  /** 这一行显示的未读数(手机上并进了话题的未读,见 phoneChatUnread)。 */
+  unreadCount: number
   agentStatus?: AgentDisplayStatus
   isActive: boolean
   topicsExpanded?: boolean
-  onToggleTopics: () => void
   draft?: string
   // @@@1787 移动触控放大(对齐 ContactsPanel.ContactRow 的 mobile 规格)
   mobile?: boolean
-  onClick: (event: React.MouseEvent) => void
-  onPin: () => void
-  onSetNotificationLevel: (level: NotificationLevel) => void
-  onDelete: () => void
   tabIndex: number
-  onFocus: () => void
-  onKeyDown: KeyboardEventHandler<HTMLDivElement>
+  actions: ChatRowActions
   /** 侧栏那一份:这一行是拼在一屏的某一组的框的哪一段(只有一行、或没有话题子行时框画在这一行上)。 */
-  join?: SidebarJoin
+  joinPos?: SidebarJoin['pos']
+  joinOnScreen?: boolean
 }
 
 // @@@5856 会话列表里的话题子行。
@@ -181,17 +192,13 @@ function startChatDrag(event: React.DragEvent<HTMLElement>, chat: ChatItem, titl
   setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: chat.kind === 'topic' ? chat.source_chat_id! : chat.id, title, ...(chat.kind === 'topic' ? { topic: { chatId: chat.id, name: chat.name ?? '' } } : {}) }, event.currentTarget)
 }
 
-export function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocus, onKeyDown, onPin, onSetNotificationLevel, onDelete }: {
+// 与 ChatRow 同一做法(@@@chat-row-memo):一条消息只重画它那一行,子行也一样。
+export const TopicSubRow = memo(function TopicSubRow({ topic, mobile, isActive, tabIndex, actions }: {
   topic: ChatItem
   mobile: boolean
   isActive: boolean
   tabIndex: number
-  onClick: (event: React.MouseEvent) => void
-  onFocus: () => void
-  onKeyDown: KeyboardEventHandler<HTMLDivElement>
-  onPin: () => void
-  onSetNotificationLevel: (level: NotificationLevel) => void
-  onDelete: () => void
+  actions: ChatRowActions
 }) {
   // @@@5856 子行与普通会话行共用同一份右键菜单(置顶 / 免打扰 / 删除)。
   // 缺了它话题就成了「删不掉、置顶不了、免打扰不了」的一等会话 —— 而 isSunkTopic 读的
@@ -212,9 +219,9 @@ export function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocu
       role="option"
       aria-selected={isActive}
       tabIndex={tabIndex}
-      onClick={onClick}
-      onFocus={onFocus}
-      onKeyDown={onKeyDown}
+      onClick={(event) => actions.openTopic(topic, event.metaKey || event.ctrlKey)}
+      onFocus={() => actions.focus(topic.id)}
+      onKeyDown={(event) => actions.keyDown(event, topic)}
       onContextMenu={menu.onContextMenu}
       {...(mobile ? longPress : {})}
       style={TOPIC_SUBROW_STYLE}
@@ -228,14 +235,14 @@ export function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocu
         y={menu.menuPos.y}
         chat={topic}
         onClose={menu.closeMenu}
-        onPin={onPin}
-        onSetNotificationLevel={onSetNotificationLevel}
-        onDelete={onDelete}
+        onPin={() => actions.pin(topic)}
+        onSetNotificationLevel={(level) => actions.setNotificationLevel(topic.id, level)}
+        onDelete={() => actions.remove(topic.id)}
       />
     )}
     </>
   )
-}
+})
 
 /** The same topic branch and More disclosure under every source conversation. */
 export function TopicSubRows({ topics, isSunk, expanded, onExpand, children }: {
@@ -257,7 +264,9 @@ export function TopicSubRows({ topics, isSunk, expanded, onExpand, children }: {
   )
 }
 
-function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown, join }: ChatRowProps) {
+// @@@chat-row-memo - 一条消息只重画它那一行:props 只有这一行自己的数据(store 里没变的会话行是同一个对象,
+// 见 applyFetchedChatList 的结构共享) + 一份稳定的动作。❌ 每次渲染新建的闭包 / 对象 props —— 那会让一次更新重画整列。
+const ChatRow = memo(function ChatRow({ chat, unreadCount, agentStatus, isActive, topicsExpanded, draft, mobile = false, tabIndex, actions, joinPos, joinOnScreen }: ChatRowProps) {
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
   const menu = useRowContextMenu()
@@ -281,21 +290,21 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
         draggable={!mobile}
         onDragStart={(event) => startChatDrag(event, chat, displayName)}
         onDragEnd={clearDraggedScreenContent}
-        data-join={join?.pos}
-        data-join-on={join?.onScreen || undefined}
+        data-join={joinPos}
+        data-join-on={joinOnScreen || undefined}
         data-unread-stream-id={chat.unread_locator?.stream_id ?? undefined}
         data-unread-message-id={chat.unread_locator?.message_id ?? undefined}
         selected={isActive}
         pinned={chat.is_pinned}
-        emphasis={chat.unread_count > 0}
+        emphasis={unreadCount > 0}
         mobile={mobile}
         role="option"
         aria-selected={isActive}
         aria-expanded={topicsExpanded}
         tabIndex={tabIndex}
-        onClick={onClick}
-        onFocus={onFocus}
-        onKeyDown={onKeyDown}
+        onClick={(event) => actions.activate(chat, event.metaKey || event.ctrlKey)}
+        onFocus={() => actions.focus(chat.id)}
+        onKeyDown={(event) => actions.keyDown(event, chat)}
         onContextMenu={menu.onContextMenu}
         {...(mobile ? longPress : {})}
         leading={
@@ -325,7 +334,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
               <span className="relative size-3.5 shrink-0">
                 <IconButton size="sm" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
                   aria-label={t(topicsExpanded ? 'common.collapse' : 'common.expand')} aria-expanded={topicsExpanded}
-                  onClick={(event) => { event.stopPropagation(); onToggleTopics() }}
+                  onClick={(event) => { event.stopPropagation(); actions.toggleTopics(chat.id) }}
                   onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation() }}
                 >
                   {topicsExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
@@ -343,7 +352,7 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
             </>
           ) : preview
         }
-        trailing={(!mobile || chat.is_muted || chat.unread_count > 0) ? (
+        trailing={(!mobile || chat.is_muted || unreadCount > 0) ? (
           <>
             {/* owner 10-28:agent 行不再标它在哪台机器上(「本机」/ 设备名);机器只在悬停卡与对话标题栏里说。 */}
             {chat.is_muted && (
@@ -351,9 +360,9 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
                 <BellOff size={13} strokeWidth={1.8} aria-hidden="true" />
               </span>
             )}
-            {chat.unread_count > 0 && (
+            {unreadCount > 0 && (
               <Chip tone="accent" shape="count">
-                {chat.unread_count > 99 ? '99+' : chat.unread_count}
+                {unreadCount > 99 ? '99+' : unreadCount}
               </Chip>
             )}
           </>
@@ -367,14 +376,14 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
           y={menu.menuPos.y}
           chat={chat}
           onClose={menu.closeMenu}
-          onPin={onPin}
-          onSetNotificationLevel={onSetNotificationLevel}
-          onDelete={onDelete}
+          onPin={() => actions.pin(chat)}
+          onSetNotificationLevel={(level) => actions.setNotificationLevel(chat.id, level)}
+          onDelete={() => actions.remove(chat.id)}
         />
       )}
     </>
   )
-}
+})
 
 // ── AddFriendModal ─────────────────────────────────────────────────────────────
 
@@ -653,28 +662,34 @@ export function ChatListPanel({
   // ❌ 不在两处各抄一遍「记得也画子行」,那种东西漏一处就只在某一段里话题消失。
   // 并在一组里的那一行:框画在它最外面那一层上 —— 有话题子行时是连同子行的那一层,框把子行一起圈住。
   const phoneUnread = useMemo(() => mobile ? phoneChatUnread(chats) : null, [mobile, chats])
-  const renderChatRow = (chat: ChatItem, join?: SidebarJoin) => {
+  // 这些处理函数在下面定义、每次渲染新建;行拿到的是调它们最新那一版的稳定入口。
+  const activate = useStableHandler((chat: ChatItem, beside: boolean) => activateChatRow(chat, beside))
+  const openTopic = useStableHandler((topic: ChatItem, beside: boolean) => selectChat(topic, 'composer', beside))
+  const toggle = useStableHandler((chatId: string) => toggleTopics(chatId))
+  const pin = useStableHandler((chat: ChatItem) => pinChat(chat.id, !chat.is_pinned))
+  const setLevel = useStableHandler((chatId: string, level: NotificationLevel) => setChatNotificationLevel(chatId, level))
+  const remove = useStableHandler((chatId: string) => deleteChat(chatId, true))
+  const keyDown = useStableHandler((event: Parameters<KeyboardEventHandler<HTMLDivElement>>[0], chat: ChatItem) => handleChatKeyDown(event, chat))
+  const rowActions = useMemo<ChatRowActions>(() => ({ activate, openTopic, toggleTopics: toggle, pin, setNotificationLevel: setLevel, remove, focus: setFocusedChatId, keyDown }),
+    [activate, openTopic, toggle, pin, setLevel, remove, keyDown])
+  const renderChatRow =(chat: ChatItem, join?: SidebarJoin) => {
     const topics = topicNesting.bySource.get(chat.id) ?? []
     const hasTopics = !mobile && topics.length > 0
     const topicsExpanded = !collapsedTopicSources.has(chat.id)
     const row = (
       <ChatRow
         key={chat.id}
-        chat={phoneUnread ? { ...chat, unread_count: phoneUnread.get(chat.id) ?? 0 } : chat}
-        join={hasTopics ? undefined : join}
+        chat={chat}
+        unreadCount={phoneUnread ? phoneUnread.get(chat.id) ?? 0 : chat.unread_count}
+        joinPos={hasTopics ? undefined : join?.pos}
+        joinOnScreen={hasTopics ? undefined : join?.onScreen}
         agentStatus={rowAgentStatus(chat, identitiesById, agentStatuses, shownAgent)}
         isActive={chat.id === selectedChatId}
         topicsExpanded={hasTopics ? topicsExpanded : undefined}
-        onToggleTopics={() => toggleTopics(chat.id)}
         mobile={mobile}
         draft={drafts[chat.id]}
-        onClick={(event) => activateChatRow(chat, event.metaKey || event.ctrlKey)}
-        onPin={() => pinChat(chat.id, !chat.is_pinned)}
-        onSetNotificationLevel={(level) => setChatNotificationLevel(chat.id, level)}
-        onDelete={() => deleteChat(chat.id, true)}
         tabIndex={focusedChatId === chat.id ? 0 : -1}
-        onFocus={() => setFocusedChatId(chat.id)}
-        onKeyDown={(event) => handleChatKeyDown(event, chat)}
+        actions={rowActions}
       />
     )
     if (!hasTopics) return row
@@ -685,12 +700,7 @@ export function ChatListPanel({
         mobile={mobile}
         isActive={!inSidebar && topic.id === activeTopicChatId}
         tabIndex={focusedChatId === topic.id ? 0 : -1}
-        onClick={(event) => selectChat(topic, 'composer', event.metaKey || event.ctrlKey)}
-        onFocus={() => setFocusedChatId(topic.id)}
-        onKeyDown={(event) => handleChatKeyDown(event, topic)}
-        onPin={() => pinChat(topic.id, !topic.is_pinned)}
-        onSetNotificationLevel={(level: NotificationLevel) => setChatNotificationLevel(topic.id, level)}
-        onDelete={() => deleteChat(topic.id, true)}
+        actions={rowActions}
       />
     )
     return (
