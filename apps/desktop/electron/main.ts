@@ -1,4 +1,3 @@
-import { createRendererLogForwarder } from './local-renderer-diagnostics'
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
 import { attachTabHistorySwipe } from './tab-history-swipe'
@@ -65,6 +64,7 @@ import {
   readLogTailForFeedback,
   RENDERER_LOG_CHANNEL,
 } from './lib/logger'
+import { createRendererLogForwarder } from './local-renderer-diagnostics'
 import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
 import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
