@@ -20,17 +20,35 @@ function verifyPackedClaudePayload(resourcesDir) {
     }
   }
 
-  function visit(file) {
-    checkName(file)
+  function boundedRealpath(file) {
     const actual = fs.realpathSync(file)
     const relative = path.relative(root, actual)
     if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       throw new Error(`[thin-claude-payload] cannot verify dependency outside resources: ${path.relative(root, file)}`)
     }
+    return actual
+  }
+
+  function visit(file) {
+    checkName(file)
+    const actual = boundedRealpath(file)
     checkName(actual)
     if (!fs.statSync(actual).isDirectory() || visited.has(actual)) return
     visited.add(actual)
     checkedDirectories++
+    const manifest = path.join(actual, 'package.json')
+    if (fs.existsSync(manifest)) {
+      const source = boundedRealpath(manifest)
+      let name
+      try {
+        name = JSON.parse(fs.readFileSync(source, 'utf8')).name
+      } catch {
+        throw new Error(`[thin-claude-payload] cannot verify package metadata: ${path.relative(root, manifest)}`)
+      }
+      if (typeof name === 'string' && name.startsWith('@anthropic-ai/claude-agent-sdk-')) {
+        forbidden.add(path.relative(root, actual))
+      }
+    }
     for (const entry of fs.readdirSync(actual, { withFileTypes: true })) {
       if (entry.isDirectory() || entry.isSymbolicLink()) visit(path.join(actual, entry.name))
     }
