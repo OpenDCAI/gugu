@@ -57,8 +57,6 @@ export const enUSProjectMessages = {
   'browser.newPage': 'New page',
   'browser.localServers': 'Local servers',
   'browser.serverPort': 'Port {port}',
-  'browser.diagnostics': 'Diagnostics',
-  'browser.clearDiagnostics': 'Clear',
 
   // ── browser: toolbar action feedback ───────────────────────────────────
   'browser.screenshotCopied': 'Screenshot copied to clipboard',
@@ -187,8 +185,6 @@ export const enUSProjectMessages = {
   'projects.pending.dismiss': 'Dismiss',
 
   // ── projects: directory browser ────────────────────────────────────────
-  'projects.remoteDir.empty': 'Empty directory',
-  'projects.remoteDir.listLabel': 'Directory contents',
   'projects.remoteDir.loading': 'Loading directory',
   'projects.remoteDir.useThis': 'Use this directory',
   'projects.remoteDir.selectDirectory': 'Select a directory',
@@ -301,8 +297,6 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'browser.newPage': '新建页面',
   'browser.localServers': '本地服务',
   'browser.serverPort': '端口 {port}',
-  'browser.diagnostics': '诊断',
-  'browser.clearDiagnostics': '清空',
 
   // ── browser: toolbar action feedback ───────────────────────────────────
   'browser.screenshotCopied': '截图已复制到剪贴板',
@@ -429,8 +423,6 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'projects.pending.dismiss': '关闭',
 
   // ── projects: directory browser ────────────────────────────────────────
-  'projects.remoteDir.empty': '空目录',
-  'projects.remoteDir.listLabel': '目录内容',
   'projects.remoteDir.loading': '正在读取目录',
   'projects.remoteDir.useThis': '使用此目录',
   'projects.remoteDir.selectDirectory': '选择目录',
