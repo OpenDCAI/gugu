@@ -480,6 +480,28 @@ describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
     layout.dispose();
   });
 
+  it('页签右键「向右分 / 向下分」走这一格自己的口子:分得出来就分,数的是格子,到上限才说分满', () => {
+    const { layout } = createRuntimeProjectionLayout();
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+    for (const id of ids) layout.open('persistent-test', { id }, { from: null, intent: 'newTab' });
+    const first = layout.groups[0].pane;
+    // 每次从第一格拿一枚往外分:格子从 1 数到 8。
+    for (let panes = 1; panes < 8; panes++) {
+      const tabId = tabIdOf(layout, ids[panes]);
+      const edge = panes % 2 ? 'right' : 'bottom';
+      expect(first.tabSplitBlocked(tabId, edge)).toBeNull();
+      first.splitTab(tabId, edge);
+      expect(layout.groups).toHaveLength(panes + 1);
+    }
+    const last = tabIdOf(layout, 'i');
+    expect(first.tabSplitBlocked(last, 'right')).toBe('full');
+    // 只剩一枚的那一格:没有别的页可并排。
+    const lone = layout.groups.find((g) => g.pane !== first)!.pane;
+    layout.closePane(layout.groups.find((g) => g.pane !== first && g.pane !== lone)!.paneId);
+    expect(lone.tabSplitBlocked(lone.tabOrder[0], 'right')).toBe('only-tab');
+    layout.dispose();
+  });
+
   it('一格太窄(装不下两格 220px)就不往左右分,说「太窄」;高度够照样能上下分 (#7052 窄格子)', () => {
     const { layout } = createRuntimeProjectionLayout();
     layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });

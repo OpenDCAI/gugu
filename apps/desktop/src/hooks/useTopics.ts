@@ -10,6 +10,7 @@ import type { ChatItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import { topicService } from '../lib/topics'
 import { rendererLogger } from '../lib/log'
 import { useAuth } from '../store/auth'
+import { ingestMessages, localMessageQueries } from '../lib/messageIngest'
 
 const topicsLog = rendererLogger('chat/topics')
 
@@ -86,7 +87,12 @@ export function useTopicsOfChat(
     let cancelled = false
     void (async () => {
       try {
+        const revision = userId ? await localMessageQueries()?.throughRevision(userId) : null
         const rows = await topicService.listTopicsOfChat(sourceChatId)
+        if (cancelled || seq !== loadSeqRef.current) return
+        if (userId) await ingestMessages(userId, { writes: rows.map(topic => ({ type: 'chatAccess', access: {
+          chatId: topic.chat_id, sourceChatId, ownMember: topic.is_participant, revision: revision ?? '0',
+        } })), revisions: [] })
         if (cancelled || seq !== loadSeqRef.current) return
         if (cacheKey) lastTopics.set(cacheKey, rows)
         setState({ forChatId: sourceChatId, topics: rows, loading: false, error: null })
@@ -102,7 +108,7 @@ export function useTopicsOfChat(
     return () => {
       cancelled = true
     }
-  }, [sourceChatId, reloadToken, cacheKey])
+  }, [sourceChatId, reloadToken, cacheKey, userId])
 
   // 渲染期收口:state 描述的不是当前这条线 ⇒ 当前这条线「还不知道」。切线的那一帧就不会
   // 把上一条线的话题端出去(副作用要到绘制之后才跑,靠它清空永远慢一帧)。

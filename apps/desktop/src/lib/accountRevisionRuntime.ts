@@ -1,6 +1,9 @@
 import type { ImRepositoryTransaction, AccountImRepository } from './imRepository'
 import { imSelectors } from './imRepository'
 import { rendererLogger } from './log'
+import { ingestMessages } from './messageIngest'
+import { messageRevisionWrites } from './messageRevisionWrites'
+import type { ImMessageWrite } from '../session/shared/core/im-messages'
 
 export const ACCOUNT_REVISION_CURSOR_KEY = 'account-revision-cursor'
 const ACCOUNT_REVISION_SKIPPED_KEY = 'account-revision-skipped'
@@ -49,6 +52,8 @@ type RevisionHandler = (
   operation: AccountRevisionOperation,
   transaction: ImRepositoryTransaction,
   live: boolean,
+  /** Desktop: messages this page actually stored in the local message store (absent on the phone and on replays). */
+  arrived?: ReadonlySet<string>,
 ) => unknown
 
 export type AccountRevisionRuntime = {
@@ -168,6 +173,9 @@ export function createAccountRevisionRuntime(
     if (!active || generation !== runGeneration) return cursor
 
     const lastRevision = page.operations[page.operations.length - 1]!.revision
+    const accepted = await ingestMessages(accountId, () => messageRevisionWrites(accountId, page.operations, lastRevision))
+    const arrived = accepted ? storedMessages(accepted) : undefined
+    if (!active || generation !== runGeneration) return cursor
     const committed: Array<() => void> = []
     await repository.transaction((transaction) => {
       if (!active || generation !== runGeneration) return
@@ -186,7 +194,7 @@ export function createAccountRevisionRuntime(
           }
           continue
         }
-        const afterCommit = handler(operation, transaction, caughtUp)
+        const afterCommit = handler(operation, transaction, caughtUp, arrived)
         if (typeof afterCommit === 'function') committed.push(afterCommit as () => void)
       }
       if (!active || generation !== runGeneration) return
@@ -307,7 +315,7 @@ export function createAccountRevisionRuntime(
   }
 }
 
-function validatePage(page: AccountRevisionPage, cursor: string): void {
+export function validatePage(page: AccountRevisionPage, cursor: string): void {
   if (!Array.isArray(page.operations) || typeof page.hasMore !== 'boolean') {
     throw new Error('account revision page is malformed')
   }
@@ -360,4 +368,19 @@ function isCovered(head: string, cursor: string): boolean {
 function isDecimalRevision(value: unknown, allowZero: boolean): value is string {
   if (typeof value !== 'string' || !/^(0|[1-9]\d*)$/.test(value)) return false
   return allowZero ? true : value !== '0'
+}
+
+/**
+ * @@@arrival-claim - the local message store records on each message row the revision that first delivered it, and reports
+ * that put as claimed. A message this page claimed, and did not delete again later in the same page, is a first arrival:
+ * the notification claim. A body a conversation page fetched earlier is still claimed by its first revision; replays
+ * (skipped below through_revision) and repeated revisions of a claimed message claim nothing. The renderer keeps no claim rows.
+ */
+function storedMessages(accepted: readonly ImMessageWrite[]): ReadonlySet<string> {
+  const stored = new Set<string>()
+  for (const write of accepted) {
+    if (write.type === 'put' && write.claimed) stored.add(write.message.id)
+    else if (write.type === 'delete') stored.delete(write.id)
+  }
+  return stored
 }
