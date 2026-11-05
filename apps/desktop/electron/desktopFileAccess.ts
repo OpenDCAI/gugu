@@ -19,6 +19,26 @@ import { createProjectFilePublisher } from './projectFilePublication'
 import type { makeIdentityClient } from './supabase'
 
 /** One composition root for native IPC, Apps, MCP and inbox. Identity lookup here never registers or refreshes. */
+type RpcReply = { data: unknown; error: { message: string; code: string; details: string; hint: string } | null }
+
+/**
+ * The database RPC the desktop file paths call, as the signed-in reader. A refusal becomes an Error carrying the
+ * database message and its structured diagnostics (code / details / hint), with the original as its cause, so the
+ * App sees the real reason a file was not changed; a network rejection passes through as it is.
+ */
+export function signedInFileRpc(
+  auth: () => Promise<{ accessToken: string } | null>,
+  client: (accessToken: string) => { rpc(name: string, args: Record<string, unknown>): PromiseLike<RpcReply> },
+): (name: string, args: Record<string, unknown>) => Promise<unknown> {
+  return async (name, args) => {
+    const session = await auth()
+    if (!session) throw new Error('File reader is not signed in')
+    const { data, error } = await client(session.accessToken).rpc(name, args)
+    if (error) throw Object.assign(new Error(error.message, { cause: error }), { code: error.code, details: error.details, hint: error.hint })
+    return data
+  }
+}
+
 export function createDesktopFileAccess(deps: {
   auth(): Promise<RuntimeAuth | null>; root(projectId: string): Promise<string | null>
   links(): HeldFileSshLinks | null; tempRoot: string; downloads: string; fetch: typeof fetch; env?: NodeJS.ProcessEnv

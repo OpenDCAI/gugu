@@ -11,6 +11,9 @@ import { readSelfIdentityBridge } from '@/lib/selfIdentityBridge'
 import { renderMentionTokens } from '@renderer/lib/chat/render-mention-tokens'
 import { rankPaletteMatches } from '../command-palette/palette-rank'
 import type { SearchChip, SearchFacet, SearchKind } from './search-session'
+import { localMessageQueries } from '@/lib/messageIngest'
+import { platform } from '@/platform'
+import { useNetworkOnline } from '@/hooks/useNetworkOnline'
 
 /** One page per source: the counts beside the filters are these rows, shown as "100+" when a source returns a full page. */
 export const SEARCH_LIMIT = 100
@@ -85,6 +88,7 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   const summaries = useChatSummaries()
   const identities = useIdentities()
   const me = useSelfId()
+  const online = useNetworkOnline()
   const typed = useDebounce(text, 100)
 
   const scopes: SearchChip[] = [...chips]
@@ -109,6 +113,9 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   const kinds = scopes.flatMap((chip) => chip.kind === 'type' ? [chip.type] : [])
   // A quick filter (a sender or a kind of message) is a search on its own: no words means every message, newest first.
   const runnable = (!!query || !!from || kinds.length > 0) && !unresolved
+  // Online, one conversation is searched in the cloud like every other scope. Offline on desktop, the messages
+  // stored on this device answer instead. Phase two removes the platform seam when the phone uses SQLite too.
+  const localScope = !!inChat && !online && platform.localMessages === 'sqlite'
 
   const searchChats = (chatId: string | null) => ({
     queryKey: ['global-search-messages', query, chatId],
@@ -119,9 +126,27 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
     },
     staleTime: 5_000,
   })
-  const messages = useQuery({ ...searchChats(inChat?.chatId ?? null), enabled: runnable && !inTask })
+  const searchStored = (chatId: string) => ({
+    queryKey: ['global-search-messages', query, chatId, from?.userId ?? null, me],
+    queryFn: async (): Promise<MessageRow[]> => {
+      const store = localMessageQueries()
+      if (!store || !me) throw new Error('Sign in to search messages stored on this device.')
+      const rows = await store.search(me, chatId, query, SEARCH_LIMIT, from?.userId)
+      return rows.map(row => ({ id: row.id, chat_id: row.chat_id, sender_user_id: row.sender_user_id,
+        sender_name: '', content_type: row.content_type, content: row.content, created_at: row.created_at, file_item_id: row.file_item_id ?? null }))
+    },
+    networkMode: 'always' as const,
+    retry: false,
+    staleTime: 5_000,
+  })
+  const messages = useQuery({ ...(localScope ? searchStored(inChat.chatId) : searchChats(inChat?.chatId ?? null)), enabled: runnable && !inTask })
   // The same words everywhere, for the line that says how many more the in: chip is hiding (the unscoped search).
   const everywhere = useQuery({ ...searchChats(null), enabled: runnable && !!query && !!inChat })
+  useEffect(() => {
+    if (!localScope) return
+    const ids = [...new Set((messages.data ?? []).flatMap(row => row.sender_user_id && !identities[row.sender_user_id] ? [row.sender_user_id] : []))]
+    if (ids.length) readIdentityDirectoryBridge()?.ensure(ids)
+  }, [identities, localScope, messages.data])
   const shownRow = (row: MessageRow) => row.content_type !== 'system' && (!from || row.sender_user_id === from.userId)
     && (kinds.length === 0 || kinds.every((kind) => messageKinds(row, me).has(kind)))
   const turns = useQuery({
@@ -141,7 +166,8 @@ export function useGlobalSearch(text: string, chips: readonly SearchChip[], face
   const messageHits: SearchHit[] = inTask ? [] : (messages.data ?? [])
     .filter(shownRow)
     .map((row) => ({ kind: 'message', id: `m:${row.id}`, group: row.chat_id, chatId: row.chat_id, messageId: row.id, senderId: row.sender_user_id,
-      sender: row.sender_user_id === null ? null : row.sender_name, text: excerpt(parseAttachmentContent(row.content)?.fileName ?? renderMentionTokens(row.content ?? ''), query), at: row.created_at, file: row.file_item_id !== null }))
+      sender: row.sender_user_id === null ? null : localScope ? identities[row.sender_user_id]?.display_name ?? row.sender_name : row.sender_name,
+      text: excerpt(parseAttachmentContent(row.content)?.fileName ?? renderMentionTokens(row.content ?? ''), query), at: row.created_at, file: row.file_item_id !== null }))
   const taskHits: SearchHit[] = !tasks || inChat || from || kinds.length > 0 || !query ? [] : (turns.data?.hits ?? [])
     .filter((hit) => !inTask || hit.sessionId === inTask.taskId)
     .map((hit) => ({ kind: 'task', id: `t:${hit.sessionId}:${hit.itemId}`, group: `task:${hit.sessionId}`, taskId: hit.sessionId, projectId: hit.projectId,

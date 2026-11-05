@@ -9,6 +9,7 @@ import { parseArgs } from 'node:util'
 import picomatch from 'picomatch'
 import YAML from 'yaml'
 import { hasVerifiedDocsClassifier } from './docs-filter-contract.mts'
+import { inheritedJobSource, type WorkflowJob } from './inherited-job-source.mts'
 
 /** Parsed workflow YAML / GitHub JSON: untyped input, validated where each field is read. */
 type Parsed = ReturnType<typeof JSON.parse>
@@ -417,6 +418,7 @@ export function attachDeciderOutputs<T extends CheckRunSnapshot>(
   checkRuns: T[],
   profiles: CheckProfile[],
   fetchAnnotations: (checkRunId: number) => Annotation[],
+  inheritedSource?: (checkRunId: number) => number | undefined,
 ): T[] {
   const deciders = new Set<string>()
   for (const profile of profiles) {
@@ -424,10 +426,25 @@ export function attachDeciderOutputs<T extends CheckRunSnapshot>(
       deciders.add(`${profile.eventType}\0${condition.decider}`)
     }
   }
+  const annotations = new Map<number, Annotation[]>()
+  const readAnnotations = (id: number): Annotation[] => {
+    if (!annotations.has(id)) annotations.set(id, fetchAnnotations(id))
+    return annotations.get(id)!
+  }
   for (const run of checkRuns) {
     if (!deciders.has(`${run.event}\0${run.name}`)) continue
     if (run.status !== 'completed' || run.conclusion !== 'success') continue
-    run.outputs = parseJobOutputsAnnotations(fetchAnnotations(run.id))
+    const own = readAnnotations(run.id)
+    run.outputs = parseJobOutputsAnnotations(own)
+    // Partial reruns copy successful jobs without their annotations. Resolve the original execution;
+    // never borrow another attempt's decision merely because its check has the same name.
+    if (own.length === 0 && inheritedSource) {
+      const sourceId = inheritedSource(run.id)
+      const source = checkRuns.find(candidate => candidate.id === sourceId && candidate.id < run.id
+        && candidate.event === run.event && candidate.name === run.name
+        && candidate.status === 'completed' && candidate.conclusion === 'success')
+      if (source) run.outputs = parseJobOutputsAnnotations(readAnnotations(source.id))
+    }
   }
   return checkRuns
 }
@@ -450,7 +467,13 @@ function inventoryDigest(entries: WorkflowEntry[]): string {
   return hash.digest('hex')
 }
 
-export function pinnedWorkflow(use: unknown, label: string): { path: string; sha: string } {
+export function pinnedWorkflow(use: unknown, label: string): { path: string; sha?: string } {
+  // GitHub resolves a relative reusable call from the caller's commit, including when
+  // that caller is itself pinned to an older commit. No mutable checkout/ref is read.
+  const relative = typeof use === 'string'
+    ? /^\.\/(\.github\/workflows\/[\w.-]+\.ya?ml)$/.exec(use)
+    : null
+  if (relative) return { path: relative[1] }
   const match = typeof use === 'string'
     ? /^GUYI-AI\/gugu\/(\.github\/workflows\/[\w.-]+\.ya?ml)@([0-9a-f]{40})$/.exec(use)
     : null
@@ -461,7 +484,7 @@ export function pinnedWorkflow(use: unknown, label: string): { path: string; sha
 type DerivedJobCheck = { name: string; condition?: PathFilterCondition }
 
 function jobCheckNames(
-  entry: WorkflowEntry, id: string, job: Parsed, label: string, parents: string[] = [],
+  entry: WorkflowEntry, id: string, job: Parsed, label: string, parents: WorkflowEntry[] = [],
   caller?: { workflow: Parsed; job: Parsed }
 ): DerivedJobCheck[] {
   const ownWorkflow: Parsed = entry.workflow ?? YAML.parse(entry.source)
@@ -486,9 +509,11 @@ function jobCheckNames(
   // the child build on the original decider output instead of inventing missing check runs.
   if (job.if !== undefined) throw new Error(`${label} job ${id}: conditional reusable callers are not supported`)
   const pin = pinnedWorkflow(job.uses, `${label} job ${id}`)
-  if (parents.includes(job.uses) || parents.length >= 8) throw new Error(`${label}: cyclic or excessive reusable workflow nesting`)
   const child = entry.reusableWorkflows?.[job.uses]
   if (!child || child.path !== pin.path) throw new Error(`${label}: missing exact pinned workflow ${job.uses}`)
+  // A relative uses string can recur at a different commit. Track resolved entries,
+  // like inventoryDigest, rather than confusing identical paths with identical nodes.
+  if (parents.includes(child) || parents.length >= 8) throw new Error(`${label}: cyclic or excessive reusable workflow nesting`)
   const workflow: Parsed = child.workflow ?? YAML.parse(child.source)
   const on = workflow.on
   const callable = on === 'workflow_call' || (Array.isArray(on) && on.includes('workflow_call'))
@@ -498,7 +523,7 @@ function jobCheckNames(
   }
   const children = Object.entries<Parsed>(workflow.jobs).flatMap(([childId, childJob]) => {
     if (!childJob || typeof childJob !== 'object' || Array.isArray(childJob)) throw new Error(`${job.uses}: invalid job ${childId}`)
-    return jobCheckNames(child, childId, childJob, job.uses, [...parents, job.uses], { workflow: ownWorkflow, job })
+    return jobCheckNames(child, childId, childJob, job.uses, [...parents, entry], { workflow: ownWorkflow, job })
   })
   if (children.length === 0) throw new Error(`${job.uses}: reusable workflow has no checks`)
   return names.flatMap((name) => children.map((child) => ({
@@ -845,7 +870,7 @@ export function loadWorkflowInventory(
     for (const [id, job] of Object.entries<Parsed>(workflow.jobs ?? {})) {
       if (job?.uses === undefined) continue
       const pin = pinnedWorkflow(job.uses, `${identity} job ${id}`)
-      reusableWorkflows[job.uses] = readEntry(pin.sha, pin.path, [...parents, identity])
+      reusableWorkflows[job.uses] = readEntry(pin.sha ?? sha, pin.path, [...parents, identity])
     }
     return { path: workflowPath, source,
       ...(Object.keys(reusableWorkflows).length > 0 ? { reusableWorkflows } : {}) }
@@ -1015,8 +1040,27 @@ function fetchCheckRuns({ repo, sha, root, profiles }: { repo: string; sha: stri
     'check_runs',
     root
   )
-  return attachDeciderOutputs(associateCheckRunEvents(checkRuns, workflowRuns), profiles, (id) =>
-    ghArrayPages(`repos/${repo}/check-runs/${id}/annotations?per_page=100`, root)
+  const jobHistory = new Map<number, WorkflowJob[]>()
+  const inheritedSource = (id: number): number | undefined => {
+    const check = checkRuns.find(run => run.id === id)
+    const workflows = workflowRuns.filter(run => run.check_suite_id === check?.check_suite?.id)
+    if (workflows.length !== 1) return undefined
+    const workflow = workflows[0]
+    if (!Number.isSafeInteger(workflow.id) || workflow.id <= 0
+      || !Number.isSafeInteger(workflow.run_attempt) || workflow.run_attempt <= 1) return undefined
+    if (!jobHistory.has(workflow.id)) {
+      const jobs: WorkflowJob[] = []
+      for (let attempt = 1; attempt <= workflow.run_attempt; attempt++) {
+        jobs.push(...ghPages(`repos/${repo}/actions/runs/${workflow.id}/attempts/${attempt}/jobs?per_page=100`, 'jobs', root))
+      }
+      jobHistory.set(workflow.id, jobs)
+    }
+    return inheritedJobSource(id, workflow.id, jobHistory.get(workflow.id)!)
+  }
+  return attachDeciderOutputs(
+    associateCheckRunEvents(checkRuns, workflowRuns), profiles,
+    id => ghArrayPages(`repos/${repo}/check-runs/${id}/annotations?per_page=100`, root),
+    inheritedSource,
   )
 }
 

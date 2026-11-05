@@ -136,7 +136,7 @@
 /*
  * ❌ 这里原来是「会话选项面板」整套(.gg-aw-options / -head / -title / -group / -label / -choices)。
  * 2026-09-22 删(Refs #6104):零消费者 —— 选项现在住在输入框那一行的胶囊里
- * (SessionOptionsPill / CreateOptionsPill,用的是 .gg-aw-pill 与 .gg-aw-sheet / .gg-aw-choice 那两套)。
+ * (CreateOptionsPill,用的是 .gg-aw-pill 与 .gg-aw-sheet / .gg-aw-choice 那两套)。
  */
 
 /* ── 审批 / 提问卡 ─────────────────────────────────────────────────── */
@@ -277,19 +277,6 @@
   bottom: 0;
   margin-top: auto;
 }
-/* 图还没到手(去机器上取的那一会儿是一块底色;取不到 / 太大写一句话),MediaGrid 的 `pending` 那一格。 */
-.gg-aw .gg-media-grid-pending {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 0 var(--spacing-xs);
-  color: var(--text-secondary);
-  font-size: var(--font-caption);
-  line-height: 1.3;
-  white-space: normal;
-  text-align: center;
-}
 .gg-aw .gg-aw-thread-extras {
   display: flex;
   flex-direction: column;
@@ -397,7 +384,6 @@
   white-space: nowrap;
   padding-bottom: var(--spacing-xs);
 }
-.gg-aw .gg-aw-actions-note { color: var(--text-muted); font-size: var(--font-size-sm); }
 .gg-aw .gg-aw-actions-error { color: var(--danger, var(--badge-red)); font-size: var(--font-size-sm); }
 .gg-aw .gg-aw-actions-item { width: 100%; justify-content: center; }
 .gg-aw .gg-aw-actions-field { width: 100%; }
@@ -621,30 +607,6 @@
   font-weight: 700;
   color: var(--fg);
 }
-/* pending 转圈:改选项是发给远端的一条指令,发出去到回读之间要有个在动的东西。 */
-.gg-aw .gg-aw-sheet-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--border);
-  border-top-color: var(--text-secondary);
-  border-radius: var(--radius-circle);
-  animation: gg-aw-spin 0.7s linear infinite;
-}
-@keyframes gg-aw-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .gg-aw .gg-aw-sheet-spinner { animation: none; }
-}
-.gg-aw .gg-aw-sheet-caption {
-  padding: 0 var(--spacing-md) var(--spacing-xs);
-  color: var(--text-muted);
-  font-size: var(--font-caption);
-}
-/* 状态要读得出是状态:改选项失败那一条原来与旁边的普通说明**完全同色**。
-   只换字色,❌ 不加底色块(与 .gg-aw-create-blocker 同一个克制口径)。 */
-.gg-aw .gg-aw-sheet-caption[data-tone='error'] {
-  color: var(--danger-fg);
-}
-
 /* 选项组 / 摘要组:组内靠分隔线分行(orca 的 choiceGroup / optionGroup)。
    ⚠️ 2026-09-22 按 design.md 统一:去掉外层那圈描边。「一行一发丝线」在选项列表里是有
    合法先例的(Definition List),但外面再套一个描边盒就成了**盒里画格** ——

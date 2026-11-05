@@ -80,8 +80,8 @@ class TabEntryImpl<S = unknown> implements TabEntry<S> {
  * Domain resource managers (not the engine) are responsible for ref-counting.
  */
 /**
- * What a pane inside a layout can ask of it. 分屏不在这里:一条会话只有一条页签条,向右分 / 向下分 / 拖到边上
- * 都是这一格里的并排(spec session-page「并排」),由 PaneStore 自己做。
+ * What a pane inside a layout can ask of it. 向右分 / 向下分 = 布局在这一格旁边新开一格,把这一枚挪过去;
+ * 分不分得出来只有布局知道(格子数、这一格多大)。
  */
 export interface PaneSplitter {
   tabClosing?(entry: TabEntry): void;
@@ -89,8 +89,9 @@ export interface PaneSplitter {
   windowOpener?(tabId: string): (() => void) | null;
   /** 挪到这条会话的另一格(走格子的先后:后一格,没有就前一格);只有这一格 = null。 */
   moveToOtherPane?(tabId: string): (() => void) | null;
-  split?(tabId: string, edge: 'right' | 'bottom'): void;
-  splitBlocked?(tabId: string, edge: 'right' | 'bottom'): 'full' | 'only-tab' | 'too-small' | null;
+  split(tabId: string, edge: 'right' | 'bottom'): void;
+  /** 为什么分不出来;null = 分得出来。 */
+  splitBlocked(tabId: string, edge: 'right' | 'bottom'): 'full' | 'only-tab' | 'too-small' | null;
   revealTab?(tabId: string): boolean;
   entryForTab?(tabId: string): TabEntry | undefined;
   hasSibling?(): boolean;
@@ -610,10 +611,6 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     void this._requestCloseInTurn(this.tabOrder.filter((id) => id !== tabId));
   }
 
-  canSplitTab(tabId: string): boolean {
-    return this.tabSplitBlocked(tabId, 'right') === null;
-  }
-
   tabFill(tabId: string, multiBlock = false): { full: boolean; toggle: () => void } | null {
     const full = tabFullscreen.isOn(this, tabId);
     if (!full && !multiBlock && !this._layoutSplitter?.hasSibling?.()) return null;
@@ -625,7 +622,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   }
 
   tabSplitBlocked(tabId: string, edge: 'right' | 'bottom'): 'full' | 'only-tab' | 'too-small' | null {
-    return this._layoutSplitter?.splitBlocked?.(tabId, edge) ?? 'full';
+    // 布局说的 null 就是「分得出来」,原样交出去。没有布局(单独成窗那一格)菜单里这两项本就灰着。
+    return this._layoutSplitter ? this._layoutSplitter.splitBlocked(tabId, edge) : 'full';
   }
 
   /** 能分屏的地方(会话那一块);单独成窗的那一格只装一枚页签,不分。 */
@@ -637,9 +635,9 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return this._layoutSplitter?.moveToOtherPane?.(tabId) ?? null;
   }
 
-  /** 页签右键「向右分 / 向下分」= 和屏上那页并排(spec session-page「并排」),❌ 再分出一格带自己的页签条。 */
+  /** 页签右键「向右分 / 向下分」:这一枚挪进旁边新开的一格。 */
   splitTab(tabId: string, edge: 'right' | 'bottom'): void {
-    this._layoutSplitter?.split?.(tabId, edge);
+    this._layoutSplitter?.split(tabId, edge);
   }
 
   /** 关闭右侧页签:这一枚右边的都关掉(照 VS Code / Chrome)。 */

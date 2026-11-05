@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { SessionOptionsPill } from '../../../apps/desktop/src/mobile/agent-watch/SessionOptionsPill'
 import { CreateOptionsPill } from '../../../apps/desktop/src/mobile/agent-watch/CreateOptionsPill'
 import { FILE_VIEWER_ATTRIBUTE, FILE_VIEWER_MENU_EVENT, type FileViewerMenuRequest } from '../../../apps/desktop/src/session/shared/preview/file-viewer-menu'
 import { workspaceFileQuote } from '../../../apps/desktop/src/components/preview/quote-preview-file'
@@ -16,12 +15,8 @@ import { expectExit, frame, holdDialogExit } from '../../support/dialogExit'
 
 const m = vi.hoisted(() => ({
   incoming: null as ((share: IncomingShare) => void) | null,
-  options: { model: { selected: 'model-1', available: [{ id: 'model-1', name: 'Model' }] } },
   read: vi.fn(async () => new Uint8Array([1, 2, 3])),
   quote: vi.fn(), image: vi.fn(), revoke: vi.fn(), signal: null as AbortSignal | null,
-}))
-vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', async (original) => ({
-  ...await original<typeof import('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc')>(), fetchSessionOptions: vi.fn(async () => m.options),
 }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/opened-output-open', async (original) => ({
   ...await original<typeof import('../../../apps/desktop/src/mobile/agent-watch/opened-output-open')>(),
@@ -43,16 +38,6 @@ beforeEach(() => {
 afterEach(() => { h.cleanup(); delete (HTMLElement.prototype as Partial<HTMLElement>).getAnimations })
 const q = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!
 async function back() { await act(async () => { window.dispatchEvent(new CustomEvent('gugu:native-back')) }) }
-
-it('task options: clearing its current view retains choices through the full exit', async () => {
-  await h.render(createNode(SessionOptionsPill, { deviceId: 'device-1', sessionId: 'task-1', busy: false }))
-  await waitForCondition(() => q('agent-watch-options-open') !== null, 'options loaded')
-  await clickElement(q('agent-watch-options-open')); await frame()
-  const popup = q('agent-watch-options')
-  await back()
-  expect(popup.textContent).toContain('Model')
-  await expectExit(popup, exit)
-})
 
 it('create options: clearing the view keeps the selected project until exit completes', async () => {
   await h.render(createNode(CreateOptionsPill, {

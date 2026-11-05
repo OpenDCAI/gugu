@@ -136,7 +136,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
 
   beforeEach(async () => {
     for (const mock of Object.values(mocks)) mock.mockReset();
-    mocks.createSession.mockResolvedValue(undefined);
+    mocks.createSession.mockImplementation(async (_params: unknown, options?: { onOptimistic?: () => void }) => { options?.onOptimistic?.(); });
     mocks.localSendMessage.mockResolvedValue({ id: 'local-id', status: 'queued' });
     mocks.start.mockResolvedValue({ ok: true });
     mocks.installAgent.mockResolvedValue({ success: true });
@@ -514,7 +514,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     await act(async () => root.render(React.createElement(Probe)));
     try {
       await act(async () => latest?.handleCreateSession());
-      expect(mocks.createSession.mock.calls.at(-1)?.[1]).toEqual({ deferFirstTurn: true });
+      expect(mocks.createSession.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({ deferFirstTurn: true, onOptimistic: expect.any(Function) }));
       const initial = mocks.createSession.mock.calls.at(-1)?.[0].sessionConfig.initialSession;
       expect(initial.initialQueue[0]).toMatchObject({ text: 'make one task', files: [ref] });
       expect(mocks.admit).not.toHaveBeenCalled();
@@ -530,7 +530,10 @@ describe('useCreateSessionCallback ordinary messaging', () => {
 
   it.each(['', '\nnewer draft'])('consumes only the submitted startup draft after creation succeeds (extra=%s)', async extra => {
     let complete!: () => void;
-    mocks.createSession.mockImplementationOnce(() => new Promise<void>(resolve => { complete = resolve; }));
+    mocks.createSession.mockImplementationOnce((_params: unknown, options?: { onOptimistic?: () => void }) => {
+      options?.onOptimistic?.();
+      return new Promise<void>(resolve => { complete = resolve; });
+    });
     initialSession.prompt = '  original draft  ';
     initialSession.promptCapability = { kind: 'none', startupDelivery: 'startup-prompt' };
     await act(async () => root.render(React.createElement(Probe)));

@@ -1,11 +1,9 @@
 [
   "apps/desktop/src/components/AddFriendSearch.tsx",
-  "apps/desktop/src/components/AgentPresetsPanel.tsx",
   "apps/desktop/src/components/AppErrorBoundary.tsx",
   "apps/desktop/src/components/ChatAreaPanel.tsx",
   "apps/desktop/src/components/CopyValue.tsx",
   "apps/desktop/src/components/FeedbackModal.tsx",
-  "apps/desktop/src/components/HistoryPanel.tsx",
   "apps/desktop/src/components/MemberProfileCard.tsx",
   "apps/desktop/src/components/MobileAgentCreatePage.tsx",
   "apps/desktop/src/components/RemoteFolderPicker.tsx",

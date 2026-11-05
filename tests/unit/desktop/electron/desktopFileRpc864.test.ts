@@ -1,12 +1,10 @@
-import { readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
-import { runInNewContext } from 'node:vm'
-import ts from 'typescript'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_FILE_STORAGE } from '@gugu/core/shared/fileStorage'
 import { createProjectFilePublisher } from '../../../../apps/desktop/electron/projectFilePublication'
+import { signedInFileRpc } from '../../../../apps/desktop/electron/desktopFileAccess'
 import { rememberProjectGroupId } from '../../../../apps/desktop/electron/sessionpage/sessionpage-project-groups'
 import { rpcQuery } from '../../../support/rpcQuery'
 
@@ -25,19 +23,10 @@ const { bridgeFailure } = await import('../../../../apps/desktop/src/session/sha
 
 type Reply = { data: unknown; error: { message: string; code: string; details: string; hint: string } | null }
 type Rpc = (name: string, args: Record<string, unknown>) => Promise<unknown>
-// Execute the actual RPC callback wired into desktopFiles, replacing only auth and the network.
-// Keeping this at the composition root catches a correct helper that main never actually uses.
+// The RPC main wires into desktopFiles (signedInFileRpc), replacing only auth and the network.
 function desktopRpc(reply: (name: string, args: Record<string, unknown>) => Promise<Reply>, signedIn = true) {
-  const file = ts.createSourceFile('main.ts', readFileSync(resolve('apps/desktop/electron/main.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
-  const declaration = file.statements.filter(ts.isVariableStatement).flatMap(node => [...node.declarationList.declarations])
-    .find(node => node.name.getText(file) === 'desktopFiles')
-  const call = declaration?.initializer
-  if (!call || !ts.isCallExpression(call) || !ts.isObjectLiteralExpression(call.arguments[0]!)) throw new Error('Desktop file access wiring is missing')
-  const property = call.arguments[0].properties.find(node => ts.isPropertyAssignment(node) && node.name.getText(file) === 'rpc')
-  if (!property || !ts.isPropertyAssignment(property)) throw new Error('Desktop file RPC wiring is missing')
   const network = vi.fn(reply), client = vi.fn(() => ({ rpc: network }))
-  const code = ts.transpileModule(`(${property.initializer.getText(file)})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
-  const rpc = runInNewContext(code, { Error, desktopAuthProvider: () => ({ getAuth: async () => signedIn ? { userId: ME, accessToken: 'fixture-token' } : null }), makeChatClient: client }) as Rpc
+  const rpc = signedInFileRpc(async () => signedIn ? { userId: ME, accessToken: 'fixture-token' } : null, client) as Rpc
   return { rpc, network, client }
 }
 const refusal = (message = 'Permission denied for file publication') => ({ message, code: '42501', details: 'The file was not changed', hint: 'workspace_not_member' })

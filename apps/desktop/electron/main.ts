@@ -4,8 +4,6 @@ import { attachTabHistorySwipe } from './tab-history-swipe'
 import { startServerUsageSync } from './server/usage-sync'
 import { readStateFile, writeStateFile } from './app-state'
 import { noteExitReason } from './lib/exit-reason'
-import { killAllWorkersSync } from '@gugu/session-wire/worker'
-import { killServerDescendantsSync } from './server/server-processes'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
@@ -13,7 +11,7 @@ import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { registerContentContextMenus } from './content-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { renderFirstTurn, type FirstTurnRender } from '@gugu/core/local/agent/firstTurnRender'
-import { createDesktopFileAccess } from './desktopFileAccess'
+import { createDesktopFileAccess, signedInFileRpc } from './desktopFileAccess'
 import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
 import { writeTaskCopy } from './projectFilePublication'
@@ -66,10 +64,9 @@ import {
 } from './lib/logger'
 import { createRendererLogForwarder } from './local-renderer-diagnostics'
 import { autoApproveFromPermissionMode, type GuguPermissionMode } from '@gugu/session-core/acp'
-import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { homedir, hostname, platform } from 'os'
 import { dirname, join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
@@ -488,7 +485,7 @@ import {
   createReapDeps,
   describeReapSummary,
 } from './enginePidReap'
-import { createPushedRuntimeAuthProvider, type PushedRuntimeAuth } from './runtime-auth-provider'
+import { createHumanAuthSessionIpc, createPushedRuntimeAuthProvider, type PushedRuntimeAuth } from './runtime-auth-provider'
 import { createServerAuthProvider, type ServerAuthProvider } from './server/server-auth'
 import { ensureUtf8Locale } from './server/server-locale'
 import { killAccountTmuxServer, SESSION_FILE } from './server/server-layout'
@@ -539,6 +536,9 @@ import { createProjectionDeviceRuntime } from './projection-device-runtime'
 import { openProjectionDevicePipe } from './projection-device-transport'
 import { createUpdateQuit } from './update-quit'
 import { createUpdateFlow } from './update-flow'
+import { createUpdateChecks } from './update-check'
+import { createSignalExit } from './signal-exit'
+import { createFatalExit, createNativeLegReap, stopOnLostLock } from './process-exit'
 import {
   hardenWebPreferences,
   installDevtoolsLock,
@@ -2365,7 +2365,7 @@ ipcMain.handle('feedback:log-tail', () => readLogTailForFeedback())
 // #7199 个人助理住在这台电脑上时,它的家在本机准备(工作目录、说明、禁用的工具、开通时主人留的那条记忆)。
 installAssistantHome()
 
-ipcMain.handle('updates:check', () => checkForUpdates())
+ipcMain.handle('updates:check', () => updateChecks.check())
 // @@@5837 界面随时可以来问「现在是什么状态」—— 横幅与「设置→关于」挂载时各问一次,所以
 // 整窗重载、用户关掉横幅、下好那一刻窗口不在,都不会让「包已下好、等你按一下」这条事实消失。
 // 渲染层那一侧是可选能力(AppPlatform.updateState):web/移动端没有更新这件事,答不上来就跳过。
@@ -2412,7 +2412,7 @@ ipcMain.handle('auth:open-browser', async (event, raw: unknown) => {
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()
 const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider().getAuth(), tempRoot: remoteFileTempRoot,
-  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw Object.assign(new Error(error.message, { cause: error }), { code: error.code, details: error.details, hint: error.hint }); return data },
+  rpc: signedInFileRpc(() => desktopAuthProvider().getAuth(), makeChatClient),
   downloads: join(resolveGuguHome(process.env), 'attachments'), fetch: electronFetch, links: () => sshLinks,
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
   deviceStore: join(resolveGuguHome(process.env), 'project-files'), identityDb: makeIdentityClient,
@@ -2660,30 +2660,18 @@ async function sessionLifeEnter(): Promise<void> {
   const userId = pushedUserId()
   if (sessionLifeBooted && userId) await bootedSessionLife().signIn(userId)
 }
-ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
-  const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
-  const next = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
-  await sessionLifeLeaveIfChanging(next?.userId ?? null)
-  try {
-    pushedHumanAuth = undefined
-    pushedHumanAuth = next
-    projectionDeviceRuntime.invalidate() // Revoke the old identity before awaiting persistence.
-    return await writeHumanAuthSession(mirror)
-  } finally {
-    onHumanAuthSessionChanged()
-    await sessionLifeEnter()
-  }
+const humanAuthSessionIpc = createHumanAuthSessionIpc({
+  toAuth: runtimeAuthFromSupabaseTokens,
+  set: (auth) => { pushedHumanAuth = auth },
+  revoke: () => projectionDeviceRuntime.invalidate(),
+  persist: (mirror: Parameters<typeof writeHumanAuthSession>[0]) => writeHumanAuthSession(mirror),
+  erase: () => clearHumanAuthSession(),
+  leaveIfChanging: sessionLifeLeaveIfChanging,
+  enter: sessionLifeEnter,
+  changed: onHumanAuthSessionChanged,
 })
-ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
-  await sessionLifeLeaveIfChanging(null)
-  try {
-    pushedHumanAuth = reason === 'lost' ? 'lost' : null
-    projectionDeviceRuntime.invalidate() // Disk deletion must not extend the old account's authority.
-    return await clearHumanAuthSession()
-  } finally {
-    onHumanAuthSessionChanged()
-  }
-})
+ipcMain.handle('human-auth-session:write', (_event, session: unknown) => humanAuthSessionIpc.write(session as Parameters<typeof writeHumanAuthSession>[0]))
+ipcMain.handle('human-auth-session:clear', (_event, reason: unknown) => humanAuthSessionIpc.clear(reason))
 // #5906 —— 渲染层刚把一条设备命令放回了 pending(失败条的「重试」)。那是 UPDATE,库那侧的 `command_created`
 // 广播只挂在 INSERT 上 ⇒ 没有任何事件会叫醒宿主;由发起方在这里说一声。
 ipcMain.on('device-runtime:commands-changed', () => {
@@ -3010,30 +2998,25 @@ function rejectPrereleaseTarget(updateInfo: unknown, where: string): boolean {
   return true
 }
 
-async function checkForUpdates(): Promise<VersionedUpdateState<UpdateCheckResult>> {
-  if (!updaterPolicy.enabled) {
+const updateChecks = createUpdateChecks({
+  policy: () => updaterPolicy,
+  blocked: (policy) => {
     updaterLogger.warn(
-      { reason: updaterPolicy.reason },
-      `check blocked (${updaterPolicy.reason}): ${updaterPolicy.messageKey}`,
+      { reason: policy.reason },
+      `check blocked (${policy.reason}): ${policy.messageKey}`,
     )
     return emitUpdateStatus({
       success: false,
-      status: updaterPolicy.status,
+      status: policy.status,
       updateInfo: null,
-      messageKey: updaterPolicy.messageKey,
+      messageKey: policy.messageKey,
     })
-  }
-  try {
-    // Updater events publish the result, including progress started by update-available.
-    // Queries return that same stamped state instead of inventing a second result.
-    await autoUpdater.checkForUpdates()
-    return updaterState.current
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.warn('[updater] check failed:', message)
-    throw err
-  }
-}
+  },
+  query: () => autoUpdater.checkForUpdates(),
+  current: () => updaterState.current,
+  warn: (message, detail) => console.warn(message, detail),
+  automatic: !IS_TEST_MODE,
+})
 
 // 下载进度/完成经状态值回流渲染层(update-flow.ts);两个入口:静默下载(@@@5576)与用户点「更新」(@@@1578)。
 // @@@663 mac 老包走 dmg 半自动:下载 dmg(按架构+sha512 校验)→ shell.openPath 打开,用户拖装+系统
@@ -3182,14 +3165,6 @@ function installUpdate(): Promise<void> {
 // @@@1560/#1578 自动检测（仅检测，不自动下载）：仅打包版(packaged 且非 test)自动 check —— 启动后延迟 10s
 // (避开冷启高峰) + 每 30min 定时。autoDownload=false → 命中只发 update-available(经 preload 推渲染层
 // banner「更新/稍后」)，用户点「更新」才 downloadUpdate()。dev / IS_TEST 不 check。check 失败仅告警、不阻断。
-const AUTO_UPDATE_INTERVAL_MS = 30 * 60 * 1000
-const AUTO_UPDATE_INITIAL_DELAY_MS = 10 * 1000
-function startAutoUpdateChecks(): void {
-  if (!updaterPolicy.enabled || IS_TEST_MODE) return
-  // checkForUpdates already warns; automatic checks have no caller to reject to.
-  setTimeout(() => { void checkForUpdates().catch(() => undefined) }, AUTO_UPDATE_INITIAL_DELAY_MS)
-  setInterval(() => { void checkForUpdates().catch(() => undefined) }, AUTO_UPDATE_INTERVAL_MS)
-}
 
 /**
  * @@@5301 等系统给出真的结论,而不是「我调用了 show() 就算弹了」。
@@ -3345,65 +3320,45 @@ app.on('before-quit', createRuntimeBeforeQuitHandler({
 // 各腿自己那条 `process.once('exit')` 挡不住这一格 —— 信号路径不保证走到它。
 // ⇒ 这个回收点按「Desktop 拥有的原生腿」逐条收,加一条腿就在这里加一行,
 //    ❌ 不要再让某条腿只靠自己的 exit 钩子。
-const killEnginesOnCrash = (label: string): void => {
-  const reap = (leg: string, run: () => void) => {
-    try {
-      run()
-    } catch (err) {
-      shutdownLogger.error({ err, label, leg }, 'native leg process-group reap failed')
-    }
-  }
-  // @@@5163 回收点必须留下一条**同步**痕迹。用 logger 记不行 —— 它是异步写,
-  // 而这里离进程真正死掉只剩几毫秒,那行日志永远 flush 不到盘(本仓在 #4965 上吃过同一个亏)。
-  // 所以这里 appendFileSync 一行:它在 kill(2) 之前落地,能回答「这个回收点有没有被调到」。
-  try {
-    appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-begin label=${label}\n`)
-  } catch { /* 探针不许反噬关停 */ }
-  shutdownLogger.info({ label }, 'native leg reap: begin')
-  reap('host-processes', () => killAllWorkersSync(pids => SERVER_MODE
-    ? killServerDescendantsSync(pids) : signalProcessDescendantsSync(pids, 'SIGKILL')))
-  reap('codex-app-server', killAllCodexAppServerProcessGroupsSync)
-  reap('opencode-serve-attach', () => opencodeServeAttachSessionDelivery.disposeSync())
-  reap('droid-daemon', () => droidDaemonSessionDelivery.disposeSync())
-  reap('extension-programs', () => emdashBridge?.emdashExtensionPrograms().killAllSync())
-  reap('remote-tunnel', () => {
-    closeTunnelMachines?.()
-    tunnelEndpoint?.stop()
-  })
-  shutdownLogger.info({ label }, 'native leg reap: done')
-  try {
-    appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-done  label=${label}\n`)
-  } catch { /* 同上 */ }
-}
+const killEnginesOnCrash = createNativeLegReap({
+  logDir,
+  serverMode: SERVER_MODE,
+  logger: shutdownLogger,
+  legs: () => [
+    ['codex-app-server', killAllCodexAppServerProcessGroupsSync],
+    ['opencode-serve-attach', () => opencodeServeAttachSessionDelivery.disposeSync()],
+    ['droid-daemon', () => droidDaemonSessionDelivery.disposeSync()],
+    ['extension-programs', () => emdashBridge?.emdashExtensionPrograms().killAllSync()],
+    ['remote-tunnel', () => {
+      closeTunnelMachines?.()
+      tunnelEndpoint?.stop()
+    }],
+  ],
+})
 // #156 server 模式下这两个信号就是「停掉服务」(`gugu-server stop`、systemd、守护进程收账号进程):先停设备循环 ——
 // 它最后把设备行标成离线,名下别的设备当场看见,❌ 等两分钟租约过期、看起来和崩溃一样 —— 再同步收组退出。
 // 有上限(停不下来照样退);再来一个信号 = 不等了。桌面上信号仍是立即终止(正常退出走 before-quit)。
 const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
-let signalStopping = false
 let stopServerActivity = (): void => {}
 let startServerActivity = (): void => {}
-const exitOnSignal = (label: 'SIGINT' | 'SIGTERM' | 'SIGUSR2', code: number): void => {
-  stopServerActivity()
-  if (isSingleServerRun()) {
-    if (code === 143 && !existsSync(join(app.getPath('userData'), SESSION_FILE))) code = EXIT_SIGNED_OUT
-    if (code !== EXIT_RESTART && !['systemd', 'launchd'].includes(process.env.GUGU_SERVER_SUPERVISED ?? '')) markStopped(process.env.GUGU_SERVER_HOME!)
-  }
-  // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
-  noteExitReason(app.getPath('userData'), 'restart')
-  const finish = (): void => {
-    killEnginesOnCrash(label)
-    process.exit(code)
-  }
-  const host = deviceRuntimeHost
-  if (!SERVER_MODE || !host || signalStopping) return finish()
-  signalStopping = true
-  void stopRuntimeHostWithTimeout(host, SERVER_SIGNAL_STOP_TIMEOUT_MS)
-    .catch((error: unknown) => shutdownLogger.warn({ label, error: String(error) }, 'device runtime stop on signal failed'))
-    .finally(finish)
-}
-process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
-process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
-if (SERVER_MODE) process.on('SIGUSR2', () => exitOnSignal('SIGUSR2', EXIT_RESTART))
+const signalExit = createSignalExit({
+  serverMode: SERVER_MODE,
+  exitRestart: EXIT_RESTART,
+  exitSignedOut: EXIT_SIGNED_OUT,
+  stopActivity: () => stopServerActivity(),
+  singleRun: isSingleServerRun,
+  sessionFileExists: () => existsSync(join(app.getPath('userData'), SESSION_FILE)),
+  supervisedBy: () => process.env.GUGU_SERVER_SUPERVISED,
+  markStopped: () => markStopped(process.env.GUGU_SERVER_HOME!),
+  noteExitReason: () => noteExitReason(app.getPath('userData'), 'restart'),
+  killEngines: (label) => killEnginesOnCrash(label),
+  exit: (code) => process.exit(code),
+  host: () => deviceRuntimeHost,
+  stopHost: (host) => stopRuntimeHostWithTimeout(host, SERVER_SIGNAL_STOP_TIMEOUT_MS),
+  warn: (detail, message) => shutdownLogger.warn(detail, message),
+})
+const exitOnSignal = signalExit.exitOnSignal
+signalExit.listen((signal, handler) => { process.on(signal, handler) })
 const serverVersionSwitchActivity = () => loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
 if (isSingleServerRun()) singleServerUpdater()?.bindRuntime({
   // A5 includes work pending hydration and authorization; do not sample activity.json.
@@ -3420,22 +3375,14 @@ process.on('SIGCONT', () => {
   // completion waiters must not consume that debt as a lost turn.
   resumeAllCodexAppServerTurnWaiters()
 })
-process.on('uncaughtException', (err) => {
-  // @@@logging(#2382)- 就地升级成结构化,❌ 不另起一对处理器(那会让每次崩溃出现两行两套措辞)。
-  // @@@4965 - 先同步落盘再决定去留:pino 是异步写,`process.exit(1)` 之后永远 flush 不到,
-  // 那正是 #4965 里堆栈丢失、根因查不动的原因。
-  const verdict = classifyFatal(err)
-  recordFatalSync({ dir: logDir, verdict, source: 'uncaughtException', err })
-  if (verdict === 'environment') {
-    // @@@4965 - 合盖睡眠/断网抛出的 net::ERR_* 与超时不是「程序坏了」,杀进程只会让用户
-    // 「合一下盖软件全退了」。fail loud 照旧(响亮记账 + 崩溃文件留痕),但❌ 不再拿进程陪葬。
-    createLogger('process').error({ err }, '未捕获异常判为环境故障(网络/电源)— 已记账,进程继续')
-    return
-  }
-  createLogger('process').error({ err }, '未捕获异常 — 收引擎进程组后退出')
-  killEnginesOnCrash('uncaughtException')
-  process.exit(1) // fail loud:非零退出,别把崩溃咽下装没事
-})
+// @@@logging(#2382)- 就地升级成结构化,❌ 不另起一对处理器(那会让每次崩溃出现两行两套措辞)。
+process.on('uncaughtException', createFatalExit({
+  classify: classifyFatal,
+  record: (entry) => recordFatalSync({ dir: logDir, ...entry }),
+  logger: createLogger('process'),
+  reap: killEnginesOnCrash,
+  exit: (code) => process.exit(code),
+}))
 process.on('unhandledRejection', (reason) => {
   // 不退出(未必致命),仅让原本静默的 rejection 可见(fail loud);引擎清扫留给真正的致命/信号路径。
   // 落盘同样走 crash 文件:退出登录会重启进程,主日志会被下次启动轮转掉,而这些拒绝是排障的第一现场。
@@ -5897,7 +5844,8 @@ app.whenReady().then(async () => {
 
     // @@@2503 平台额度注入器(Chat UI / ACP 侧)—— pty 钩子的孪生。结构刻意与它一致:先按契约判这一格
     // 能不能注入,再决定复用还是重签。Claude 走会话 `_meta`;Codex/OpenCode 走会话私有适配器的 spawn env。
-    emdash.setEmdashPlatformInjector((info) => sessionpagePlatformHooks.acpInjector(info))
+    emdash.setEmdashPlatformInjector((info) => sessionpagePlatformHooks.acpInjector(info),
+      async (info) => (await sessionpagePlatformHooks.acpPlatformModel(info)).accessSessionId)
     // @@@2503 会话结束 / ACP 运行时消失 → 结清令牌并删掉那份带令牌的 0600 settings 文档。
     // conversationId 为 null = 运行时整个没了,把 Chat UI 这一批全结清(终端会话那批的进程还活着,
     // 一起撤会把它们打成每轮 401)。
@@ -6561,7 +6509,7 @@ app.whenReady().then(async () => {
   // server 的升级另有一套(后台下好、没有 agent 在跑时切换),❌ 走桌面这套弹界面的更新器。
   if (!SERVER_MODE) {
     purgeUpdaterCacheOnce()
-    startAutoUpdateChecks()
+    updateChecks.startAutomatic()
   }
 
   // @@@2503 同一条理由的孪生:上一轮被硬杀的进程会把带中转令牌的 `--settings` 覆盖文件留在 tmpdir。
@@ -6612,12 +6560,15 @@ app.whenReady().then(async () => {
     const activityStartedAt = Date.now()
     let activityStopped = false
     const reportActivity = (): void => {
-      if (activityStopped || signalStopping) return
-      if (isSingleServerRun() && ownsHomeLock(process.env.GUGU_SERVER_HOME!) === false) {
-        createLogger('server').error('Installation lock ownership was lost; stopping this server.')
-        killEnginesOnCrash('lock-lost')
-        process.exit(EXIT_CONFIG)
-      }
+      if (activityStopped || signalExit.stopping()) return
+      stopOnLostLock({
+        singleRun: isSingleServerRun,
+        ownsHomeLock: () => ownsHomeLock(process.env.GUGU_SERVER_HOME!),
+        logger: createLogger('server'),
+        reap: killEnginesOnCrash,
+        exit: (code) => process.exit(code),
+        exitCode: EXIT_CONFIG,
+      })
       const activity = loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
       try {
         writeFileSync(activityFile, JSON.stringify({
@@ -6643,7 +6594,7 @@ app.whenReady().then(async () => {
       unsubscribeActivity?.(); unsubscribeActivity = undefined
     }
     startServerActivity = () => {
-      if (signalStopping || activityTimer) return
+      if (signalExit.stopping() || activityTimer) return
       activityStopped = false
       unsubscribeActivity = loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
       activityTimer = setInterval(reportActivity, 10_000)

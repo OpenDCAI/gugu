@@ -10,7 +10,6 @@ vi.mock('@/components/assistant/assistant-panel-files', () => ({ ASSISTANT_PANEL
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: {} }))
 vi.mock('@renderer/lib/ipc', () => ({ rpc: {} }))
 vi.mock('@/session/renderer/features/assistant/assistant-home-sessions', () => ({ homeSessions: vi.fn() }))
-vi.mock('@/components/devices/AssistantDeviceConnectors', () => ({ ThisDeviceConnectors: () => null, OtherDeviceConnectors: () => null }))
 vi.mock('@/components/sessionpage/SessionSettingsSection', () => ({ SessionSettingsSection: () => null }))
 import { useAssistantMachine } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-data'
 import { ConnectorsSection } from '../../../../apps/desktop/src/components/settings/ConnectorsSection'

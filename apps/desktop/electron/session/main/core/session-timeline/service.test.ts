@@ -797,7 +797,7 @@ describe('session timeline service', () => {
     });
   });
 
-  // #980 打开会话不叫醒 agent,手机上也一样 —— 手机一打开会话就来读这一份(SessionOptionsPill)。
+  // #980 打开会话、读会话选项都不叫醒 agent。
   // 判据能判假:把 sessionOptions 里「没在跑就报记录那一档」那一支删掉,第一条用例红(走到唤醒)。
   it('#980 开起来过、此刻没在跑:读选项 ❌ 唤醒,报记录里那一档模型、附模型菜单', async () => {
     state.rows = [row()];

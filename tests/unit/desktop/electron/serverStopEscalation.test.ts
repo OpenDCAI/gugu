@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Module from 'node:module'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { until } from '../../../support/awaitCondition'
 
 const state = vi.hoisted(() => ({ alive: true, home: '', managed: false, account: false, stopSystemd: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/server/server-layout', async original => ({
@@ -60,12 +61,12 @@ it('the real stop command escalates a locked process from TERM to KILL and repor
   const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
   vi.useFakeTimers()
   await import('../../../../apps/desktop/electron/server-entry')
-  await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(123456, 'SIGTERM'), { timeout: 10_000 })
+  await until('TERM sent to the locked pid', () => kill.mock.calls.some(([pid, signal]) => pid === 123456 && signal === 'SIGTERM'))
   await vi.runAllTimersAsync()
   expect(kill).toHaveBeenCalledWith(123456, 'SIGTERM')
   expect(kill).toHaveBeenCalledWith(123456, 'SIGKILL')
   expect(stdout).toContain('KILL for pid 123456')
-  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+  await until('the CLI exits 0', () => exit.mock.calls.some(([code]) => code === 0))
   expect(exit).not.toHaveBeenCalledWith(1)
 })
 
@@ -92,9 +93,9 @@ async function cli(command: 'stop' | 'logout') {
 it('stops a systemd-managed server through its manager without sending KILL', async () => {
   state.managed = true
   const { kill, exit } = await cli('stop')
-  await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(123456, 0))
+  await until('the running pid is probed', () => kill.mock.calls.some(([pid, signal]) => pid === 123456 && signal === 0))
   await vi.runAllTimersAsync()
-  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+  await until('the CLI exits 0', () => exit.mock.calls.some(([code]) => code === 0))
   expect(state.stopSystemd).toHaveBeenCalledOnce()
   expect(kill).not.toHaveBeenCalledWith(123456, 'SIGTERM')
   expect(kill).not.toHaveBeenCalledWith(123456, 'SIGKILL')
@@ -102,16 +103,16 @@ it('stops a systemd-managed server through its manager without sending KILL', as
 it('logout returns only after the outgoing account process has exited', async () => {
   state.account = true
   const { kill, exit } = await cli('logout')
-  await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(123456, 'SIGTERM'))
+  await until('TERM sent to the account pid', () => kill.mock.calls.some(([pid, signal]) => pid === 123456 && signal === 'SIGTERM'))
   expect(exit).not.toHaveBeenCalled()
   state.alive = false
   await vi.runAllTimersAsync()
-  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+  await until('the CLI exits 0', () => exit.mock.calls.some(([code]) => code === 0))
 })
 it('logout reports failure if its bounded exit wait expires', async () => {
   state.account = true
   const { kill, exit } = await cli('logout')
-  await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(123456, 'SIGTERM'))
+  await until('TERM sent to the account pid', () => kill.mock.calls.some(([pid, signal]) => pid === 123456 && signal === 'SIGTERM'))
   await vi.runAllTimersAsync()
   expect(exit).toHaveBeenCalledWith(1)
   expect(exit).not.toHaveBeenCalledWith(0)

@@ -231,7 +231,7 @@
 
 /* @@@window-layer (#6699) — 标题栏行属于窗口外框,不是应用内容:铺满窗口的层一律铺在它下面
    (没有这一行的平台 --window-titlebar-height 是 0,几何不变)。咕咕自己的全窗口层挂 `.gg-window-layer`
-   (Sheet 原语、AgentPresetsPanel),几何只在这里定义;下面单列的是改不了 class 的第三方根。
+   (Sheet 原语、PhoneConfirmDialog),几何只在这里定义;下面单列的是改不了 class 的第三方根。
    ❌ 让层铺满整窗、靠 z 压在标题栏下面:这些层都退订了拖拽(window-no-drag-region),而 Electron 的拖拽区
    按文档顺序做矩形相减 —— 盒子一铺过标题栏行,就把行的拖拽区减掉,模态开着时窗口拖不动。
    `:root` 抬一级权重:.pswp 自带 `top:0; height:100%`,两份 CSS 在产物里谁先谁后不固定(见 imagePreview.css)。 */

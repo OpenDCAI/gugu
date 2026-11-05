@@ -70,6 +70,7 @@ export type EmdashPlatformRelease = (
 export type EmdashPlatformCheckpoint = (sessionId: string) => Promise<void>;
 
 let injector: EmdashPlatformInjector | null = null;
+let prepare: ((info: EmdashSessionStartInfo) => Promise<string | null>) | null = null;
 let release: EmdashPlatformRelease | null = null;
 let checkpoint: EmdashPlatformCheckpoint | null = null;
 const restartContext = new AsyncLocalStorage<{ sessionId: string; active: boolean }>();
@@ -104,8 +105,14 @@ export function emdashPlatformReleaseIntent(
   return 'end';
 }
 
-export function setEmdashPlatformInjector(fn: EmdashPlatformInjector | null): void {
+export function setEmdashPlatformInjector(fn: EmdashPlatformInjector | null, prepareSession?: (info: EmdashSessionStartInfo) => Promise<string | null>): void {
   injector = fn;
+  prepare = prepareSession ?? null;
+}
+
+/** Identity is already bound; start the same platform operation before workspace/capability work. */
+export function prepareEmdashPlatformSession(info: EmdashSessionStartInfo): Promise<string | null> {
+  return prepare?.(info) ?? Promise.resolve(null);
 }
 
 export function getEmdashPlatformInjector(): EmdashPlatformInjector | null {

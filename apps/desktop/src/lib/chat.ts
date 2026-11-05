@@ -1,3 +1,5 @@
+import { ingestMessages } from './messageIngest'
+import { ingestFetchedMessagePage } from './chatMessagePages'
 import { dbPayload } from '@gugu/core/cloud/supabase'
 import { createGroupWithInvitations } from '@gugu/core/cloud/groupChat'
 import {
@@ -63,7 +65,6 @@ import type {
   NotificationLevel
 } from '@gugu/core/shared/types/chat'
 import {
-  applyMessageOverlays,
   loadMessageOverlays,
   revalidateMessageWindow,
   type MessageOverlay,
@@ -325,15 +326,7 @@ export const chatService = {
     const { data: msgs, error } = await query.order('seq', { ascending }).limit(limit)
     if (error) throw new Error(error.message)
 
-    if (!msgs?.length) return []
-
-    // messageItemFromRow is the shared mapping. Descending pages (initial/older) reverse to
-    // chronological; ascending newer pages are already chronological. The window owner publishes
-    // these bodies before its bounded overlay revalidation completes.
-    const items = (msgs as RawMessageRow[])
-      .map((row) => messageItemFromRow(row, userId))
-      .filter((m): m is MessageItem => m !== null)
-    return ascending ? items : items.reverse()
+    return ingestFetchedMessagePage((msgs ?? []) as RawMessageRow[], userId, { chatId, limit, beforeSeq, afterSeq })
   },
 
   /** @@@threads (#957/#2525) — 群话题 root + 回复，按 seq 正序；主线已过滤回复。 */
@@ -360,11 +353,7 @@ export const chatService = {
       .limit(limit)
     if (error) throw new Error(error.message)
     if (!msgs?.length) return []
-    const items = (msgs as RawMessageRow[])
-      .map((row) => messageItemFromRow(row, userId))
-      .filter((m): m is MessageItem => m !== null)
-    // 降序取最近 limit 条后翻回时间正序(与 getMessages initial 页一致)。
-    return applyMessageOverlays(items.reverse(), userId)
+    return ingestFetchedMessagePage(msgs as RawMessageRow[], userId, { chatId, limit, threadRootId: rootId })
   },
 
   /** @@@threads (#1196 Q2/#2525) — 幂等标记群话题 root；私聊由服务边界拒绝。 */
@@ -514,7 +503,9 @@ export const chatService = {
 
     if (error) throw new Error(error.message)
     if (!msg) return null
-    return messageItemFromRow(msg as RawMessageRow, userId)
+    const item = messageItemFromRow(msg as RawMessageRow, userId)
+    if (item) await ingestMessages(userId, { writes: [{ type: 'put', message: item }], revisions: [] })
+    return item
   },
 
   markUnread: markMemberUnread,
