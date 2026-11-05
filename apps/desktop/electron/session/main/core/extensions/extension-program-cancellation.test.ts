@@ -6,6 +6,9 @@ import { createCachedFileSink, type FileChunkCache } from '@gugu/core/shared/fil
 import { createFileResolver, type FileRevision } from '@gugu/core/shared/fileResolver';
 import { setCoreLoggerFactory } from '../../../../../../../packages/core/src/log';
 import type { FilesPlatform } from '@shared/extensions/app-files-core';
+import { until } from '../../../../../../../tests/support/awaitCondition';
+// vi.waitFor gives up after 1 s by default: under a loaded full run the dispatch below takes longer and the case
+// went red (and its late call leaked into the next case). Wait for the fact itself; see tests/support/awaitCondition.ts.
 
 const ITEM = '44444444-4444-4444-8444-444444444444';
 const CHAT = '33333333-3333-4333-8333-333333333333';
@@ -79,9 +82,11 @@ describe('R3 program lifetime reaches the existing byte recovery', () => {
     const release = surface.hand('call-1', 'agent', [{ itemId: ITEM, chatId: CHAT, agentUserId: 'agent' }]);
     try {
       child.emit('message', { m: APP_FRAME_MARKER, t: 'call', id: 43, call: 'call-1', method: 'filesOpen', args: { ref: { id: ITEM } } });
-      await vi.waitFor(() => expect(child.send).toHaveBeenCalledWith(expect.objectContaining({ t: 'result', id: 43, ok: true })));
+      await until(`result 43 is sent`, () => child.send.mock.calls.some(([frame]) => frame?.t === 'result' && frame.id === 43));
+      expect(child.send).toHaveBeenCalledWith(expect.objectContaining({ t: 'result', id: 43, ok: true }));
       child.emit('message', { m: APP_FRAME_MARKER, t: 'call', id: 44, call: 'call-1', method: 'filesRead', args: { ref: { id: ITEM, version: 1 }, offset: 0, length: 1 } });
-      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+      await until('the byte fetch starts', () => fetcher.mock.calls.length > 0);
+      expect(fetcher).toHaveBeenCalledTimes(1);
       await release();
       const warningCount = warnings.length;
       await vi.advanceTimersByTimeAsync(1_000);

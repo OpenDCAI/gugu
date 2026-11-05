@@ -3,6 +3,9 @@ import type { ChildProcess } from 'node:child_process';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileHandle } from '@gugu/core/shared/fileResolver';
 import type { FilesPlatform } from '@shared/extensions/app-files-core';
+import { until } from '../../../../../../../tests/support/awaitCondition';
+// vi.waitFor gives up after 1 s by default: under a loaded full run the dispatch below takes longer and the case
+// went red (and its late call leaked into the next case). Wait for the fact itself; see tests/support/awaitCondition.ts.
 
 const ITEM = '44444444-4444-4444-8444-444444444444';
 const CHAT = '33333333-3333-4333-8333-333333333333';
@@ -85,13 +88,14 @@ describe('resource lookup preserves a dispatched program call', () => {
       args: { ref: { id: ITEM, chat: CHAT }, name: 'after.bin' },
     });
     const answer = async (id: number) => {
-      await vi.waitFor(() => expect(child.send).toHaveBeenCalledWith(expect.objectContaining({ t: 'result', id })));
+      await until(`result ${id} is sent`, () => child.send.mock.calls.some(([frame]) => frame?.t === 'result' && frame.id === id));
       return child.send.mock.calls.map(([frame]) => frame).find(frame => frame.id === id);
     };
     const mutations = () => rpc.mock.calls.filter(([name]) => name === 'workspace_move_as');
     try {
       emit(61, state === 'unscoped' ? undefined : 'agent-a');
-      await vi.waitFor(() => expect(rpc).toHaveBeenCalledWith('chat_facts', { p_chat_id: CHAT, p_as_user_id: state === 'unscoped' ? 'owner' : agent }));
+      await until('the chat lookup is dispatched', () => rpc.mock.calls.some(([name]) => name === 'chat_facts'));
+      expect(rpc).toHaveBeenCalledWith('chat_facts', { p_chat_id: CHAT, p_as_user_id: state === 'unscoped' ? 'owner' : agent });
       expect(mutations()).toEqual([]);
       if (state !== 'active') await releaseA();
       lookup.resolve(chat);
@@ -137,12 +141,13 @@ describe('resource lookup preserves a dispatched program call', () => {
       args: { ref: { id: ITEM, chat: CHAT, version: 1 }, offset: 0, length: 2 },
     });
     const answer = async (id: number) => {
-      await vi.waitFor(() => expect(child.send).toHaveBeenCalledWith(expect.objectContaining({ t: 'result', id })));
+      await until(`result ${id} is sent`, () => child.send.mock.calls.some(([frame]) => frame?.t === 'result' && frame.id === id));
       return child.send.mock.calls.map(([frame]) => frame).find(frame => frame.id === id);
     };
     try {
       emit(51, state === 'unscoped' ? undefined : 'person-a');
-      await vi.waitFor(() => expect(rpc).toHaveBeenCalledWith('chat_facts', { p_chat_id: CHAT, p_as_user_id: 'owner' }));
+      await until('the chat lookup is dispatched', () => rpc.mock.calls.some(([name]) => name === 'chat_facts'));
+      expect(rpc).toHaveBeenCalledWith('chat_facts', { p_chat_id: CHAT, p_as_user_id: 'owner' });
       expect(heldFiles.readHandleCount()).toBe(0);
       expect(resolve).not.toHaveBeenCalled(); expect(byteRead).not.toHaveBeenCalled();
       if (state !== 'active') await releaseA();
