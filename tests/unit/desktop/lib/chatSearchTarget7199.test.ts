@@ -29,6 +29,14 @@ describe('search across two visible chats', () => {
     expect(isChatSearchTarget(left, 'left', message)).toBe(false)
     expect(isChatSearchTarget(right, 'right', message)).toBe(true)
   })
+  it('a result row of a panel that has since closed is no focus: the chat on screen is the target again', () => {
+    const dialog = document.createElement('div'); dialog.setAttribute('role', 'dialog')
+    const row = document.createElement('button'); dialog.append(row); document.body.append(dialog)
+    shown.id = 'task'
+    expect(isChatSearchTarget(null, 'task', row)).toBe(false)
+    dialog.remove()
+    expect(isChatSearchTarget(null, 'task', row)).toBe(true)
+  })
   it('does not search the chat behind an open settings dialog', () => {
     const dialog = document.createElement('div'); dialog.setAttribute('role', 'dialog')
     const input = document.createElement('input'); dialog.append(input); document.body.append(dialog)

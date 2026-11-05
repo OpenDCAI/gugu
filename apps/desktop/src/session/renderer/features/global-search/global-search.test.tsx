@@ -11,7 +11,7 @@ import { takeTaskReveal } from '@/hooks/useSourceMessageReveal'
 import type { TaskTurnHit } from '@shared/core/search'
 import { GlobalSearch } from './global-search'
 import { messageKinds } from './use-global-search'
-import { resetSearchSession, updateSearchSession } from './search-session'
+import { resetSearchSession, updateSearchSession, useSearchSession, type SearchSession } from './search-session'
 import { installIdentityDirectoryBridge, publishIdentityDirectory } from '@/lib/identityDirectoryBridge'
 import { publishSelfIdentity } from '@/lib/selfIdentityBridge'
 import { dicebearAvatarDataUri } from '@/lib/dicebearAvatar'
@@ -87,7 +87,7 @@ afterEach(async () => {
 const settle = async () => { for (let round = 0; round < 3; round++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)) }) }
 async function render(text: string, tasks = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  await act(async () => root.render(<QueryClientProvider client={client}><GlobalSearch tasks={tasks} onClose={() => {}} onOpen={() => { closed++ }} /></QueryClientProvider>))
+  await act(async () => root.render(<QueryClientProvider client={client}><GlobalSearch tasks={tasks} onClose={() => {}} onOpen={() => { closed++ }} /><SessionProbe /></QueryClientProvider>))
   await act(async () => updateSearchSession({ text }))
   await settle()
 }
@@ -97,6 +97,9 @@ const setDate = (input: HTMLInputElement, value: string) => {
   input.dispatchEvent(new Event('input', { bubbles: true }))
   input.dispatchEvent(new Event('change', { bubbles: true }))
 }
+let latestSession: SearchSession | null = null
+function SessionProbe() { latestSession = useSearchSession(); return null }
+const sessionSnapshot = () => latestSession
 const options = () => [...host.querySelectorAll<HTMLElement>('[role=option]')]
 const headers = () => [...host.querySelectorAll<HTMLElement>('[role=listbox] > button:not([role=option])')].map((button) => button.textContent)
 const tab = (key: string) => [...host.querySelectorAll<HTMLElement>('[role=tab]')].find((button) => button.textContent!.startsWith(key))!
@@ -354,10 +357,12 @@ describe('global search panel', () => {
     expect(closed).toBe(0)
   })
 
-  it('opening a message hit remembers the words for this conversation', async () => {
+  it('opening a message hit starts the trail over the message hits and remembers the words for this conversation', async () => {
     await act(async () => updateSearchSession({ chips: [{ kind: 'in', chatId: GROUP }] }))
     await render('回滚')
     await act(async () => options()[1]!.click())
+    const { trail } = JSON.parse(JSON.stringify(sessionSnapshot()))
+    expect(trail).toEqual({ hits: [{ chatId: GROUP, messageId: NEW }, { chatId: OTHER, messageId: OLD }], index: 1, query: '回滚' })
     expect(remote.opened).toEqual([conversationLink(OTHER, OLD)])
     await act(async () => updateSearchSession({ text: '' }))
     await settle()

@@ -816,6 +816,7 @@ export default {
     "widget": "[Widget]",
     "widgetUnavailable": { "missing": "尚未安装 App。", "disabled": "App 已关闭。", "view": "此 App 视图不可用。", "platform": "此设备无法运行此 App。" }
   },
+  "searchTrail": {"position": "「{{query}}」第 {{index}}/{{total}} 条", "positionNoWords": "第 {{index}}/{{total}} 条", "previous": "上一条", "next": "下一条 (⌘G)", "results": "结果", "close": "退出搜索"},
   "outbox": {
     "selectFileAgain": "上传已中断，请重新选择文件。",
     "sourceNotSent": "原消息尚未送达，请先重试原消息再转发。",

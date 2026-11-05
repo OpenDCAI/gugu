@@ -101,7 +101,11 @@ export function GlobalSearch({ tasks, onClose, onOpen }: { tasks: boolean; onClo
   useEffect(() => { listRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [selected?.id])
 
   const open = (hit: SearchHit) => {
-    if (hit.kind === 'message' && inChat && view.query) rememberSearch(inChat, view.query)
+    if (hit.kind === 'message') {
+      const hits = ordered.flatMap((one) => one.kind === 'message' ? [{ chatId: one.chatId, messageId: one.messageId }] : [])
+      updateSearchSession({ selectedId: hit.id, trail: { hits, index: hits.findIndex((one) => one.messageId === hit.messageId), query: view.query } })
+      if (inChat && view.query) rememberSearch(inChat, view.query)
+    }
     onOpen(); openHit(hit)
   }
   const addKind = (type: SearchKind) => { if (!chips.some((chip) => chip.kind === 'type' && chip.type === type)) setChips([...chips, { kind: 'type', type }]) }

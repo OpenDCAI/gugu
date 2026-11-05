@@ -11,6 +11,14 @@ export type SearchChip =
   | { kind: 'from'; userId: string; name: string }
   | { kind: 'type'; type: SearchKind }
 
+/** The message hits a search opened from, in the panel's order: the bar over the chat steps through them (1/N, ⌘G). */
+export interface SearchTrail {
+  hits: { chatId: string; messageId: string }[]
+  index: number
+  /** The searched words, painted on the message the trail lands on. */
+  query: string
+}
+
 /** The filter row: everything, chat messages, task content, or files sent in chats. */
 export type SearchFacet = 'all' | 'message' | 'task' | 'file'
 
@@ -20,9 +28,11 @@ export interface SearchSession {
   facet: SearchFacet
   /** The highlighted result (null: the first one). */
   selectedId: string | null
+  /** Set when a message hit was opened; kept while the panel is reopened with 「结果」, dropped by a new search. */
+  trail: SearchTrail | null
 }
 
-const EMPTY: SearchSession = { text: '', chips: [], facet: 'all', selectedId: null }
+const EMPTY: SearchSession = { text: '', chips: [], facet: 'all', selectedId: null, trail: null }
 let session = EMPTY
 const listeners = new Set<() => void>()
 
@@ -48,6 +58,11 @@ export function resetSearchSession(options: { text?: string; chips?: SearchChip[
  */
 export function openGlobalSearch(options: { text?: string; chips?: SearchChip[] } = {}): void {
   resetSearchSession(options)
+  if (!commandRegistry.dispatch('app.globalSearch')) throw new Error('No global search panel is mounted')
+}
+
+/** 「结果」 on the trail bar, and Mod+Shift+F: the panel as it was left, query, scope and selection kept. */
+export function reopenGlobalSearch(): void {
   if (!commandRegistry.dispatch('app.globalSearch')) throw new Error('No global search panel is mounted')
 }
 

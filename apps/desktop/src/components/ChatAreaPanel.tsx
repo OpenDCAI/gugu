@@ -74,6 +74,7 @@ import { useMessageSelectMode } from './chat/useMessageSelectMode'
 import { IconButton } from './ui/IconButton'
 import { ChatTailNotice } from './chat/ChatTailNotice'
 import { useChatSearch } from './chat/useChatSearch'
+import { SearchTrailBar } from './chat/SearchTrailBar'
 import { searchInChat } from '@renderer/features/global-search/search-session'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
@@ -706,6 +707,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         )}
         actions={headerActions}
       />}{isGroupChat ? <PinnedTopicTabs chatId={activeChat.id} topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} mobile={mobile} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : mobile && !chrome && !blockHost ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null}
+      <SearchTrailBar chatId={activeChatId} surface={surfaceElement} enabled={surfaceVisible} />
 
       <div
         style={{

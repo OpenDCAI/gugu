@@ -47,6 +47,7 @@ import { ChatTailNotice } from './ChatTailNotice'
 import { MessageLoadFailure } from './MessageLoadFailure'
 import { MessageListSkeleton } from './MessageListSkeleton'
 import { useChatSearch } from './useChatSearch'
+import { SearchTrailBar } from './SearchTrailBar'
 import { useChatStore } from '../../store/chatContext'
 import { topicClashNames, NO_CLASH_NAMES } from '../../lib/chatClashNames'
 import { ChatClashNames } from './ChatClashNames'
@@ -371,6 +372,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         </div>
         )}
 
+        <SearchTrailBar chatId={topic.chatId} surface={paneRef} enabled={visible !== false} />
         <div
           data-testid="topic-split-messages"
           style={TOPIC_SPLIT_MESSAGES_STYLE}
