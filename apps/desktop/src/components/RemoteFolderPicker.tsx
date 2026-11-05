@@ -211,14 +211,18 @@ export function RemoteFolderPicker({ deviceId, initialPath = '~', onSelect, onCa
   )
   useEffect(() => { setHighlight(-1) }, [pathDraft])
 
+  const selectPathOnMount = useRef(false)
+  const mountPathInput = useCallback((input: HTMLInputElement | null) => {
+    pathInputRef.current = input
+    if (!input) return
+    // Transfer focus in the same commit that removes the focused breadcrumb button.
+    // Deferring this to a frame lets the dialog schedule its own lost-focus restoration.
+    input.focus()
+    if (selectPathOnMount.current) input.select()
+  }, [])
   const startEditingPath = useCallback((initial?: string) => {
+    selectPathOnMount.current = initial === undefined
     setPathDraft(initial ?? listing?.path ?? initialPath)
-    requestAnimationFrame(() => {
-      const input = pathInputRef.current
-      if (!input) return
-      input.focus()
-      if (initial === undefined) input.select()
-    })
   }, [initialPath, listing])
   const acceptSuggestion = useCallback((entry: DeviceFsEntry) => {
     if (!draftSplit) return
@@ -342,10 +346,11 @@ export function RemoteFolderPicker({ deviceId, initialPath = '~', onSelect, onCa
         </IconButton>
         {pathDraft !== null ? (
           <input
-            ref={pathInputRef}
+            ref={mountPathInput}
             value={pathDraft}
             onChange={(event) => setPathDraft(event.target.value)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return
               if (event.key === 'Enter') {
                 event.preventDefault()
                 event.stopPropagation()
