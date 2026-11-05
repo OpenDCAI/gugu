@@ -569,6 +569,65 @@ describe('session timeline service', () => {
     expect(state.storedHistory).toHaveBeenCalledTimes(4);
   });
 
+  it.each([
+    ['cancellation', { kind: 'cancelled', reason: 'cancelled' }],
+    ['message interruption', { kind: 'cancelled', reason: 'interrupted_for_message' }],
+    ['process interruption', { kind: 'error', reason: 'process_closed', detail: 'Adapter exited with SIGTERM' }],
+  ] as const)('#1477 previews the latest committed %s even when the provider record ends at an older failure', async (_label, outcome) => {
+    const { readSessionPreview } = await import('./preview-rpc');
+    state.rows = [row({ runtime: 'acp' })];
+    const recorded = { id: 'old', seq: 0, initiator: 'user' as const,
+      items: [{ kind: 'message' as const, id: 'old:input', seq: 0, role: 'user' as const, text: '<gugu_delivery route="chat" msg="msg:old"><![CDATA[old]]></gugu_delivery>' }],
+      outcome: { kind: 'error' as const, reason: 'prompt_failed' as const } };
+    const cancelled = { ...recorded, id: 'conv-1:turn:s9', seq: 9,
+      items: [{ ...recorded.items[0]!, id: 'conv-1:turn:s9:input', text: '<gugu_delivery route="chat" msg="msg:new"><![CDATA[new]]></gugu_delivery>' }],
+      outcome };
+    const fake = makeTimeline();
+    const snapshot = fake.timeline.getSnapshot();
+    fake.timeline.getSnapshot = () => ({ ...snapshot, turns: [recorded] });
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    state.storedHistory.mockResolvedValue({ turns: [cancelled], originTurnIds: ['live:cancelled'], nextCursor: null });
+    state.nativeUnread = ['conv-1:turn:s0:message:auto:assistant:0'];
+    state.pendingWatchAvailable = false;
+
+    for (let read = 0; read < 2; read++) {
+      expect(await readSessionPreview('conv-1')).toMatchObject({ ok: true, value: {
+        running: false, ended: cancelled.outcome, entries: [{ kind: 'prompt', messageId: 'msg:new' }],
+      } });
+    }
+    expect(state.storedHistory).toHaveBeenCalledWith({ sessionId: 'conv-1', before: undefined, limit: 4 });
+    expect(state.wake).not.toHaveBeenCalled();
+  });
+
+  it('#1477 replaces an older failure with a newly committed successful turn without waiting for the provider file', async () => {
+    const { readSessionPreview } = await import('./preview-rpc');
+    state.rows = [row({ runtime: 'acp' })];
+    state.pendingWatchAvailable = false;
+    const old = { id: 'old', seq: 0, initiator: 'user' as const,
+      items: [{ kind: 'message' as const, id: 'old:input', seq: 0, role: 'user' as const,
+        text: '<gugu_delivery route="chat" msg="msg:old"><![CDATA[old]]></gugu_delivery>' }],
+      outcome: { kind: 'error' as const, reason: 'prompt_failed' as const } };
+    const latest = { id: 'conv-1:turn:s9', seq: 9, initiator: 'user' as const,
+      items: [{ kind: 'message' as const, id: 'new:input', seq: 0, role: 'user' as const,
+        text: '<gugu_delivery route="chat" msg="msg:new"><![CDATA[new]]></gugu_delivery>' },
+      { kind: 'message' as const, id: 'new:reply', seq: 1, role: 'assistant' as const, text: 'New committed reply' }],
+      outcome: { kind: 'done' as const, reason: 'end_turn' as const } };
+    const fake = makeTimeline();
+    const snapshot = fake.timeline.getSnapshot();
+    fake.timeline.getSnapshot = () => ({ ...snapshot, turns: [old] });
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    state.storedHistory.mockResolvedValue({ turns: [old], originTurnIds: ['live:old'], nextCursor: null });
+    expect(await readSessionPreview('conv-1')).toMatchObject({ ok: true, value: { ended: old.outcome } });
+
+    state.storedHistory.mockResolvedValue({ turns: [old, latest], originTurnIds: ['live:old', 'live:new'], nextCursor: null });
+    expect(await readSessionPreview('conv-1')).toMatchObject({ ok: true, value: {
+      running: false, ended: latest.outcome, entries: [
+        { kind: 'prompt', messageId: 'msg:old' }, { kind: 'prompt', messageId: 'msg:new' }, { kind: 'text', text: 'New committed reply' },
+      ],
+    } });
+    expect(state.wake).not.toHaveBeenCalled();
+  });
+
   it('listSessions 按 projects 分组，supported 如实', async () => {
     state.rows = [
       row(),
