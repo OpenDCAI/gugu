@@ -1,0 +1,58 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 28d0aad4b3ad90d3074fea0955334677b15294ac..4a9fe582cb2b1b5d3f58e4b67c45694144f44dc5 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -1190,6 +1190,24 @@ const completionPlugin = view.ViewPlugin.fromClass(class {
+                     this.composing = 3 /* CompositionState.ChangedAndMoved */;
+             }
+     }
++    destroy() {
++        // The view may live on with a state that has no completion field (view.setState):
++        // nothing scheduled by this instance may run after it is gone.
++        clearTimeout(this.debounceUpdate);
++        clearTimeout(this.debounceAccept);
++        for (let query of this.running) {
++            for (let handler of query.context.abortListeners) {
++                try {
++                    handler();
++                }
++                catch (e) {
++                    logException(this.view.state, e);
++                }
++            }
++            query.context.abortListeners = null;
++        }
++        this.running = [];
++    }
+     startUpdate() {
+         this.debounceUpdate = -1;
+         this.pendingStart = false;
+diff --git a/dist/index.js b/dist/index.js
+index 4810a1e5077e38fc049ab44d10cb79dae5fab736..9450d4b110fcd596af8b71536de1af22e8720181 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1188,6 +1188,24 @@ const completionPlugin = /*@__PURE__*/ViewPlugin.fromClass(class {
+                     this.composing = 3 /* CompositionState.ChangedAndMoved */;
+             }
+     }
++    destroy() {
++        // The view may live on with a state that has no completion field (view.setState):
++        // nothing scheduled by this instance may run after it is gone.
++        clearTimeout(this.debounceUpdate);
++        clearTimeout(this.debounceAccept);
++        for (let query of this.running) {
++            for (let handler of query.context.abortListeners) {
++                try {
++                    handler();
++                }
++                catch (e) {
++                    logException(this.view.state, e);
++                }
++            }
++            query.context.abortListeners = null;
++        }
++        this.running = [];
++    }
+     startUpdate() {
+         this.debounceUpdate = -1;
+         this.pendingStart = false;
