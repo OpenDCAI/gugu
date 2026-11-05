@@ -92,9 +92,12 @@ it.each([
     first = publish(newerFirst ? newer : tuple(), 1).then(() => { settled.push('first') })
     second = publish(newerFirst ? tuple() : newer, 2).then(() => { settled.push('second') })
   })
-  if (reversed) { await bounded(second); gate.resolve() }
-  await bounded(Promise.all([first, second]))
-  await act(async () => { await Promise.resolve() })
+  // Both publications commit rows outside the act above; settle them inside act so React
+  // commits those rows before the assertion instead of whenever its scheduler gets a slice.
+  await act(async () => {
+    if (reversed) { await bounded(second); gate.resolve() }
+    await bounded(Promise.all([first, second]))
+  })
   expect(settled).toEqual(reversed ? ['second', 'first'] : ['first', 'second'])
   expect(shown[0]).toMatchObject({ read_state_version: 11, last_read_seq: 5, unread_count: 1, unread_locator: newer.unread_locator })
 })

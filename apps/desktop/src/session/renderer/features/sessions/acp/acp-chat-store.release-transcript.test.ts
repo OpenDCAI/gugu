@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { ChatView } from '@renderer/lib/chat/chat-transcript';
+import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 
@@ -17,22 +18,10 @@ type StoredPage = { turns: TranscriptTurn[]; originTurnIds: string[]; nextCursor
 let storedPage: StoredPage | null = null;
 let storedReads = 0;
 
-Object.defineProperty(document, 'fonts', {
-  configurable: true,
-  value: { load: vi.fn().mockResolvedValue([]) },
-});
-Object.defineProperty(window, 'electronAPI', {
-  configurable: true,
-  value: {
-    invoke: (channel: string) => {
-      if (channel !== 'sessions.getStoredHistory') return Promise.resolve([]);
-      storedReads += 1;
-      return Promise.resolve(storedPage);
-    },
-    eventSend: () => {},
-    eventOn: () => () => {},
-    getPathForFile: () => '',
-  },
+installAcpChatStoreHost((channel: string) => {
+  if (channel !== 'sessions.getStoredHistory') return Promise.resolve([]);
+  storedReads += 1;
+  return Promise.resolve(storedPage);
 });
 const { AcpChatStore } = await import('./acp-chat-store');
 const { KEPT_HIDDEN_TRANSCRIPTS, forgetTranscriptShown, noteTranscriptShown } = await import(

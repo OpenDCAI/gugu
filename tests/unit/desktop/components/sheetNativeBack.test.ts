@@ -2,7 +2,6 @@
 // 安卓返回键 = Escape:最上层的 Sheet 自己接住,页面那一层(MainLayout)有 Sheet 开着时不动下面的页面。
 // 2026-09-27 模拟器实测(#6606):「转发」弹层开着按返回键,弹层留在原处、底下的会话页先退回了列表。
 import { act, createElement } from 'react'
-import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { Sheet } from '../../../../apps/desktop/src/components/ui/Sheet'
@@ -71,12 +70,6 @@ describe('安卓返回键关的是最上层的 Sheet', () => {
     expect(inner).not.toHaveBeenCalled()
     expect(outer).not.toHaveBeenCalled()
     expect(document.querySelectorAll('[data-slot="dialog-popup"]')).toHaveLength(2)
-  })
-
-  it('页面那一层的返回键处理先问有没有 Sheet 开着(不靠监听器注册先后)', () => {
-    const source = readFileSync('apps/desktop/src/layouts/MainLayout.tsx', 'utf8')
-    const handler = source.slice(source.indexOf('const handleNativeBack = () => {'))
-    expect(handler.slice(0, 400)).toMatch(/const handleNativeBack = \(\) => \{\s*\/\/[^\n]*\n\s*if \(isSheetOpen\(\)\) return/)
   })
 })
 

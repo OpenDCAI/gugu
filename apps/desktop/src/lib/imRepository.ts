@@ -13,6 +13,8 @@ import { recordImTransaction } from './perfCounters'
 import { assertIdentityClosure } from './identityClosure'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { rendererLogger } from './log'
+import { initializeMessages, ingestMessages } from './messageIngest'
+import { platform } from '../platform'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import { MAX_WINDOW } from '../store/chatMessageWindow'
 import {
@@ -177,6 +179,7 @@ export async function openImRepository(
   assertId(accountId, 'accountId')
   const adapter = options.adapter ?? await openLocalSyncDb()
   try {
+    await initializeMessages(accountId, adapter)
     if (!options.initialize) {
       if (options.storage !== undefined) await migrateLegacyChatList(adapter, accountId, options.storage)
       else if (typeof window !== 'undefined') await migrateLegacyChatList(adapter, accountId)
@@ -381,19 +384,22 @@ export interface CachedMessageWindow {
 }
 
 /**
- * Called inside the revision inbox/cursor transaction. The per-message version row doubles as the
- * notification claim: only the first commit that creates it wins. The repository serializes
+ * Called inside the revision inbox/cursor transaction. On the phone the per-message version row doubles as the
+ * notification claim: only the first commit that creates it wins. Desktop keeps no such row (@@@arrival-claim). The repository serializes
  * transactions and desktop runs one repository per account, so read-then-write here is atomic.
  */
 export function ingestAccountMessage(repository: AccountImRepository, transaction: ImRepositoryTransaction,
-  message: MessageItem, revision: string): { won: boolean } {
+  message: MessageItem, revision: string, arrived?: ReadonlySet<string>): { won: boolean } {
+  // Desktop: the body is already in the local message store; whether this page stored it is the claim (@@@arrival-claim).
+  // A recovered body (no page) was fetched and stored once by its own recovery.
+  if (platform.localMessages === 'sqlite') return { won: arrived?.has(message.id) ?? true }
   const snapshot = repository.snapshot()
   const versionKey = `message-revision:${message.id}`
   const version = transaction.readView(versionKey) as { revision: string; deleted?: boolean } | undefined
   if (version && (version.deleted || BigInt(version.revision) >= BigInt(revision))) return { won: false }
+  transaction.putView(versionKey, { revision })
   const previous = snapshot.message.find(row => row.id === message.id && row.streamId === messageStreamId(message))?.value
   transaction.putMessage(mergeMessagesById(previous ? [previous] : [], [message], message.chat_id)[0]!)
-  transaction.putView(versionKey, { revision })
   if (!message.thread_root_id) {
     const key = `message-window:${message.chat_id}`
     const cursor = imSelectors.view(key)(snapshot) as Omit<CachedMessageWindow, 'messages'> | undefined
@@ -405,6 +411,13 @@ export function ingestAccountMessage(repository: AccountImRepository, transactio
   return { won: !version }
 }
 
+/** Deletion from the account feed. Desktop's local message store already holds the row removal and its tombstone. */
+export function recordMessageDeletion(transaction: ImRepositoryTransaction, accountId: string, chatId: string | null, id: string, revision: string): void {
+  if (platform.localMessages === 'sqlite') return
+  transaction.delete('message', [accountId, id])
+  transaction.putView(`message-revision:${id}`, { revision, deleted: true, chatId })
+}
+
 export async function replaceMessageWindow(
   repository: AccountImRepository,
   chatId: string,
@@ -413,6 +426,7 @@ export async function replaceMessageWindow(
   /** null is a local write-through, not proof that a sparse tail was fetched. */
   verifiedTailSeq?: number | null,
 ): Promise<void> {
+  if (platform.localMessages === 'sqlite') return // Desktop windows are read from the session SQLite store.
   await repository.transaction((transaction) => {
     // Account arrivals (message-revision rows): a late older window must neither drop nor revive them.
     const arrivals = new Map(repository.snapshot().view.filter(row => row.key.startsWith('message-revision:'))
@@ -573,9 +587,10 @@ export async function ackOutboxRecord(
   message: MessageItem,
 ): Promise<void> {
   if (message.id !== clientMessageId) throw new Error(`outbox ack id mismatch: ${clientMessageId} != ${message.id}`)
+  await ingestMessages(repository.accountId, { writes: [{ type: 'put', message }], revisions: [] })
   // applyOperations re-derives the cached window bounds from the committed main stream.
   await repository.transaction((transaction) => {
-    transaction.putMessage(message)
+    if (platform.localMessages !== 'sqlite') transaction.putMessage(message)
     transaction.delete('outbox', [repository.accountId, clientMessageId])
   })
 }

@@ -11,6 +11,11 @@ import { chat, clickElement, createNode, createReactHarness, renderWithAppProvid
 
 vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
 
+// jsdom has no layout: give the document (the sidebar list's scroller here) a window's height, so the sidebar's
+// virtualized conversation lines (@@@sidebar-chat-window) mount the lines that would fit, as on screen.
+beforeEach(() => {
+  for (const [key, value] of [['offsetHeight', 900], ['offsetWidth', 1024]] as const) Object.defineProperty(document.documentElement, key, { configurable: true, get: () => value })
+})
 let harness: ReturnType<typeof createReactHarness>
 const openChat = vi.fn()
 beforeEach(() => {

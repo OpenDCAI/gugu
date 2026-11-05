@@ -1,13 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
+import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 const read = vi.fn();
-Object.defineProperty(document, 'fonts', { configurable: true, value: { load: vi.fn().mockResolvedValue([]) } });
-Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
-  invoke: (channel: string, input: unknown) => channel === 'sessions.getStoredHistory' ? read(input) : Promise.resolve([]),
-  eventSend: () => {}, eventOn: () => () => {}, getPathForFile: () => '',
-} });
+installAcpChatStoreHost((channel: string, input: unknown) => channel === 'sessions.getStoredHistory' ? read(input) : Promise.resolve([]));
 const { AcpChatStore } = await import('./acp-chat-store');
 const runtime: TranscriptTurn = { id: 'runtime', seq: 0, initiator: 'user', startedAt: 100, items: [
   { kind: 'message', id: 'input', seq: 0, role: 'user', text: 'Work', at: 100 },

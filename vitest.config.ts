@@ -36,21 +36,22 @@ import { LAZY_LANG_MODULES } from './packages/session-chat-ui/src/core/highlight
 // ❌ 别用 CLI `--maxWorkers` 去调:各 project `extends: true` 继承了根上的 maxWorkers,而 vitest 按
 //    project.config.maxWorkers 优先解析,CLI 值被静默忽略(实测 worker 进程数不变)。
 
-function shardTotal(argv: readonly string[]): number {
+function shardOf(argv: readonly string[]): { index: number; total: number } {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     const value = arg === '--shard' ? argv[i + 1] : arg.startsWith('--shard=') ? arg.slice(8) : undefined
-    const total = Number(value?.split('/')[1])
-    if (Number.isInteger(total) && total >= 1) return total
+    const [index, total] = (value?.split('/') ?? []).map(Number)
+    if (Number.isInteger(index) && Number.isInteger(total) && total >= 1) return { index, total }
   }
-  return 1
+  return { index: 1, total: 1 }
 }
+const shard = shardOf(process.argv)
 
 function slotWorkerCap(): number | undefined {
   const slots = Number(process.env.GUGU_CI_SLOT_COUNT)
   if (!process.env.GUGU_CI_SLOT_ID || !Number.isInteger(slots) || slots < 1) return undefined
   const cores = availableParallelism()
-  const shards = shardTotal(process.argv)
+  const shards = shard.total
   const floor = Math.max(1, Math.floor(cores / slots))
   const budget = Number(process.env.GUGU_CI_WORKER_BUDGET)
   if (!Number.isInteger(budget) || budget < 1) return floor
@@ -163,6 +164,12 @@ const browserOptions = (name: string) => ({
 
 export default defineConfig({
   resolve: { alias },
+  // @@@shard-cache-dir — 同一份 checkout 上并发的几个 `--shard` 进程各自一份 vite 缓存。
+  // vite 的依赖预构建按进程各自跑、跑完把结果目录**改名顶替**共享的 deps 目录再删掉旧的
+  // (vite 6.4.1 dep-*.js 里 optimizer 的 commit),别的进程正在从旧目录供模块 ⇒ 浏览器里
+  // `Failed to fetch dynamically imported module`。冷缓存下 16 片实测 4 个文件这样挂掉。
+  // 分片一份目录,谁也顶替不到谁;不分片时照旧用 vite 默认目录。
+  ...(shard.total > 1 ? { cacheDir: `node_modules/.vite/shard-${shard.index}` } : {}),
   // React 的 JSX 由 vite 内建的 esbuild 按 tsconfig(`jsx: react-jsx`)转,**不要**在这里挂
   // @vitejs/plugin-react:测试跑在 dev-server 模式下,它会注入 React Refresh 运行时,
   // 那段代码上来就读 document —— node 环境的 project 于是在收集期就 `document is not defined`。

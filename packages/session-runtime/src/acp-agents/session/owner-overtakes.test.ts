@@ -50,6 +50,9 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
 
     expect(owner).toEqual({ success: true, data: { queued: false } });
     expect(steeredTexts(agent)).toEqual(['what is this card?']);
+    expect(cell.history().active?.trigger).toEqual({ kind: 'delivery', chatIds: ['chat-gugu'] });
+    expect(cell.history().active?.items.find(item => item.kind === 'message' && item.text === 'what is this card?'))
+      .toMatchObject({ _meta: { guguOwnerInput: true } });
     expect(cell.sessionState.queuedPrompts.map((p) => p.origin), 'only the delivery is still queued').toEqual(['communication']);
   });
 

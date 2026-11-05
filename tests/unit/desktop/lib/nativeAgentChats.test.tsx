@@ -5,6 +5,8 @@ import { useNativeAgentChats } from '../../../../apps/desktop/src/hooks/useNativ
 import { installOwnedAgentEntry } from '../../../../apps/desktop/src/lib/ownedAgentConversation'
 import { publishDirectoryDevices, updateDeviceSessions, removeDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import type { ChatItem, Device } from '@gugu/core/shared/types/chat'
+import { chatPreviewText } from '../../../../apps/desktop/src/lib/agentTurnFailure'
+import { act } from 'react'
 const shell = vi.hoisted(() => ({ mobile: false }))
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => shell.mobile }))
 let harness: ReturnType<typeof createReactHarness>
@@ -33,6 +35,28 @@ it('uses newer native activity for the same agent row and keeps newer IM activit
   chats[0] = { ...chats[0]!, last_message_at: '2026-10-29T12:00:00Z', last_message_preview: 'Newer MCP reply' }
   await harness.render(<Fixture />)
   expect(harness.container.textContent).toBe('Newer MCP reply|2026-10-29T12:00:00Z')
+})
+it.each([false, true])('publishes a new native preview and time without retaining an older IM failure (mobile=%s)', async mobile => {
+  shell.mobile = mobile
+  remove = installOwnedAgentEntry({ open: () => true, owns: id => id === 'own-agent' })
+  publishDirectoryDevices([{ device_id: 'host', is_online: true, capabilities: {} } as Device])
+  const chats = [{ id: 'dm', kind: 'dm', peer_user_id: 'own-agent', unread_count: 2, is_marked_unread: true,
+    last_message_preview: 'Earlier input', last_message_at: '2026-11-06T04:49:00Z', last_message_failure: 'generic' }] as ChatItem[]
+  const session = { conversationId: 'session', agent: { userId: 'own-agent' }, nativeLastMessage: null }
+  updateDeviceSessions('host', { cached: false, sessions: [session as never] })
+  let projected: ChatItem
+  function Fixture() {
+    projected = useNativeAgentChats(chats)[0]!
+    return <div>{chatPreviewText(projected)}|{projected.last_message_at}</div>
+  }
+  await harness.render(<Fixture />)
+  await act(async () => updateDeviceSessions('host', { sessions: [{ ...session,
+    nativeLastMessage: { text: 'New native reply', at: '2026-11-06T05:12:00Z' }, nativeUnreadKeys: ['reply'],
+  } as never] }))
+  expect(harness.container.textContent).toBe('New native reply|2026-11-06T05:12:00Z')
+  expect(projected!.unread_count).toBe(2)
+  expect(projected!.is_marked_unread).toBe(true)
+  expect(chats[0]!.last_message_failure).toBe('generic')
 })
 it('on the phone, keeps the agent row listed from the heartbeat summary while its machine is away; on a computer it stays hidden', async () => {
   shell.mobile = true

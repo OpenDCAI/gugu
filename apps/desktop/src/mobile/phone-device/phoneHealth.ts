@@ -2,7 +2,7 @@
  * #7199 健康 —— 手机上「健康」这一组的几个动作真去读什么、怎么算(原生只把 Health Connect 的记录原样交上来)。
  * 按天合计在原生(系统去重:手表和手机都记了步数不会算两遍);睡眠是原始记录、系统不去重 ——
  * 归到醒来那天、只取一个来源、分期合计,与基线比较、锻炼的中文名都在这里。
- * build* 是纯函数(单测在 tests/unit/desktop/mobile/phoneHealth7199.test.ts);read* 调原生。
+ * build* 是纯函数(单测在 tests/unit/desktop/mobile/phoneHealth.test.ts);read* 调原生。
  */
 import {
   HEALTH_SUMMARY_VERSION,

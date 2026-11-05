@@ -22,6 +22,65 @@ import { workspaceConfig } from '@shared/core/workspaces/workspace-config';
 import { workspaceProviderData } from '@shared/core/workspaces/workspace-provider-data';
 import type { Hold } from '@gugu/core/local/session-life/types';
 
+/** Durable local IM rows. Their original body is never part of the disposable search schema. */
+export const imMessages = sqliteTable('im_messages', {
+  rowid: integer('rowid').primaryKey(),
+  accountId: text('account_id').notNull(),
+  id: text('id').notNull(),
+  chatId: text('chat_id').notNull(),
+  threadRootId: text('thread_root_id'),
+  seq: integer('seq').notNull(),
+  senderUserId: text('sender_user_id'),
+  createdAt: text('created_at').notNull(),
+  contentType: text('content_type').notNull(),
+  content: text('content'),
+  isWhisper: integer('is_whisper').notNull(),
+  toUserIds: text('to_user_ids').notNull(),
+  fileItemId: text('file_item_id'),
+  rest: text('rest').notNull(),
+  /** The account revision that first delivered this message: its notification claim (@@@arrival-claim). */
+  claimedRevision: text('claimed_revision'),
+}, table => ({
+  key: uniqueIndex('im_messages_account_id').on(table.accountId, table.id),
+  stream: index('im_messages_stream').on(table.accountId, table.chatId, table.threadRootId, table.seq),
+}));
+
+export const imMessageAccounts = sqliteTable('im_message_accounts', {
+  accountId: text('account_id').primaryKey().notNull(),
+  throughRevision: text('through_revision').notNull(),
+});
+
+/** Permission facts for histories, including observer topics absent from the published chat list. */
+export const imMessageChats = sqliteTable('im_message_chats', {
+  accountId: text('account_id').notNull(),
+  chatId: text('chat_id').notNull(),
+  sourceChatId: text('source_chat_id'),
+  ownMember: integer('own_member'),
+  membershipRevoked: integer('membership_revoked').notNull().default(0),
+  membershipRevision: text('membership_revision'),
+  chatRevision: text('chat_revision'),
+  archived: integer('archived').notNull().default(0),
+}, table => ({
+  key: primaryKey({ columns: [table.accountId, table.chatId] }),
+  source: index('im_message_chats_source').on(table.accountId, table.sourceChatId, table.ownMember),
+}));
+
+/** Empty message_id is an authoritative conversation departure; other rows are actual message deletions. */
+export const imMessageTombstones = sqliteTable('im_message_tombstones', {
+  accountId: text('account_id').notNull(),
+  chatId: text('chat_id').notNull(),
+  messageId: text('message_id').notNull(),
+}, table => ({ key: primaryKey({ columns: [table.accountId, table.chatId, table.messageId] }) }));
+
+/** Complete visible sequence intervals; missing ranges always require a network read. */
+export const imMessageRanges = sqliteTable('im_message_ranges', {
+  accountId: text('account_id').notNull(),
+  chatId: text('chat_id').notNull(),
+  threadRootId: text('thread_root_id').notNull().default(''),
+  fromSeq: integer('from_seq').notNull(),
+  toSeq: integer('to_seq').notNull(),
+}, table => ({ key: primaryKey({ columns: [table.accountId, table.chatId, table.threadRootId, table.fromSeq] }) }));
+
 export const activityEvents = sqliteTable('activity_events', {
   seq: integer('seq').primaryKey({ autoIncrement: true }),
   eventId: text('event_id').notNull().unique(),

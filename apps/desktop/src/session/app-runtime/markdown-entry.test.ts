@@ -4,6 +4,7 @@
 // out only the ways an App page has; a re-render keeps its root; an image naming a file is read once through the page's
 // own gugu.files and drawn in its chip. The stylesheet and the browser's layout are judged on the product (mac1 A/B), not here.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { until } from '../../../../../tests/support/awaitCondition';
 import { renderer } from './markdown-entry';
 
 const gugu = {
@@ -117,7 +118,7 @@ describe('gugu.markdown(): the shared dialect', () => {
     expect(copy?.getAttribute('aria-label')).toBe('复制');
     click(copy);
     expect(gugu.clipboard.writeText).toHaveBeenCalledWith('pnpm release\n');
-    await vi.waitFor(() => expect(copy?.hasAttribute('data-copied')).toBe(true));
+    await until('the copy button marks itself copied', () => copy?.hasAttribute('data-copied') === true);
     expect(gugu.openLink).not.toHaveBeenCalled();
     // A page without the host's clipboard draws no copy button (there is no other way to the clipboard).
     const bare = document.createElement('article');
@@ -129,7 +130,7 @@ describe('gugu.markdown(): the shared dialect', () => {
 
   it('code is coloured with the transcript highlighter: one span per token, carrying the dual-theme vars', async () => {
     const box = rendered('```ts\nexport function greet(name: string) {\n  return name\n}\n```');
-    await vi.waitFor(() => expect(box.querySelectorAll('pre code span[style*="--shiki-light"]').length).toBeGreaterThan(3));
+    await until('the code is highlighted', () => box.querySelectorAll('pre code span[style*="--shiki-light"]').length, (spans) => spans > 3);
     expect(box.querySelector('pre code')?.textContent).toBe('export function greet(name: string) {\n  return name\n}\n');
   });
 });

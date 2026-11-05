@@ -20,3 +20,51 @@ export function createPushedRuntimeAuthProvider(pushedAuth: () => PushedRuntimeA
     },
   }
 }
+
+export interface HumanAuthSessionHost<Mirror extends { access_token: string; refresh_token?: string | null }, Written, Cleared> {
+  toAuth: (tokens: { accessToken: string; refreshToken?: string | null }) => RuntimeAuth | null
+  set: (auth: PushedRuntimeAuth) => void
+  /** Revokes what the outgoing identity authorised (the projection signer) — before persistence is awaited. */
+  revoke: () => void
+  persist: (mirror: Mirror) => Promise<Written>
+  erase: () => Promise<Cleared>
+  /** session-life tears the old account down before its credentials are replaced or cleared (contract v3.1 #10). */
+  leaveIfChanging: (nextUserId: string | null) => Promise<void>
+  enter: () => Promise<void>
+  /** Everyone else learns of the change after it is recorded, whether persistence succeeded or not. */
+  changed: () => void
+}
+
+/**
+ * `human-auth-session:write` / `:clear`. 先记再写盘:落盘失败也不该让主进程继续用续期前的那份;
+ * 换号、登出时旧身份的授权(投屏签名)在等盘之前就收回 —— 写盘再慢,也不延长旧账号的权限。
+ */
+export function createHumanAuthSessionIpc<Mirror extends { access_token: string; refresh_token?: string | null }, Written, Cleared>(
+  host: HumanAuthSessionHost<Mirror, Written, Cleared>,
+) {
+  return {
+    async write(mirror: Mirror): Promise<Written> {
+      const next = host.toAuth({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+      await host.leaveIfChanging(next?.userId ?? null)
+      try {
+        host.set(undefined)
+        host.set(next)
+        host.revoke()
+        return await host.persist(mirror)
+      } finally {
+        host.changed()
+        await host.enter()
+      }
+    },
+    async clear(reason: unknown): Promise<Cleared> {
+      await host.leaveIfChanging(null)
+      try {
+        host.set(reason === 'lost' ? 'lost' : null)
+        host.revoke()
+        return await host.erase()
+      } finally {
+        host.changed()
+      }
+    },
+  }
+}

@@ -4,6 +4,7 @@ import { applyMessageOverlays } from './chatMessageRevalidation'
 import { chatDb } from './supabase'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { UNREAD_LOCATOR_ANCHOR_PAGE, UNREAD_LOCATOR_FORWARD_PAGE } from './chatUnreadLocatorWindow'
+import { ingestMessagePage } from './messageIngest'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -47,7 +48,11 @@ async function readLocatorStreamPage(
   const items = rows
     .map((row) => messageItemFromRow(row, userId))
     .filter((message): message is MessageItem => message !== null)
-  return { items: ascending ? items : items.reverse(), rowCount: rows.length }
+  const ordered = ascending ? items : items.reverse()
+  await ingestMessagePage(userId, ordered, chatId, page.limit,
+    ascending ? undefined : locator.message_seq + 1, ascending ? locator.message_seq : undefined,
+    locator.thread_root_id ?? null, rows.length)
+  return { items: ordered, rowCount: rows.length }
 }
 
 // @@@6089 read cursor 的上界（一次 1 行查询，理由见 chatUnreadLocatorWindow.ts 文件头）。

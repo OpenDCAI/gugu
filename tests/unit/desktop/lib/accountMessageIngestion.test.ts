@@ -22,7 +22,8 @@ async function rig(initial: AccountRevisionOperation[] = [], recover = vi.fn(asy
   const operations = [...initial]
   let wake!: (head?: string | null) => void
   const notify = vi.fn(async (item: ReturnType<typeof message>) => {
-    expect(repository.snapshot().message.some(row => row.id === item.id)).toBe(true)
+    // Commit before notify: the claim is durable even when retention trimmed the body from this window.
+    expect(repository.snapshot().view.some(row => row.key === `message-revision:${item.id}`)).toBe(true)
   })
   const coordinator: AccountRevisionCoordinator = createAccountRevisionCoordinator('viewer', repository, {
     syncSince: async cursor => ({ operations: operations.filter(op => BigInt(op.revision) > BigInt(cursor)), hasMore: false }),

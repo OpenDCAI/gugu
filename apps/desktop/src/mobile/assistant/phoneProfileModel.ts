@@ -3,7 +3,7 @@ import { assistantAccountDisplayName } from '@/components/assistant/assistant-ap
 import type { PersonaPreset } from '@/session/renderer/features/assistant/assistant-files'
 
 // #7199 手机 <它的名字> 那一格的纯判断(与桌面 assistant-profile / assistant-personality / assistant-capabilities 同一套说法),单测在
-// tests/unit/mobile/phoneProfileModel7199.test.ts。读写在 usePhoneProfileData.ts,画法在 PhoneProfile / PhoneCustomize / PhoneConnectors。
+// tests/unit/mobile/phoneProfileModel.test.ts。读写在 usePhoneProfileData.ts,画法在 PhoneProfile / PhoneCustomize / PhoneConnectors。
 
 export type Persona = { preset: PersonaPreset | null; rest: string }
 
