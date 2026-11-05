@@ -38,16 +38,13 @@ const snap = (over: Partial<CloudComputerSnapshot>): CloudComputerSnapshot => ({
 })
 
 describe('withCloudComputerPresence', () => {
+  // 「醒了没上线 = 正在唤醒」那张真值表在 core 的 cloudComputerPresence 测(tests/unit/core/device/cloudComputer.test.ts);
+  // 这里只看渲染层把它接到了哪一行上。
   it('只给管家说的那一行补上样子,别的行原样(同一个对象)', () => {
     const other = device('box', { is_online: true })
     const rows = withCloudComputerPresence([other, device('cloud')], snap({ state: 'asleep' }))
     expect(rows[0]).toBe(other)
     expect(rows[1]!.cloud_computer).toBe('asleep')
-  })
-
-  it('醒了、server 还没上线 = 正在唤醒;上线了 = 运行中', () => {
-    expect(withCloudComputerPresence([device('cloud')], snap({ state: 'awake' }))[0]!.cloud_computer).toBe('waking')
-    expect(withCloudComputerPresence([device('cloud', { is_online: true })], snap({ state: 'awake' }))[0]!.cloud_computer).toBe('awake')
   })
 
   it('没有云电脑 / 还没问到:列表原样返回', () => {
