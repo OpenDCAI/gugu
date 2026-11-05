@@ -1,5 +1,5 @@
 /**
- * 电脑控制(computer.*)与屏幕(screen.get / screen.elements.find),引擎是 trycua/cua 的 cua-driver(native/cua-client.ts)。
+ * 电脑控制(computer.*)与辅助功能树查找(screen.elements.find),引擎是 trycua/cua 的 cua-driver(native/cua-client.ts)。通用截屏在 screen.ts。
  *
  * computer.<工具名> 一个对一个转成 cua-driver 的同名 MCP 工具;说明与参数照它自己导出的清单(cua-tools.json,打包时导出),
  * 只去掉 session(咕咕按调用方自己分),再补上咕咕的几条规矩。没有这份清单(开发环境没编)也照样登记,让设置页列得出来,
@@ -634,16 +634,6 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
 
 // ───────────────────────── 屏幕(Mac:读前台窗口的辅助功能树) ─────────────────────────
 
-const SCREEN_MAX_EDGE = 1568
-
-/** 截屏失败:像是权限的话回 os_permission,其余照实说。 */
-function captureFailure(error: unknown): Outcome {
-  const message = error instanceof Error ? error.message : String(error)
-  return /permission|denied|not allowed|权限|拒绝/i.test(message)
-    ? fail('os_permission', `This computer did not let 咕咕 capture the screen: ${message}`)
-    : fail('execution_failed', `Could not capture the screen: ${message}`)
-}
-
 interface TreeRow { index: number | null; role: string; label: string; value: string; identifier: string | null }
 
 /** get_window_state 的 tree_markdown 一行:`- [5] AXButton (7) [id=Seven actions=[press]]` / `- AXStaticText = "9,240"`。 */
@@ -681,78 +671,7 @@ async function frontWindowTree(ctx: ActionRunContext, name: string): Promise<Out
   return ok({ app: front, window: win, snapshot: typeof d.snapshot_id === 'string' ? d.snapshot_id : null, rows: parseTreeRows(typeof d.tree_markdown === 'string' ? d.tree_markdown : '') })
 }
 
-function screenActions(): ActionDef[] {
-  const macGet: ActionDef = {
-    name: 'screen.get',
-    group: 'screen',
-    platforms: ['darwin'],
-    title: '读屏幕文字',
-    titleEn: 'Read screen',
-    description: 'Get the text of what is on screen now, from the frontmost app\'s frontmost window (its accessibility tree; no screenshot): app_name, bundle_id, window_title, the visible text lines (texts, cut at max_length characters total, default 4000), and how many controls it exposes. ax_coverage: full = text and controls, partial = only one of them (content may be drawn, e.g. canvas / games), none = nothing readable.',
-    risk: 'medium',
-    confirm: 'never',
-    input_schema: {
-      type: 'object',
-      properties: { max_length: { type: 'integer', minimum: 100, maximum: TEXT_CAP, description: 'Max total characters of text to return (default 4000)' } },
-      additionalProperties: false,
-    },
-    async run(args, ctx) {
-      const missing = cuaMissing(ctx)
-      if (missing) return missing
-      const read = await frontWindowTree(ctx, 'screen.get')
-      if (!read.ok) return read
-      const d = read.data as { app: Record<string, unknown> | null; window: Record<string, unknown> | null; rows: TreeRow[] }
-      const lines = d.rows.flatMap((r) => [r.value, r.index === null ? r.label : ''].filter(Boolean))
-      const controls = d.rows.filter((r) => r.index !== null).length
-      const maxLength = clampInt(num(args, 'max_length'), 4000, 100, TEXT_CAP)
-      const texts: string[] = []
-      let used = 0
-      let truncated = false
-      for (const line of lines) {
-        if (used + line.length > maxLength) {
-          const rest = maxLength - used
-          if (rest > 0) texts.push(line.slice(0, rest))
-          truncated = true
-          break
-        }
-        texts.push(line)
-        used += line.length
-      }
-      return ok({
-        app_name: typeof d.app?.name === 'string' ? d.app.name : null,
-        bundle_id: typeof d.app?.bundle_id === 'string' ? d.app.bundle_id : null,
-        window_title: typeof d.window?.title === 'string' ? d.window.title : null,
-        texts,
-        text_items: lines.length,
-        interactive_elements: controls,
-        ax_coverage: lines.length > 0 && controls > 0 ? 'full' : lines.length > 0 || controls > 0 ? 'partial' : 'none',
-        ...(truncated ? { truncated: true } : {}),
-      })
-    },
-  }
-
-  const otherGet: ActionDef = {
-    name: 'screen.get',
-    group: 'screen',
-    platforms: ['win32', 'linux'],
-    title: '看屏幕',
-    titleEn: 'See screen',
-    description: 'Take a screenshot of this computer\'s main display and return it as a picture you can see (longest edge at most 1568 px). Also returns the image width / height and how many displays are attached (only the main one is captured).',
-    risk: 'medium',
-    confirm: 'never',
-    input_schema: { type: 'object', properties: {}, additionalProperties: false },
-    async run(_args, ctx) {
-      if (!ctx.deps.captureScreen) return fail('unsupported', 'This build of 咕咕 cannot capture the screen')
-      let shot: Awaited<ReturnType<NonNullable<typeof ctx.deps.captureScreen>>>
-      try {
-        shot = await ctx.deps.captureScreen({ maxEdge: SCREEN_MAX_EDGE })
-      } catch (error) {
-        return captureFailure(error)
-      }
-      return ok({ width: shot.width, height: shot.height, displays: shot.displays, pictures: [{ label: 'screen.get screenshot', mimeType: shot.mimeType, data: shot.data }] })
-    },
-  }
-
+function screenElementActions(): ActionDef[] {
   const find: ActionDef = {
     name: 'screen.elements.find',
     group: 'screen',
@@ -772,6 +691,10 @@ function screenActions(): ActionDef[] {
       additionalProperties: false,
     },
     validate: (args) => (str(args, 'query') ? null : 'query is required'),
+    unsupportedReason: (deps) => {
+      const available = deps.cua().available()
+      return available.ok ? null : available.message
+    },
     async run(args, ctx) {
       const missing = cuaMissing(ctx)
       if (missing) return missing
@@ -797,7 +720,7 @@ function screenActions(): ActionDef[] {
       })
     },
   }
-  return [macGet, otherGet, find]
+  return [find]
 }
 
 // ───────────────────────── 动作族 ─────────────────────────
@@ -840,33 +763,8 @@ export function createComputerFamily(nativeDir: string | null): ActionFamily {
           : {}),
         probe: probeComputer,
       },
-      {
-        id: 'screen',
-        platforms: ['darwin', 'win32', 'linux'],
-        iconApp: '/System/Applications/Utilities/Screenshot.app',
-        // Mac 上读的是辅助功能树(不截图);Windows / Linux 截屏没有能跳过去的系统设置页。
-        ...(process.platform === 'darwin'
-          ? { settingsUrl: MAC_PRIVACY('Privacy_Accessibility'), osPermission: '系统设置 → 隐私与安全性 → 辅助功能 → 打开咕咕' }
-          : {}),
-        async probe(ctx) {
-          if (ctx.deps.platform === 'darwin') {
-            const missing = cuaMissing(ctx)
-            if (missing) return missing
-            const ax = await requestHelperPermission(ctx, 'accessibility', '辅助功能')
-            if (ax.ok) ctx.deps.cua().stop('系统授权变了,电脑控制重新启动')
-            return ax
-          }
-          if (!ctx.deps.captureScreen) return fail('unsupported', '这个版本的咕咕截不了屏')
-          try {
-            await ctx.deps.captureScreen({ maxEdge: 320 })
-            return ok(null)
-          } catch (error) {
-            return captureFailure(error)
-          }
-        },
-      },
     ],
-    actions: [...TOOLS.map((t) => computerAction(t, specs.get(t.cua), broken, apps)), ...screenActions()],
+    actions: [...TOOLS.map((t) => computerAction(t, specs.get(t.cua), broken, apps)), ...screenElementActions()],
   }
 }
 
