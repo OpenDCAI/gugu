@@ -1,6 +1,15 @@
+import type { SerializedError } from '@gugu/session-shared/result';
 import type { Session } from '@shared/core/sessions/sessions';
 import { defineEvent } from '@shared/lib/ipc/events';
 import type { AgentStatusReading } from '@gugu/core/shared/agentStatus';
+import type { TranscriptTurn } from '@gugu/session-core/acp/client';
+
+export type StoredSettledTurn = { originTurnId: string; turn: TranscriptTurn };
+export type TurnSettlement = { sessionId: string; referenceId: string } & (
+  { status: 'persisted' } | { status: 'failed'; cause: SerializedError }
+);
+/** A real terminal turn crossed the durable writer, or that write failed. Never inferred from lifecycle. */
+export const sessionTurnSettledChannel = defineEvent<TurnSettlement>('session:turn-settled');
 
 export type ProviderReviewGate = 'mcp';
 /** 阻塞的种类;它归哪一个活动态由 provider-review-gate.ts 的 PROVIDER_BLOCKER_STATUS 那张表决定。 */

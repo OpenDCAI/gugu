@@ -1,3 +1,4 @@
+import { withTranscriptTurnIdentity } from '@shared/core/sessions/transcript-turn-identity';
 import { projectRejectedSessionInputs } from '@/lib/pendingSessionInput';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import type {
@@ -69,7 +70,9 @@ import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
 import { failureText } from '../gugu-reason';
 import { modelSettingRejection, type ModelSettingRejection } from '../session-config/model-setting-rejection';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, rpcOn, onMachineEvent } from '@renderer/lib/ipc';
+import { sessionTurnSettledChannel, type StoredSettledTurn } from '@shared/core/sessions/sessionEvents';
+import { observeClosedTurnHistory } from './closed-turn-reconciliation';
 import { log } from '@renderer/utils/logger';
 import { sessionHasPriorContext } from '@shared/core/sessions/prior-context';
 import type { Session } from '@shared/core/sessions/sessions';
@@ -214,6 +217,7 @@ export class AcpChatStore {
    * 停着,下一次发消息要把它起起来。只在「停着、还没挂上」这一段为真;任何一次重新开场(`_runBootstrap`)都把它清掉。
    */
   private _closedByHost = false;
+  private _closedHistory: ReturnType<typeof observeClosedTurnHistory> | null = null;
   /**
    * #980 一次「打开」在路上(`_open`):画库里那份 + 问一句它在不在跑。这段**不算在起**(`starting`):
    * 换模型 / 权限档照停着的会话记下,发一句照停着的会话起。
@@ -2456,6 +2460,33 @@ export class AcpChatStore {
 
   private _subscribeLiveSession(session: AcpLiveSession): void {
     this._unsubs.splice(0).forEach((unsub) => unsub());
+    let lastTurn = session.activeTurn.current();
+    const machine = machineRegistry.machineOf(this.runtimeSessionId);
+    let historyFailure: AcpLoadError | null = null;
+    // Runtime-only forks have no durable record by contract; their original live-history path stays separate.
+    const finalHistory = this.isTransient ? null : observeClosedTurnHistory({
+      sessionId: this.runtimeSessionId,
+      turn: () => lastTurn,
+      subscribe: accept => onMachineEvent(machine, sessionTurnSettledChannel, accept),
+      read: (referenceId, originTurnId) => rpcOn(machine).sessions.getStoredSettledTurn({ sessionId: this.runtimeSessionId, referenceId, originTurnId }),
+      apply: row => {
+        if (historyFailure && this.loadError === historyFailure) runInAction(() => { this.loadError = null; this._reopenOnRetry = false; });
+        this._applyClosedSettledTurn(row, lastTurn!);
+      },
+      failed: error => {
+        runInAction(() => {
+          if (!this.loadError || this.loadError === historyFailure) {
+            this.loadError = { kind: 'history_unavailable', message: resultError(error).message };
+            historyFailure = this.loadError;
+            this._reopenOnRetry = true;
+          }
+        });
+        this._toastError('acpFailure.refreshHistory', error);
+      },
+    });
+    this._closedHistory = finalHistory;
+    if (finalHistory) this._unsubs.push(finalHistory.dispose);
+    this._unsubs.push(session.activeTurn.onChange(turn => { if (turn) lastTurn = turn; }));
     // 挂上了:停着时盯会话表的那一格交还 —— 之后它停没停由这条会话自己的状态说(`_onSessionClosedByHost`)。
     this._setParkWatch(null);
     const initialState = session.sessionState.current();
@@ -2942,8 +2973,19 @@ export class AcpChatStore {
    */
   private _onSessionClosedByHost(closed: AcpLiveSession, loadError: AcpLoadError | null = null): void {
     if (this.session !== closed) return;
-    this._unsubs.splice(0).forEach((unsub) => unsub());
+    const finalHistory = this._closedHistory;
+    this._closedHistory = null;
+    this._unsubs.splice(0).forEach((unsub) => { if (unsub !== finalHistory?.dispose) unsub(); });
     this.session = null;
+    // Read only when the screen still has something unsettled: a live frame, or a last committed turn without an
+    // outcome (its commit-time history read can come back empty once the runtime record is removed). An idle close
+    // whose last turn already shows its outcome reads nothing (an older server cannot answer) and keeps history pages.
+    const shown = this.chatState.transcript.state;
+    const settled = shown.activeTurnSnapshot === null && shown.committedTurns.at(-1)?.outcome !== undefined;
+    const reconcile = finalHistory !== null && !settled;
+    if (finalHistory && !reconcile) finalHistory.dispose();
+    const generation = reconcile ? ++this._historyGeneration : this._historyGeneration;
+    if (reconcile && finalHistory) this._unsubs.push(finalHistory.dispose);
     this._unsubs.push(
       // 等它起完(重放过往回合)再挂:挂在 starting / replaying 上,读到的引擎历史缺一截,补上来的回合会再画一遍。
       closed.sessionState.onChange((state) => {
@@ -2956,6 +2998,36 @@ export class AcpChatStore {
     this._loadStoredQueue((error) => this._toastError('acpFailure.refreshHistory', error));
     this.historyLoading = false;
     this.loadError = loadError;
+    if (reconcile && finalHistory) finalHistory.close(() => !this._disposed && this._closedByHost && this.session === null
+      && generation === this._historyGeneration && !this._transcriptReleased);
+  }
+
+  private _applyClosedSettledTurn(row: StoredSettledTurn, origin: TranscriptTurn): void {
+    runInAction(() => batch(() => {
+      const active = this.chatState.transcript.state.activeTurnSnapshot;
+      // Keep the already visible slot. Promoting just this row to the stored prefix
+      // would move it before earlier runtime turns that have not joined that prefix.
+      const storedIndex = this._storedHistoryTurns.findIndex(turn => turn.referenceId === row.turn.referenceId);
+      const olderIndex = this._olderHistoryTurns.findIndex(turn => turn.referenceId === row.turn.referenceId);
+      if (storedIndex >= 0) {
+        this._storedHistoryTurns = this._storedHistoryTurns.map((turn, index) => index === storedIndex ? row.turn : turn);
+      } else if (olderIndex >= 0) {
+        this._olderHistoryTurns = this._olderHistoryTurns.map((turn, index) => index === olderIndex
+          ? withTranscriptTurnIdentity(row.turn, turn.id, turn.seq) : turn);
+      } else {
+        const settled = withTranscriptTurnIdentity(row.turn, origin.id, origin.seq);
+        // An older run can reuse this runtime id. Only an equal immutable reference
+        // owns this settlement; the older stored row must not hide the new run.
+        this._persistedRuntimeTurnIds = new Set([...this._persistedRuntimeTurnIds].filter(id => id !== origin.id));
+        const turns = new Map(this._runtimeTurns.map(turn => [turn.seq, turn]));
+        turns.set(origin.seq, settled);
+        this._runtimeTurns = [...turns.values()].sort((a, b) => a.seq - b.seq);
+        this._runtimeCount = Math.max(this._runtimeCount, origin.seq + 1);
+      }
+      this.chatState.transcript.history.seed(this._composedHistory());
+      if (active && active.referenceId !== row.turn.referenceId) this.chatState.transcript.activeTurn.set(active);
+      this._syncMessageCount();
+    }));
   }
 
   /** 停着时运行时替它存着的那份队列(只读、锁着显示);下一次起时运行时先发它们。只读存档,❌ 叫醒它。 */
