@@ -26,6 +26,10 @@ vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({ desktopIpc:
     }
     return accepted
   }
+  if (method === 'imMessages.page') {
+    const page = args[0] as { chatId: string }
+    return { rows: [...sqlite.rows.values()].filter(row => row.chat_id === page.chatId), covered: true }
+  }
   if (method === 'imMessages.windows') return [...sqlite.rows.values()].filter(row => (args[0] as string[]).includes(row.chat_id))
   if (method === 'imMessages.throughRevision') return null
   throw new Error(`unexpected ${method}`)
@@ -36,6 +40,7 @@ const { openImRepository, ackOutboxRecord } = await import('../../../../apps/des
 const { createAccountRevisionCoordinator } = await import('../../../../apps/desktop/src/lib/accountRevisionCoordinator')
 const { ChatWindowCache } = await import('../../../../apps/desktop/src/store/chatWindowCache')
 const { bindRepositoryMessageCache } = await import('../../../../apps/desktop/src/store/chatDiskWindow')
+const { readMessageWindowFromStore } = await import('../../../../apps/desktop/src/lib/messageIngest')
 
 const stops: Array<() => void> = []
 afterEach(() => { for (const stop of stops.splice(0)) stop(); sqlite.rows.clear(); sqlite.claimed.clear() })
@@ -63,16 +68,21 @@ async function rig() {
     send(...next: typeof operations) { operations.push(...next); wake(next.at(-1)!.revision); return coordinator.whenIdle() } }
 }
 
-it('commits live desktop arrivals only to SQLite, feeds the unopened conversation and notifies once', async () => {
+it('commits live desktop arrivals only to SQLite, holds no window for an unopened conversation and notifies once', async () => {
   const r = await rig()
   await r.send(arrival('1', 'live', 7))
   expect([...sqlite.rows.keys()]).toEqual(['live'])
   expect(r.repository.snapshot().message).toEqual([])
   expect(r.repository.snapshot().view.some(view => view.key === 'message-window:room')).toBe(false)
-  expect(r.cache.get('room')?.map(item => item.id)).toEqual(['live'])
+  expect(r.cache.get('room')).toBeUndefined()
   expect(r.notify.mock.calls.map(([item]) => item.id)).toEqual(['live'])
   await r.send(arrival('2', 'live', 7))
   expect(r.notify).toHaveBeenCalledTimes(1)
+  // Opening the conversation reads its window from the store; later arrivals then feed it.
+  await readMessageWindowFromStore('viewer', 'room')
+  expect(r.cache.get('room')?.map(item => item.id)).toEqual(['live'])
+  await r.send(arrival('3', 'next', 8))
+  expect(r.cache.get('room')?.map(item => item.id)).toEqual(['live', 'next'])
 })
 
 it('keeps no per-message claim rows in the renderer: the store reports first arrivals', async () => {

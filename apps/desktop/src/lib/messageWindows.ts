@@ -30,6 +30,25 @@ export function messageWindow(accountId: string, chatId: string, root: string | 
   return accounts.has(accountId) ? accounts.get(accountId)!.get(key(chatId, root))?.rows ?? [] : null
 }
 
+/**
+ * @@@resident-windows - a conversation's windows are in memory only while a pane shows it: held from the read before it
+ * mounts until its last viewport goes. Arrivals update held windows only; every row is in the local store regardless.
+ */
+export function isMessageWindowHeld(accountId: string, chatId: string): boolean {
+  return accounts.get(accountId)?.has(key(chatId, null)) ?? false
+}
+
+/** Hold an empty main window so arrivals during its read land in it. */
+export function holdMessageWindow(accountId: string, chatId: string): void {
+  const windows = accounts.get(accountId)
+  if (windows && !windows.has(key(chatId, null))) windows.set(key(chatId, null), { chatId, root: null, rows: [] })
+}
+
+export function releaseMessageWindows(accountId: string, chatId: string): void {
+  const windows = accounts.get(accountId)
+  if (windows) for (const [id, window] of windows) if (window.chatId === chatId) windows.delete(id)
+}
+
 /** Return streams needing a query: deletions can expose older rows outside the bounded map. */
 export function acceptMessageWrites(accountId: string, writes: readonly ImMessageWrite[]): { chatId: string; root: string | null }[] {
   const windows = accounts.get(accountId)
@@ -41,7 +60,7 @@ export function acceptMessageWrites(accountId: string, writes: readonly ImMessag
       publishers.get(accountId)?.(write.chatId, null)
     } else if (write.type === 'put') {
       const row = write.message, root = row.thread_root_id ?? null, id = key(row.chat_id, root)
-      if (!root || windows.has(id)) {
+      if (windows.has(id)) {
         reads.set(id, { chatId: row.chat_id, root })
         setMessageWindow(accountId, row.chat_id, root, [...windows.get(id)?.rows.filter(value => value.id !== row.id) ?? [], row])
       }

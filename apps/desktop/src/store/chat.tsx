@@ -58,6 +58,8 @@ import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
 import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
 import { i18n } from '../i18n'
 import { rendererLogger } from '../lib/log'
+import { readMessageWindowFromStore } from '../lib/messageIngest'
+import { releaseMessageWindows } from '../lib/messageWindows'
 const revisionLog = rendererLogger('chat/account-revision')
 export function ChatProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
   const { user: authenticatedUser } = useAuth(), user = active ? authenticatedUser : null
@@ -564,6 +566,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       if (!isLifecycleCancellation(error)) console.error('[ChatStore] load messages error', error)
       ready(error instanceof Error ? error : new Error(String(error)))
     })
+    outboxRef.current?.injectOutboxRows(chatId, null)
     const stop = subscribeChatLineRevisions(subscribeAccountRevision, {
       userId: userId!, chatId: () => cancelled ? null : chatId,
       readCommittedMessage: id => imRepositoryRef.current?.snapshot().message.find(row => row.id === id)?.value,
@@ -577,6 +580,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       cancelled = true
       bumpMessageSnapshotEpoch(chatId)
       stop()
+      releaseMessageWindows(userId, chatId)
       unreadNavigationRef.current?.cancelChatOpen(chatId, new Error(`Chat ${chatId} is no longer observed`))
     }
   }
@@ -584,12 +588,26 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     [userId, loadChats, subscribeAccountRevision])
 
   // ── Actions ────────────────────────────────────────────────────────────────
+  // @@@resident-switch - a conversation nobody shows has no window in memory (@@@resident-windows): read it from the local
+  // store first and commit the switch when it lands, so the pane paints it in its first frame. The latest request wins.
+  const requestedChatRef = useRef<{ id: string | null } | null>(null)
   const setActiveChatId = useCallback((id: string | null) => {
-    if (activeChatIdRef.current === id) return
-    activeChatIdRef.current = id
-    setActiveChatIdState(id)
-    if (id) readChatWindow(id)
-  }, [readChatWindow, setActiveChatIdState])
+    const request = { id }
+    requestedChatRef.current = request
+    const commit = () => {
+      if (requestedChatRef.current !== request) {
+        if (id && userId && requestedChatRef.current?.id !== id && !cache.isObserved(id)) releaseMessageWindows(userId, id)
+        return
+      }
+      if (activeChatIdRef.current === id) return
+      activeChatIdRef.current = id
+      setActiveChatIdState(id)
+      if (id) readChatWindow(id)
+    }
+    const read = id && userId && !cache.isObserved(id) ? readMessageWindowFromStore(userId, id) : null
+    if (!read) { commit(); return }
+    void read.catch((error: unknown) => revisionLog.error({ error, chatId: id }, 'local window read before switch failed')).then(commit)
+  }, [cache, readChatWindow, setActiveChatIdState, userId])
 
   const unreadNavigation = useChatUnreadStreamNavigation({ user, chatsRef, activeChatIdRef, threadRootOf: (id) => cache.view(id).activeThreadRootId,
     getMessageSnapshotEpoch, setActiveChatId,
@@ -624,7 +642,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         applyThreadSnapshot({ chatId, rootId, msgs, chats: chatsRef.current, setThreadMessages: (update) => setThreadMessagesFor(chatId, update), patchChat,
           activeChatId: () => cache.isObserved(chatId) ? chatId : null, activeThreadRootId: () => cache.view(chatId).activeThreadRootId })
         if (!unreadNavigationRef.current?.ownsThread(chatId, rootId)) markLatestThreadRead(chatId, rootId, msgs)
-        outboxRef.current?.injectThreadOutboxRows(chatId, rootId) // #1762 洞③ 恢复的未决话题行注入
+        outboxRef.current?.injectOutboxRows(chatId, rootId) // #1762 洞③ 恢复的未决话题行注入
       } catch (err) {
         console.error('[ChatStore] openThread error', err)
       } finally {
@@ -681,8 +699,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       } else {
         // C3 发送把窗口钉回底部:含尾的窗口立即恢复跟尾(确认行按尾巴接上,不被当成窗口外丢掉);
         // 离尾的历史段先拉最新页(页里保留这条乐观行及其确认行)。已在拉就不重开。
-        const targetWindow = cache.history(targetChatId, viewport)
-        if (!targetWindow.followForSend() && targetWindow.getSnapshot().loading !== 'latest') {
+        const targetWindow = viewport || cache.isObserved(targetChatId) ? cache.history(targetChatId, viewport) : null
+        if (targetWindow && !targetWindow.followForSend() && targetWindow.getSnapshot().loading !== 'latest') {
           void loadHistoryPage('latest', targetChatId, viewport).catch((error) => revisionLog.error({ error }, 'pin to latest on send failed'))
         }
         setMessagesAndCache((prev) => [...prev, tempMsg], targetChatId)

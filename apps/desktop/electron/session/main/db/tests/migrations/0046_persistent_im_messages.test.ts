@@ -6,8 +6,8 @@ import { applyMigrations, bundledMigrations, initializeDatabase } from '../../in
 import { createImMessageStore } from '../../../core/im-messages/store'
 import { createMemoryLocalSyncDb } from '../../../../../../src/lib/localSyncDb'
 import { ackOutboxRecord, openImRepository, putOutboxRecord } from '../../../../../../src/lib/imRepository'
-import { initializeMessages, ingestMessages, prefetchMessages } from '../../../../../../src/lib/messageIngest'
-import { clearMessageWindows, messageWindow } from '../../../../../../src/lib/messageWindows'
+import { initializeMessages, ingestMessages, readMessageWindowFromStore } from '../../../../../../src/lib/messageIngest'
+import { clearMessageWindows, isMessageWindowHeld, messageWindow, releaseMessageWindows } from '../../../../../../src/lib/messageWindows'
 import { createAccountRevisionRuntime } from '../../../../../../src/lib/accountRevisionRuntime'
 import { createAccountRevisionCoordinator } from '../../../../../../src/lib/accountRevisionCoordinator'
 import { alignMessageStore } from '../../../../../../src/lib/messageStoreRecovery'
@@ -217,25 +217,55 @@ describe('0046 revision ingestion', () => {
       if (i % 9 === 0) {
         clearMessageWindows('account')
         await initializeMessages('account', createMemoryLocalSyncDb())
-        await prefetchMessages('account', ['chat', 'other'])
+        await Promise.all(['chat', 'other'].map(chat => readMessageWindowFromStore('account', chat)))
       }
       for (const chat of ['chat', 'other']) expect(messageWindow('account', chat)).toEqual(store.windows('account', [chat], 120))
     }
     let release!: () => void
     const delayed = new Promise<void>(resolve => { release = resolve })
+    releaseMessageWindows('account', 'chat')
     invoke.mockImplementationOnce(async channel => {
-      expect(channel).toBe('imMessages.windows')
-      const rows = store.windows('account', ['chat'], 120)
+      expect(channel).toBe('imMessages.page')
+      const page = store.page('account', { chatId: 'chat', threadRootId: null, limit: 120 })
       await delayed
-      return rows
+      return page
     })
-    const pending = prefetchMessages('account', ['chat'])
+    const pending = readMessageWindowFromStore('account', 'chat')
     await ingestMessages('account', 'clear')
     release(); await pending
     expect(messageWindow('account', 'chat')).toBeNull()
     await expect(ingestMessages('account', { writes: [{ type: 'put', message: message(200) }], revisions: [] }))
       .rejects.toMatchObject({ name: 'AbortError' })
     expect(store.windows('account', ['chat'], 120)).toEqual([])
+  })
+
+  it('holds a window only from its read until release; arrivals during the read land in it', async () => {
+    const store = await openStore()
+    const invoke = installStore(store)
+    await initializeMessages('account', createMemoryLocalSyncDb())
+    await ingestMessages('account', { writes: [1, 2, 3].map(seq => ({ type: 'put' as const, message: message(seq) })), revisions: [] })
+    expect(isMessageWindowHeld('account', 'chat')).toBe(false)
+    expect(messageWindow('account', 'chat')).toEqual([])
+    let release!: () => void
+    const delayed = new Promise<void>(resolve => { release = resolve })
+    invoke.mockImplementationOnce(async channel => {
+      expect(channel).toBe('imMessages.page')
+      const page = store.page('account', { chatId: 'chat', threadRootId: null, limit: 120 })
+      await delayed
+      return page
+    })
+    const pending = readMessageWindowFromStore('account', 'chat')
+    expect(readMessageWindowFromStore('account', 'chat')).toBe(pending)
+    await ingestMessages('account', { writes: [{ type: 'put', message: message(4) }], revisions: [] })
+    release(); await pending
+    expect(messageWindow('account', 'chat')).toEqual(store.windows('account', ['chat'], 120))
+    expect(messageWindow('account', 'chat')!.map(row => row.seq)).toEqual([1, 2, 3, 4])
+    expect(readMessageWindowFromStore('account', 'chat')).toBeNull()
+    await ingestMessages('account', { writes: [{ type: 'put', message: message(5, 'other') }], revisions: [] })
+    expect(isMessageWindowHeld('account', 'other')).toBe(false)
+    releaseMessageWindows('account', 'chat')
+    expect(isMessageWindowHeld('account', 'chat')).toBe(false)
+    expect(messageWindow('account', 'chat')).toEqual([])
   })
 
   it('advances a revision page past malformed bodies and excludes imported history roots', async () => {
@@ -301,6 +331,7 @@ describe('0046 revision ingestion', () => {
     const store = await openStore()
     installStore(store)
     await initializeMessages('account', createMemoryLocalSyncDb())
+    await readMessageWindowFromStore('account', 'chat') // a pane shows the conversation
     const syncSince = vi.fn(async () => ({ operations: [
       { revision: '11', event: 'message_deleted', payload: { chat_id: 'chat', entity_id: 'chat-1' } },
       { revision: '12', event: 'message_created', payload: { chat_id: 'chat', entity_id: 'chat-2', message: message(2) } },

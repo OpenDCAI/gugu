@@ -2,6 +2,7 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import { ChatHistoryWindow, type HistoryWindow } from './chatHistoryWindow'
 import { trimToMessageWindow } from './chatMessageWindow'
+import { messageWindow } from '../lib/messageWindows'
 
 export type ConversationSnapshot = {
   messageWindow: HistoryWindow
@@ -17,6 +18,12 @@ type Listener = (rows: MessageItem[]) => void
 /** Account data and receipts are shared; each presenter owns its history range and navigation. */
 export class ChatWindowCache extends Map<string, MessageItem[]> {
   constructor(private readonly accountId: string | null = null) { super() }
+  /**
+   * @@@resident-rows - when the account's messages live in the local store (desktop), a conversation's rows are held only
+   * while a viewport observes it or a read is about to mount one: the last viewport drops them, and writes to a conversation
+   * nobody holds are skipped — its rows are read back from the store when a pane opens it again.
+   */
+  private get residentOnly(): boolean { return this.accountId !== null && messageWindow(this.accountId, '') !== null }
   private readonly histories = new Map<string, { window: ChatHistoryWindow; stop: () => void; stopReading?: () => void; receipts: Set<string>; view: ConversationSnapshot }>()
   private readonly listeners = new Map<string, Map<Listener, ConversationViewport>>()
   override set(chatId: string, rows: MessageItem[]): this {
@@ -28,6 +35,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     return this
   }
   update(chatId: string, updater: MessageItem[] | ((previous: MessageItem[]) => MessageItem[])): this {
+    if (this.residentOnly && !this.isObserved(chatId) && !super.has(chatId)) return this
     const previous = this.rows(chatId)
     const next = typeof updater === 'function' ? updater(previous) : mergeMessagesById(previous, updater, chatId)
     const retained = new Set(next.map((row) => row.id))
@@ -130,7 +138,8 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
         const history = this.histories.get(chatId)
         history?.stopReading?.(); history?.window.invalidate(); history?.stop(); this.histories.delete(chatId)
         const rows = this.get(chatId)
-        if (rows) super.set(chatId, trimToMessageWindow(rows))
+        if (this.residentOnly) super.delete(chatId)
+        else if (rows) super.set(chatId, trimToMessageWindow(rows))
       }
     }
   }

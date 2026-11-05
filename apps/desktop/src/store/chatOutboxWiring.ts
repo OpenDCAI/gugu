@@ -77,8 +77,8 @@ export interface OutboxWiring {
   }): Promise<void>
   /** 启动恢复:重建乐观行注入主线缓存 + 开始投递;并挂 window online kick。返回清理函数。 */
   restoreAndWatch(): () => void
-  /** 开话题时把该话题的未决行注入 threadMessages(applyThreadSnapshot 只保留已在场的乐观行)。 */
-  injectThreadOutboxRows(chatId: string, rootId: string): void
+  /** 打开会话主线或话题时注入它的未决行(applyThreadSnapshot 只保留已在场的乐观行;桌面不在屏的会话不留行,见 @@@resident-rows)。 */
+  injectOutboxRows(chatId: string, rootId: string | null): void
   retrySend(clientMessageId: string): void
   discardSend(clientMessageId: string): void
 }
@@ -485,7 +485,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
               return row ? outbox.confirm(record.clientMessageId, row) : outbox.failUpload(record.clientMessageId, new Error('Native receipt not found'))
             }, error => active ? outbox.failUpload(record.clientMessageId, error) : undefined)
           }
-          if (record.payload.threadRootId) continue // 话题行在 openThread 时经 injectThreadOutboxRows 注入
+          if (record.payload.threadRootId) continue // 话题行在 openThread 时经 injectOutboxRows 注入
           const row = outboxRecordToMessage(record, user)
           io.setMessagesAndCache((prev) => upsertMessageById(prev, row), record.chatId)
         }
@@ -495,12 +495,14 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       window.addEventListener('online', onOnline)
       return () => window.removeEventListener('online', onOnline)
     },
-    injectThreadOutboxRows(chatId, rootId) {
+    injectOutboxRows(chatId, rootId) {
       const user = io.user()
       if (!user) return
       const rows = outbox.pendingFor(chatId, rootId).map((r) => outboxRecordToMessage(r, user))
       if (rows.length === 0) return
-      io.setThreadMessages((prev) => rows.reduce((list, row) => upsertMessageById(list, row), prev), chatId)
+      const inject = (prev: MessageItem[]) => rows.reduce((list, row) => upsertMessageById(list, row), prev)
+      if (rootId) io.setThreadMessages(inject, chatId)
+      else io.setMessagesAndCache(inject, chatId)
     },
     retrySend(clientMessageId) {
       if (active) void outbox.retry(clientMessageId).catch((err) => { if (active) console.error('[chatOutbox] retry failed', err) })

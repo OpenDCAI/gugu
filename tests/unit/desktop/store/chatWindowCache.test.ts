@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ChatWindowCache } from '../../../../apps/desktop/src/store/chatWindowCache'
 import { message } from '../../../support/testHarness'
+import { clearMessageWindows, initializeMessageWindows } from '../../../../apps/desktop/src/lib/messageWindows'
 
 const row = (seq: number) => message({ id: `m-${seq}`, chat_id: 'chat', seq, is_mine: false })
 describe('cached scoped history ownership', () => {
@@ -13,6 +14,22 @@ describe('cached scoped history ownership', () => {
     stop()
     expect(cache.get('chat')).toHaveLength(40)
     expect(cache.history('chat')).not.toBe(history)
+  })
+  it('holds a desktop conversation only while it is observed and skips writes to one nobody holds', () => {
+    initializeMessageWindows('desk')
+    try {
+      const cache = new ChatWindowCache('desk')
+      cache.update('chat', [row(1)])
+      expect(cache.get('chat')).toBeUndefined()
+      cache.set('chat', [row(1), row(2)]) // the read before a pane mounts
+      cache.update('chat', (rows) => [...rows, row(3)])
+      const stop = cache.subscribe('chat', () => undefined)
+      expect(cache.get('chat')?.map((item) => item.seq)).toEqual([1, 2, 3])
+      stop()
+      expect(cache.has('chat')).toBe(false)
+      cache.update('chat', (rows) => [...rows, row(4)])
+      expect(cache.has('chat')).toBe(false)
+    } finally { clearMessageWindows('desk') }
   })
   it('publishes history state even when the row reference stays the same', () => {
     const cache = new ChatWindowCache(), history = cache.history('chat'), observe = vi.fn()

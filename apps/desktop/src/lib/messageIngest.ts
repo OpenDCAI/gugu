@@ -5,7 +5,7 @@ import { createRPCClient } from '../session/shared/lib/ipc/rpc'
 import { desktopIpc } from '../platform/desktopIpc'
 import { platform } from '../platform'
 import type { LocalImDbAdapter } from './localSyncDb'
-import { acceptMessageWrites, clearMessageWindows, initializeMessageWindows, messageWindow, setMessageWindow } from './messageWindows'
+import { acceptMessageWrites, clearMessageWindows, holdMessageWindow, initializeMessageWindows, isMessageWindowHeld, messageWindow, releaseMessageWindows, setMessageWindow } from './messageWindows'
 import { MAX_WINDOW } from '../store/chatMessageWindow'
 const commits = new Map<string, Promise<unknown>>()
 
@@ -70,8 +70,28 @@ async function publishWindows(accountId: string, chatIds: string[]): Promise<voi
   for (const chatId of chatIds) setMessageWindow(accountId, chatId, null, rows.filter(row => row.chat_id === chatId))
 }
 
-export async function prefetchMessages(accountId: string, chatIds: string[]): Promise<void> {
-  if (messageWindow(accountId, '') !== null) await publishWindows(accountId, chatIds)
+const windowReads = new Map<string, Promise<void>>()
+/**
+ * Read a conversation's window from the local store before a pane shows it. Null when there is nothing to wait for (phone
+ * account, or the window is already held). The main process answers store calls in order, so an arrival committed while
+ * the read is in flight is either in the page or applied to the held window after it.
+ */
+export function readMessageWindowFromStore(accountId: string, chatId: string): Promise<void> | null {
+  if (messageWindow(accountId, '') === null) return null
+  const id = JSON.stringify([accountId, chatId])
+  const pending = windowReads.get(id)
+  if (pending) return pending
+  if (isMessageWindowHeld(accountId, chatId)) return null
+  holdMessageWindow(accountId, chatId)
+  const read = store().page(accountId, { chatId, threadRootId: null, limit: MAX_WINDOW }).then((page) => {
+    const held = messageWindow(accountId, chatId)
+    if (!isMessageWindowHeld(accountId, chatId) || !held) return
+    const arrived = new Set(held.map(row => row.id))
+    setMessageWindow(accountId, chatId, null, [...page.rows.filter(row => !arrived.has(row.id)), ...held])
+  }, (error: unknown) => { releaseMessageWindows(accountId, chatId); throw error })
+    .finally(() => windowReads.delete(id))
+  windowReads.set(id, read)
+  return read
 }
 
 export async function readMessagePage(accountId: string, page: ImMessagePage): Promise<ImMessagePageResult | null> {

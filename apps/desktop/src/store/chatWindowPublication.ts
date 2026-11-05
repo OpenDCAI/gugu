@@ -7,7 +7,7 @@ import { decideColdStartFetch, deltaResultRequiresDegrade } from '../lib/coldSta
 import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq } from './chatMessageWindow'
 import { seedCacheFromDisk } from './chatDiskWindow'
 import { rendererLogger } from '../lib/log'
-import { readMessagePage } from '../lib/messageIngest'
+import { readMessagePage, readMessageWindowFromStore } from '../lib/messageIngest'
 import { messageWindow, setMessageWindow } from '../lib/messageWindows'
 
 import { ChatWindowCache } from './chatWindowCache'
@@ -36,6 +36,8 @@ export async function openCachedChatWindow(options: {
 }): Promise<void> {
   const { chatId, userId, cache, observer } = options
   const repository = await options.getRepository()
+  if (!observer.current()) return
+  await readMessageWindowFromStore(userId, chatId)
   if (!observer.current()) return
   const idbSparse = readMessageWindow(repository, chatId)?.sparse === true
   const disk = seedCacheFromDisk(cache, repository, chatId)
