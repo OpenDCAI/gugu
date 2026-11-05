@@ -52,7 +52,9 @@ export function useOwnedAgentConversationEntry(input: {
       localContext: async () => api ? parseSessionpageAgentContext(await api.invoke('sessionpage:agent-context', contact.id)) : null,
     }).then(async target => {
       if (asked !== generation.current || current.current.ownerId !== state.ownerId) return
-      if (!sourceChatId) {
+      // The phone task is a pushed layer. Keep its IM opener selected underneath
+      // so Back returns there instead of exposing an empty agent DM.
+      if (!sourceChatId && !state.mobile) {
         if (chatId) state.setActiveChatId(chatId)
         state.onOpen()
       }
