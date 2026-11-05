@@ -264,7 +264,7 @@ describe('session start with a first message', () => {
   })
 
   it('a required sign-in shows under the held first message, which no longer runs', async () => {
-    const { state, host } = mount('double')
+    const { state, host, view } = mount('double')
     // store 在启动没成时把那句话留在已提交那一档(`_holdStartupPrompt`)。
     state.transcript.history.seed([
       {
@@ -275,11 +275,12 @@ describe('session start with a first message', () => {
       }
     ])
     const signIn = vi.fn()
+    view.setCommands({ onConditionAction: ({ index }) => [signIn][index]() })
     state.session.setCondition({
       code: 'auth-required',
       detail: 'sign-in-missing',
       label: 'Sign in to Claude to continue',
-      actions: [{ label: 'Sign in', run: signIn }]
+      actions: [{ label: 'Sign in' }]
     })
     await until('sign-in action mounts', () =>
       Boolean(host.querySelector('button[data-slot="session-condition-action"]'))
@@ -292,9 +293,10 @@ describe('session start with a first message', () => {
   })
 
   it('an action whose call is in flight is disabled: a second click does not repeat it', async () => {
-    const { state, host } = mount('double')
+    const { state, host, view } = mount('double')
     const restart = vi.fn()
-    state.session.setCondition({ code: 'provider-session-missing', detail: 'missing', actions: [{ label: 'Start fresh', run: restart, pending: true }] })
+    view.setCommands({ onConditionAction: restart })
+    state.session.setCondition({ code: 'provider-session-missing', detail: 'missing', actions: [{ label: 'Start fresh', pending: true }] })
     await until('action mounts', () => Boolean(host.querySelector('button[data-slot="session-condition-action"]')))
     const button = host.querySelector<HTMLButtonElement>('button[data-slot="session-condition-action"]')!
     expect(button.disabled).toBe(true)
