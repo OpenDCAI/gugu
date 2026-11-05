@@ -235,6 +235,7 @@ export const enUSProjectMessages = {
   'projects.delete.title': 'Delete project',
   'projects.delete.confirm': 'Delete',
   'projects.delete.failed': 'Could not delete the project',
+  'projects.delete.checking': 'Checking project…',
   'projects.delete.checkTimeout': 'The device did not answer while checking the project. Try again once it is connected.',
   'projects.delete.description':
     '"{projectLabel}" will be removed from the project list. Its tasks will be archived and can be restored from Task history. Files and worktrees will be kept.',
@@ -472,6 +473,7 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'projects.delete.title': '删除项目',
   'projects.delete.confirm': '删除',
   'projects.delete.failed': '未能删除项目',
+  'projects.delete.checking': '正在检查项目…',
   'projects.delete.checkTimeout': '检查项目时那台设备没有应答。请等连接恢复后重试。',
   'projects.delete.description': '将从项目列表移除“{projectLabel}”，并归档其中的任务；可从任务历史恢复。文件夹和 worktree 会保留。',
   'projects.delete.detachWarning_one': '若该自动化属于归档任务，它会保留，并在任务恢复前隐藏；否则将从项目分离，在挂到其他项目之前不会运行：',

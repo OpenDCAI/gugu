@@ -15,6 +15,8 @@ export type ConfirmActionDialogArgs = {
   title: string;
   description: ReactNode;
   confirmLabel?: string;
+  /** The dependency check must complete before this action can be confirmed. */
+  confirmDisabled?: boolean;
   variant?: 'destructive' | 'default';
   /**
    * 传了才长出「不再询问」复选框,勾选状态随确认一起回给调用方(取消不回传:没确认的动作不该
@@ -48,6 +50,7 @@ export function ConfirmActionDialog({
   title,
   description,
   confirmLabel,
+  confirmDisabled = false,
   variant = 'destructive',
   dontAskAgainLabel,
   scopeLabel,
@@ -103,7 +106,7 @@ export function ConfirmActionDialog({
         <Button variant="outline" onClick={onCancel ?? onClose}>
           {cancelLabel ?? translate('common.cancel')}
         </Button>
-        <ConfirmButton variant={variant} onClick={() => onSuccess({ dontAskAgain, scopeChecked, optionChecked })}>
+        <ConfirmButton disabled={confirmDisabled} variant={variant} onClick={() => onSuccess({ dontAskAgain, scopeChecked, optionChecked })}>
           {confirmLabel ?? translate('common.confirm')}
         </ConfirmButton>
       </DialogFooter>
