@@ -61,7 +61,10 @@ interface Run {
 interface Entry {
   events: LifeEvents;
   life: Life;
-  /** The current attempt was started by a reconfigure (its LifeView reports preserved/replaced). */
+  /**
+   * The current attempt was started by a reconfigure and no turn has gone out on it yet: its LifeView reports
+   * preserved/replaced. It is news about the gap before the next turn; the next dispatch retires it.
+   */
   reconfigured: boolean;
   attempt: number;
   version: number;
@@ -341,6 +344,8 @@ export class SessionLife {
       entry.reconfigured = event.k === 'start' && event.origin === 'reconfigure';
       entry.attempt += 1;
       entry.run = { gen: life.gen, abort: new AbortController(), adapter: this.ports.adapter(sessionId), unlisten: null };
+    } else if (effects.some(effect => effect.e === 'dispatch')) {
+      entry.reconfigured = false;
     }
     for (const effect of effects) if (effect.e === 'abort') oldRun?.abort.abort();
     if (life.kind !== previous.kind || (life.kind === 'starting' && previous.kind === 'starting' && life.progress.at !== previous.progress.at)) {
