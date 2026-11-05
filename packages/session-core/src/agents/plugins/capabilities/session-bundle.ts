@@ -846,7 +846,8 @@ export interface SessionBundleDescriptor {
       //    ⇒ 套 `'config-file'` 会说错落法(那条填 tomlOverlays/artifacts,这条填 jsonOverlays/env)。
       | 'system-config-overlay'
     >;
-    autonomy: SurfaceScopedUnitDelivery<'session-mode' | 'process-config' | 'argv'>;
+    // 'config-file':档位写进咕咕自己目录里的一份会话配置文件(dsh:`--patch` 里的权限插件行)。
+    autonomy: SurfaceScopedUnitDelivery<'session-mode' | 'process-config' | 'argv' | 'config-file'>;
     promptBlocks: SurfaceScopedUnitDelivery<
       | 'system-meta'
       | 'developer-instructions'
@@ -1918,7 +1919,7 @@ const sessionBundleDescriptorSchema: z.ZodType<SessionBundleDescriptor> = z.obje
       'config-file',
       'system-config-overlay',
     ]),
-    autonomy: surfaceScopedDeliverySchema(['session-mode', 'process-config', 'argv']),
+    autonomy: surfaceScopedDeliverySchema(['session-mode', 'process-config', 'argv', 'config-file']),
     promptBlocks: surfaceScopedDeliverySchema([
       'system-meta',
       'developer-instructions',

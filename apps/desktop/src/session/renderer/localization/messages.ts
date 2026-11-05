@@ -623,6 +623,10 @@ const enUSCoreMessages = {
   'chat.modelSwitchNotRecordedTitle': 'Switched to {target}, but it was not saved — the next start uses the previous model',
   'chat.modelSwitchUnsupportedHint': 'This agent cannot change its model inside a task. Start a new task with the model you want.',
   'chat.reloadConfirmTitleMcp': 'Apply {target}?',
+  'chat.reloadConfirmTitlePermission': 'Switch permission to {target}?',
+  'chat.reloadConfirmBodyPermission': '{agentName} restarts to change permission. It continues this conversation in a few seconds, with everything so far kept.',
+  'chat.reloadConfirmActionPermission': 'Restart and switch',
+  'chat.reloadInProgressPermission': 'Switching permission, restarting {agentName}\u2026',
   // #5556 —— 只在**声明漂了**时才可能出现(见 acp-chat-panel 的 reportUnwiredRestart)。
   // ❌ 不写成「请重启会话」:那正是那张票的病根 —— 一句点不到任何东西的话。
   'chat.settingRestartUnwiredTitle': "This setting can't be changed in this task",
@@ -1673,6 +1677,10 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'chat.modelSwitchNotRecordedTitle': '已换成 {target},但没能记下 —— 下次启动会回到原来的模型',
   'chat.modelSwitchUnsupportedHint': '这家 agent 不能在会话里换模型;要换请用想要的模型新建任务。',
   'chat.reloadConfirmTitleMcp': '应用 {target}?',
+  'chat.reloadConfirmTitlePermission': '把权限切换为「{target}」?',
+  'chat.reloadConfirmBodyPermission': '切换权限需要重启 {agentName},几秒后接着这个会话继续,之前的对话都在。',
+  'chat.reloadConfirmActionPermission': '重启并切换',
+  'chat.reloadInProgressPermission': '正在切换权限,{agentName} 重启中…',
   'chat.settingRestartUnwiredTitle': '这个会话里改不了这个设置',
   'chat.settingRestartUnwiredBody':
     'agent 报告 {dimension}({target})只对新起的会话生效,而这个版本没有为它接就地重启。'

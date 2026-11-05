@@ -10,6 +10,8 @@
  * 而重算整份、幂等,才是 `reloadEmdashSession` 立起来的语义。
  */
 
+import type { GuguPermissionMode } from '@gugu/session-core/acp';
+
 /** 渲染层 → 主进程的重开请求(逻辑名 `taskpageSession.reload`)。 */
 export const SESSIONPAGE_SESSION_RELOAD_CHANNEL = 'sessionpage-session:reload';
 
@@ -19,7 +21,7 @@ export const SESSIONPAGE_SESSION_RELOAD_CHANNEL = 'sessionpage-session:reload';
  * 它是枚举而不是自由文本:自由文本会让两条车道各写各的措辞,而这个值最终会出现在事故排查里,
  * 那时「reason 有几种取值」必须是能穷举的。
  */
-export type SessionReloadReasonCode = 'model-switch' | 'mcp-toggle' | 'manual';
+export type SessionReloadReasonCode = 'model-switch' | 'mcp-toggle' | 'permission-switch' | 'manual';
 
 export interface SessionReloadRequest {
   sessionId: string;
@@ -62,6 +64,11 @@ export interface SessionReloadRequest {
    * 那一刻仍要保留「用户明确决定过」这一事实；adapter 进程归属不由数组内容推导。
    */
   mcpDisabledServers?: readonly string[];
+  /**
+   * 换成这一档权限(咕咕四档)—— 只给权限一维声明 `reload-session` 的家(dsh)。与 `model` 同一条纪律:
+   * 宿主先写进会话记录、再重开,spawn 按记录重算;起不来就把记录写回原样。
+   */
+  permissionMode?: GuguPermissionMode;
 }
 
 export interface SessionReloadResponse {

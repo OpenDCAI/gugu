@@ -1221,6 +1221,11 @@ export async function reloadEmdashSession(input: {
    * `model_reasoning_effort`),活进程改不了;通用模式在活会话里当场改,不走重开。
    */
   effort?: string | null
+  /**
+   * 换成这一档权限(咕咕四档)再重开 —— 只给权限一维声明 `reload-session` 的家(dsh:档位在 spawn 那刻由会话包
+   * 写进进程,活进程经 ACP 改不了)。与 `model` 同一条纪律:宿主先写进会话记录、再停、再起,起不来就写回原样。
+   */
+  permissionMode?: GuguPermissionMode
 }): Promise<{ warning?: string; nativeSession: ReloadNativeSession }> {
   const { sessionId, reason } = input
   if (input.resetModel && typeof input.model === 'string' && input.model.trim()) {
@@ -1266,6 +1271,9 @@ export async function reloadEmdashSession(input: {
   if (session.runtime !== 'acp') {
     if (Array.isArray(input.mcpDisabledServers)) {
       throw new Error(`session ${sessionId} PTY reload does not accept MCP changes`)
+    }
+    if (input.permissionMode !== undefined) {
+      throw new Error(`session ${sessionId} PTY reload does not take a permission change`)
     }
     const nextModel = typeof input.model === 'string' && input.model.trim() ? input.model.trim() : null
     if (nextModel && input.modelSource !== 'platform' && input.modelSource !== 'own') {
@@ -1402,6 +1410,12 @@ export async function reloadEmdashSession(input: {
     configPatch.mcpDisabledServers = [...input.mcpDisabledServers]
     configPatch.mcpToggleDecided = true
   }
+  if (input.permissionMode !== undefined) {
+    if (!isGuguPermissionMode(input.permissionMode)) {
+      throw new Error(`session ${sessionId} reload asked for an unknown permission mode ${JSON.stringify(input.permissionMode)}`)
+    }
+    configPatch.permissionMode = input.permissionMode
+  }
   /**
    * 写之前那一份 —— 起不来时原样写回去,见下面 `restoreConfig`。
    * ⚠️ 类型取自列本身:摊平成 `Record<string, unknown>` 写不回去(TS2322),
@@ -1476,7 +1490,9 @@ export async function reloadEmdashSession(input: {
             providerSessionState: 'restart_failed' as const,
             pendingRestart: {
               status: 'restart_failed' as const,
-              dimension: reason === 'mcp-toggle' ? 'mcp' as const : 'model' as const,
+              dimension: reason === 'mcp-toggle'
+                ? 'mcp' as const
+                : input.permissionMode !== undefined ? 'permission' as const : 'model' as const,
               ...(nextModel ? { targetModel: nextModel } : {}),
               ...(input.modelSource ? { targetModelSource: input.modelSource } : {}),
               error: failure,

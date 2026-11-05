@@ -767,7 +767,7 @@ describe('pluginRegistry', () => {
     //   model 扁平 1 格('config-file')、promptBlocks 按腿 2 格('session-context' + 'argv-append');autonomy 走档位表
     //   不进 checks ⇒ **+6**,81 → **87**(Windows 79 → 85)。
     // dsh 2026-11-05 接入:只有 acp 腿,mcp('acp-session')、env('child-process')、model('config-file')、
-    //   autonomy('process-config',建会话时的 `DSH_PERMISSION_MODE`)、promptBlocks('session-context')五格 native
+    //   autonomy('config-file',`--patch` 里的权限插件行)、promptBlocks('session-context')五格 native
     //   ⇒ **+5**,87 → **92**(Windows 85 → 90)。
     expect(checks).toHaveLength(ANTIGRAVITY_SESSION_TUI_ENABLED ? 92 : 90);
     for (const check of checks) {
@@ -1009,11 +1009,14 @@ describe('pluginRegistry', () => {
   // The renderer wires `reload-session` only for the model dimension (planModelSwitch); any other dimension
   // declaring it would reach reportUnwiredRestart and fail loud at the user.
   it('declares reload-session only on the model dimension', () => {
+    // 唯一的例外:dsh 的权限维。它的 ACP 面不带 modes / 命令,续接又沿用钉下的那一档,换档只能带新档重起再
+    // resume(咕咕插进 `--patch` 的权限插件在续接时改档,见 impl/dsh/permission-plugin.ts;实测 0.2.1-rc.5)。
+    const declaredReloads = new Set(['dsh:permission']);
     for (const plugin of pluginRegistry.getAll()) {
       const live = plugin.capabilities.acp.liveSettings;
       if (!live) continue;
       for (const [dimension, setting] of Object.entries(live)) {
-        if (dimension === 'model') continue;
+        if (dimension === 'model' || declaredReloads.has(`${plugin.metadata.id}:${dimension}`)) continue;
         expect({ plugin: plugin.metadata.id, dimension, channel: (setting as { channel?: string } | undefined)?.channel })
           .not.toMatchObject({ channel: 'reload-session' });
       }

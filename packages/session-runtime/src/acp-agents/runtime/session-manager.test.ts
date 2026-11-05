@@ -2263,17 +2263,23 @@ describe('AcpRuntime session manager', () => {
     expect(edit.pending).toHaveLength(1);
   });
 
-  it.each(['read-only', 'edit', 'full-access'] as const)(
-    '没有 ACP 档位通道、档位由会话包在 spawn 时兑现的家(dsh 形状):%s 照起,❌ 去设一个它不报的档',
-    async (permissionMode) => {
+  it.each([
+    ['read-only', 'unsupported'],
+    ['edit', 'unsupported'],
+    ['full-access', 'unsupported'],
+    ['read-only', 'reload-session'],
+    ['full-access', 'reload-session'],
+  ] as const)(
+    '档位不经 ACP、由会话包在 spawn 时兑现的家(dsh 形状):%s(通道 %s)照起,❌ 去设一个它不报的档',
+    async (permissionMode, channel) => {
       const h = makeAcpHarness({
         autoApprove: 'supported',
         bundleAutonomy: 'native',
-        liveSettings: { permission: { channel: 'unsupported', ack: 'none', busy: 'reject', reloadRequired: false, recovery: 'unsupported' } },
+        liveSettings: { permission: { channel, ack: 'none', busy: 'reject', reloadRequired: channel === 'reload-session', recovery: channel === 'reload-session' ? 'runtime-restart' : 'unsupported' } },
       });
       const rt = new AcpRuntime(h.deps);
-      h.agent.newSession.mockResolvedValueOnce({ sessionId: `session-dsh-${permissionMode}` });
-      const started = await rt.startSession({ ...makeStartInput({ sessionId: `conv-dsh-${permissionMode}` }), permissionMode });
+      h.agent.newSession.mockResolvedValueOnce({ sessionId: `session-dsh-${permissionMode}-${channel}` });
+      const started = await rt.startSession({ ...makeStartInput({ sessionId: `conv-dsh-${permissionMode}-${channel}` }), permissionMode });
       expect(isOk(started)).toBe(true);
       expect(h.agent.setSessionMode).not.toHaveBeenCalled();
       expect(h.agent.setSessionConfigOption).not.toHaveBeenCalled();

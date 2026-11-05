@@ -18,7 +18,7 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
  * (曾经还有一个「额外后果」枚举,唯一的值是 claude 关一台 = 咕咕接管整份 MCP 清单。那条 strict 机制
  * 10-07 换成了 claude 自己的 `disallowedTools`,只摘被关的那台,这句后果连同枚举一起删了。)
  */
-export type SessionReloadReason = 'model-switch' | 'mcp-toggle' | 'manual';
+export type SessionReloadReason = 'model-switch' | 'mcp-toggle' | 'permission-switch' | 'manual';
 
 /**
  * @@@history-not-replayed 已撤(2026-09-07)—— 记着它为什么错,免得下一个人照原样加回来。
@@ -44,6 +44,11 @@ export interface SessionReloadConfirmProps {
   target: string;
   /** 重开进行中 —— 两个按钮都禁用,标题换成「正在重连…」。 */
   isReloading?: boolean;
+  /**
+   * 要重启的那个智能体的名字 —— 只有换权限用:那一维忙时不收(不会打断回复),代价是「重启它、几秒后接着来」,
+   * 用户要知道重启的是谁。
+   */
+  agentName?: string;
   onConfirm: () => void | Promise<void>;
   onCancel?: () => void;
 }
@@ -56,6 +61,7 @@ export interface SessionReloadConfirmProps {
 const ACTION_KEYS = {
   'model-switch': 'chat.reloadConfirmActionSwitch',
   'mcp-toggle': 'chat.reloadConfirmActionApply',
+  'permission-switch': 'chat.reloadConfirmActionPermission',
   manual: 'chat.reloadConfirmActionRestart',
 } as const satisfies Record<SessionReloadReason, string>;
 
@@ -65,21 +71,31 @@ export function SessionReloadConfirm({
   reason,
   target,
   isReloading = false,
+  agentName = '',
   onConfirm,
   onCancel,
 }: SessionReloadConfirmProps) {
   const { translate } = useSessionMessages();
   // `manual` 的标题**就是那个动作自己的名字**(「重启本会话」),不看 target:菜单上写什么,确认框抬头就是什么。
   // 另外两种是「把 X 换成 Y」的半句,宾语才是 target。
+  // 换权限:那一维忙时根本不收(`busy: 'reject'`),所以这里没有「打断正在进行的回复」这回事 ——
+  // 代价只有「重启这个智能体、几秒后接着来」,标题与正文都按这件事说。
+  const permission = reason === 'permission-switch';
   const title = isReloading
-    ? translate('chat.reloadInProgress')
+    ? permission
+      ? translate('chat.reloadInProgressPermission', { agentName })
+      : translate('chat.reloadInProgress')
     : reason === 'manual'
       ? translate('task.manualReload')
       : translate(
-          reason === 'mcp-toggle' ? 'chat.reloadConfirmTitleMcp' : 'chat.reloadConfirmTitleModel',
+          reason === 'mcp-toggle'
+            ? 'chat.reloadConfirmTitleMcp'
+            : permission ? 'chat.reloadConfirmTitlePermission' : 'chat.reloadConfirmTitleModel',
           { target },
         );
-  const body = translate('chat.reloadConfirmBody');
+  const body = permission
+    ? translate('chat.reloadConfirmBodyPermission', { agentName })
+    : translate('chat.reloadConfirmBody');
   return (
     <ConfirmationDialog
       open={open}

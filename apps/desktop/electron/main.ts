@@ -65,7 +65,7 @@ import {
   readLogTailForFeedback,
   RENDERER_LOG_CHANNEL,
 } from './lib/logger'
-import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
+import { autoApproveFromPermissionMode, type GuguPermissionMode } from '@gugu/session-core/acp'
 import { signalProcessDescendantsSync } from '@gugu/session-core/acp/node'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
@@ -2528,12 +2528,15 @@ handleShellChannel(SESSIONPAGE_SESSION_RELOAD_CHANNEL, async (_event, input: unk
     modelSource?: unknown
     effort?: unknown
     mcpDisabledServers?: unknown
+    permissionMode?: unknown
   }
   const reason = row.reason === 'mcp-toggle'
     ? 'mcp-toggle'
     : row.reason === 'manual'
       ? 'manual'
-      : 'model-switch'
+      : row.reason === 'permission-switch'
+        ? 'permission-switch'
+        : 'model-switch'
   const emdash = loadEmdashBridge()
   // 桥没装载 = 会话页模块根本没起来。❌ 不静默返回 ok:那会让确认框显示「重开完成」,
   // 而实际上一个字节都没发生。
@@ -2561,6 +2564,8 @@ handleShellChannel(SESSIONPAGE_SESSION_RELOAD_CHANNEL, async (_event, input: unk
       ...(Array.isArray(row.mcpDisabledServers)
         ? { mcpDisabledServers: row.mcpDisabledServers.filter((v): v is string => typeof v === 'string') }
         : {}),
+      // 档位原样递,认不得的值由 reloadEmdashSession 响亮拒(❌ 在这里猜成某一档)。
+      ...(row.permissionMode !== undefined ? { permissionMode: row.permissionMode as GuguPermissionMode } : {}),
     })
     // 从没起来过的会话只记下了选择(#7092):告诉渲染层接着正常首启,❌ 让它去重挂一条不存在的会话。
     return reloaded.nativeSession === 'not-started' ? { ok: true, notStarted: true } : { ok: true }

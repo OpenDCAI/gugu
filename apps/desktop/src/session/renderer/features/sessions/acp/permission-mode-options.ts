@@ -78,6 +78,14 @@ function reportedIdFor(
  *
  * ⚠️ 收敛的代价:同归一档的其余原生档(claude 的 `auto` / `dontAsk`)不再单列。
  */
+/** 咕咕四档的显示名(下拉、确认框共用这一份)。 */
+export const PERMISSION_TIER_LABEL_KEYS = {
+  plan: 'taskConfig.permissionPlan',
+  'read-only': 'taskConfig.permissionReadOnly',
+  edit: 'taskConfig.permissionEdit',
+  'full-access': 'taskConfig.permissionFullAccess',
+} as const satisfies Record<GuguPermissionMode, SessionMessageLookupKey>;
+
 export function localizePermissionModeOptions(
   options: Options | null,
   translate: Translate,
@@ -89,19 +97,19 @@ export function localizePermissionModeOptions(
 
   const labels: Record<GuguPermissionMode, { name: string; description: string }> = {
     plan: {
-      name: translate('taskConfig.permissionPlan'),
+      name: translate(PERMISSION_TIER_LABEL_KEYS.plan),
       description: translate('taskConfig.permissionPlanHint'),
     },
     'read-only': {
-      name: translate('taskConfig.permissionReadOnly'),
+      name: translate(PERMISSION_TIER_LABEL_KEYS['read-only']),
       description: translate('taskConfig.permissionReadOnlyHint', { agent: agentName }),
     },
     edit: {
-      name: translate('taskConfig.permissionEdit'),
+      name: translate(PERMISSION_TIER_LABEL_KEYS.edit),
       description: translate('taskConfig.permissionEditHint'),
     },
     'full-access': {
-      name: translate('taskConfig.permissionFullAccess'),
+      name: translate(PERMISSION_TIER_LABEL_KEYS['full-access']),
       description: translate('taskConfig.permissionFullAccessHint'),
     },
   };

@@ -5,6 +5,8 @@ import type {
 } from '@gugu/session-core/agents/plugins';
 import { materializeDshSessionBundle } from './session-bundle';
 import { platformModel } from './platform-model';
+import { DSH_PERMISSION_PLUGIN_SOURCE } from './permission-plugin';
+import { pathToFileURL } from 'node:url';
 
 const relay = { ANTHROPIC_BASE_URL: 'https://relay.example', ANTHROPIC_AUTH_TOKEN: 'tok-123', ANTHROPIC_API_KEY: '' };
 
@@ -99,9 +101,21 @@ describe('DeepSeek Harness 会话包', () => {
     ['read-only', 'read-only'],
     ['edit', 'workspace-write'],
     ['full-access', 'danger-full-access'],
-  ] as const)('自治级别 %s ⇒ DSH_PERMISSION_MODE=%s(建会话时定档)', (permissionMode, mode) => {
+  ] as const)('自治级别 %s ⇒ 权限插件按 %s 写进会话(新建与续接同一条路,❌ DSH_PERMISSION_MODE)', (permissionMode, mode) => {
     const result = materializeDshSessionBundle(ctx, bundle({ autonomy: { mode: permissionMode === 'full-access' ? 'full-access' : 'approval-required', permissionMode } }));
-    expect(result.env.DSH_PERMISSION_MODE).toBe(mode);
+    const { rows } = patchOf(result);
+    const plugin = result.artifacts.find((artifact) => /gugu-permission\.mjs$/.test(artifact.path))!;
+    expect(plugin.content).toBe(DSH_PERMISSION_PLUGIN_SOURCE);
+    expect(rows.at(-1)).toEqual({
+      insert: [{ id: 'gugu-permission', name: pathToFileURL(plugin.path).href, config: { preset: mode } }],
+    });
+    expect(result.env).not.toHaveProperty('DSH_PERMISSION_MODE');
+  });
+
+  it('没选自治级别就不插插件,dsh 用它自己的默认档', () => {
+    const result = materializeDshSessionBundle(ctx, bundle());
+    expect(result.artifacts.some((artifact) => /gugu-permission\.mjs$/.test(artifact.path))).toBe(false);
+    expect(patchOf(result).rows.some((row) => 'insert' in row)).toBe(false);
   });
 
   it('没有规划档:选了 plan 响亮拒绝,❌ 悄悄换成别的档', () => {

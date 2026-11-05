@@ -129,6 +129,7 @@ import type { AcpChatStore } from './acp-chat-store';
 import {
   detachedPermissionModeOptions,
   localizePermissionModeOptions,
+  PERMISSION_TIER_LABEL_KEYS,
   sessionPermissionModeOptions,
   selectedPermissionModeId,
 } from './permission-mode-options';
@@ -175,6 +176,7 @@ import {
   type McpSessionPanelAdapterSkill,
 } from '@renderer/features/mcp/components/mcp-session-panel-adapter';
 import { GUGU_CLIENT_COMMAND_MCP, isGuguClientCommand } from '@gugu/session-core/acp/commands';
+import { classifyProviderPermissionMode } from '@gugu/session-core/acp/client';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useBoundChatView } from './use-bound-chat-view';
 import { useLastTurnSignInRequired } from './use-last-turn-sign-in';
@@ -460,7 +462,10 @@ const ComposerForStore = observer(function ComposerForStore({
    * 判据 `pi/acp.test.ts` 钉住这件事:哪天有人把这两维声明回 `reload-session`,它会红,
    * 并把人指到这里。
    *
-   * ⇒ 所以万一它真的到了(声明漂了),这里**响亮报错并说出是哪一维**,
+   * 例外是权限一维**声明了** `reload-session` 的家(dsh,活进程经 ACP 改不了档):那条 `restart_required` 是预期的,
+   * 走与换模型同一个确认框与同一条宿主重开(见下面 `handleModeChange`)。
+   *
+   * ⇒ 所以万一它在别处到了(声明漂了),这里**响亮报错并说出是哪一维**,
    * ❌ 不再弹那句「必须先重启会话」—— 那句话点不到任何东西,正是 #5556 本身。
    */
   const reportUnwiredRestart = useCallback(
@@ -476,16 +481,6 @@ const ComposerForStore = observer(function ComposerForStore({
       });
     },
     [showModal, translate]
-  );
-
-  const handleModeChange = useCallback(
-    (modeId: string) => {
-      void store.setMode(modeId).then((outcome) => {
-        if (outcome?.kind !== 'restart-required') return;
-        reportUnwiredRestart('permission', outcome.requestedValue);
-      });
-    },
-    [store, reportUnwiredRestart]
   );
 
   const handleAttach = useCallback(() => {
@@ -849,8 +844,13 @@ const ComposerForStore = observer(function ComposerForStore({
   );
   // #7342 停下了:引擎那份档位清单没了,按映射表摆回四档、选中记录那一档(改了记进记录,见 store.setMode)。
   const detachedPermission = detachedPermissionModeOptions(store.detachedPermissionTier, providerPermissionModeMap);
+  // 权限一维走 `reload-session` 的家(dsh):活会话也不报档位表(档位在 spawn 那刻进进程),与停下时同一个道理 ——
+  // 按映射表摆出这家的几档、选中记录里那一档;选了就走确认 + 重开(`handleModeChange`)。
+  const reloadPermission = providerCapabilities?.acp.liveSettings?.permission?.channel === 'reload-session'
+    ? detachedPermissionModeOptions(store.recordedPermissionTier, providerPermissionModeMap)
+    : null;
   const sessionPermissionOptions = sessionPermissionModeOptions(
-    store.permissionModeOptions ?? detachedPermission?.options ?? null,
+    store.permissionModeOptions ?? detachedPermission?.options ?? reloadPermission?.options ?? null,
     providerCapabilities?.acp.liveSettings?.permission,
     providerCapabilities?.acp.sessionModes,
   );
@@ -1017,6 +1017,28 @@ const ComposerForStore = observer(function ComposerForStore({
    */
   const [pendingReload, setPendingReload] = useState<RestartTarget | null>(null);
   const [reloading, setReloading] = useState(false);
+
+  /**
+   * 权限这一维声明 `reload-session` 的家(dsh:档位在 spawn 那刻进进程,活进程经 ACP 改不了)回 `restart_required`
+   * 是**预期**的,不是声明漂了 —— 走与换模型同一个确认框:说清会重启谁、几秒后接着来,确认后由宿主先写记录再重开。
+   * 其余家仍按上面那条 `reportUnwiredRestart` 响亮报错。
+   */
+  const permissionReloads = providerCapabilities?.acp.liveSettings?.permission?.channel === 'reload-session';
+  const handleModeChange = useCallback(
+    (modeId: string) => {
+      void store.setMode(modeId).then((outcome) => {
+        if (outcome?.kind !== 'restart-required') return;
+        const tier = classifyProviderPermissionMode(outcome.requestedValue, providerPermissionModeMap);
+        if (!permissionReloads) {
+          reportUnwiredRestart('permission', outcome.requestedValue);
+          return;
+        }
+        setPendingReload({ dimension: 'permission', value: tier, label: translate(PERMISSION_TIER_LABEL_KEYS[tier]) });
+      });
+    },
+    [store, reportUnwiredRestart, permissionReloads, providerPermissionModeMap, translate]
+  );
+
 
   /** 用户在 `/mcp` 面板里改完开关、点了应用,等他在确认框里确认重开。 */
   const [pendingMcp, setPendingMcp] = useState<
@@ -1210,7 +1232,10 @@ const ComposerForStore = observer(function ComposerForStore({
       if (!result.ok) {
         // 原话直接给用户 —— ❌ 不折成「重开失败」:两种事故的下一步完全不同。
         showModal('confirmActionModal', {
-          title: translate('chat.reloadConfirmTitleModel', { target: pending.label }),
+          title: translate(
+            pending.dimension === 'permission' ? 'chat.reloadConfirmTitlePermission' : 'chat.reloadConfirmTitleModel',
+            { target: pending.label },
+          ),
           description: result.error ?? '',
           confirmLabel: translate('common.close'),
           onSuccess: () => undefined,
@@ -1402,6 +1427,7 @@ const ComposerForStore = observer(function ComposerForStore({
         }}
         reason={pendingReload ? confirmReasonFor(pendingReload) : 'model-switch'}
         target={pendingReload?.label ?? ''}
+        agentName={agents?.find((agent) => agent.id === providerId)?.name ?? providerId ?? ''}
         // ⚠️ 这里曾经在**跨计费路**时事前断言「历史不会被重放」。那是推出来的,不是量出来的:
         //    计费路换的是端点与凭据,而 rollout 落在 agent home(按 provider 取,**不按计费路取**),
         //    owner 2026-09-07 实测换模型/换 provider 之后 agent 照样记得这条会话。
@@ -1520,7 +1546,7 @@ const ComposerForStore = observer(function ComposerForStore({
           providerPermissionModeMap
         )}
         selectedPermissionMode={selectedPermissionModeId(
-          store.permissionMode ?? detachedPermission?.selected,
+          store.permissionMode ?? detachedPermission?.selected ?? reloadPermission?.selected,
           sessionPermissionOptions,
           providerPermissionModeMap
         )}

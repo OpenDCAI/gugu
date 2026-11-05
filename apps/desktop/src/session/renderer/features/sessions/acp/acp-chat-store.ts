@@ -471,6 +471,16 @@ export class AcpChatStore {
     return resolveSessionPermissionMode(record);
   }
 
+  /**
+   * 会话记录里那一档,不论会话在不在跑 —— 给权限一维走 `reload-session` 的家(dsh)摆下拉用:它的活会话也不报档位表,
+   * 档位在 spawn 那刻按记录进进程,所以记录就是这条会话此刻的那一档。侧边聊天借来源会话的记录,答 null。
+   */
+  get recordedPermissionTier(): GuguPermissionMode | null {
+    if (this.isTransient) return null;
+    const record = this._sessionRecord();
+    return record ? resolveSessionPermissionMode(record) : null;
+  }
+
   get permissionModeChangeNotice(): ComposerNotice | null {
     const session = this.session;
     const pending = this.pendingPermissionMode;
@@ -1559,6 +1569,11 @@ export class AcpChatStore {
       const result = await session.setModeOption(modeId);
       if (!result.success) {
         if (this.pendingPermissionMode?.requestId === requestId) this.pendingPermissionMode = null;
+        // 这一家在回复进行中不收权限改动(`busy: 'reject'`):说人话,告诉他等这一轮结束 —— ❌ 弹运行时的英文原话。
+        if ((result.error as { cause?: { name?: unknown } }).cause?.name === 'LiveSettingBusy') {
+          toast({ title: translateSessionMessage('acpNotice.permissionBusy') });
+          return null;
+        }
         this._toastError('acpFailure.changeSetting', result.error);
         return null;
       }

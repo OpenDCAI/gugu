@@ -13,6 +13,8 @@ import { sessionPromptText, sessionRunHome } from '../../helpers/session-bundle'
 import { sessionMcpProtocolServers } from '../../helpers/session-mcp';
 import { resolveDeclaredPermissionMode } from '@gugu/session-core/acp';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { DSH_PERMISSION_PLUGIN_FILE, DSH_PERMISSION_PLUGIN_SOURCE } from './permission-plugin';
 
 /**
  * DeepSeek Harness(`@deepseek-ai/dsh`)的会话包。一手出处:发行包 0.2.1-rc.5(gpu 上 npm 装开读
@@ -89,13 +91,13 @@ export const dshSessionBundleDescriptor = {
     /** 平台模型 → 0600 的 `--patch` 文档(dsh 配置最高一层,压得住用户 `~/.dsh` 的 profile patch)。 */
     model: { kind: 'native', channel: 'config-file' },
     /**
-     * 自治级别 → `DSH_PERMISSION_MODE`(`dsh-base` 的 `sandbox-policy` / `approval` 两行读它)。
-     * ⚠️ 只在**新建**会话时生效:dsh 把档位钉进会话,续接沿用钉下的那一档(`dsh-permission-presets` README
-     *    「A resumed seed … preserves its effective permission」;实测:read-only 建的会话换 danger-full-access
-     *    重起再 resume,命令照旧被 read-only 拦下)。dsh 自己的界面用 `/permission` 在会话里换档,ACP 面不提供这条
-     *    命令 ⇒ 咕咕这条腿没有改档的通道(见 index.ts 的 liveSettings)。
+     * 自治级别 → `--patch` 里插进去的咕咕插件(./permission-plugin.ts),在每个 `agent/created` 上调 dsh 自己的
+     * `permissionPresets.set` —— 与 `/permission` 同一条写入路。
+     * ⚠️ 不用 `DSH_PERMISSION_MODE`:它只管新会话的默认档,续接时 dsh 沿用钉下的那一档(`dsh-permission-presets`
+     *    README「A resumed seed … preserves its effective permission」;实测 read-only 建的会话带
+     *    danger-full-access 重起再 resume,命令照旧被拦)。插件在续接时同样生效,所以换档能走 `reload-session`。
      */
-    autonomy: { kind: 'native', channel: 'process-config' },
+    autonomy: { kind: 'native', channel: 'config-file' },
     /** 厂商原生 ACP server 不读 `_meta.systemPrompt.append`,身份自述随首轮用户消息走(同 codebuddy)。 */
     promptBlocks: { kind: 'native', channel: 'session-context' },
   },
@@ -157,15 +159,22 @@ export function materializeDshSessionBundle(
   const tier = wanted ? resolveDeclaredPermissionMode(wanted, DSH_PERMISSION_MODES) : undefined;
   if (wanted && !tier) throw new Error(`DeepSeek Harness has no permission mode for '${wanted}' or any stricter one`);
   const permission = tier ? DSH_PERMISSION_MODES[tier as keyof typeof DSH_PERMISSION_MODES].id : undefined;
-  if (permission) env.DSH_PERMISSION_MODE = permission;
 
   const platform = platformRows(bundle);
   if (platform) {
     const token = platformModel.load(bundle.model!).spawnEnv![DSH_PLATFORM_KEY_ENV]!;
     env[DSH_PLATFORM_KEY_ENV] = token;
   }
-  const rows = [...DISABLED_ROWS.map((id) => ({ id, disabled: true })), ...(platform ?? [])];
-  const path = join(sessionRunHome(bundle, 'DeepSeek Harness', 'dsh-capability-runs'), PATCH_FILE);
+  const runHome = sessionRunHome(bundle, 'DeepSeek Harness', 'dsh-capability-runs');
+  const path = join(runHome, PATCH_FILE);
+  const pluginPath = join(runHome, DSH_PERMISSION_PLUGIN_FILE);
+  // 权限档只经这一条路:插件在每个 `agent/created`(新建与续接)上把它写进会话(见 ./permission-plugin.ts)。
+  // ❌ 不再并发 `DSH_PERMISSION_MODE`:那只管新会话的默认档,续接时被钉下的那一档压住,留着就是第二条路。
+  // 插件按 file URL 加载(cordis loader 把 `name` 当模块说明符 import;Windows 盘符路径不是合法说明符)。
+  const permissionRows = permission
+    ? [{ insert: [{ id: 'gugu-permission', name: pathToFileURL(pluginPath).href, config: { preset: permission } }] }]
+    : [];
+  const rows = [...DISABLED_ROWS.map((id) => ({ id, disabled: true })), ...(platform ?? []), ...permissionRows];
 
   const prompt = sessionPromptText(bundle.promptBlocks);
   // 令牌随 ACP 条目的 header 走,不再留在适配器进程环境里。
@@ -183,7 +192,10 @@ export function materializeDshSessionBundle(
     ...(prompt ? { prompt: { ...prompt, carrier: 'session-context' as const } } : {}),
     configMerges: [],
     // 0600:里面有中转地址;令牌不在里面(只在进程环境)。
-    artifacts: [{ path, content: `${JSON.stringify(rows, null, 2)}\n`, mode: 0o600 }],
+    artifacts: [
+      { path, content: `${JSON.stringify(rows, null, 2)}\n`, mode: 0o600 },
+      ...(permission ? [{ path: pluginPath, content: DSH_PERMISSION_PLUGIN_SOURCE, mode: 0o600 as const }] : []),
+    ],
     report: {
       adapterId: 'dsh',
       surface: ctx.surface,
