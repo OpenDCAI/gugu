@@ -6,12 +6,34 @@ import { QUICK_CHAT_CHANNELS } from '../../../../apps/desktop/src/lib/quickChatI
 const native = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   register: vi.fn(),
+  owners: new Set<{ enabled: boolean; owned: boolean; onChange: (owned: boolean) => void }>(),
   send: vi.fn(),
   writeFileSync: vi.fn(),
 }))
 vi.mock('node:fs', () => ({
   readFileSync: () => '{}',
   writeFileSync: native.writeFileSync,
+}))
+vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: () => ({ warn: vi.fn() }) }))
+vi.mock('../../../../apps/desktop/electron/quick-chat-shortcut-owner', () => ({
+  quickChatOwnerPort: () => 12345,
+  createQuickChatShortcutOwner: ({ onChange }: { onChange: (owned: boolean) => void }) => {
+    const candidate = { enabled: false, owned: false, onChange }
+    native.owners.add(candidate)
+    const elect = () => {
+      const held = [...native.owners].find((item) => item.enabled && item.owned)
+      const winner = held ?? [...native.owners].find((item) => item.enabled)
+      for (const item of native.owners) {
+        const next = item === winner
+        if (next !== item.owned) { item.owned = next; item.onChange(next) }
+      }
+    }
+    return {
+      owns: () => candidate.owned,
+      setEnabled(next: boolean) { candidate.enabled = next; elect() },
+      dispose() { candidate.enabled = false; elect(); native.owners.delete(candidate) },
+    }
+  },
 }))
 vi.mock('electron', () => ({
   app: { getPath: () => '/test-profile', on: vi.fn(), focus: vi.fn() },
@@ -59,6 +81,7 @@ function lastWritten(): { bounds?: { x: number; y: number; width: number; height
 
 beforeEach(() => {
   native.handlers.clear()
+  native.owners.clear()
   vi.clearAllMocks()
   native.register.mockReturnValue(true)
   vi.useFakeTimers()
