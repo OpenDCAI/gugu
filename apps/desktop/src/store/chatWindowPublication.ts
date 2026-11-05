@@ -7,6 +7,8 @@ import { decideColdStartFetch, deltaResultRequiresDegrade } from '../lib/coldSta
 import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq } from './chatMessageWindow'
 import { seedCacheFromDisk } from './chatDiskWindow'
 import { rendererLogger } from '../lib/log'
+import { readMessagePage } from '../lib/messageIngest'
+import { messageWindow, setMessageWindow } from '../lib/messageWindows'
 
 import { ChatWindowCache } from './chatWindowCache'
 import type { ChatHistoryWindow, FetchHistoryPage } from './chatHistoryWindow'
@@ -35,10 +37,13 @@ export async function openCachedChatWindow(options: {
   const { chatId, userId, cache, observer } = options
   const repository = await options.getRepository()
   if (!observer.current()) return
-  const sparse = readMessageWindow(repository, chatId)?.sparse === true
+  const idbSparse = readMessageWindow(repository, chatId)?.sparse === true
   const disk = seedCacheFromDisk(cache, repository, chatId)
   let painted = !!cache.get(chatId)?.some((message) => message.seq >= 0)
   if (disk) { observer.painted(disk.rows, disk.hasMoreOlder); painted = true }
+  // Desktop: the SQLite coverage ranges say whether the stored tail is contiguous.
+  const sparse = messageWindow(userId, chatId) === null ? idbSparse
+    : !(await readMessagePage(userId, { chatId, limit: INITIAL_PAGE }))?.covered
   if (!observer.current()) return
   const maxSeq = maxMainlineSeq(cache.get(chatId))
   const plan = sparse ? { kind: 'initialLoad' as const } : decideColdStartFetch({
@@ -79,10 +84,16 @@ export async function openCachedChatWindow(options: {
 
 /** The existing history controller owns both primary and scoped pagination. */
 export function fetchChatHistoryPage(userId: string): FetchHistoryPage {
-  return (chatId, way, cursor, limit) => way === 'newer'
-    ? chatService.getMessages(chatId, userId, 'loadNewer', limit, undefined, cursor)
-    : way === 'older' ? chatService.getMessages(chatId, userId, 'loadOlder', limit, cursor)
-      : chatService.getMessages(chatId, userId, 'initialLoad', limit)
+  return async (chatId, way, cursor, limit) => {
+    if (way === 'older') {
+      const local = await readMessagePage(userId, { chatId, beforeSeq: cursor, limit })
+      if (local?.covered) return local.rows
+    }
+    return way === 'newer'
+      ? chatService.getMessages(chatId, userId, 'loadNewer', limit, undefined, cursor)
+      : way === 'older' ? chatService.getMessages(chatId, userId, 'loadOlder', limit, cursor)
+        : chatService.getMessages(chatId, userId, 'initialLoad', limit)
+  }
 }
 
 export function restoreChatHistoryAnchor(window: ChatHistoryWindow, userId: string, messageId: string): Promise<boolean> {
@@ -97,4 +108,18 @@ export function restoreChatHistoryAnchor(window: ChatHistoryWindow, userId: stri
     if (!messages.some((row) => row.id === messageId)) throw new Error('Saved conversation message is no longer visible')
     return { messages, hasNewer: newer.length === 20 }
   })
+}
+
+/** Paint the bounded local thread before its ordinary network revalidation. The caller owns its race guard. */
+export async function fetchThreadMessages(chatId: string, rootId: string, userId: string,
+  publishLocal: (rows: MessageItem[]) => void): Promise<MessageItem[]> {
+  const localAccount = messageWindow(userId, chatId) !== null
+  if (localAccount) {
+    const local = await readMessagePage(userId, { chatId, threadRootId: rootId, limit: 100 })
+    if (local?.rows.length) {
+      setMessageWindow(userId, chatId, rootId, local.rows)
+      publishLocal(local.rows)
+    }
+  }
+  return chatService.getThreadMessages(chatId, rootId, userId, localAccount ? 100 : 50)
 }

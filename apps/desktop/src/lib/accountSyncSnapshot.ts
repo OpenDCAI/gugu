@@ -9,6 +9,10 @@ import { chatDb } from './supabase'
 import { currentAuthSessionSignal } from './authSessionLoss'
 import { composerCardLine } from './composerCardCopy'
 import { rendererLogger } from './log'
+import { alignMessageStore } from './messageStoreRecovery'
+import { ingestMessages, prefetchMessages } from './messageIngest'
+import { messageAccessWrites } from './messageRevisionWrites'
+import { createSupabaseAccountRevisionSource } from './supabaseAccountRevisionSource'
 
 const log = rendererLogger('im/snapshot')
 const row = z.record(z.string(), z.unknown())
@@ -54,12 +58,19 @@ export function decodeAccountSnapshot(value: unknown, accountId: string) {
 
 export async function initializeAccountSync(repository: AccountImRepository): Promise<void> {
   const cursor = imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot()) as { revision?: unknown } | undefined
-  if (typeof cursor?.revision === 'string' && /^(0|[1-9]\d*)$/.test(cursor.revision)) return
+  if (typeof cursor?.revision === 'string' && /^(0|[1-9]\d*)$/.test(cursor.revision)) {
+    await alignMessageStore(repository.accountId, cursor.revision, createSupabaseAccountRevisionSource(), currentAuthSessionSignal())
+    await prefetchMessages(repository.accountId, repository.snapshot().chat.map(row => row.id))
+    return
+  }
   const startedAt = performance.now()
   const { data, error } = await chatDb.rpc('sync_snapshot').abortSignal(currentAuthSessionSignal())
   if (error) throw error
   const snapshot = decodeAccountSnapshot(data, repository.accountId)
   const chats = assemble(snapshot.cells, repository.accountId)
+  await alignMessageStore(repository.accountId, snapshot.revision, createSupabaseAccountRevisionSource(), currentAuthSessionSignal())
+  await ingestMessages(repository.accountId, { writes: messageAccessWrites(snapshot.cells, repository.accountId), revisions: [] })
+  await prefetchMessages(repository.accountId, chats.map(chat => chat.id))
   const outbox = repository.snapshot().outbox
   await repository.transaction((transaction) => {
     transaction.clear()

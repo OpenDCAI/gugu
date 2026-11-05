@@ -13,6 +13,8 @@ import { recordImTransaction } from './perfCounters'
 import { assertIdentityClosure } from './identityClosure'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { rendererLogger } from './log'
+import { initializeMessages, ingestMessages } from './messageIngest'
+import { platform } from '../platform'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import { MAX_WINDOW } from '../store/chatMessageWindow'
 import {
@@ -177,6 +179,7 @@ export async function openImRepository(
   assertId(accountId, 'accountId')
   const adapter = options.adapter ?? await openLocalSyncDb()
   try {
+    await initializeMessages(accountId, adapter)
     if (!options.initialize) {
       if (options.storage !== undefined) await migrateLegacyChatList(adapter, accountId, options.storage)
       else if (typeof window !== 'undefined') await migrateLegacyChatList(adapter, accountId)
@@ -391,9 +394,11 @@ export function ingestAccountMessage(repository: AccountImRepository, transactio
   const versionKey = `message-revision:${message.id}`
   const version = transaction.readView(versionKey) as { revision: string; deleted?: boolean } | undefined
   if (version && (version.deleted || BigInt(version.revision) >= BigInt(revision))) return { won: false }
+  transaction.putView(versionKey, { revision })
+  // Desktop bodies were committed to the session SQLite store before this transaction.
+  if (platform.localMessages === 'sqlite') return { won: !version }
   const previous = snapshot.message.find(row => row.id === message.id && row.streamId === messageStreamId(message))?.value
   transaction.putMessage(mergeMessagesById(previous ? [previous] : [], [message], message.chat_id)[0]!)
-  transaction.putView(versionKey, { revision })
   if (!message.thread_root_id) {
     const key = `message-window:${message.chat_id}`
     const cursor = imSelectors.view(key)(snapshot) as Omit<CachedMessageWindow, 'messages'> | undefined
@@ -413,6 +418,7 @@ export async function replaceMessageWindow(
   /** null is a local write-through, not proof that a sparse tail was fetched. */
   verifiedTailSeq?: number | null,
 ): Promise<void> {
+  if (platform.localMessages === 'sqlite') return // Desktop windows are read from the session SQLite store.
   await repository.transaction((transaction) => {
     // Account arrivals (message-revision rows): a late older window must neither drop nor revive them.
     const arrivals = new Map(repository.snapshot().view.filter(row => row.key.startsWith('message-revision:'))
@@ -573,9 +579,10 @@ export async function ackOutboxRecord(
   message: MessageItem,
 ): Promise<void> {
   if (message.id !== clientMessageId) throw new Error(`outbox ack id mismatch: ${clientMessageId} != ${message.id}`)
+  await ingestMessages(repository.accountId, { writes: [{ type: 'put', message }], revisions: [] })
   // applyOperations re-derives the cached window bounds from the committed main stream.
   await repository.transaction((transaction) => {
-    transaction.putMessage(message)
+    if (platform.localMessages !== 'sqlite') transaction.putMessage(message)
     transaction.delete('outbox', [repository.accountId, clientMessageId])
   })
 }

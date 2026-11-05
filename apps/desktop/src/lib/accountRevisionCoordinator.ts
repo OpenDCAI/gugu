@@ -218,7 +218,9 @@ export function createAccountRevisionCoordinator(
     const { won } = ingestAccountMessage(repository, transaction, message, operation.revision)
     return () => {
       // The claim is committed. Never retry the OS side effect: a crash may lose one alert, never duplicate it.
-      if (!active || !live || !won || !repository.snapshot().message.some(row => row.id === message.id)) return
+      // A later message_deleted in the same page marks the claim deleted.
+      if (!active || !live || !won
+        || (imSelectors.view(`message-revision:${message.id}`)(repository.snapshot()) as { deleted?: boolean } | undefined)?.deleted) return
       void messages!.notify(message).catch(error => coordinatorLog.error({ error, messageId: message.id }, 'message notification failed'))
     }
   }

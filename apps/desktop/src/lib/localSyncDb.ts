@@ -38,6 +38,8 @@ export type LocalImDbOperation =
   | { type: 'clearAccount'; accountId: string }
 
 export interface LocalImDbAdapter {
+  /** Desktop keeps messages in the session SQLite store; any IndexedDB message rows are legacy and are dropped. */
+  prepareLocalMessages?(accountId: string): Promise<void>
   loadAccount(accountId: string): Promise<Record<ImStoreName, LocalImRow[]>>
   commit(operations: readonly LocalImDbOperation[]): Promise<void>
   close(): void
@@ -64,6 +66,12 @@ export async function openLocalSyncDb(indexedDb: IDBFactory = window.indexedDB):
 export function createMemoryLocalSyncDb(): LocalImDbAdapter {
   let stores = emptyMemoryStores()
   return {
+    async prepareLocalMessages(accountId) {
+      for (const name of ['message', 'stream', 'view'] as const) {
+        for (const [key, row] of stores[name]) if (row.accountId === accountId
+          && (name !== 'view' || String(row.key).startsWith('message-window:'))) stores[name].delete(key)
+      }
+    },
     async loadAccount(accountId) {
       assertId(accountId, 'accountId')
       return Object.fromEntries(IM_STORE_NAMES.map((name) => [
@@ -334,6 +342,22 @@ function assertNoConflictingRows(rows: Record<ImStoreName, LocalImRow[]>): void 
 
 function createIndexedDbAdapter(handle: IndexedDbHandle): LocalImDbAdapter {
   return {
+    async prepareLocalMessages(accountId) {
+      assertId(accountId, 'accountId')
+      const db = await handle.get()
+      const transaction = db.transaction(['message', 'stream', 'view'], 'readwrite')
+      const done = transactionDone(transaction)
+      deleteAccountRows(transaction.objectStore('message'), accountId, () => {})
+      deleteAccountRows(transaction.objectStore('stream'), accountId, () => {})
+      const views = transaction.objectStore('view').index('accountId').openCursor(IDBKeyRange.only(accountId))
+      views.onsuccess = () => {
+        const cursor = views.result
+        if (!cursor) return
+        if (String(cursor.value.key).startsWith('message-window:')) cursor.delete()
+        cursor.continue()
+      }
+      await done
+    },
     async loadAccount(accountId) {
       assertId(accountId, 'accountId')
       const db = await handle.get()

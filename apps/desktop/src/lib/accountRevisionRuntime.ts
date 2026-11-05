@@ -1,6 +1,8 @@
 import type { ImRepositoryTransaction, AccountImRepository } from './imRepository'
 import { imSelectors } from './imRepository'
 import { rendererLogger } from './log'
+import { ingestMessages } from './messageIngest'
+import { messageRevisionWrites } from './messageRevisionWrites'
 
 export const ACCOUNT_REVISION_CURSOR_KEY = 'account-revision-cursor'
 const ACCOUNT_REVISION_SKIPPED_KEY = 'account-revision-skipped'
@@ -168,6 +170,8 @@ export function createAccountRevisionRuntime(
     if (!active || generation !== runGeneration) return cursor
 
     const lastRevision = page.operations[page.operations.length - 1]!.revision
+    await ingestMessages(accountId, () => messageRevisionWrites(accountId, page.operations, lastRevision))
+    if (!active || generation !== runGeneration) return cursor
     const committed: Array<() => void> = []
     await repository.transaction((transaction) => {
       if (!active || generation !== runGeneration) return
@@ -307,7 +311,7 @@ export function createAccountRevisionRuntime(
   }
 }
 
-function validatePage(page: AccountRevisionPage, cursor: string): void {
+export function validatePage(page: AccountRevisionPage, cursor: string): void {
   if (!Array.isArray(page.operations) || typeof page.hasMore !== 'boolean') {
     throw new Error('account revision page is malformed')
   }
