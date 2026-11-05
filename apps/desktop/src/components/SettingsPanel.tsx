@@ -205,9 +205,6 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       </div>
   )
 
-  // @@@settings-me (#537): 「添加我」QR 入口已随设置 nav 重构移出设置弹窗;
-  // 展示我的 QR 仍在通讯录(ContactsPanel 用同一个 ContactQrShare)可达。
-
   // @@@1787 inline = 移动「我的」tab 页:平铺在 tab pane 里,不上 Sheet(底部 tab 栏由 MainLayout 渲染)
   if (inline) {
     return (

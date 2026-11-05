@@ -9,8 +9,8 @@ import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reaso
 import { qrColors } from '../lib/qrColors'
 
 // @@@share-poster (#903) - Share poster dialog: canvas-composed image with QR + branding.
-// Supports copy-to-clipboard and download. No new dependencies (reuses `qrcode` already
-// imported by ContactQrShare). Pure canvas logic lives in sharePosterCanvas.ts to satisfy
+// Supports copy-to-clipboard and download. QR rendering uses the existing `qrcode` dependency.
+// Pure canvas logic lives in sharePosterCanvas.ts to satisfy
 // react-refresh "only export components" constraint.
 
 export interface SharePosterDialogProps {
