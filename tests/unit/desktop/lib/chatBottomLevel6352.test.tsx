@@ -11,6 +11,7 @@ import { useChatHistoryPagination } from '../../../../apps/desktop/src/component
 import { ChatHistoryWindow, HISTORY_START_INDEX, type HistoryWindow } from '../../../../apps/desktop/src/store/chatHistoryWindow'
 import { message } from '../../../support/testHarness'
 import { MAX_WINDOW } from '../../../../apps/desktop/src/store/chatMessageWindow'
+import type { FlowListHandle } from '../../../../apps/desktop/src/lib/flowList'
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
@@ -261,21 +262,48 @@ describe('shared conversation tail pinning', () => {
       scrollHeight: { get: () => 12_000 }, clientHeight: { get: () => height },
     })
     const isAtBottomRef = { current: true }
-    const autoscrollToBottom = vi.fn()
+    const autoscrollToBottom = vi.fn(() => { scroller.scrollTop = scroller.scrollHeight })
     const input = { resetKey: 'chat#1', messages: Array.from({ length: 120 }, (_, i) => ({ id: `m${i}`, is_mine: false })),
       enabled: true, messageWindow: { hasNewer: false, loading: null, navigation: 'reset', navigationVersion: 0 } as Pick<HistoryWindow, 'hasNewer' | 'loading' | 'navigation' | 'navigationVersion'> }
     const callbacks = { isPreservingPosition: () => false, prepareForSavedPosition: vi.fn(() => false),
       forgetSavedPosition: vi.fn(), returnToLatest: vi.fn(async () => {}), onError: vi.fn() }
-    const refs = { scrollerRef: { current: scroller }, listRef: { current: { autoscrollToBottom, scrollToIndex: vi.fn() } }, isAtBottomRef }
+    const listRef: { current: FlowListHandle | null } = { current: { autoscrollToBottom, scrollToIndex: vi.fn() } }
+    const refs = { scrollerRef: { current: scroller }, listRef, isAtBottomRef }
     let actions: ReturnType<typeof useTailPinning>
     function Probe() { actions = useTailPinning({ ...input, ...callbacks, ...refs, scrollerEl: scroller }); return null }
     const render = () => harness.render(createNode(Probe))
     await render()
     autoscrollToBottom.mockClear()
-    return { input, callbacks, scroller, isAtBottomRef, autoscrollToBottom, render,
+    return { input, callbacks, scroller, listRef, isAtBottomRef, autoscrollToBottom, render,
       resize: (next: number) => { height = next; resized() }, pin: () => actions.pinToBottom() }
   }
   afterEach(() => vi.unstubAllGlobals())
+
+  it('lets a mounted list place the viewport once for an explicit pin', async () => {
+    const view = await setup()
+    const write = vi.spyOn(view.scroller, 'scrollTop', 'set')
+    view.pin()
+    expect(view.autoscrollToBottom).toHaveBeenCalledOnce()
+    expect(write).toHaveBeenCalledOnce()
+    expect(view.scroller.scrollTop).toBe(12_000)
+    write.mockRestore()
+  })
+
+  it('keeps the guarded viewport pin until its list handle is ready', async () => {
+    const view = await setup()
+    view.listRef.current = null
+    view.scroller.scrollTop = 500
+    view.pin()
+    expect(view.scroller.scrollTop).toBe(12_000)
+    expect(view.autoscrollToBottom).not.toHaveBeenCalled()
+
+    view.callbacks.isPreservingPosition = () => true
+    await view.render()
+    view.scroller.scrollTop = 500
+    view.resize(400)
+    view.pin()
+    expect(view.scroller.scrollTop).toBe(500)
+  })
 
   it('pins every received tail row while a full window slides without changing height', async () => {
     const view = await setup()
