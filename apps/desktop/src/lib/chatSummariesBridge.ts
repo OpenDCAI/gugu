@@ -25,6 +25,7 @@ export type ChatSummary = {
 
 const KEY = '__GUGU_CHAT_SUMMARIES__'
 const EVENT = 'gugu:chat-summaries'
+const NAMES_EVENT = 'gugu:chat-names'
 
 type Summaries = ReadonlyMap<string, ChatSummary>
 
@@ -50,8 +51,13 @@ export function publishChatSummaries(chats: readonly {
     const was = current.get(id)
     return was !== undefined && was.alias === summary.alias && was.publicId === summary.publicId && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
   })) return
+  const namesChanged = !current || current.size !== next.size || [...next].some(([id, summary]) => {
+    const was = current.get(id)
+    return !was || was.name !== summary.name || was.alias !== summary.alias || was.publicId !== summary.publicId || was.kind !== summary.kind || was.peerUserId !== summary.peerUserId
+  })
   ;(window as unknown as Record<string, unknown>)[KEY] = next
   window.dispatchEvent(new Event(EVENT))
+  if (namesChanged) window.dispatchEvent(new Event(NAMES_EVENT))
 }
 
 function read(): Summaries | null {
@@ -81,6 +87,12 @@ export function resolveChatId(address: string): string | null {
 export function subscribeChatSummaries(listener: () => void): () => void {
   window.addEventListener(EVENT, listener)
   return () => window.removeEventListener(EVENT, listener)
+}
+
+/** Transcript names depend on names and address resolution, not unread counts or previews. */
+export function subscribeChatNames(listener: () => void): () => void {
+  window.addEventListener(NAMES_EVENT, listener)
+  return () => window.removeEventListener(NAMES_EVENT, listener)
 }
 
 /** 会话页(不在渲染里):这个对话的摘要;壳还没告诉过 = null,壳的列表里没有它 = 没有过消息、不知道名字。 */
