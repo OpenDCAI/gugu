@@ -28,6 +28,7 @@ export class BrowserPageRuntime {
   private destinationStarted = false;
   private captureTail: Promise<unknown> = Promise.resolve();
   private navigation = 0;
+  private preparedNavigation = 0;
   private stoppedStartup = -1;
   private attached: (() => void) | null = null;
   private attachment = new Promise<void>(resolve => { this.attached = resolve; });
@@ -90,6 +91,7 @@ export class BrowserPageRuntime {
 
   /** Navigation cannot run site scripts until the native viewport exists. Newer requests supersede old ones. */
   async navigate(url: string): Promise<void> {
+    this.preparedNavigation += 1;
     this.destination = url;
     const revision = ++this.navigation;
     await this.ready;
@@ -103,7 +105,30 @@ export class BrowserPageRuntime {
     await loading;
   }
 
+  /** Prepare without exposing/navigating the destination. Commit begins native navigation
+   * synchronously: a caller's final authorization check cannot be separated by ready's await.
+   * Any intervening navigation or a second commit invalidates the prepared operation.
+   */
+  async prepareNavigation(url: string): Promise<{ commit(): Promise<void> }> {
+    const expected = this.navigation;
+    const prepared = ++this.preparedNavigation;
+    await this.ready;
+    this.assertLive();
+    let consumed = false;
+    return { commit: () => {
+      this.assertLive();
+      if (consumed || expected !== this.navigation || prepared !== this.preparedNavigation) throw new Error('the prepared browser navigation was invalidated');
+      consumed = true;
+      this.preparedNavigation += 1;
+      this.destination = url;
+      this.navigation += 1;
+      this.destinationStarted = true;
+      return this.contents.loadURL(url);
+    } };
+  }
+
   async reload(ignoringCache = false): Promise<void> {
+    this.preparedNavigation += 1;
     if (this.state !== 'ready' || !this.destinationStarted) return this.navigate(this.destination);
     this.assertLive();
     if (ignoringCache) this.contents.reloadIgnoringCache();
@@ -117,6 +142,7 @@ export class BrowserPageRuntime {
   }
 
   stop(): void {
+    this.preparedNavigation += 1;
     if (!this.destinationStarted) this.stoppedStartup = this.navigation;
     else this.navigation += 1;
     if (!this.closed && !this.contents.isDestroyed()) this.contents.stop();
