@@ -79,6 +79,11 @@ export class TailReader {
     return this.path;
   }
 
+  /** Bytes delivered as complete lines, including a restored prefix; no I/O or string scan. */
+  get consumedBytes(): number {
+    return this.lineOffset;
+  }
+
   /** 换一份文件（claude 的分叉串联会把尾读交接到链条最后一份上）。 */
   retarget(path: string): void {
     if (path === this.path) return;
