@@ -11,9 +11,10 @@ import { lazy, Suspense, useContext, useRef, type Ref } from 'react'
 import { PaneContext } from '@renderer/features/tabs/pane-context'
 import { FileToolbar } from '@renderer/features/sessions/editor/file-toolbar'
 import { Button as ToolbarButton } from '@renderer/lib/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
-import { useFileZoom } from '../preview/file-content-zoom'
+import { useFileZoom, type FileZoomKind } from '../preview/file-content-zoom'
+import { ZoomMenuRow } from '../preview/ZoomMenuRow'
 import { usePinchZoom } from '@/hooks/usePinchZoom'
 import { pinchZoom, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM } from '@/session/shared/preview/pinch-zoom'
 import type { HtmlPreviewRegistration } from '../preview/HtmlPreviewFrame'
@@ -52,6 +53,9 @@ export interface MessageFilePreviewPanelProps {
   notice?: string
 }
 
+/** The reading zoom each kind of preview keeps (a video or an unsupported file has none). */
+const READING_ZOOM: Partial<Record<DocumentPreviewKind, FileZoomKind>> = { markdown: 'markdown', text: 'text-code', html: 'html', pdf: 'pdf', docx: 'docx' }
+
 export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, onClose, mobile = false, fill = false, tabbed = false, registerHtml, notice }: MessageFilePreviewPanelProps) {
   const { t } = useTranslation('messaging')
   const { translate } = useSessionMessages()
@@ -63,6 +67,7 @@ export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoErro
       <DropdownMenuContent align="end">
         {actions.map((item) => <DropdownMenuItem key={item.key} disabled={item.disabled} onClick={item.onSelect}><item.icon />{item.label}</DropdownMenuItem>)}
         {onOpenExternal && <DropdownMenuItem onClick={onOpenExternal}><ExternalLink />{t('chatArea.filePreview.openExternal')}</DropdownMenuItem>}
+        {READING_ZOOM[kind] ? <><DropdownMenuSeparator /><ZoomMenuRow kind={READING_ZOOM[kind]} /></> : null}
       </DropdownMenuContent>
     </DropdownMenu>} /> : null
   const textRef = useRef<HTMLDivElement>(null)
