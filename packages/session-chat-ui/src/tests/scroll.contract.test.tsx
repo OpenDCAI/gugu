@@ -362,6 +362,20 @@ describe('transcript scroll behaviour across the P3 row redraw', () => {
     }
   );
 
+  it('detaches even a one-pixel upward reading gesture from the end', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('one-pixel', 80) });
+    m.view.scrollToBottom();
+    await settled(m.scrollEl);
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.scrollTop -= 1;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 0.5);
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+  });
+
   // #6401:视口之上的行长高,读者看着的那一行**任意一帧**都不动(±1px)—— 包括手指还在拖(落定窗口开着)的时候。
   it('keeps the reader\'s row still on every frame while a row above grows mid-drag', async () => {
     const { scrollEl, view, state } = await mountTranscript(120, { turns: growingRowHistory() });
@@ -670,6 +684,42 @@ describe('the first projection onto a (re)attached conversation uses the geometr
     } finally {
       other.dispose();
     }
+  });
+
+  it('keeps following after a late browser step at the end of a smooth return', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('smooth-end', 80), height: 600 });
+    m.scrollEl.scrollTop = 0;
+    await settled(m.scrollEl);
+    m.view.scrollToBottom({ behavior: 'smooth' });
+    await until('the smooth return reaches the end', () => distanceToBottom(m.scrollEl) <= 1);
+    await settled(m.scrollEl);
+    // A queued fractional animation step is not another reader gesture.
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.scrollTop -= 2;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 1);
+    await settled(m.scrollEl);
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('tail');
+    expect(distanceToBottom(m.scrollEl)).toBeLessThanOrEqual(1);
+  });
+
+  it('lets an upward reader gesture interrupt a smooth return to latest', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('smooth-reader', 80), height: 600 });
+    m.scrollEl.scrollTop = 0;
+    await settled(m.scrollEl);
+    m.view.scrollToBottom({ behavior: 'smooth' });
+    await until('the smooth return is actually moving', () => m.scrollEl.scrollTop > 50 && distanceToBottom(m.scrollEl) > 50);
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.dispatchEvent(new WheelEvent('wheel', { deltaY: -24, bubbles: true }));
+    m.scrollEl.scrollTop = before - 24;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 20);
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    const seen = readerRow(m.scrollEl)!;
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(rowOffset(m.scrollEl, seen.itemId)).toBeCloseTo(seen.offset, 0);
   });
 
   // 平滑滚动还在路上就换会话:那段动画属于上一条会话,换进来的一条照样落在它自己的意图上(锚在顶部)。
