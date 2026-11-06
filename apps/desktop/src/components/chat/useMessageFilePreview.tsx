@@ -44,8 +44,8 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
       openAttachmentImage(file.source, file.fileName, message ? { chatId: message.chat_id, messageId: message.id } : undefined)
       return
     }
-    // A personal assistant conversation hosts its own preview; other group files use the App-first path.
-    if (!readOnly && !hosted && file.source.kind === 'item' && platform.kind !== 'web') {
+    // App-capable hosts use App-first; iOS keeps the built-in preview without a native App host.
+    if (!readOnly && !hosted && file.source.kind === 'item' && (platform.kind === 'electron' || platform.capabilities.mobileApps)) {
       void openLinkTarget({ kind: 'file', itemId: file.source.itemId }, { message, restore }).catch((error) => {
         fileOpenLog.error({ error }, 'opening the group file failed')
         toast(downloadFailed, 'error', messageForUser(error))
