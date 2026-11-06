@@ -1,3 +1,4 @@
+import { SessionCreationFailedError } from '../stores/session-failure';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -215,6 +216,27 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(latest?.deliveryError).toMatchObject({ kind: 'raw', detail: expect.stringContaining('Invalid agents.install result') });
     expect(initialSession.prompt).toBe('make one task');
     expect(mocks.stopInstallProgress).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the original machine when routing changes before a delayed creation error returns', async () => {
+    const machine = vi.spyOn(machineRegistry, 'machineOf').mockReturnValue('original-machine');
+    try {
+      await act(async () => root.render(React.createElement(Probe)));
+      let reject!: (error: Error) => void;
+      mocks.createSession.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
+      await act(async () => latest!.handleCreateSession());
+      machine.mockReturnValue('new-machine');
+      await act(async () => { reject(new Error('local Codex app-server exited (code=1 signal=null)')); await Promise.resolve(); });
+      expect(latest!.deliveryError).toMatchObject({ target: { machineId: 'original-machine', leg: 'acp' } });
+    } finally { machine.mockRestore(); }
+  });
+
+  it('keeps a typed missing-engine failure with its target for the shared composer notice', async () => {
+    mocks.createSession.mockRejectedValue(new SessionCreationFailedError('harness-unavailable', { kind: 'harness-unavailable', reason: 'missing', providerId: 'codex', harnessName: 'Codex', detail: 'missing executable' }));
+    await act(async () => latest!.handleCreateSession());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(latest!.deliveryError).toMatchObject({ kind: 'harness-unavailable', reason: 'missing', target: { leg: 'acp' } });
+    expect(mocks.toast).not.toHaveBeenCalled();
   });
 
   it('a successful remote install continues through the existing create path', async () => {

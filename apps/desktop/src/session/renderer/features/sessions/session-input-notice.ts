@@ -5,6 +5,9 @@ import { log } from '@renderer/utils/logger';
 export type SessionInputNotice = Pick<Notice, 'title' | 'description' | 'tier' | 'action'> & {
   /** Diagnostic only: never forwarded to NoticeHost. */
   diagnostic?: unknown;
+  /** A concrete creation result can be more precise than a cached catalog warning. */
+  priority?: number;
+  inheritAction?: boolean;
 };
 
 /** Lifetime bookkeeping for the existing outlet, shared by composers reading the same resource. */
@@ -20,16 +23,22 @@ export function createSessionInputNotices(outlet: {
     if (!value) { value = { owners: new Map(), diagnostics: new Map(), closed: false }; entries.set(key, value); }
     return value;
   }
+  function presentation(value: Entry) {
+    const active = [...value.owners.values()].filter((spec): spec is SessionInputNotice => !!spec)
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || Number(!!b.action) - Number(!!a.action));
+    const spec = active[0];
+    const action = spec?.action ?? (spec?.inheritAction === false ? undefined : active.find(item => item.action)?.action);
+    return { spec, action };
+  }
   function show(key: string, value: Entry): void {
-    const active = [...value.owners.values()].filter((spec): spec is SessionInputNotice => !!spec);
-    const spec = active.find(item => item.action) ?? active.at(-1);
+    const { spec, action } = presentation(value);
     if (!spec || value.closed) return;
-    const signature = JSON.stringify([spec.title, spec.description, spec.tier, spec.action?.label]);
+    const signature = JSON.stringify([spec.title, spec.description, spec.tier, action?.label]);
     if (value.shown === signature) return;
     value.shown = signature;
     outlet.notify({
       key, title: spec.title, description: spec.description, tier: spec.tier ?? 'error',
-      action: spec.action && { label: spec.action.label, onClick: () => [...value.owners.values()].find(item => item?.action)?.action?.onClick() },
+      action: action && { label: action.label, onClick: () => presentation(value).action?.onClick() },
       ongoing: true,
       onDismiss: () => { value.closed = true; value.shown = undefined; },
     });
@@ -41,7 +50,7 @@ export function createSessionInputNotices(outlet: {
         const value = entries.get(key);
         value?.owners.delete(owner);
         value?.diagnostics.delete(owner);
-        if (value && !value.owners.size) {
+        if (value && ![...value.owners.values()].some(Boolean)) {
           outlet.dismiss(key);
           value.shown = undefined;
           // Unmounting is not recovery. Keep a dismissal across navigation/StrictMode.

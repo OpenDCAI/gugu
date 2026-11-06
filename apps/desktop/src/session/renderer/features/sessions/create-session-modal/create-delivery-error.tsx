@@ -8,14 +8,16 @@ import { useSessionInputNotice } from '../session-input-notice';
 export function CreateDeliveryError({ failure, noticeKey = 'session-create' }: { failure: SessionFailure | null; noticeKey?: string }) {
   const { translate } = useSessionMessages();
   const previousKey = useRef(noticeKey);
+  const target = failure && (failure.kind === 'raw' || failure.kind === 'harness-unavailable') ? failure.target : undefined;
+  const provider = failure?.kind === 'harness-unavailable' ? failure.providerId
+    : failure?.kind === 'raw' && codexNeedsUpgrade(failure.detail) ? 'codex' : null;
   const key = failure
-    ? failure.kind === 'raw' && codexNeedsUpgrade(failure.detail) && failure.target
-      ? `session-catalog:${failure.target.machineId ?? 'local'}:codex:${failure.target.leg}`
-      : noticeKey
+    ? target && provider ? `session-catalog:${target.machineId ?? 'local'}:${provider}:${target.leg}` : noticeKey
     : previousKey.current;
   if (failure) previousKey.current = key;
   useSessionInputNotice(key, failure ? {
     title: creationFailureCopy(failure, translate), diagnostic: failure,
+    ...(failure.kind === 'harness-unavailable' ? { priority: 1, inheritAction: failure.reason !== 'updating' } : {}),
   } : null);
   return null;
 }

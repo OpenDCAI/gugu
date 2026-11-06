@@ -32,6 +32,7 @@ export type SessionFailure =
       providerId: string;
       harnessName: string;
       detail: string;
+      target?: { machineId: string | null; leg: 'acp' | 'tui' };
     }
   | { kind: 'provision-timeout'; timeoutMs: number }
   | { kind: 'workspace-no-intent' }

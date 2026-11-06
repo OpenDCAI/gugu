@@ -78,6 +78,21 @@ describe('session input failure notices', () => {
     h.notices.update('codex', creation, null);expect(h.dismiss).toHaveBeenCalledWith('codex');
   });
 
+  it('uses a concrete updating fact without inheriting an obsolete install action', () => {
+    const h = setup(), catalog = Symbol(), creation = Symbol();
+    h.notices.attach('engine', catalog);h.notices.attach('engine', creation);
+    h.notices.update('engine', catalog, { title: 'Not installed', action: { label: 'Install', onClick: vi.fn() } });
+    h.notices.update('engine', creation, { title: 'Updating. Retry shortly.', priority: 1, inheritAction: false });
+    expect(h.notify.mock.calls.at(-1)![0]).toMatchObject({ title: 'Updating. Retry shortly.', action: undefined });
+  });
+
+  it('hides the last failing source on unmount even when a healthy reader is still mounted', () => {
+    const h = setup(), a = Symbol(), b = Symbol();
+    const detach = h.notices.attach('engine', a);h.notices.attach('engine', b);
+    h.notices.update('engine', a, { title: 'Failed' });h.notices.update('engine', b, null);
+    detach();expect(h.dismiss).toHaveBeenCalledWith('engine');
+  });
+
   it('never renders unknown creation/setup diagnostic fields as product copy', () => {
     for (const failure of [{ kind: 'raw', detail: raw }, { kind: 'setup-step-failed', stepKind: 'spawn-process', stepErrorType: 'ENOENT', detail: raw }] as const) {
       const text = creationFailureCopy(failure, translateSessionMessage);

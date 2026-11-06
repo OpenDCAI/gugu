@@ -34,7 +34,6 @@ import type {
 } from '@shared/core/sessions/create-session';
 import type { SessionViewSnapshot } from '@shared/view-state';
 import { SessionCreationFailedError, type SessionFailure } from './session-failure';
-import { describeSessionFailure } from './session-failure-message';
 
 export { SessionCreationFailedError };
 import {
@@ -429,10 +428,9 @@ export class ProjectSessionsStore {
       // @@@5173 引擎不可用 ⇒ 库里根本没建出这条会话(createSession 的前置检查在事务之前就返回了)。
       // 其余失败留一条 create-error 行,是为了让用户在侧栏看见原因;这一种**没有行可留** ——
       // 留下来的那条转不完的空行,恰恰就是本 issue 要消灭的「还得用户自己去删的东西」。
-      // 所以它改从右下角的瞬时通知说(owner 定),走的是「脚本失败」同一条 toast 通道:
-      // 这一轮什么都没落库,用户看完这句话就该接着用 composer 里那段还在的正文重试。
+      // The creation callback owns the shared notice and retained draft. The store only returns
+      // the typed failure; emitting another toast here duplicates the same catalog problem.
       if (result.error.type === 'harness-unavailable') {
-        toast.error(describeSessionFailure(failure, translateSessionMessage));
         this._removeSessionLocally(id);
         throw new SessionCreationFailedError(result.error.type, failure);
       }
