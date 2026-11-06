@@ -77,7 +77,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
       from = { ...from, from: detail.from ?? from.from, intent: detail.intent ?? from.intent }
       if (from.from && detail.viewState) chatPaneOf(detail.chatId, from.from)?.setPageViewState(from.from, detail.viewState)
       if (detail.choice.kind === 'none') {
-        if (!from.from && isRenderableImage(detail.name, detail.file.contentType)) {
+        if (isRenderableImage(detail.name, detail.file.contentType)) {
           openAttachmentImage({ kind: 'item', itemId: detail.itemId, version: detail.file.version }, detail.name, from.message ? { chatId: from.message.chat_id, messageId: from.message.id } : { chatId: detail.chatId })
           noteOpened(detail.itemId)
           return
