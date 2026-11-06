@@ -68,6 +68,9 @@ it('only the bound lifecycle process-exit fact overrides an online device and st
   setLocalAgentStatus('exited', { ...local, life: { kind: 'dormant', stage: null, processExited: true } });
   expect(getAgentPresenceSnapshot('exited')?.presentation.tone).toBe('offline');
   expect(getAgentPresenceSnapshot('exited')?.deviceOnline).toBe(true);
+  // The exit that killed a turn leaves the failure the writer recorded: the host shows it as the phone does.
+  setLocalAgentStatus('exited', { ...local, reading: { status: 'error', detail: null, running: false, background: null }, unseen: true, life: { kind: 'dormant', stage: null, processExited: true } });
+  expect(getAgentPresenceSnapshot('exited')?.presentation.tone).toBe('error');
   setLocalAgentStatus('exited', { ...local, life: { kind: 'ready', stage: null, processExited: false } });
   expect(getAgentPresenceSnapshot('exited')?.presentation.tone).toBe('running');
 })

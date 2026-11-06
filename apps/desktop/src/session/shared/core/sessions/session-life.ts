@@ -49,7 +49,8 @@ export function displayStatus(life: Pick<LifeStatus, 'kind' | 'processExited'>, 
     case 'failed': return 'error';
     // Only the lifecycle owner's observed exit overrides activity. Silence, pending inputs and an
     // unstarted session (including an older host without this fact) are not evidence of an exit.
-    case 'dormant': return life.processExited === true ? 'offline' : activity;
+    // A recorded failure stays: the exit ended the process, not the failure the person has to see.
+    case 'dormant': return life.processExited === true && activity !== 'error' ? 'offline' : activity;
     case 'ready': case 'stopping': return activity;
   }
 }
