@@ -41,7 +41,7 @@ describe('CI cache sharing from dev (#1840)', () => {
       expect(caches).toHaveLength(1)
       expect(caches[0].uses).toBe('actions/cache/restore@v4')
     }
-    expect(ci.jobs.unit.steps.some((step: Step) => step.run?.includes('--shard=${{ matrix.shard }}/4'))).toBe(true)
+    expect(ci.jobs.unit.steps.some((step: Step) => step.run?.includes('--shard=${{ matrix.shard }}/6'))).toBe(true)
     expect(ci.jobs.policy.steps.some((step: Step) => step.run === 'pnpm lint:source')).toBe(true)
   })
 
@@ -50,7 +50,7 @@ describe('CI cache sharing from dev (#1840)', () => {
     expect(warm.on).toEqual({ push: { branches: ['dev'] } })
     expect(warm['cache-mode']).toBe('write')
     expect(warm.concurrency['cancel-in-progress']).toBe(false)
-    expect(warm.jobs.unit.strategy.matrix.shard).toEqual([1, 2, 3, 4])
+    expect(warm.jobs.unit.strategy.matrix.shard).toEqual([1, 2, 3, 4, 5, 6])
     const ci = read('.github/workflows/ci.yml')
     for (const [producer, consumer] of [['eslint', 'policy'], ['unit', 'unit']]) {
       const cache = (warm.jobs[producer].steps as Step[]).find(step => step.uses === 'actions/cache@v4')!

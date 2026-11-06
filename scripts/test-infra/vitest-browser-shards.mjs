@@ -19,8 +19,8 @@ import { browserShardPlan } from './vitest-browser-shard-plan.mjs'
 
 const slots = Number(process.env.GUGU_CI_SLOT_COUNT)
 const cores = Math.floor(availableParallelism() / (process.env.GUGU_CI_SLOT_ID && slots >= 1 ? slots : 1))
-// CI uses two groups, each with the same explicit process count: 1..4/8 and 5..8/8.
-// Fixing the denominator is required even if the two hosted runners report different CPU counts.
+// CI uses disjoint groups with the same explicit process count (currently 3 x 4).
+// Fixing the denominator is required even if hosted runners report different CPU counts.
 const { args, total, shards } = browserShardPlan(process.argv.slice(2), cores)
 
 const children = []

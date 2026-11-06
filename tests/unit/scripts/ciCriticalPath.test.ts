@@ -48,12 +48,10 @@ it.each([
   }
 })
 
-it('partitions the complete browser project exactly once across two equal CI groups, independent of runner core count', () => {
-  const plan = (group: number, cores: number) => browserShardPlan(['--project', 'session-browser', '--shard-group=' + group + '/2', '--shards-per-group=4'], cores)
-  const a = plan(1, 4), b = plan(2, 2)
-  expect(a.args).toEqual(['--project', 'session-browser'])
-  expect([...a.shards, ...b.shards]).toEqual(Array.from({ length: 8 }, (_, i) => ({ index: i + 1, total: 8 })))
-  expect(a.total).toBe(4); expect(b.total).toBe(4)
+it.each([2, 3, 4])('partitions the complete browser project exactly once across %i CI groups, independent of runner core count', groups => {
+  const plans = Array.from({ length: groups }, (_, i) => browserShardPlan(['--project', 'session-browser', '--shard-group=' + (i + 1) + '/' + groups, '--shards-per-group=4'], i + 1))
+  for (const plan of plans) { expect(plan.args).toEqual(['--project', 'session-browser']); expect(plan.total).toBe(4) }
+  expect(plans.flatMap(plan => plan.shards)).toEqual(Array.from({ length: groups * 4 }, (_, i) => ({ index: i + 1, total: groups * 4 })))
 })
 it('preserves local automatic sharding and targeted single-process runs', () => {
   expect(browserShardPlan(['--project', 'session-browser'], 4).shards).toHaveLength(4)
@@ -69,12 +67,12 @@ it.each([
 ])('rejects ambiguous or incomplete browser groups %j', (...args) => {
   expect(() => browserShardPlan(['--project', 'session-browser', ...args], 4)).toThrow()
 })
-it('runs both browser groups on separate CI jobs without enabling unverified browser module caching', () => {
+it('runs three browser groups on separate CI jobs without enabling unverified browser module caching', () => {
   const job = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8')).jobs['session-browser']
-  expect(job.strategy).toEqual({ 'fail-fast': false, matrix: { shard: [1, 2] } })
-  expect(job.name).toBe('Session browser project (${{ matrix.shard }}/2)')
+  expect(job.strategy).toEqual({ 'fail-fast': false, matrix: { shard: [1, 2, 3] } })
+  expect(job.name).toBe('Session browser project (${{ matrix.shard }}/3)')
   expect(job.steps.find((step: Step) => step.run?.includes('vitest-browser-shards.mjs')).run)
-    .toContain('--shard-group=${{ matrix.shard }}/2 --shards-per-group=4')
+    .toContain('--shard-group=${{ matrix.shard }}/3 --shards-per-group=4')
   expect(job.env?.GUGU_VITEST_MODULE_CACHE).not.toBe('1')
 })
 
@@ -92,22 +90,42 @@ function browserCliFixture() {
 }
 it('the real CLI dispatches every global shard once without passing group options to Vitest', () => {
   const { root, env } = browserCliFixture()
-  for (const group of [1, 2]) {
-    const output = execFileSync(process.execPath, [resolve('scripts/test-infra/vitest-browser-shards.mjs'), '--project', 'session-browser', '--shard-group=' + group + '/2', '--shards-per-group=4'], { cwd: root, env, encoding: 'utf8' })
+  for (const group of [1, 2, 3]) {
+    const output = execFileSync(process.execPath, [resolve('scripts/test-infra/vitest-browser-shards.mjs'), '--project', 'session-browser', '--shard-group=' + group + '/3', '--shards-per-group=4'], { cwd: root, env, encoding: 'utf8' })
     expect(output).toContain('browser shards: 4/4 passed')
   }
-  const traces = readdirSync(join(root, 'trace')).sort()
-  expect(traces).toEqual(Array.from({ length: 8 }, (_, i) => (i + 1) + '-8.json'))
+  const traces = readdirSync(join(root, 'trace')).sort((a, b) => parseInt(a) - parseInt(b))
+  expect(traces).toEqual(Array.from({ length: 12 }, (_, i) => (i + 1) + '-12.json'))
   for (const file of traces) expect(JSON.parse(readFileSync(join(root, 'trace', file), 'utf8')))
-    .toEqual(['run', '--project', 'session-browser', '--shard=' + file.replace('-8.json', '/8')])
+    .toEqual(['run', '--project', 'session-browser', '--shard=' + file.replace('-12.json', '/12')])
 })
 it('the real CLI keeps a failed shard fatal for its CI group', () => {
   const { root, env } = browserCliFixture()
   try {
-    execFileSync(process.execPath, [resolve('scripts/test-infra/vitest-browser-shards.mjs'), '--project', 'session-browser', '--shard-group=2/2', '--shards-per-group=4'], { cwd: root, env: { ...env, FAIL_SHARD: '7/8' }, encoding: 'utf8' })
+    execFileSync(process.execPath, [resolve('scripts/test-infra/vitest-browser-shards.mjs'), '--project', 'session-browser', '--shard-group=3/3', '--shards-per-group=4'], { cwd: root, env: { ...env, FAIL_SHARD: '11/12' }, encoding: 'utf8' })
     throw new Error('A failed shard must not pass the group')
   } catch (error) {
     expect(error).toMatchObject({ status: 1 })
-    expect((error as { stdout: string }).stdout).toContain('failed: 7/8')
+    expect((error as { stdout: string }).stdout).toContain('failed: 11/12')
   }
+})
+
+it('fits the full PR plus existing dev background work in the 20-hosted-job budget', () => {
+  const ci = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
+  const warm = YAML.parse(readFileSync('.github/workflows/ci-cache.yml', 'utf8'))
+  const units = ci.jobs.unit.strategy.matrix.shard
+  expect(units).toEqual([1, 2, 3, 4, 5, 6])
+  expect(ci.jobs.unit.steps.find((step: Step) => step.run?.includes('vitest run')).run).toContain('--shard=${{ matrix.shard }}/6')
+  expect(warm.jobs.unit.strategy.matrix.shard).toEqual(units)
+  // Every cache stage runs even after an earlier failure, but never overlaps it.
+  expect(warm.jobs.mac.needs).toBe('eslint')
+  expect(warm.jobs.mac.if).toBe('always()')
+  expect(warm.jobs.unit.needs).toBe('mac')
+  expect(warm.jobs.unit.if).toBe('always()')
+  expect(warm.jobs.unit.strategy['max-parallel']).toBe(1)
+  // Each reusable Mac call uses one hosted route, then at most one hosted fork child.
+  const jobs = Object.entries(ci.jobs) as [string, { uses?: string; strategy?: { matrix?: { shard?: number[] } } }][]
+  const peak = jobs.filter(([id]) => !['changes', 'gate'].includes(id)).reduce((sum, [, job]) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0)
+  expect(peak).toBe(18)
+  expect(peak + 1 /* serial cache producer */ + 1 /* Dev Mac build */).toBeLessThanOrEqual(20)
 })
