@@ -136,12 +136,14 @@ async function connected(mode: string) {
     records: new PrivatePermissionRecords(path.join(home, 'host-state', 'private-service-permissions')),
     readPolicy: async () => mode === 'policy unavailable' ? null : { policy: defaultPermissionPolicy() },
   })
+  let executions = 0
   const host = new GuguMcpHost<null>(() => {
     const server = new McpServer({ name: 'protected-file-fixture', version: '1' })
-    server.registerTool('device_call', { inputSchema: z.record(z.string(), z.unknown()) }, async args => ({
-      content: [{ type: 'text' as const, text: JSON.stringify(await run(String(args.name), args.args as Record<string, unknown>)) }],
-    }))
-    registerGuguCatalogTools(server, async () => [])
+    server.registerTool('device_call', { inputSchema: z.record(z.string(), z.unknown()) }, async args => {
+      executions++
+      return { content: [{ type: 'text' as const, text: JSON.stringify(await run(String(args.name), args.args as Record<string, unknown>)) }] }
+    })
+    registerGuguCatalogTools(server, async () => [], undefined, undefined, new Set())
     return server
   }, () => ({ ownerId: 'owner', subjectId: 'agent', toolScope: 'gugu' }), undefined, runtime)
   cleanup.push(() => host.dispose())
@@ -150,17 +152,18 @@ async function connected(mode: string) {
   const client = new Client({ name: 'negative-file-client', version: '1' })
   cleanup.push(() => client.close())
   await client.connect(new StreamableHTTPClientTransport(new URL(grant.url), { requestInit: { headers: { Authorization: `Bearer ${grant.capability}` } } }))
-  return client
+  return { client, executions: () => executions }
 }
 
 it.each(['disabled', 'observe', 'policy unavailable'])('keeps direct/catalog MCP results and persisted/uploaded history safe with permissions %s', async mode => {
-  const client = await connected(mode)
+  const { client, executions } = await connected(mode)
   const history = path.join(home, 'ordinary', 'transcript.jsonl')
   for (const name of ['device_call', 'catalog_call']) {
     const args = { name: 'fs.read', args: { path: paths[0] } }
     const result = await client.callTool({ name, arguments: name === 'catalog_call' ? { tool: 'device_call', args } : args })
     fs.appendFileSync(history, JSON.stringify({ type: 'response_item', payload: { type: 'function_call_output', call_id: name, output: JSON.stringify(result) } }) + '\n')
   }
+  expect(executions()).toBe(2)
   const { uploadSessionFile } = await import('@gugu/core/local/agent/sessionFileHandoff')
   const { endpoint, received } = await uploadReceiver()
   await uploadSessionFile(endpoint, { file_path: history }, { agentId: 'agent', sessionId: 'session', recipients: [] })
@@ -193,7 +196,7 @@ async function uploadReceiver() {
   return { endpoint, received }
 }
 
-it('sends zero registered bytes to an actual upload receiver, including symbolic and hard links', async () => {
+it.each(['chat bytes', 'session upload'])('refuses %s of private material and delivers zero bytes, including symbolic and hard links', async route => {
   const { readUploadBytes } = await import('../../../../apps/desktop/electron/mcp/gugu-im-server.mjs')
   const { uploadSessionFile } = await import('@gugu/core/local/agent/sessionFileHandoff')
   const { endpoint, received } = await uploadReceiver()
@@ -202,8 +205,8 @@ it('sends zero registered bytes to an actual upload receiver, including symbolic
   fs.symlinkSync(paths[0]!, symbolic)
   fs.linkSync(paths[1]!, hard)
   for (const file of [...paths.slice(0, -1), symbolic, hard]) {
-    await expect(readUploadBytes('message_send_file', { file_path: file }, 1024)).rejects.toThrow()
-    await expect(uploadSessionFile(endpoint, { file_path: file }, { agentId: 'agent', sessionId: 'session', recipients: [] })).rejects.toThrow()
+    if (route === 'chat bytes') await expect(readUploadBytes('message_send_file', { file_path: file }, 1024)).rejects.toThrow()
+    else await expect(uploadSessionFile(endpoint, { file_path: file }, { agentId: 'agent', sessionId: 'session', recipients: [] })).rejects.toThrow()
   }
   expect(received).toHaveLength(0)
 })

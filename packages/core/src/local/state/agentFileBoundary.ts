@@ -1,9 +1,8 @@
 import { lstat, readdir, readlink, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path'
-import { resolveGuguHome } from './paths'
+import { protectedPrivateStorages } from './protectedPrivateStorage'
 
-/** One location shared by the private writer and all Agent file gateways. Never exposed as an MCP resource. */
-export const privateServicePermissionDirectory = () => join(resolveGuguHome(), 'private-service-permissions')
+export { privateServicePermissionDirectory } from './protectedPrivateStorage'
 export const PRIVATE_PERMISSION_STATE_REFUSAL = 'Agent file access to private permission state is forbidden'
 const within = (file: string, directory: string) => {
   const target = resolve(file).toLowerCase(), root = resolve(directory).toLowerCase()
@@ -71,9 +70,10 @@ async function canonicalTarget(file: string): Promise<string> {
 }
 
 export async function agentFileBoundary() {
-  const lexical = resolve(privateServicePermissionDirectory())
-  const roots = [lexical, await canonicalTarget(lexical)]
-  const protectedFiles = await protectedFileIdentities([roots[1]!])
+  const declared = protectedPrivateStorages().flatMap(storage => storage.paths)
+  const canonicalRoots = [...new Set(await Promise.all(declared.map(canonicalTarget)))]
+  const roots = [...new Set([...declared.map(file => resolve(file)), ...canonicalRoots])]
+  const protectedFiles = await protectedFileIdentities(canonicalRoots)
   return {
     roots,
     excludes: (file: string) => roots.some(root => within(file, root)),
@@ -97,6 +97,19 @@ export async function agentFileBoundary() {
       }
       await walk(file)
     },
+  }
+}
+
+/** Trusted features must check immediately before saving/using private material; an absent registration is not safety. */
+export async function protectedPrivateStorageStatus(id: string): Promise<
+  { status: 'ready' } | { status: 'unavailable'; reason: 'not_registered' | 'protection_unavailable' }
+> {
+  if (!protectedPrivateStorages().some(storage => storage.id === id)) return { status: 'unavailable', reason: 'not_registered' }
+  try {
+    await agentFileBoundary()
+    return { status: 'ready' }
+  } catch {
+    return { status: 'unavailable', reason: 'protection_unavailable' }
   }
 }
 
