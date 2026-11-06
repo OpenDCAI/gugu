@@ -228,7 +228,8 @@ function routeLabel(facts: DeliveryReadFacts, translate: ChatTranslator, { appNa
   return [
     facts.viaApp ? translate('transcript.deliveryViaApp', { app: appName(facts.viaApp) ?? facts.viaApp }) : null,
     facts.whisperTo ? translate('transcript.deliveryWhisper') : null,
-    channelLabel(facts, translate, chatName),
+    // An App's own delivery: naming the App above is the whole channel.
+    facts.viaApp && isAppRoute(facts.route) ? null : channelLabel(facts, translate, chatName),
   ].filter(Boolean).join(' · ');
 }
 
