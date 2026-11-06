@@ -216,6 +216,24 @@ it('opens a complete category, restores its query after details, and isolates an
   expect(harness.container.querySelector('.connected-app-featured-grid')).not.toBeNull()
 })
 
+it('returns from a category to the previous directory scroll position', async () => {
+  await render()
+  const viewAll = Array.from(harness.container.querySelectorAll<HTMLButtonElement>('button')).find(
+    (button) => button.textContent === '查看全部（7）'
+  )!
+  viewAll.scrollIntoView({ block: 'center' })
+  const before = harness.container.scrollTop
+  expect(before).toBeGreaterThan(0)
+  await act(async () => {
+    await page.getByRole('button', { name: '查看全部（7）', exact: true }).click()
+  })
+  expect(harness.container.scrollTop).toBe(0)
+  await act(async () => {
+    await page.getByRole('button', { name: '返回全部应用', exact: true }).click()
+  })
+  expect(harness.container.scrollTop).toBe(before)
+})
+
 it.each(['pending', 'failed'] as const)(
   'does not claim there are no connections before a trustworthy account read (%s)',
   async (read) => {
