@@ -296,7 +296,7 @@ body[data-mode='edit'] .panes, body[data-mode='preview'] .panes, body[data-kind=
 body[data-mode='edit'] .preview, body[data-mode='preview'] .editor { display: none; }
 body[data-kind='json'] .modes, body[data-kind='json'] .preview { display: none; }
 body[data-kind='json'] .editor { display: block; }
-body.json-dirty[data-kind='json'] .json-actions { display: flex; }
+body.json-dirty .json-actions { display: flex; }
 body[data-state='message'] .panes, body[data-state='message'] .modes, body[data-state='message'] .status { display: none; }
 body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 /* Download and Open with… are in ⋯ at every width (owner 10-30, folder-docs); side by side needs room. */

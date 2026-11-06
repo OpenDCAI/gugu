@@ -14,6 +14,7 @@ import { basicSetup, minimalSetup } from 'codemirror';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import { CONTENT_MENU_EVENT, type ContentMenuRequest } from '@gugu/session-shared/content-menu';
 import * as Y from 'yjs';
+import { diffHunks, mergeThreeWay } from './apply-from';
 import { guguError } from './host';
 import { imeHold, keepCaretAboveKeyboard, sameLineHold } from './ime-hold';
 import { internals } from './open-file';
@@ -63,6 +64,9 @@ export const codemirror = Object.freeze({
   lezerCommon,
   lezerHighlight,
   lezerMarkdown,
+  /** What an editor of a whole file merges the disk's changes with: the same merge as the host's text models. */
+  mergeThreeWay,
+  diffHunks,
 });
 
 /** What pasting a picture needs of `gugu` (create-gugu.ts hands its own): the page's upload, and its error report. */
