@@ -2449,6 +2449,7 @@ function wholeFileCalls(current) {
     async read() {
       const file = await gugu.files.open(ref())
       try {
+        if (file.readOnlyReason !== 'stored-bytes') return { becameDocument: true }
         current.entry = file.entry
         return { content: file.text }
       } finally {
@@ -2478,6 +2479,8 @@ async function openWhole(entry, token, maxBytes, first = null) {
     io: wholeFileCalls(current),
     text: cm,
     onChange: () => showSourceState(current),
+    // Saved as what a document is (comments taken out of a JSON file, say): from here on it opens live.
+    onDocument: () => { if (state.current === current) void openHanded() },
     onError: (error) => {
       current.saveFailedShown = true
       const { machine } = error.detail ?? {}

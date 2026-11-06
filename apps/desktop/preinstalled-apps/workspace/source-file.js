@@ -24,13 +24,14 @@ function lineEnding(text) {
 const documentText = (text) => text.replace(/\r\n?/g, '\n')
 
 /**
- * @param io one file's calls: `read(maxBytes)` answers `{ content, binary?, truncated?, totalSize? }`, `write(text)`, and
+ * @param io one file's calls: `read(maxBytes)` answers `{ content, binary?, truncated?, totalSize? }` or `{ becameDocument: true }`, `write(text)`, and
  *   `draft: { get(), put(text), clear() }` where edits can be kept for after a crash (a chat's files cannot: no draft).
  * @param text `{ mergeThreeWay, diffHunks }`, the platform's.
  * @param onChange told whenever `dirty`, `deleted` or `tooLarge` may have changed.
  * @param onError a failed save, the error as it came.
+ * @param onDocument the file became something that opens live.
  */
-export function sourceFile({ io, text, onChange, onError }) {
+export function sourceFile({ io, text, onChange, onError, onDocument }) {
   let disk = ''
   let diskEol = '\n'
   let eol = '\n'
