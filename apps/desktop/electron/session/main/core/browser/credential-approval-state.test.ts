@@ -3,7 +3,8 @@ import { CredentialApprovalState, type CredentialApprovalClaim } from './credent
 import type { CredentialUseBinding } from './credential-use-contract';
 
 const target = { accountId: 'owner', installationId: 'install', agentId: 'agent', sessionId: 'session', browserId: 'tab',
-  documentId: 'document', formFingerprint: 'form', credentialId: 'credential', credentialVersion: '7', lockEpoch: 'epoch',
+  loginSurfaceId: 'private-login', loginSurfaceEpoch: 'private-epoch', documentId: 'document', frameId: 'top-frame',
+  formFingerprint: 'form', credentialId: 'credential', credentialVersion: '7', lockEpoch: 'epoch',
   origin: 'https://example.test', operation: 'login-submit' as const };
 
 function fixture() {
@@ -77,7 +78,7 @@ describe('memory-only credential approval state', () => {
     expect(f.state.status(f.request.requestId).effectPossible).toBe(true);
     expect(() => f.state.claimSubmission(claim, f.binding)).toThrow('already_consumed');
   });
-  it.each(['accountId', 'installationId', 'agentId', 'sessionId', 'browserId', 'documentId', 'formFingerprint',
+  it.each(['accountId', 'installationId', 'agentId', 'sessionId', 'browserId', 'loginSurfaceId', 'loginSurfaceEpoch', 'documentId', 'frameId', 'formFingerprint',
     'credentialId', 'credentialVersion', 'lockEpoch', 'origin', 'requestId', 'useId'] as const)('invalidates on changed %s before starting', key => {
     const f = fixture(); f.approve();
     expect(() => f.state.claimStart(f.request.requestId, { ...f.binding, [key]: 'changed' })).toThrow('target_invalidated');

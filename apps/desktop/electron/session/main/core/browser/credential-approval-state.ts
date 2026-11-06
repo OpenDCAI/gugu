@@ -4,13 +4,13 @@ import { assertCredentialWebsite } from './credential-website';
 
 const REQUEST_MS = 5 * 60_000;
 const START_MS = 60_000;
-const TARGET_KEYS = ['accountId', 'installationId', 'agentId', 'sessionId', 'browserId', 'documentId',
+const TARGET_KEYS = ['accountId', 'installationId', 'agentId', 'sessionId', 'browserId', 'loginSurfaceId', 'loginSurfaceEpoch', 'documentId', 'frameId',
   'formFingerprint', 'credentialId', 'credentialVersion', 'lockEpoch', 'origin', 'operation'] as const;
 type Target = Omit<CredentialUseBinding, 'requestId' | 'useId'>;
 export type CredentialApprovalStatus = 'pending' | 'approved' | 'started' | 'submission_claimed'
   | 'rejected' | 'cancelled' | 'expired' | 'invalidated';
 declare const approvalClaim: unique symbol;
-/** A start claim is NOT a VaultUseCapability. Observation/audit integration must supply that later. */
+/** A start claim is NOT a VaultUseCapability. Isolated-login/audit integration must supply that later. */
 export type CredentialApprovalClaim = Readonly<{ [approvalClaim]: true }>;
 export type CredentialApprovalView = Readonly<{
   requestId: string; useId: string; status: CredentialApprovalStatus; requestExpiresAt: number;
@@ -27,7 +27,7 @@ export class CredentialApprovalError extends Error {
 }
 
 /**
- * Host-only, memory-only approval transitions. No tool/UI registration, password, sink or observation release.
+ * Host-only, memory-only approval transitions. No tool/UI registration, password, sink or session handback.
  * Its two guards must be constructed from trusted host adapters, never from tool arguments or claimed confirmation.
  * Expiry is checked before every transition using a monotonic clock; wall-clock changes cannot extend approval.
  */
