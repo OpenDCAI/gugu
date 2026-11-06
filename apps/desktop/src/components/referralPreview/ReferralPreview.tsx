@@ -6,6 +6,7 @@ import { GUGU_ANDROID_DOWNLOAD_URL } from '../../lib/appLinks'
 import { SharePosterDialog, type SharePosterDialogProps } from '../SharePosterDialog'
 import { Button } from '../ui/Button'
 import { SegmentedTabs } from '../ui/SegmentedTabs'
+import { MenuItem } from '../ui/Menu'
 import { SettingsGroup, SettingsRow } from '../settings/SettingsPrimitives'
 import { UserPlus } from '@/lib/icons'
 import '../../i18n/registerMainCatalog'
@@ -69,6 +70,7 @@ export function PersonalSharePreview({
   return (
     <SharePosterDialog
       {...props}
+      heading={t('referralPreview.sharePurpose')}
       headerContent={
         <div className="flex flex-col gap-2 px-4 pt-3 pb-1">
           <ReferralProposalLabel />
@@ -96,7 +98,7 @@ export function PersonalSharePreview({
   )
 }
 
-function OwnSharePreview({ onClose }: { onClose: () => void }) {
+export function ReferralSharePreview({ onClose, zIndex }: { onClose: () => void; zIndex?: string }) {
   const { user } = useAuth()
   const { t } = useTranslation('main')
   const number = user?.gugu_number
@@ -113,34 +115,41 @@ function OwnSharePreview({ onClose }: { onClose: () => void }) {
       subtitle="咕咕"
       qrValue={qrValue}
       initialPurpose="invite"
+      zIndex={zIndex}
       onClose={onClose}
     />
   )
 }
 
-export function InviteFriendsPreview({
-  placement = 'header'
-}: {
-  placement?: 'header' | 'search'
-}) {
+export function InviteFriendsMenuItem({ onSelect }: { onSelect: () => void }) {
+  const { t } = useTranslation('main')
+  if (!enabled) return null
+  return (
+    <MenuItem data-testid="referral-preview-menu" icon={<UserPlus size={15} />} onClick={onSelect}>
+      <span className="flex items-center gap-2">{t('referralPreview.invite')}<ReferralProposalLabel /></span>
+    </MenuItem>
+  )
+}
+
+export function InviteFriendsPreview() {
   const { t } = useTranslation('main')
   const [open, setOpen] = useState(false)
   if (!enabled) return null
   return (
     <>
-      <div className={placement === 'search' ? 'px-4 pb-3' : 'contents'}>
+      <div className="px-4 pb-3">
         <Button
           variant="ghost"
           size="sm"
-          data-testid={`referral-preview-${placement}`}
+          data-testid="referral-preview-search"
           onClick={() => setOpen(true)}
         >
           <UserPlus size={15} aria-hidden />
-          {t(placement === 'search' ? 'referralPreview.inviteToGugu' : 'referralPreview.invite')}
+          {t('referralPreview.inviteToGugu')}
           <ReferralProposalLabel />
         </Button>
       </div>
-      {open && <OwnSharePreview onClose={() => setOpen(false)} />}
+      {open && <ReferralSharePreview onClose={() => setOpen(false)} />}
     </>
   )
 }
@@ -172,7 +181,7 @@ export function ReferralAccountPreview() {
           }
         />
       </SettingsGroup>
-      {open && <OwnSharePreview onClose={() => setOpen(false)} />}
+      {open && <ReferralSharePreview zIndex="var(--z-settings-modal)" onClose={() => setOpen(false)} />}
     </>
   )
 }

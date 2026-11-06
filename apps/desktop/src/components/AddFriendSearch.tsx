@@ -264,7 +264,7 @@ export function AddFriendSearch({
         <SearchBar value={query} onChange={handleQueryChange} onSubmit={handleSearch} autoFocus={autoFocus} />
       </div>
 
-      {hasQuery && <InviteFriendsPreview placement="search" />}
+      {hasQuery && <InviteFriendsPreview />}
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
