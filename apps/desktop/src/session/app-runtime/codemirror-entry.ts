@@ -14,6 +14,9 @@ import { basicSetup, minimalSetup } from 'codemirror';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import { CONTENT_MENU_EVENT, type ContentMenuRequest } from '@gugu/session-shared/content-menu';
 import * as Y from 'yjs';
+import { codeEditing } from '../renderer/lib/codemirror/code-editor';
+import { loadLanguage } from '../renderer/lib/codemirror/languages';
+import { getEditorLanguageId } from '../renderer/utils/diffUtils';
 import { diffHunks, mergeThreeWay } from './apply-from';
 import { guguError } from './host';
 import { imeHold, keepCaretAboveKeyboard, sameLineHold } from './ime-hold';
@@ -67,6 +70,11 @@ export const codemirror = Object.freeze({
   /** What an editor of a whole file merges the disk's changes with: the same merge as the host's text models. */
   mergeThreeWay,
   diffHunks,
+  /**
+   * The host's code editing: `languageFor(path)` the language id, `load(id)` its package (a chunk of its own, fetched when a
+   * file in that language opens), `editing({ language, dark, editable })` the look, find, completion and keys, undo apart.
+   */
+  code: Object.freeze({ languageFor: getEditorLanguageId, load: loadLanguage, editing: codeEditing }),
 });
 
 /** What pasting a picture needs of `gugu` (create-gugu.ts hands its own): the page's upload, and its error report. */

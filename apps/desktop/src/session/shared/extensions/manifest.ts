@@ -162,6 +162,7 @@ const CLAIMED_NAME = /^[a-z0-9_*+-][a-z0-9._*+ -]{0,127}$/;
  * - a file name (摩擦单 F82): `todo.md`, or with `*` for any run of characters, `todo-*.md` — more specific than
  *   any suffix, so an App can take one file of a repository without taking every `.md`. `*.x` IS the suffix `.x`:
  *   written as the suffix.
+ * - `*`: any file, behind every other claim: what opens a file nothing else takes, whatever its name (`Makefile`, `.env`).
  */
 const fileClaimSchema = z
   .string()
@@ -179,7 +180,7 @@ const fileClaimSchema = z
       ctx.addIssue({ code: 'custom', message: `"${claim}" needs its dot: a dot-led lowercase suffix, like ".${claim}"` });
     } else if (/^\*+\.[a-z0-9][a-z0-9.+-]*$/.test(claim)) {
       ctx.addIssue({ code: 'custom', message: `"${claim}" is the suffix "${claim.replace(/^\*+/, '')}": write the suffix` });
-    } else if (!/[^*]/.test(claim)) {
+    } else if (!/[^*]/.test(claim) && claim !== '*') {
       ctx.addIssue({ code: 'custom', message: 'a file name needs more than "*"' });
     }
   });

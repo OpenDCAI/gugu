@@ -567,6 +567,10 @@ A text no live document holds (over 1 MiB, JSON that is no object, on another ma
 - \`gugu.files.onChanged({ workspace, id }, fn)\`: one file, by the name you gave. \`resync\`: anything may have changed (its machine is back). A file outside the working copy on another machine sends nothing.
 - After \`rename\`, \`move\` or \`remove\`, the host's panes that show the file follow it.
 - \`gugu.files.draft(file, text)\`: keep a file's unsaved edits on its machine for after a crash: without \`text\` it reads them, with \`null\` it drops them.
+- \`opensFiles.session: ["*"]\`: any file, behind every other claim.
+
+Free, for a page that edits files:
+- \`setTabDirty(tabId, dirty)\`: a tab of yours (\`ctx.tabId\`) holds unsaved edits: a dot, kept mounted, asked before closing. \`onCommand\` hears \`gugu.file.save:<tabId>\` / \`gugu.file.discard:<tabId>\`; do it, then say \`setTabDirty\` again.
 `;
 
 export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files

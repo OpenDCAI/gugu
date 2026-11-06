@@ -75,6 +75,7 @@ export const HOST_CALLS = {
   linkTo: { verb: 'linkTo', pack: (options: Record<string, unknown> = {}) => options },
   setTabTitle: { verb: 'setTabTitle', pack: (title: string) => ({ title }) },
   setTabBadge: { verb: 'setTabBadge', pack: (badge: number | string | null) => ({ badge }) },
+  setTabDirty: { verb: 'setTabDirty', pack: (tabId: string, dirty: boolean) => ({ tabId, dirty }) },
   sendToBackground: { verb: 'sendToBackground', pack: (message: unknown) => ({ message }) },
   broadcastToViews: { verb: 'broadcastToViews', pack: (message: unknown) => ({ message }) },
   showMessage: { verb: 'showMessage', pack: (id: string) => ({ id }) },

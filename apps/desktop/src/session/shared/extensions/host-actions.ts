@@ -42,6 +42,7 @@ export type ExtensionHostAction =
   | { kind: 'focusAppModalClose'; id: string }
   | { kind: 'setTabTitle'; title: string }
   | { kind: 'setTabBadge'; badge: number | string | null }
+  | { kind: 'setTabDirty'; tabId: string; dirty: boolean; webContentsId: number }
   | { kind: 'openBrowserTab'; url: string }
   | { kind: 'reportError'; message: string }
   /** The page loaded another document (a reload, another of the App's pages): what the old one said about itself goes. */
