@@ -1,6 +1,5 @@
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
-import { isExpandableFileNode, type FileNode } from '@gugu/session-core/files';
 import { REMOTE_WORKSPACE_CHUNK_BYTES, WORKSPACE_CONFLICT_CODE } from '@gugu/session-core/session-record/contract';
 import { AppFileError } from '@shared/extensions/app-files-core';
 import { placeKey, workspaceSession, type AppFileEntry, type WorkspacePlace } from '@shared/extensions/app-runtime-protocol';
@@ -73,21 +72,25 @@ const UPLOADING_SUFFIX = '.gugu-tmp';
 
 const relOf = (root: string, abs: string) => path.relative(root, abs).split(path.sep).join('/');
 
-/** One folder's tree nodes as entries: subfolders as `folder` entries, a file's size and dates read now. */
-async function entriesOf(view: View, nodes: readonly FileNode[]): Promise<AppFileEntry[]> {
+/** One folder as entries: subfolders as `folder` entries, a file's size and dates read now. */
+async function entriesOf(view: View, dir: string): Promise<AppFileEntry[]> {
   const status = await view.git?.getStatus().catch((error: unknown) => {
     log.warn('[working-copy] git status failed', { root: view.root, error: String(error) });
     return null;
   });
   if (status && status.kind !== 'ok') log.warn('[working-copy] git status said no', { root: view.root, kind: status.kind });
   const gitStatus = new Map(status?.kind === 'ok' ? [...status.staged, ...status.unstaged].map((change) => [path.resolve(view.root, change.path), change.status]) : []);
-  const entries = await Promise.all(nodes.map(async (node): Promise<AppFileEntry | null> => {
+  // @@@list-from-disk - what is in the folder now, read from it: the tree hears a change a moment later (a write just made
+  // here, a link that points nowhere), and a list read in that moment must not lose the file.
+  const names = await fsp.readdir(dir);
+  const entries = await Promise.all(names.map(async (name): Promise<AppFileEntry | null> => {
+    const node = { path: path.join(dir, name) };
     const rel = relOf(view.root, node.path);
     if (rel.endsWith(UPLOADING_SUFFIX)) return null;
     const parentId = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
     const facts = { parentId, absolutePath: node.path, ...(view.workspaceId ? { workspaceId: view.workspaceId } : {}), ...(gitStatus.has(node.path) ? { gitStatus: gitStatus.get(node.path) } : {}) };
-    if (isExpandableFileNode(node)) return { ...workingCopyFolder(view.place, rel), ...facts };
     const stat = await fsp.stat(node.path).catch(() => null);
+    if (stat?.isDirectory()) return { ...workingCopyFolder(view.place, rel), ...facts };
     // A link that points nowhere still stands in the folder: to be seen, and deleted.
     if (!stat) return await fsp.lstat(node.path).then((link) => ({ ...workingCopyEntry(view.place, rel, link), ...facts }), () => null);
     return stat.isFile() ? { ...workingCopyEntry(view.place, rel, stat), ...facts } : null;
@@ -108,7 +111,7 @@ export async function listWorkingCopy(place: WorkspacePlace, folder: string | un
   try {
     const listed = await view.projector.listDir(view.subscriptionId, folderPath(view.root, folder));
     if (!listed.success) throw new AppFileError('not-found', `No folder ${JSON.stringify(folder ?? '')} in this working copy`);
-    return await entriesOf(view, listed.data);
+    return await entriesOf(view, folderPath(view.root, folder) ?? view.root);
   } finally {
     if (pageId === null) await view.close();
   }
