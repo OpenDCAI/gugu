@@ -74,6 +74,18 @@ describe('agent activity identity and grouping', () => {
     expect(rows.some(row => row.itemId.includes(':sent:'))).toBe(false);
     expect((rows.find(row => row.kind === 'agent-activity')?.data as import('./agent-activity').AgentActivityGroup).events.reduce((sum, event) => sum + event.count, 0)).toBe(1);
   });
+  it('keeps an earlier failed process visible while folding a later successful agent reply', () => {
+    const failed = { kind: 'mcp-tool-call' as const, id: 'failed', toolCallId: 'failed', seq: 1, title: 'Send', server: 'plugin_gugu-product_gugu',
+      tool: 'message_send', status: 'error' as const, rawInput: JSON.stringify({ chat_id: 'group', to_user_ids: [a], text: 'failed reply' }), outputText: 'not delivered' };
+    const success = { ...failed, id: 'success', toolCallId: 'success', seq: 2, status: 'done' as const,
+      rawInput: JSON.stringify({ chat_id: 'group', to_user_ids: [a], text: 'delivered reply' }), outputText: 'sent (id=msg:6417511d-8f36-4cbc-8cbb-81ce9f97df73)' };
+    const record: TranscriptTurn = { ...turn('retry', [incoming('input')]), items: [...turn('retry', [incoming('input')]).items, failed, success] };
+    const rows = flattenTier([record], ctx, segmenters);
+    expect(rows.find(row => row.itemId.includes('success:sent:'))?.activityFold).toBeDefined();
+    expect(rows.find(row => row.itemId === 'retry:process:head')?.activityFold).toBeUndefined();
+    expect(rows.filter(row => row.kind === 'agent-activity').flatMap(row => (row.data as import('./agent-activity').AgentActivityGroup).events)
+      .filter(event => event.direction === 'sent').reduce((sum, event) => sum + event.count, 0)).toBe(1);
+  });
   it('summarizes group destinations without attributing a broadcast to every mentioned recipient', () => {
     const group = { id: 'g', name: 'gugu', target: { kind: 'chat' as const, chatId: 'g' } };
     const d3 = { id: a, name: 'd3', target: { kind: 'sender' as const, userId: a.slice(5) } };
@@ -82,6 +94,12 @@ describe('agent activity identity and grouping', () => {
     expect(text).toBe('Sent 1 message in gugu');
     const peers = ['g1', 'g2', 'g3'].map(id => ({ ...sent, id, group: { ...group, id, name: id } }));
     expect(activitySummaryText(activitySummary({ id: 'x', events: peers }, translate))).toContain('(3 groups)');
+  });
+  it('does not claim a distinct agent count when a remote session has no canonical owner yet', () => {
+    const actors = [a, 'user:33333333-3333-4333-8333-333333333333', 'session:505adac7-1905-473b-8d2f-d574b6892518']
+      .map((id, index) => ({ id, name: `Agent ${index}`, target: { kind: 'session' as const, sessionId: id } }));
+    const events = actors.map((actor, index) => ({ id: String(index), direction: 'received' as const, actors: [actor], count: 1, live: false }));
+    expect(activitySummaryText(activitySummary({ id: 'x', events }, translate))).toBe('Received 3 messages from Agent 0, Agent 1 and others');
   });
   it('does not reset reading when the same owner input changes its native/live projection identity', () => {
     const original = { ...message('optimistic'), role: 'user' as const, _meta: { guguClientMessageId: 'client-input' } };

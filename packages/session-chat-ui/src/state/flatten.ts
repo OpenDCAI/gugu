@@ -261,16 +261,19 @@ export function flattenTier(
    * 对话布局里一轮的回复(owner 0 号图):名字 + 过程行一行,过程展开的步骤在它下面,气泡在最下面 ——
    * ❌ 气泡先画、步骤挂在气泡底下。这一轮每条输出(message_send 发出去的也是)各自一个气泡,同一个名字下面排着。
    */
-  const emitConversationReply = (reply: ChatMessage, sent: readonly ChatMessage[], steps: () => void): void => {
+  const emitConversationReply = (reply: ChatMessage, sent: readonly ChatMessage[], steps: () => void, bodyActivity = activityEvent): void => {
+    const processActivity = activityEvent;
     const head = `${reply.conversationProcess?.id ?? reply.id}:head`;
     // 头不带正文:话只在气泡里画一次(找、复制、计数都只见一份)。
     processItem({ ...reply, id: head, text: '', attachments: undefined, conversationPart: 'head' });
     steps();
     // 时间、复制那一行只给收了口那一轮的最后一句(设计稿 0 号「轮次结束且有正文才出 tail」);中途的气泡不带(owner 10-28)。
     const tail = !reply.conversationProcess?.live;
+    activityEvent = bodyActivity;
     for (const output of [...sent, reply]) {
       processItem({ ...output, conversationProcess: undefined, conversationPart: 'body', conversationHead: head, ...(tail && output === reply ? { conversationTail: true } : {}) });
     }
+    activityEvent = processActivity;
   };
 
   /**
@@ -436,6 +439,7 @@ export function flattenTier(
             output.reply.sentAttachments?.length ? new Set(output.reply.sentAttachments.map(file => file.messageId)).size : 1) ?? undefined
           : pendingActivity(block.items as TranscriptItem[], turn, ctx) ?? inputActivity;
         if (activityEvent && live && block === blocks.at(-1)) activityEvent.live = true;
+        const replyActivity = activityEvent;
         // Failure and permission rows must remain discoverable without opening a historical A2A fold.
         if (hasUnconfirmedSend(block.items as TranscriptItem[], turn) || block.items.some(item => 'status' in item && item.status === 'error'
           || 'toolCallId' in item && ctx.pendingToolCallIds().has(item.toolCallId))) activityEvent = undefined;
@@ -473,7 +477,7 @@ export function flattenTier(
           const groupReply = viewerGroupReply(reply, ctx);
           if (groupReply) {
             processItem({ ...reply, conversationPart: 'group-reply', groupReply });
-          } else emitConversationReply(reply, [], steps);
+          } else emitConversationReply(reply, [], steps, replyActivity);
         } else {
           processItem({ kind: 'turn-process', ...process, turnId: turn.id,
             ...(output.silent ? { silent: true } : {}),

@@ -16,8 +16,11 @@ export function activitySummary(group: AgentActivityGroup, t: ChatTranslator, na
   const tokens: Record<string, ActivitySummaryPart[]> = {};
   const people = (key: string, actors: ActivityActor[], kind: 'agent' | 'group' | 'mixed' = 'agent') => {
     const names = actors.slice(0, nameLimit).flatMap((actor, index) => index ? [t('transcript.activitySeparator'), actor] : [actor]);
+    // An unbound session can be another address of an already named agent. Keep the
+    // message count, but do not claim a distinct person count before the host knows its owner.
     if (actors.length > nameLimit) names.push(t(kind === 'group' ? 'transcript.activityMoreGroups'
-      : kind === 'mixed' ? 'transcript.activityMoreDestinations' : 'transcript.activityMore', { count: actors.length }));
+      : kind === 'mixed' || actors.some(actor => actor.id.startsWith('session:'))
+        ? 'transcript.activityMoreDestinations' : 'transcript.activityMore', { count: actors.length }));
     tokens[key] = names;
     return `{${key}}`;
   };
