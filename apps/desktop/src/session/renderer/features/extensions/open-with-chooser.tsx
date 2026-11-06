@@ -42,9 +42,6 @@ export function OpenWithChooser({ fileName, candidates, onSuccess, onClose }: Pr
             </span>
           </Button>
         ))}
-        <Button className="w-full" variant="outline" data-open-with="builtin" onClick={() => onSuccess({ tabKind: null, always })}>
-          {translate('extensions.openInBuiltInEditor')}
-        </Button>
         <label className="flex items-center gap-2 pt-1 text-muted-foreground">
           <input type="checkbox" checked={always} onChange={(event) => setAlways(event.target.checked)} data-testid="open-with-always" />
           {translate('extensions.openWithAlways')}

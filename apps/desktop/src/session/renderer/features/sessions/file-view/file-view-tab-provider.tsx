@@ -5,7 +5,7 @@ import { registeredTabView } from '@renderer/features/tabs/core/tab-views';
 import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
 import { GenericTabDragPreview, GenericTabItem } from '@renderer/features/tabs/tab-bar/generic-tab-item';
 import { FileIcon } from '@renderer/lib/editor/file-icon';
-import { fileTabLabels } from '../editor/file-tab-label';
+import { fileTabLabels } from '@renderer/features/tabs/file-tab-label';
 import { fileBaseName, filePathKey, resolveWorkspacePath } from '../stores/workspace-path';
 
 export interface FileViewState {

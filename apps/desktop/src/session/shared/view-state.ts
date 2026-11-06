@@ -22,7 +22,6 @@ export type TabHistorySnapshot = {
 export type BuiltInTabDescriptor =
   | { kind: 'session'; tabId: string; sessionId: string }
   | { kind: 'acp-chat'; tabId: string; sessionId: string }
-  | { kind: 'file'; tabId: string; path: string; isExternal?: boolean }
   | { kind: 'file-view'; tabId: string; path: string; isExternal?: boolean }
   | { kind: 'review'; tabId: string; sessionId: string }
   | {
@@ -62,7 +61,6 @@ export type TabDescriptor = (BuiltInTabDescriptor | ExtensionTabDescriptor) & {
 const BUILT_IN_TAB_KINDS = {
   session: true,
   'acp-chat': true,
-  file: true,
   'file-view': true,
   review: true,
   browser: true,

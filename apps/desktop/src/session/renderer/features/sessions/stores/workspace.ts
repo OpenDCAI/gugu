@@ -1,6 +1,5 @@
 import type { ILifecycle } from '@gugu/session-shared';
 import type { GitRepositoryStore } from '@renderer/features/projects/stores/git-repository-store';
-import { releaseFileModelManager } from '../editor/stores/file-model-manager';
 import { GitWorktreeStore } from './git-worktree-store';
 import { LifecycleScriptsStore } from './lifecycle-scripts';
 import { wireWorkspaceNudges } from './workspace-nudges';
@@ -42,9 +41,5 @@ export class WorkspaceStore implements ILifecycle {
     this.stopNudges();
     this.gitWorktree.dispose();
     this.lifecycleScripts.dispose();
-    // Last task on this workspace has been released (ref-count hit 0 in
-    // WorkspaceRegistryStore), so the per-workspace text model manager and its
-    // registered models can be torn down. No open editors remain at this point.
-    releaseFileModelManager(this.workspaceId);
   }
 }

@@ -317,7 +317,6 @@ const enUSCoreMessages = {
   'extensions.permissionsNotifications': 'Show system notifications',
   // Host-provided, on a tab opened by a file-type claim. The escape hatch that
   // keeps an install from making a file type unopenable.
-  'extensions.openInBuiltInEditor': 'Open in the built-in editor',
   // 「用哪个打开」: several Apps claim this kind of file (真源 §2.4, 主人 09-29).
   'extensions.openWithTitle': 'Open “{name}” with',
   'extensions.openWithAlways': 'Always use this for this kind of file',
@@ -780,7 +779,6 @@ const enUSCoreMessages = {
   'transcript.imageUnavailable': 'Image unavailable. Click to retry.',
   'transcript.viewImage': 'View image: {name}',
   'transcript.viewAttachment': 'Open attachment: {name}',
-  'file.loadingDocument': 'Opening document...',
   'transcript.copy': 'Copy',
   'transcript.copyCode': 'Copy code',
   'transcript.copyMessage': 'Copy message',
@@ -1388,7 +1386,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.fullDisclosureInfoLabel': '关于常驻工具列表的说明',
   'extensions.disclosureFailed': '工具的提供方式没能改动',
   'extensions.permissionsNotifications': '发系统通知',
-  'extensions.openInBuiltInEditor': '改用内置编辑器打开',
   'extensions.openWithTitle': '用哪个打开「{name}」',
   'extensions.openWithAlways': '这类文件始终用它',
   'extensions.permissionChangeFailed': '这项权限没能改动',
@@ -1823,7 +1820,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'transcript.imageUnavailable': '图片暂不可用，点击重试。',
   'transcript.viewImage': '查看图片：{name}',
   'transcript.viewAttachment': '打开附件：{name}',
-  'file.loadingDocument': '正在打开文档…',
   'transcript.copy': '复制',
   'transcript.copyCode': '复制代码',
   'transcript.copyMessage': '复制消息',
