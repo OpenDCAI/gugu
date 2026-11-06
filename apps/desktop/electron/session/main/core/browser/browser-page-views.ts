@@ -445,10 +445,10 @@ export function runBrowserPageCommand(browserId: string, command: BrowserPageCom
   const { webContents } = page;
   switch (command) {
     case 'goBack':
-      if (webContents.navigationHistory.canGoBack()) webContents.navigationHistory.goBack();
+      page.runtime.goBack();
       return true;
     case 'goForward':
-      if (webContents.navigationHistory.canGoForward()) webContents.navigationHistory.goForward();
+      page.runtime.goForward();
       return true;
     case 'reload':
       void page.runtime.reload().catch(error => navigationFailed(page, page.runtime.requestedUrl, error));

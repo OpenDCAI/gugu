@@ -8,6 +8,7 @@ import type { CredentialUseBinding } from './credential-use-contract';
 function target() {
   const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false,
     loadURL: vi.fn(async (_url: string) => {}), setBackgroundThrottling() {}, stop() {},
+    navigationHistory: { canGoBack: () => true, canGoForward: () => true, goBack: vi.fn(), goForward: vi.fn() },
     endFrameSubscription() {}, close() { contents.emit('destroyed'); } });
   const view = { webContents: contents, setBounds() {}, setVisible() {} };
   const runtime = new BrowserPageRuntime(view as unknown as WebContentsView);
@@ -81,6 +82,40 @@ describe('native credential handoff destination', () => {
       else runtime.stop();
       expect(() => prepared.commit()).toThrow('invalidated');
       expect(contents.loadURL.mock.calls.some(([url]) => url === binding.origin)).toBe(false);
+    } finally { runtime.close(); }
+  });
+
+  it.each(['goBack', 'goForward'] as const)('invalidates synchronously before native %s even before a navigation event arrives', async action => {
+    const { runtime, contents } = target();
+    try {
+      const prepared = await prepareCredentialHandoffTarget(runtime, binding, () => {});
+      runtime[action]();
+      expect(contents.navigationHistory[action]).toHaveBeenCalledOnce();
+      expect(() => prepared.commit()).toThrow('invalidated');
+      expect(contents.loadURL).not.toHaveBeenCalled();
+    } finally { runtime.close(); }
+  });
+
+  it.each(['did-start-navigation', 'did-navigate', 'did-navigate-in-page'])('rejects prepared commit after native top-level %s', async event => {
+    const { runtime, contents } = target();
+    try {
+      const prepared = await prepareCredentialHandoffTarget(runtime, binding, () => {});
+      if (event === 'did-start-navigation') contents.emit(event, { isMainFrame: true });
+      else if (event === 'did-navigate-in-page') contents.emit(event, {}, 'https://other.example.test/#new', true);
+      else contents.emit(event, {}, 'https://other.example.test/');
+      expect(() => prepared.commit()).toThrow('invalidated');
+      expect(contents.loadURL).not.toHaveBeenCalled();
+    } finally { runtime.close(); }
+  });
+
+  it('does not invalidate top-level handoff from an unrelated subframe event', async () => {
+    const { runtime, contents } = target();
+    try {
+      const prepared = await prepareCredentialHandoffTarget(runtime, binding, () => {});
+      contents.emit('did-start-navigation', { isMainFrame: false });
+      contents.emit('did-navigate-in-page', {}, 'https://frame.example.test/#new', false);
+      await prepared.commit();
+      expect(contents.loadURL).toHaveBeenCalledWith(binding.origin);
     } finally { runtime.close(); }
   });
 });
