@@ -1475,11 +1475,6 @@ const ComposerForStore = observer(function ComposerForStore({
           <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
         </div>
       ) : null}
-      {life?.nativeSession ? (
-        <div className="px-3 py-1 text-center text-xs text-foreground-muted" role="status" data-native-session={life.nativeSession}>
-          {translate(life.nativeSession === 'preserved' ? 'chat.reloadPreserved' : 'chat.reloadReplaced')}
-        </div>
-      ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life}
         inTranscript={[...store.chatState.session.state.pendingMessages.map(input => input.id), store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
