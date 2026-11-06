@@ -71,7 +71,7 @@ import type { ChatCaches } from './core/caches';
 import type { ThemeVarKey } from './core/config';
 import type { MeasureCtx } from './core/define';
 import { genericEstimate } from './core/layout/generic-estimate';
-import { STICK_THRESHOLD_PX } from './core/stick-to-bottom';
+import { SCROLL_END_EPSILON_PX } from './core/stick-to-bottom';
 import { keepUnchangedUnits, unitContainsItem, unitItemIds, unitReservedHeight } from './core/units';
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
@@ -1473,7 +1473,7 @@ export function ChatRoot(props: ChatRootProps) {
       // arithmetic clamp in writeScrollTop is never misread as a user scroll.
       lastUserScrollAt = performance.now();
       expectedScrollTop = st;
-      const nowAtBottom = maxScrollTop() - st <= STICK_THRESHOLD_PX;
+      const nowAtBottom = maxScrollTop() - st <= SCROLL_END_EPSILON_PX;
       const prevAnchor = anchor();
       const prevAtBottom = prevAnchor.kind === 'tail';
       if (nowAtBottom) {
@@ -1584,7 +1584,7 @@ export function ChatRoot(props: ChatRootProps) {
     };
     commit(next, nextVisible);
 
-    emitAtBottom(maxScrollTop() - shadowScrollTop <= STICK_THRESHOLD_PX);
+    emitAtBottom(maxScrollTop() - shadowScrollTop <= SCROLL_END_EPSILON_PX);
     lastTopUnitIndex = virt.findIndex(Math.max(0, shadowScrollTop - pt));
 
     // Emit active-user-message visibility change when the state flips.

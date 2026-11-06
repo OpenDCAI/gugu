@@ -334,6 +334,34 @@ describe('transcript scroll behaviour across the P3 row redraw', () => {
     ).toBeGreaterThan(STICK_THRESHOLD_PX);
   });
 
+  it.each(['new-turn', 'composer-resize'] as const)(
+    'keeps a small upward reading gesture detached through %s, until the reader returns to the end',
+    async change => {
+      const { scrollEl, view, appendCycle, state } = await mountTranscript(120, { composer: 'slot', turns: shortTurns('near', 80) });
+      view.scrollToBottom();
+      await settled(scrollEl);
+      const before = scrollEl.scrollTop;
+      scrollEl.scrollTop -= 24;
+      expect(scrollEl.scrollTop).toBeLessThan(before - 20);
+      await settled(scrollEl);
+      expect(state.scroll.get().kind, 'a deliberate upward scroll inside the old 48px zone still follows the tail').toBe('anchor');
+      const seen = readerRow(scrollEl);
+      expect(seen).not.toBeNull();
+      if (change === 'new-turn') appendCycle();
+      else view.composerSlot!.style.height = '180px';
+      await settled(scrollEl);
+      expect(state.scroll.get().kind).toBe('anchor');
+      expect(rowOffset(scrollEl, seen!.itemId)).toBeCloseTo(seen!.offset, 0);
+
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+      await settled(scrollEl);
+      expect(state.scroll.get().kind, 'manually returning to the actual bottom restores follow').toBe('tail');
+      appendCycle();
+      await settled(scrollEl);
+      expect(distanceToBottom(scrollEl)).toBeLessThanOrEqual(1);
+    }
+  );
+
   // #6401:视口之上的行长高,读者看着的那一行**任意一帧**都不动(±1px)—— 包括手指还在拖(落定窗口开着)的时候。
   it('keeps the reader\'s row still on every frame while a row above grows mid-drag', async () => {
     const { scrollEl, view, state } = await mountTranscript(120, { turns: growingRowHistory() });
