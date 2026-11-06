@@ -67,7 +67,7 @@ export function CLISpinner({
     return <span className="text-foreground/60" data-animate="false">{CLI_SPINNER_PAUSED_FRAME}</span>;
   }
   const frames = variant === '1' ? FRAMES_1 : FRAMES_2;
-  const style = { '--cli-spinner-frames': frames.length, ...(shown && inView ? {} : { '--chat-shimmer-viewport-paused': 'paused' }) } as CSSProperties;
+  const style = { '--cli-spinner-frames': frames.length, ...(shown && inView ? {} : { '--gugu-animation-viewport-paused': 'paused' }) } as CSSProperties;
   return (
     <span ref={element} className="cli-spinner text-foreground/60" style={style}>
       <span className="cli-spinner__strip" aria-hidden="true">

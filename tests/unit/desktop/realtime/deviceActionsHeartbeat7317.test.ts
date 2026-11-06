@@ -66,4 +66,27 @@ describe('#7317 device actions are re-registered the moment they change', () => 
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(client.upserts).toHaveLength(after)
   })
+
+  test('reading the list throws: the heartbeat still writes, marked read_error with no actions array, and recovers', async () => {
+    const env = await isolatedGuguEnv('gugu-7317-actions-')
+    const client = new MemoryRuntimeIdentityClient([], { insertError: 'not used', singleError: 'not used' })
+    let broken = true
+    const { host } = hostWith(env, client, () => {
+      if (broken) throw new Error('grants unreadable')
+      return { v: 1, actions: [] }
+    })
+    const written = () => (client.upserts.at(-1)?.row.capabilities as { actions?: unknown } | undefined)?.actions
+    host.start()
+    try {
+      await until('first heartbeat written', () => client.upserts.length >= 1 && !host.getDebugSnapshot().ticking)
+      expect(written()).toEqual({ v: 1, read_error: 'grants unreadable' })
+      const before = client.upserts.length
+      broken = false
+      host.notifyDeviceActionsChanged()
+      await until('the readable list written', () => client.upserts.length > before)
+      expect(written()).toEqual({ v: 1, actions: [] })
+    } finally {
+      await host.stop()
+    }
+  })
 })

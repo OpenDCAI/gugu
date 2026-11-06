@@ -30,6 +30,7 @@ it('forwards only the lifecycle owner process-exit fact and clears it on the nex
     move({ kind: 'dormant', stage: null, processExited: true });
     expect(feed.get('agent')!.life).toEqual({ kind: 'dormant', stage: null, processExited: true });
     expect(displayStatus(feed.get('agent')!.life!, 'working')).toBe('offline');
+    expect(displayStatus(feed.get('agent')!.life!, 'error')).toBe('error');
     expect(feed.get('agent')!.reading).toEqual(change.reading);
     move({ kind: 'ready', stage: null, processExited: false });
     expect(displayStatus(feed.get('agent')!.life!, 'working')).toBe('working');

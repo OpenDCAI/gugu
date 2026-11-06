@@ -17,7 +17,7 @@ export function PaletteChatGroups({ query, groupClassName, onDone }: {
   const contacts = useContactSummaries();
   const limit = query.trim() ? 20 : 5;
   const groups = rankPaletteMatches([...summaries].filter(([id, chat]) => chat.kind === 'group'
-    && !!chat.name && !projectGroupsStore.projectOfChat(id)), query, ([, chat]) => [chat.name, chat.alias]).slice(0, limit);
+    && !!chat.name && !projectGroupsStore.rowProjectOfChat(id)), query, ([, chat]) => [chat.name, chat.alias]).slice(0, limit);
   const people = rankPaletteMatches(contacts, query, (contact) => [contact.name]).slice(0, limit);
   return (
     <>

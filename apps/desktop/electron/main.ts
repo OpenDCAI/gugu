@@ -3588,6 +3588,7 @@ function deviceActionCaller(): DeviceActionCaller {
           platform: d.platform,
           online: d.status === 'online',
           last_seen_at: d.last_seen_at,
+          host_kind: d.capabilities?.host_kind,
           actions: d.capabilities?.actions,
           this_machine: d.device_id === thisId,
         }))

@@ -36,7 +36,7 @@ describe('ProjectGroupsStore', () => {
   it('a machine that is not connected takes its bindings from the account’s record', async () => {
     answer('local', [{ projectId: 'local-shop', chatId: 'chat-shop' }]);
     const store = new ProjectGroupsStore();
-    store.start(() => []);
+    store.start(() => [], () => [], () => ['local-shop']);
     await settle();
     store.applyBindings('d22', [{ projectId: 'd22-shop', chatId: 'chat-shop' }]);
     expect(store.chatIdOf('local-shop')).toBe('chat-shop');
@@ -52,14 +52,14 @@ describe('ProjectGroupsStore', () => {
     answer('d22', []);
     const store = new ProjectGroupsStore();
     store.applyBindings('d22', [{ projectId: 'd22-shop', chatId: 'chat-shop' }]);
-    store.start(() => ['d22']);
+    store.start(() => ['d22'], () => [], () => ['d22-shop']);
     await settle();
     expect(store.chatIdOf('d22-shop')).toBeUndefined();
   });
 
   it('nothing is remembered on this computer between runs (the account holds it)', async () => {
     answer('local', [{ projectId: 'z-target', chatId: 'chat-shared' }]);
-    new ProjectGroupsStore().start(() => []);
+    new ProjectGroupsStore().start(() => [], () => [], () => ['z-target']);
     await settle();
     expect(localStorage.length).toBe(0);
   });
@@ -81,7 +81,7 @@ describe('ProjectGroupsStore', () => {
     const store = new ProjectGroupsStore();
     store.applyBindings(null, bindings);
     store.applyBindings('remote-352', [{ projectId: 'remote-main', chatId: 'chat-main' }]);
-    store.start(() => [], () => sessions);
+    store.start(() => [], () => sessions, () => ['local-main', 'local-outside', 'remote-main']);
     await settle();
     expect([...readProjectGroupChats()]).toEqual(['chat-main', 'chat-outside']);
     expect(readProjectGroupMembers().get('chat-main')).toEqual(['Aaron', 'Ada']);

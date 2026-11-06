@@ -55,6 +55,7 @@ type DeviceCommandTableSelector = {
 /** #5041 — identity.runtime_instances(#1676 的逐进程心跳表),持有判据据此判兄弟实例活/死。只读;删只删自己那一行(停机)。 */
 type RuntimeInstanceTableSelector = {
   eq(column: string, value: string): RuntimeInstanceTableSelector
+  gt(column: string, value: string): RuntimeInstanceTableSelector
   then<TResult1 = DeviceCommandQueryResult, TResult2 = never>(
     onfulfilled?: ((value: DeviceCommandQueryResult) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
@@ -200,7 +201,7 @@ export interface ProcessDeviceCommandOptions {
   // 拿 tick 开始那个 client 去写 done ⇒ 令牌已过期、写不进去,命令永远停在 running。宿主据此在**写的那一刻**现取一个
   // 带当时有效令牌的 client。缺省 = 沿用 tick 的 client(老调用方/测试)。
   resolveSettleClient?: () => Promise<DeviceCommandTableClient>
-  // 落终态的写抛错(网络 / 令牌 / 库)时的重试间隔;用尽仍失败才放弃(响亮记日志,服务端超时兜底收尾)。
+  // 落终态的写抛错(网络 / 令牌 / 库)时的重试间隔;用尽仍失败才放弃(响亮记日志,行留到本实例退出后由孤儿恢复重办)。
   // CAS 没命中不是错误,是答案(别人已经落定或回收了),不重试。
   settleRetryDelaysMs?: readonly number[]
   sleep?: (ms: number) => Promise<void>
@@ -371,27 +372,27 @@ export async function retireRuntimeInstance(
   if (error) throw new Error(error.message)
 }
 
-/** #5041 — this device's runtime instances (id + heartbeat). Owner-scoped RLS; one read per tick, lazily. */
-export async function readDeviceRuntimeInstances(
+/** #5041 — ids of this device's live runtime instances (heartbeat within RUNTIME_INSTANCE_STALE_MS). Owner-scoped RLS; one read per tick, lazily. */
+export async function readLiveDeviceRuntimeInstanceIds(
   client: DeviceCommandTableClient,
   deviceId: string,
+  nowMs: number,
   operationTimeouts?: DeviceOperationTimeoutOverrides,
-): Promise<Array<{ instanceId: string; lastHeartbeatAt: string }>> {
+): Promise<Set<string>> {
   const timeouts = resolveDeviceOperationTimeouts(operationTimeouts)
   const { data, error } = await runDeviceRequest(
     'runtime instance list',
     timeouts.runtimeInstanceHeartbeatMs,
-    () => client.from('runtime_instances').select('instance_id, last_heartbeat_at').eq('device_id', deviceId),
+    () => client.from('runtime_instances').select('instance_id').eq('device_id', deviceId)
+      .gt('last_heartbeat_at', new Date(nowMs - RUNTIME_INSTANCE_STALE_MS).toISOString()),
   )
   if (error) throw new Error(error.message)
   if (!Array.isArray(data)) throw new Error('Runtime instance response must be an array')
-  return data.map((row) => {
-    const r = row as Record<string, unknown>
-    if (typeof r.instance_id !== 'string' || typeof r.last_heartbeat_at !== 'string') {
-      throw new Error('Runtime instance row is missing instance_id/last_heartbeat_at')
-    }
-    return { instanceId: r.instance_id, lastHeartbeatAt: r.last_heartbeat_at }
-  })
+  return new Set(data.map((row) => {
+    const id = (row as Record<string, unknown>).instance_id
+    if (typeof id !== 'string') throw new Error('Runtime instance row is missing instance_id')
+    return id
+  }))
 }
 
 /**
@@ -688,7 +689,7 @@ function terminalWriter(
         // 令牌永久失效 / 换了 owner:重试不会好,原样抛给宿主的「请重新登录」守卫(@@@4395),❌ 吞成普通失败。
         if (error instanceof RuntimeAuthExpiredError) throw error
         const delayMs = settleRetryDelaysMs[attempt]
-        // 宿主停了就不再等:停机会等这一拍收尾,几分钟的退避会把退出拖住;行留给服务端超时兜底。
+        // 宿主停了就不再等:停机会等这一拍收尾,几分钟的退避会把退出拖住;行留给下次启动的孤儿恢复。
         if (delayMs === undefined || signal?.aborted) throw error
         log.warn(
           { commandId, label, attempt: attempt + 1, delayMs, err: error instanceof Error ? error.message : String(error) },
@@ -770,11 +771,11 @@ async function processPendingDeviceCommand(
   // 认领之后的一切终态写都走它:handler 可能跑了很久,tick 的 client 带的令牌未必还有效。
   const settle = terminalWriter(client, command.id, dispatch)
   const settleOnce = terminalWriter(client, command.id, { ...dispatch, settleRetryDelaysMs: [] })
-  // 重试已用尽:这一行留在 running,由服务端的 running 超时兜底落成 error。
+  // 重试已用尽:这一行留在 running,直到本实例退出、孤儿恢复把它放回 pending 重办。
   const lostSettlement = (error: unknown) => {
     log.error(
       { commandId: command.id, type: command.type, err: error instanceof Error ? error.message : String(error) },
-      'device command settlement could not be written; the row stays running until the server-side timeout settles it',
+      'device command settlement could not be written; the row stays running until this instance exits and orphan recovery requeues it',
     )
   }
   // 同步 handler 的终态写在这一拍里只试一次;写不进去就把重试挪出这一拍(报 deferred),
@@ -801,8 +802,9 @@ async function processPendingDeviceCommand(
       : skipped)
 
   // @@@recheck-unknown - the lease recheck is this queue's own bookkeeping, not the command: its error (a network flap
-  // between claim and recheck) says nothing about the command, which has not run. Only `false` refuses execution; an
-  // unanswered recheck puts the row back to pending (held-requeue) and the next tick runs it.
+  // between claim and recheck) says nothing about the command, which has not run. Only `false` refuses execution, and that
+  // answer is final: the row ends here, as not delivered. An unanswered recheck puts the row back to pending (held-requeue)
+  // and the next tick runs it.
   let mayExecute: boolean
   try {
     signal?.throwIfAborted()
@@ -814,7 +816,10 @@ async function processPendingDeviceCommand(
     )
     return hold()
   }
-  if (!mayExecute) return skipped
+  if (!mayExecute) {
+    const refused = Object.assign(new Error('Device command execution was refused by its lease recheck'), { reason: 'deliveryRejected' })
+    return offTick((write) => failClaimedDeviceCommand(write, command, claimToken, refused, nowIso, onCommandFailed, operationTimeouts))
+  }
 
   let result: unknown
   try {

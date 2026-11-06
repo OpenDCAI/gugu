@@ -16,6 +16,10 @@ describe('failure card projection', () => {
     expect(messages[0]).not.toHaveProperty('turnFailure')
     expect(messages[1]).not.toHaveProperty('turnFailure')
   })
+  it('keeps an unknown delivery and an undelivered message as separate cards', () => {
+    const messages = [row('a', 'agent', null, 'outcomeUnknown'), row('b', 'agent', null, 'deliveryRejected')]
+    expect(projectTurnFailureMessages(messages).map(message => [message.id, message.turnFailure?.count])).toEqual([['a', 1], ['b', 1]])
+  })
   it('breaks a run on a normal message and folds all earlier runs when that agent replies', () => {
     const messages = [row('a'), row('human', 'human', null, null), row('b'), row('reply', 'agent', null, null)]
     const result = projectTurnFailureMessages(messages)

@@ -1,4 +1,4 @@
-import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility'
+import { pauseAnimationsOffscreen } from '@gugu/session-shared/animation-visibility'
 import { useEffect, useRef, type ComponentPropsWithoutRef } from 'react'
 import { textShimmer, textShimmerBaseSweep, textShimmerClip, textShimmerInk, textShimmerLightInk, textShimmerSweep } from '@gugu/session-chat-ui/styles/effects'
 
@@ -7,10 +7,7 @@ export function TextShimmer({ children, className, ...props }: Omit<ComponentPro
   const host = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     const element = host.current
-    if (!element) return
-    return observeAnimationViewport(element, visible => {
-      element.dataset.shimmerVisible = String(visible)
-    })
+    if (element) return pauseAnimationsOffscreen(element)
   }, [])
   return (
     <span {...props} ref={host} className={`${textShimmer}${className ? ` ${className}` : ''}`}>
