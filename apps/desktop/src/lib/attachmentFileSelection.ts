@@ -17,7 +17,7 @@ export function createAttachmentFileSelection(onLimit: () => void) {
       }
       visible = new Set(attachments.map(attachment => attachment.id))
     },
-    select(files: readonly File[], mobile: boolean): SelectedAttachmentFile[] {
+    choose(files: readonly File[], mobile: boolean): SelectedAttachmentFile[] {
       const capacity = mobile ? Math.max(0, MOBILE_ATTACHMENT_LIMIT - visible.size - pending.size) : files.length
       if (files.length > capacity) onLimit()
       return files.slice(0, capacity).map(file => {

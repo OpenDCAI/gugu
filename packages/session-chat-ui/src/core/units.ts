@@ -1,5 +1,6 @@
 import type { TerminalState } from '@gugu/session-core/acp/client';
 import type { DeliveryMessagePresentation } from '../state/delivery-presentation';
+import type { AgentActivityEvent, AgentActivityGroup } from '../state/agent-activity';
 /**
  * Render-unit primitives — the flat virtualization model.
  *
@@ -89,6 +90,10 @@ export type RenderUnit<D = unknown> = {
   children?: readonly RenderUnit[];
   /** The fold toggles this unit is emitted behind, outermost first (set only under `revealAllFolds`). */
   folds?: readonly FoldGate[];
+  /** Flat children keep the original renderers/virtualization behind one activity header. */
+  activityFold?: string;
+  activityEvent?: AgentActivityEvent;
+  activityGroup?: AgentActivityGroup;
 };
 
 /** A ViewState toggle and the value that must be stored for what sits behind it to be emitted. */
@@ -127,6 +132,10 @@ export type SegmentItem = ChatItem | SyntheticItem;
  * cheap even if called on every tick.
  */
 export type SegmentCtx = {
+  actor?: import('../chat-context').ChatContext['actor'];
+  chatName?: import('../chat-context').ChatContext['chatName'];
+  chatKind?: import('../chat-context').ChatContext['chatKind'];
+  viewerId?: string;
   deliveredMessage?: (id: string) => DeliveryMessagePresentation | undefined;
   agentConversation?: boolean;
   caches: ChatCaches;

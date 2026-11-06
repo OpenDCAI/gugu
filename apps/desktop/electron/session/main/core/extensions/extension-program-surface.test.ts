@@ -3,6 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileHandle } from '@gugu/core/shared/fileResolver';
 import { createAppFiles } from '@shared/extensions/app-files-core';
+import { until } from '../../../../../../../tests/support/awaitCondition';
 import { FileSyncRelay } from '@shared/extensions/file-sync-core';
 
 // Chats are named by their id (编号 18: placeOf refuses anything else).
@@ -97,6 +98,7 @@ function fakeChild() {
   const child = Object.assign(new EventEmitter(), { connected: true, sent: [] as unknown[] });
   (child as unknown as { send: (message: unknown) => boolean }).send = (message) => {
     child.sent.push(message);
+    child.emit('sent', message);
     const frame = message as { t?: string; event?: { type?: string; event?: { type: string; id: string; requestId?: string } } };
     const event = frame.event?.type === 'projectionSource' ? frame.event.event : undefined;
     if (event?.type === 'close' || event?.type === 'disconnect') queueMicrotask(() => child.emit('message', {
@@ -106,14 +108,18 @@ function fakeChild() {
   };
   return child;
 }
-/** One verb over the channel (made in tool call `inCall`, when given), and its answer once the bridge gave one. */
+/** One verb over the channel (made in tool call `inCall`, when given), and its answer: the frame the bridge sends back. */
 async function call(child: ReturnType<typeof fakeChild>, id: number, method: string, args: unknown, inCall?: string) {
-  child.emit('message', { m: APP_FRAME_MARKER, t: 'call', id, method, args, ...(inCall ? { call: inCall } : {}) });
-  return vi.waitFor(() => {
-    const answer = child.sent.find((frame) => (frame as { id?: number }).id === id);
-    if (!answer) throw new Error(`no answer to ${method} yet`);
-    return answer;
+  const answer = new Promise<unknown>((resolve) => {
+    const onSent = (frame: unknown) => {
+      if ((frame as { id?: number }).id !== id) return;
+      child.off('sent', onSent);
+      resolve(frame);
+    };
+    child.on('sent', onSent);
   });
+  child.emit('message', { m: APP_FRAME_MARKER, t: 'call', id, method, args, ...(inCall ? { call: inCall } : {}) });
+  return answer;
 }
 
 const HANDED = { itemId: 'item-board', chatId: BOARD_CHAT, agentUserId: 'agent-1' };
@@ -238,7 +244,7 @@ describe('an App program as a caller of its App (F16)', () => {
     await call(child, 1300, 'projectionCreate', {}, 'ending-call');
     const { sessionEvents } = await import('../sessions/session-events');
     sessionEvents._emit('session:archived', 'task-ending');
-    await vi.waitFor(() => expect(surface.openFiles()).toBe(0));
+    await until('the archived task\'s projection closed', () => surface.openFiles(), (open) => open === 0);
     expect(child.sent).toContainEqual(expect.objectContaining({ t: 'event', event: { type: 'projectionSource', event: expect.objectContaining({ type: 'close' }) } }));
     await surface.close();
   });
@@ -355,7 +361,8 @@ describe('an App program as a caller of its App (F16)', () => {
     fileSync.revoke.mockReturnValueOnce(new Promise<void>((resolve) => (letGo = resolve)));
     let ended = false;
     const ending = release().then(() => (ended = true));
-    await vi.waitFor(() => expect(fileSync.revoke).toHaveBeenCalledWith(surface.pageId, 'unbound', expect.any(Function)));
+    await until('the handed file revoked as unbound', () => fileSync.revoke.mock.calls.some(([pageId, reason]) => pageId === surface.pageId && reason === 'unbound'));
+    expect(fileSync.revoke).toHaveBeenCalledWith(surface.pageId, 'unbound', expect.any(Function));
     expect(ended, 'not before the program closed it').toBe(false);
     letGo();
     await ending;

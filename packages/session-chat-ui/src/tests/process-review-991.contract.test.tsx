@@ -76,13 +76,10 @@ describe('process review boundaries', () => {
   it('does not disclose or duplicate short narration or a fully visible command', async () => {
     const v = mount([{ kind: 'message', id: 'short', seq: 1, role: 'assistant', text: 'Short visible fact.' }, bash('echo short'), reply()]);
     v.state.viewState.setCollapsed('review:process', true);
-    await until('the short narration appears', () => v.host.querySelector('[data-conversation-narration="short"]') !== null);
-    const button = v.host.querySelector<HTMLButtonElement>('[data-conversation-narration="short"] button')!;
-    expect(button.disabled).toBe(true);
-    expect(getComputedStyle(button).cursor).not.toBe('pointer');
-    button.click();
-    expect(v.host.querySelectorAll('[data-conversation-narration="short"]')).toHaveLength(1);
-    v.state.viewState.setCollapsed('review:process', true);
+    await until('the short panel bubble appears', () => v.host.querySelector('[data-user-card="short"]') !== null);
+    expect(v.host.querySelector('[data-expand-user-card="short"]')).toBeNull();
+    expect(v.host.querySelectorAll('[data-user-card="short"]')).toHaveLength(1);
+    v.state.viewState.setCollapsed('review:process@short', true);
     v.host.querySelector<HTMLButtonElement>('[data-slot="tool-run"] [data-collapse-id]')!.click();
     await until('the short command appears', () => v.host.querySelector('[data-conversation-step="work"]') !== null);
     const command = v.host.querySelector<HTMLButtonElement>('[data-conversation-step="work"] > button')!;

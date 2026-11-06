@@ -75,7 +75,7 @@ async function mount(
   };
   await until('transcript mounted', () => card('a-user') != null);
   await scrollTo(0);
-  return { host, scrollEl, card, cardTop, mounted, scrollTo };
+  return { host, scrollEl, card, cardTop, mounted, scrollTo, view };
 }
 
 describe('sticky user lanes', () => {
@@ -181,12 +181,11 @@ describe('sticky user lanes', () => {
     // 投进来的那条不是钉顶单元,在对话布局里画成右侧一个气泡:按它那一行找。
     const deliveredRow = () => t.host.querySelector<HTMLElement>('[data-row-kind="message"][data-item-id="b-user"]');
     const rowTop = () => { const el = deliveredRow(); return el ? el.getBoundingClientRect().top - t.scrollEl.getBoundingClientRect().top : null; };
-    let st = 0;
-    while (!(rowTop() !== null && rowTop()! < 260 && rowTop()! > 80)) {
-      st += 80;
-      expect(st, 'b-user came into view').toBeLessThan(80_000);
-      await t.scrollTo(st);
-    }
+    // Panel replies now remain in the outer transcript. Navigate by the original
+    // identity instead of scanning their entire estimated height 80px at a time.
+    t.view.scrollToItem('b-user', { align: 'start', offset: -120 });
+    await until('the delivered bubble is below the pin line', () => ({ top: rowTop(), scrollTop: t.scrollEl.scrollTop }), value => value.top !== null && value.top < 260 && value.top > 80);
+    const st = t.scrollEl.scrollTop;
     // MBP 验收 10-28:前一条打字消息的钉顶副本一直盖着投进来的那条。
     for (let i = 0; i < 40; i++) {
       t.scrollEl.scrollTop = st + i * 6;

@@ -25,6 +25,11 @@ export const nativeChatAppearance = style([nativeComposerAppearance, {
     '--chat-bubble-user': 'var(--foreground)',
     '--chat-bubble-user-fg': 'var(--background)',
   },
+  // The native user bubble inverts the page surface; its code palette must invert with it.
+  selectors: {
+    '.emlight &': { vars: { '--chat-bubble-user-color-scheme': 'dark' } },
+    '.emdark &': { vars: { '--chat-bubble-user-color-scheme': 'light' } },
+  },
 }]);
 
 globalStyle(`${nativeChatAppearance} [data-slot="turn-process"]`, {

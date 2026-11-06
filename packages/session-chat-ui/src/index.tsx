@@ -28,7 +28,7 @@ import '@gugu/session-shared/animation-visibility.css';
 // ── Core API ──────────────────────────────────────────────────────────────────
 
 export { createChatContext } from './chat-context';
-export type { ChatContext, ChatContextOptions } from './chat-context';
+export type { ChatActor, ChatContext, ChatContextOptions } from './chat-context';
 export type { ChatTranslator, ChatTranslationSubscriber, ChatTranslationValues } from './localization';
 
 export { connectSession, createChatState, tailMode, pinTopMode } from './state/chat-state';

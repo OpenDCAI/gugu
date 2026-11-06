@@ -330,7 +330,7 @@ describe('incoming deliveries share the transcript layout', () => {
   })
 
   it('clears delivered unknown receipts with compression and a cancelled turn, without duplicating native messages', async () => {
-    const { state, host } = mount('double', { agentConversation: true, pinUserMessages: true })
+    const { state, host, view } = mount('double', { agentConversation: true, pinUserMessages: true })
     const inputs: PendingPrompt[] = ['a', 'b', 'c'].map(id => ({ id, text: incomingText(`source-${id}`, `Incoming ${id}`), received: true, delivery: { state: 'unknown', retryable: false } }))
     const history: TranscriptTurn[] = inputs.map((input, seq) => ({ id: `turn-${seq}`, seq, initiator: 'agent', items: [
       { kind: 'message', id: `echo-${seq}`, seq: 0, role: 'user', text: input.text },
@@ -339,6 +339,7 @@ describe('incoming deliveries share the transcript layout', () => {
     state.transcript.history.seed(history)
     state.session.setPendingMessages(inputs)
     state.session.setCondition({ code: 'auth-required', detail: 'sign-in-missing', label: 'Host status remains visible' })
+    for (let seq = 0; seq < 3; seq++) view.openItem(`echo-${seq}`)
     await until('all native messages replace their unknown markers', () => host.querySelectorAll('[data-user-card]').length === 3 && !host.querySelector('[data-send-state="unknown"]'))
     expect(host.querySelectorAll('[data-user-card]')).toHaveLength(3)
     expect(host.querySelectorAll('[data-send-state="unknown"] button')).toHaveLength(0)
@@ -367,7 +368,7 @@ it('shows a sending indicator alongside the existing restoring process line with
 })
 
 it('removes the tail fallback as soon as out-of-budget native history arrives, and keeps the native identity afterward', async () => {
-  const { state, host } = mount('double', { agentConversation: true })
+  const { state, host, view } = mount('double', { agentConversation: true })
   const input: PendingPrompt = { id: 'budget-fallback', text: incomingText('budget-source', 'Legacy unconfirmed input'), received: true, delivery: { state: 'unknown', retryable: false } }
   const newest: TranscriptTurn = { id: 'newer', seq: 100, initiator: 'user', items: [{ kind: 'message', id: 'newer-user', seq: 0, role: 'user', text: 'Newer input' }] }
   state.transcript.history.seed([newest])
@@ -375,6 +376,7 @@ it('removes the tail fallback as soon as out-of-budget native history arrives, a
   await until('the budget fallback is in the normal transcript', () => !!host.querySelector('[data-user-card="budget-fallback"]') && !!host.querySelector('[data-send-state="unknown"]'))
   const native: TranscriptTurn = { id: 'legacy', seq: 50, initiator: 'agent', items: [{ kind: 'message', id: 'legacy-native', seq: 0, role: 'user', text: input.text }] }
   state.transcript.history.seed([native, newest])
+  view.openItem('legacy-native')
   await until('native history removes the fallback in the same handoff', () => !!host.querySelector('[data-user-card="legacy-native"]') && !host.querySelector('[data-user-card="budget-fallback"]'))
   expect(host.querySelectorAll('[data-send-state="unknown"]')).toHaveLength(0)
   state.transcript.history.prepend([{ id: 'older', seq: 10, initiator: 'user', items: [{ kind: 'message', id: 'older-user', seq: 0, role: 'user', text: 'Earlier history' }] }])
@@ -386,6 +388,7 @@ it('removes the tail fallback as soon as out-of-budget native history arrives, a
   await until('a narrower history window omits the native row', () => !host.querySelector('[data-user-card="legacy-native"]'))
   expect(host.querySelector('[data-user-card="budget-fallback"]')).toBeNull()
   state.transcript.history.seed([native, newest])
+  view.openItem('legacy-native')
   await until('the same native identity returns without a false unresolved marker', () => !!host.querySelector('[data-user-card="legacy-native"]') && !host.querySelector('[data-send-state="unknown"]'))
   expect(host.querySelector('[data-user-card="budget-fallback"]')).toBeNull()
 })
