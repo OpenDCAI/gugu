@@ -11,6 +11,8 @@ describe('turn failure presentation', () => {
     expect(turnFailurePresentation(reason).bodyKey).toBe(`agent.turnFailure.${reason}`)
   })
   it('offers model settings only for the reasons those settings can resolve', () => {
+    expect(turnFailurePresentation('network').nextMessageKey).toBe('agent.turnFailure.card.nextMessage')
+    for (const reason of ['deliveryRejected', 'outcomeUnknown', 'undelivered'] as const) expect(turnFailurePresentation(reason).nextMessageKey).toBeNull()
     expect(turnFailurePresentation('network').actions).toEqual(['retry'])
     expect(turnFailurePresentation('authentication').actions).toEqual(['settings', 'retry'])
     expect(turnFailurePresentation('weeklyQuota').actions).toEqual(['model', 'retry'])

@@ -164,6 +164,8 @@ const browserOptions = (name: string) => ({
 
 export default defineConfig({
   resolve: { alias },
+  // Dependency archives are workspace inputs for installation, not source to watch in every test collector.
+  server: { watch: { ignored: ['**/.ci-cache/**'] } },
   // @@@shard-cache-dir — 同一份 checkout 上并发的几个 `--shard` 进程各自一份 vite 缓存。
   // vite 的依赖预构建按进程各自跑、跑完把结果目录**改名顶替**共享的 deps 目录再删掉旧的
   // (vite 6.4.1 dep-*.js 里 optimizer 的 commit),别的进程正在从旧目录供模块 ⇒ 浏览器里

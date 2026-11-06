@@ -64,7 +64,6 @@ const fallbackMessages = {
   'transcript.outputOpenWith': 'Ways to open {name}',
   'transcript.read': 'Read',
   'transcript.edited': 'Edited',
-  'transcript.editedFile': 'Edited {name}',
   'transcript.editedFiles': 'Edited {count} files',
   'transcript.expandFiles': 'Show files',
   'transcript.collapseFiles': 'Hide files',

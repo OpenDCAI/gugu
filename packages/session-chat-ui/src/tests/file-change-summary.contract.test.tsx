@@ -33,6 +33,29 @@ const item: FileChangeSummaryItem = {
 // owner 10-17: Codex 的这张卡只列文件与增删数,改动去右侧看;卡里 ❌ 铺逐行改动(截图里的 `+edited` `+two`)。
 const single: FileChangeSummaryItem = { ...item, id: 't1:file-changes', files: item.files.slice(0, 1) }
 
+describe('an Edited row has the output card\'s Open with', () => {
+  it.each([240, 800])('its menu button stays inside the row at %ipx, and opens the menu for that file, not the row', async (width) => {
+    const onOpenFile = vi.fn()
+    const onOutputMenu = vi.fn()
+    const reading = await renderAndMeasureUnit(
+      fileChangeSummaryUnitDef,
+      single,
+      makeContractCtx({ width }),
+      (host) => {
+        const row = host.querySelector<HTMLElement>('[role="button"][title]')!
+        const mode = row.querySelector<HTMLElement>('[data-slot="opened-output-mode"]')!
+        const inside = mode.getBoundingClientRect().right <= row.getBoundingClientRect().right + 0.5 ? 1 : 0
+        mode.click()
+        return { inside, menu: onOutputMenu.mock.calls.length, opened: onOpenFile.mock.calls.length }
+      },
+      { onOpenFile, onOutputMenu, outputOpenMode: () => 'Open with' }
+    )
+    expect(reading.dom).toBe(reading.computed)
+    expect(reading.inspected).toEqual({ inside: 1, menu: 1, opened: 0 })
+    expect(onOutputMenu.mock.calls[0]![0].output).toEqual({ kind: 'file', path: single.files[0].path })
+  })
+})
+
 describe('file change result card geometry', () => {
   it.each([240, 420, 800])(
     'keeps all cells inside %ipx, collapsed and with the file list open; never an inline diff',
@@ -45,7 +68,7 @@ describe('file change result card geometry', () => {
           ctx,
           (host) => ({
             summaries: host.querySelectorAll('[data-slot="file-change-summary"]').length,
-            paths: host.querySelectorAll('button[title]').length,
+            paths: host.querySelectorAll('[role="button"][title]').length,
             panels: host.querySelectorAll('[role="region"]').length,
             diffText: host.textContent?.includes('+hello') ? 1 : 0
           }),
@@ -67,16 +90,24 @@ describe('file change result card geometry', () => {
       single,
       makeContractCtx({ width }),
       (host) => ({
-        paths: host.querySelectorAll('button[title]').length,
+        paths: host.querySelectorAll('[role="button"][title]').length,
         toggles: host.querySelectorAll('[data-collapse-id]').length,
         panels: host.querySelectorAll('[role="region"]').length,
-        diffText: host.textContent?.includes('+hello') ? 1 : 0
+        diffText: host.textContent?.includes('+hello') ? 1 : 0,
+        // owner 11-06 方案 A: the whole row is the one button — tile, name, 「已编辑 · +1 −0 · …/两层」, ›; the whole path as its tooltip.
+        rowTitle: host.querySelector<HTMLElement>('[role="button"][title]')?.title === '/workspace/subfolder/0/test.txt' ? 1 : 0,
+        rowName: host.querySelector('[role="button"][title]')?.textContent?.includes('test.txt') ? 1 : 0,
+        rowFolder: host.querySelector('[role="button"][title]')?.textContent?.replace(/\s/g, '').includes('…/subfolder/0') ? 1 : 0,
+        rowTile: host.querySelector('[role="button"][title] svg') ? 1 : 0,
+        counts: (host.textContent?.match(/\+1/g) ?? []).length
       }),
       { onOpenFile: () => {} }
     )
     expect(reading.dom).toBe(reading.computed)
     expect(reading.spill).toBeLessThanOrEqual(1)
     expect(reading.inspected.paths).toBe(1)
+    const { rowTitle, rowName, rowFolder, rowTile, counts } = reading.inspected
+    expect({ rowTitle, rowName, rowFolder, rowTile, counts }, 'the row is the whole button: the whole path as its tooltip, the last two folders on it, the counts once').toEqual({ rowTitle: 1, rowName: 1, rowFolder: 1, rowTile: 1, counts: 1 })
     expect(reading.inspected.toggles, 'a one-file card has nothing to expand').toBe(0)
     expect(reading.inspected.panels).toBe(0)
     expect(reading.inspected.diffText).toBe(0)
@@ -110,7 +141,7 @@ it('settles once below the reply, lists the files without their changed lines, a
     await until('result card mounts after settlement', () => !!summary())
     expect(host.querySelectorAll('[data-slot="file-change-summary"]')).toHaveLength(1)
     summary()!.querySelector<HTMLButtonElement>('[data-collapse-id="t:file-changes"]')!.click()
-    await until('the file list opens', () => summary()!.querySelectorAll('button[title]').length === 2)
+    await until('the file list opens', () => summary()!.querySelectorAll('[role="button"][title]').length === 2)
     expect(summary()!.textContent, 'the card spread the changed lines inline').not.toContain('+hello')
     expect(summary()!.querySelectorAll('[role="region"]')).toHaveLength(0)
     // Every control the card offers (every button but a file path, which opens beside), pressed in turn: none may
@@ -129,11 +160,11 @@ it('settles once below the reply, lists the files without their changed lines, a
       expect(summary()!.querySelectorAll('[role="region"]')).toHaveLength(0)
     }
     expect(pressed.size, 'no control was pressed: the sweep proved nothing').toBeGreaterThan(0)
-    if (summary()!.querySelectorAll('button[title]').length === 0) {
+    if (summary()!.querySelectorAll('[role="button"][title]').length === 0) {
       summary()!.querySelector<HTMLButtonElement>('[data-collapse-id="t:file-changes"]')!.click()
-      await until('the file list reopens', () => summary()!.querySelectorAll('button[title]').length === 2)
+      await until('the file list reopens', () => summary()!.querySelectorAll('[role="button"][title]').length === 2)
     }
-    summary()!.querySelector<HTMLButtonElement>('button[title]')!.click()
+    summary()!.querySelector<HTMLButtonElement>('[role="button"][title]')!.click()
     expect(onOpenFile).toHaveBeenCalledExactlyOnceWith({
       path: item.files[0].path,
       itemId: 'd0',

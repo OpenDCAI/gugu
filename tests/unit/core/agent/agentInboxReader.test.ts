@@ -395,6 +395,22 @@ describe('an enqueuing host (session-life)', () => {
     await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], deps, { kind: 'failed', cause: { name: 'TypeError', message: 'fetch failed' } }))
       .resolves.toEqual({ said: true, reason: 'network' })
     expect(said).toEqual([{ reason: 'network' }])
+    // A failed row with no cause to act on (an archive) never reached the agent: said as not delivered.
+    await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], deps, { kind: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } }))
+      .resolves.toEqual({ said: true, reason: 'deliveryRejected' })
+    // An archive that removed the identity: neither the row nor the read marker may land, and the failure still settles.
+    const removed = makeDeps(cloud, {
+      postDisclosure: async () => { throw new Error('HTTP 403') },
+      markRead: async () => { throw new Error('not authorized to mark read') },
+    })
+    let marks = 0
+    const counting = makeDeps(cloud, { postDisclosure: async () => {}, markRead: async () => { marks += 1 } })
+    await discloseInboxRowsFailed(AGENT, [source(2, false)], counting.deps, { kind: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } })
+    expect(marks).toBe(0) // A failed row never reached the agent: it is not an agent read.
+    await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], removed.deps, { kind: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } }))
+      .resolves.toEqual({ said: false, reason: 'deliveryRejected' })
+    await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], removed.deps, { kind: 'unknown' }))
+      .resolves.toEqual({ said: false, reason: 'outcomeUnknown' })
   })
 
   it('a claimed row that already ended (failed / unknown) does not hold back a skipped row behind it', async () => {
