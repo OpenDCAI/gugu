@@ -13,6 +13,7 @@ import {
 
 interface ImageRendererProps {
   file: { path: string; content: string };
+  onError?: () => void;
 }
 
 type Size = { width: number; height: number };
@@ -30,7 +31,7 @@ const VIEWPORT_PADDING_PX = 16;
  * 放大之间切换(#6456)。放大后超出窗格的部分用原生滚动看 —— 普通双指滑动照常滚动,不被吞掉。
  * ❌ 缩放整个界面:只缩放这张图(#669)。
  */
-export function ImageRenderer({ file }: ImageRendererProps) {
+export function ImageRenderer({ file, onError }: ImageRendererProps) {
   const fileName = file.path.split('/').pop() ?? file.path;
   const viewportRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<Size>({ width: 0, height: 0 });
@@ -122,6 +123,7 @@ export function ImageRenderer({ file }: ImageRendererProps) {
           src={file.content}
           alt={fileName}
           draggable={false}
+          onError={onError}
           onLoad={(event) =>
             setLoaded({
               src: file.content,

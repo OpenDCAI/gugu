@@ -62,6 +62,10 @@ async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promis
     try { return { content: null, ...await renew(), renew, release } } catch (error) { await release(); throw error }
   }
   const blob = await previewBytes(file)
+  if (kind === 'image') {
+    const content = URL.createObjectURL(blob)
+    return { content, release: async () => URL.revokeObjectURL(content) }
+  }
   return { content: kind === 'text' || kind === 'markdown' || kind === 'html' ? await blob.text() : await blob.arrayBuffer() }
 }
 
