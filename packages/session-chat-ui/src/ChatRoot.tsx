@@ -805,6 +805,11 @@ export function ChatRoot(props: ChatRootProps) {
    * one, so a translated lane would stick its row as if the lane sat at the top of the canvas.
    */
   const placeRow = (el: HTMLElement, idx: number, top: number, laneH: number | null) => {
+    // Native sticky positioning supplies the reversible push-out. Under reduced motion,
+    // hide the complete row as soon as that push starts instead of sliding a partial row.
+    const leaving = laneH !== null && shadowScrollTop + userTopGap + activityPinOffset(idx)
+      - (units().at(idx)?.gapBefore ?? 0) > top + laneH - virt.size(idx) + 0.5;
+    if (el.dataset.pinLeaving !== String(leaving)) el.dataset.pinLeaving = String(leaving);
     const key = laneH === null ? `t${top}` : `l${top}:${laneH}`;
     if (appliedTop.get(idx) === key) return;
     appliedTop.set(idx, key);
@@ -853,11 +858,11 @@ export function ChatRoot(props: ChatRootProps) {
       virt.setCount(us.length, (i) => {
         const u = us.at(i);
         if (!u) return 60;
-        if (u.activityFold && !viewState().isCollapsed(u.activityFold)) return 0;
         // A mounted row's reported height first (a row measured before a swap re-seed won't report again, #6578),
         // then the persisted heightmap (no scrollbar drift on remount), then the cheap estimate.
         const live = tweenRegistry.heightOf(u.id);
         if (live !== undefined) return live;
+        if (u.activityFold && !viewState().isCollapsed(u.activityFold)) return 0;
         if (hasHeightmapSnapshot) {
           const snapped = currentState.heightmap.get(u.id);
           if (snapped !== undefined) return snapped;
@@ -1154,9 +1159,11 @@ export function ChatRoot(props: ChatRootProps) {
   const [anchor, setAnchorSignal] = createSignal<ScrollMode>(untrack(state).scroll.get(), {
     equals: sameScrollMode,
   });
+  let activityCollapse: { model: ChatState; id: string; itemId: string; height: number; fromOffset: number } | null = null;
 
   // Persist intent to ChatState and update the local signal atomically.
   const setAnchor = (m: ScrollMode) => {
+    activityCollapse = null;
     setAnchorSignal(m);
     state().scroll.set(m);
   };
@@ -1225,8 +1232,19 @@ export function ChatRoot(props: ChatRootProps) {
       const i = unitIndexOf(m.itemId, m.edge);
       if (i >= 0) {
         const rowTop = virt.top(i) + padTop();
+        let offset = m.offset;
+        if (activityCollapse) {
+          const collapse = activityCollapse, lane = activityLaneRanges().find(lane => lane.id === collapse.id);
+          if (collapse.model === state() && collapse.itemId === m.itemId && m.edge === 'top' && lane) {
+            const remaining = Math.max(0, virt.top(lane.end) - virt.top(lane.index + 1));
+            // Follow the existing content-height tween, including offscreen children. The
+            // first frame keeps the reader's position; only the last frame lands the conclusion.
+            offset += (collapse.fromOffset - offset) * Math.min(1, remaining / collapse.height);
+            if (remaining < 0.5) activityCollapse = null;
+          } else activityCollapse = null;
+        }
         const target =
-          m.edge === 'top' ? rowTop + m.offset : rowTop + virt.size(i) - viewHeight() + padBottom() + m.offset;
+          m.edge === 'top' ? rowTop + offset : rowTop + virt.size(i) - viewHeight() + padBottom() + offset;
         const next = Math.max(0, Math.min(target, maxScrollTop()));
         // Sub-pixel no-op guard: if the settle correction is smaller than 1 px
         // (anchor already matches the current position), skip the write so the
@@ -1290,6 +1308,9 @@ export function ChatRoot(props: ChatRootProps) {
     pendingSizeDeltas = [];
     if (!scrollEl) return;
     const m = anchor();
+    // The collapse projects both shrinking geometry and the viewport together. An additional
+    // above-row compensation here would first pull it to the conclusion in the same frame.
+    if (activityCollapse?.model === state() && m.kind === 'anchor' && activityCollapse.itemId === m.itemId) return;
     const ref = m.kind === 'anchor' ? unitIndexOf(m.itemId, m.edge) : smoothScrolling ? lastTopUnitIndex : -1;
     if (ref < 0) return;
     let aboveDelta = 0;
@@ -1439,6 +1460,7 @@ export function ChatRoot(props: ChatRootProps) {
         needsProject = true;
       }
     } else if (Math.abs(userDelta) > USER_SCROLL_EPSILON) {
+      activityCollapse = null;
       // Only re-derive intent when the user actually moved the scrollbar.
       // Use USER_SCROLL_EPSILON to filter sub-pixel self-write rounding so the
       // arithmetic clamp in writeScrollTop is never misread as a user scroll.
@@ -2047,7 +2069,20 @@ export function ChatRoot(props: ChatRootProps) {
         const activity = activityLaneByIndex().get(idx);
         if (activity && viewState().isCollapsed(id)) {
           const next = units().at(activity.end);
-          if (next) setAnchor({ kind: 'anchor', itemId: next.itemId, edge: 'top', offset: -userTopGap });
+          if (scrollEl) {
+            const targetIndex = next ? activity.end : activity.index;
+            const itemId = next?.itemId ?? id;
+            const fromOffset = scrollEl.scrollTop - virt.top(targetIndex) - padTop();
+            const height = virt.top(activity.end) - virt.top(activity.index + 1);
+            // A conclusion already on screen keeps its reading position. Otherwise it
+            // arrives at the top only as the 200ms height collapse finishes.
+            const offset = next && -fromOffset >= userTopGap && -fromOffset < viewHeight() - padBottom() ? fromOffset : -userTopGap;
+            abortSmoothScroll();
+            setAnchor({ kind: 'anchor', itemId, edge: 'top', offset });
+            if (height > 0 && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+              activityCollapse = { model: state(), id, itemId, height, fromOffset };
+            }
+          }
           else setAnchor({ kind: 'anchor', itemId: id, edge: 'top', offset: -userTopGap });
           viewState().toggleCollapsed(id);
           return;

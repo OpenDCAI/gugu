@@ -120,6 +120,9 @@ export const pinSticky = style({
   pointerEvents: 'auto',
   // `scroll-state` is newer than csstype's list; it lets pinFade show only while the row is stuck.
   containerType: 'scroll-state' as 'normal',
+  '@media': { '(prefers-reduced-motion: reduce)': {
+    selectors: { '[data-pin-leaving="true"] &': { visibility: 'hidden' } },
+  } },
 });
 
 /** A normal bubble has no full-width card behind it. Protect the pinned row once it actually sticks. */

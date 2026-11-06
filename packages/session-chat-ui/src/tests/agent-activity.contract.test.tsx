@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { page } from 'vitest/browser';
+import { cdp, page } from 'vitest/browser';
 import { batch } from 'solid-js';
 import { createChatContext } from '../chat-context';
 import { createChatState } from '../state/chat-state';
@@ -15,7 +15,7 @@ const delivery = (id: string, body = 'Agent update', type = 'agent'): ChatMessag
 const ordinary = (id: string, role: 'user' | 'assistant' = 'assistant'): ChatMessage => ({ kind: 'message', id, seq: 0, role, text: id });
 const turn = (id: string, items: ChatMessage[]): TranscriptTurn => ({ id, seq: 0, initiator: 'user', outcome: { kind: 'done' }, items: items as TranscriptTurn['items'] });
 const cleanup: Array<() => void> = [];
-afterEach(() => { while (cleanup.length) cleanup.pop()?.(); });
+afterEach(async () => { while (cleanup.length) cleanup.pop()?.(); await cdp().send('Emulation.setEmulatedMedia', { features: [] }); });
 
 async function mount(width: number, records = [turn('in', [delivery('incoming')]), turn('panel', [ordinary('Panel answer')])]) {
   await page.viewport(Math.max(width, 390), 720);
@@ -183,5 +183,88 @@ describe('approved A2A activity', () => {
     expect(Math.abs(own.top - t.scroll().getBoundingClientRect().top - 8)).toBeLessThan(2);
     expect(activity.top).toBeGreaterThanOrEqual(own.bottom + 6);
     expect(activity.top - own.bottom).toBeLessThan(20);
+  });
+  it.each([390, 1280])('pushes the two pinned rows out continuously at the activity end and reverses with the scroll (%i)', async width => {
+    const records = [turn('own', [ordinary('Owner question', 'user'), ...Array.from({ length: 24 }, (_, i) => delivery(`a${i}`, `Update ${i}. `.repeat(45))) ]),
+      turn('conclusion', [ordinary('Following conclusion. '.repeat(60))]),
+      ...Array.from({ length: 12 }, (_, i) => turn(`tail${i}`, [ordinary(`Tail ${i}. `.repeat(20))]))];
+    const t = await mount(width, records);
+    t.button().click();
+    await untilStable('push-out rows measured', () => t.scroll().scrollHeight);
+    t.scroll().scrollTop = 850;
+    await untilStable('push-out lanes mounted', () => t.head()?.getBoundingClientRect().top);
+    const own = () => t.host.querySelector<HTMLElement>('[data-agent-conversation-message="Owner question"]')!;
+    const sample = () => ({ scroll: t.scroll().scrollTop, own: own()?.getBoundingClientRect().top,
+      activity: t.head()?.getBoundingClientRect().top, opaque: t.head() && getComputedStyle(t.head()!.closest('[data-index]')!.querySelector('[data-chat-pin-backdrop]')!).opacity });
+    const row = t.head()!.closest<HTMLElement>('[data-index]')!;
+    const end = Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height);
+    const samples = [];
+    for (let delta = -240; delta <= 40; delta += 8) {
+      t.scroll().scrollTop = end + delta;
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      samples.push(sample());
+    }
+    expect(samples.filter(s => s.activity !== undefined && s.activity > 0 && s.activity < 40)).not.toHaveLength(0);
+    for (let i = 1; i < samples.length; i++) {
+      const before = samples[i - 1], after = samples[i];
+      if (before.activity !== undefined && after.activity !== undefined) expect(Math.abs(after.activity - before.activity)).toBeLessThanOrEqual(9);
+    }
+    const middle = samples.find(s => s.activity !== undefined && s.activity > 15 && s.activity < 35)!;
+    t.scroll().scrollTop = middle.scroll;
+    await untilStable('push-out held halfway', () => sample().activity);
+    expect(sample().activity).toBeCloseTo(middle.activity!, 0);
+    const held = sample();
+    await new Promise(resolve => setTimeout(resolve, 90));
+    expect(sample()).toEqual(held);
+    t.scroll().scrollTop = 850;
+    await untilStable('reverse scroll restores the same pins', () => [sample().own, sample().activity]);
+    expect(sample().own).toBe(8);
+    expect(sample().activity).toBe(108);
+    expect(sample().opaque).toBe('1');
+  });
+  it.each([true, false])('returns pinned rows during the height collapse without skipping to the final anchor (following conclusion: %s)', async following => {
+    const t = await mount(800, [turn('own', [ordinary('Owner question', 'user'), ...Array.from({ length: 24 }, (_, i) => delivery(`a${i}`, `Update ${i}. `.repeat(45))) ]),
+      ...(following ? [turn('conclusion', [ordinary('Following conclusion. '.repeat(60))]), ...Array.from({ length: 10 }, (_, i) => turn(`tail${i}`, [ordinary(`Tail ${i}. `.repeat(20))]))] : [])]);
+    t.button().click();
+    await untilStable('collapse source measured', () => t.scroll().scrollHeight);
+    t.scroll().scrollTop = 850;
+    await untilStable('collapse starts with two pinned rows', () => t.head()?.getBoundingClientRect().top);
+    const own = () => t.host.querySelector('[data-agent-conversation-message="Owner question"]')?.getBoundingClientRect();
+    const start = t.scroll().scrollTop;
+    t.button().click();
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(own()!.bottom, 'own pin is still visible in the first shrinking frame').toBeGreaterThan(0);
+    const first = t.scroll().scrollTop;
+    await untilStable('collapse and target position settled', () => [t.scroll().scrollTop, t.scroll().scrollHeight]);
+    const end = t.scroll().scrollTop;
+    expect(Math.abs(first - end), 'the first shrinking frame has not already landed on the conclusion')
+      .toBeGreaterThan(Math.abs(start - end) * 0.1);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(t.scroll().scrollTop).toBe(end);
+    if (following) {
+      const conclusion = [...t.host.querySelectorAll<HTMLElement>('[data-agent-conversation-message]')]
+        .find(row => row.dataset.agentConversationMessage?.startsWith('Following conclusion.'))!.getBoundingClientRect();
+      expect(conclusion.top).toBeGreaterThanOrEqual(t.scroll().getBoundingClientRect().top - 1);
+      expect(conclusion.top).toBeLessThan(t.scroll().getBoundingClientRect().bottom);
+    }
+    expect(t.button().getAttribute('aria-expanded')).toBe('false');
+  });
+  it('snaps the pinned exit and manual collapse when reduced motion is enabled', async () => {
+    await cdp().send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    const t = await mount(800, [turn('own', [ordinary('Owner question', 'user'), ...Array.from({ length: 24 }, (_, i) => delivery(`a${i}`, `Update ${i}. `.repeat(45))) ]),
+      turn('conclusion', [ordinary('Following conclusion. '.repeat(60))]), ...Array.from({ length: 10 }, (_, i) => turn(`tail${i}`, [ordinary(`Tail ${i}. `.repeat(20))]))]);
+    t.button().click();
+    await untilStable('reduced motion open geometry', () => t.scroll().scrollHeight);
+    const row = t.head()!.closest<HTMLElement>('[data-index]')!;
+    t.scroll().scrollTop = Number.parseFloat(row.style.top) + Number.parseFloat(row.style.height) - 80;
+    await untilStable('reduced motion exit', () => t.head()?.getBoundingClientRect().top);
+    expect(getComputedStyle(t.head()!).visibility).toBe('hidden');
+    t.scroll().scrollTop = 850;
+    await untilStable('reduced motion reverse', () => t.head()?.getBoundingClientRect().top);
+    expect(getComputedStyle(t.head()!).visibility).toBe('visible');
+    t.button().click();
+    await until('reduced motion content immediately removed', () => !t.host.querySelector('[data-user-card="a0"]'));
+    await untilStable('reduced motion final anchor', () => t.scroll().scrollTop);
+    expect(t.button().getAttribute('aria-expanded')).toBe('false');
   });
 });
