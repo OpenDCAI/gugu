@@ -66,9 +66,9 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
     if (item.takeOpening) Object.defineProperty(shown, 'takeOpening', { get: () => item.takeOpening, enumerable: false })
     if (mobile) chatLayoutOf(target).setNarrow(true)
     const tabId = openPanelItem(target, shown, { intent: from.intent ?? 'navigate', ...(from.from ? { from: from.from } : {}), ...(from.restore ? { restore: from.restore } : {}) })
+    if (!tabId) throw new Error('The file panel could not be opened')
+    await onShow?.(target, tabId)
     if (item.itemId) noteOpened(item.itemId)
-    if (tabId) return onShow?.(target, tabId)
-    throw new Error('The file panel could not be opened')
   }, [onShow, mobile])
 
   // The file asked last is the one opened: a pill clicked, then another (or a file in an App's list), before the first's
@@ -114,7 +114,11 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
   )
   const openGroupFile = useCallback(
     async (itemId: string, at?: Record<string, string>, from: OpenFrom = {}) => {
-      if (!appsHere || !chatId) { from.receipt?.reject(new Error('The file opener is unavailable')); return }
+      if (!appsHere || !chatId) {
+        from.receipt?.reject(new Error('The file opener is unavailable'))
+        if (from.receipt) receipts.current.delete(from.receipt)
+        return
+      }
       const asked = ++asking.current
       try {
         // `at`: the App that opens it gets the place as a `link` event, from the host that resolves who opens it.
@@ -151,7 +155,10 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
         // 「用 X 打开」 its host resolved already (who opens it, or among which to ask): opened as it said — a file of another
         // chat goes to the chat shell, which brings that chat up (MainLayout).
         if (ask.opener && ask.opener.chatId !== chatId) {
-          window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail: ask.opener }))
+          if (ask.receipt) {
+            ask.receipt.reject(new Error('The file belongs to a different conversation'))
+            receipts.current.delete(ask.receipt)
+          } else window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail: ask.opener }))
         } else if (ask.opener) {
           asking.current += 1
           void Promise.resolve(openResolved(ask.opener, from)).then(() => ask.receipt?.resolve(), error => { setUnopened(String(error)); ask.receipt?.reject(error) }).finally(() => { if (ask.receipt) receipts.current.delete(ask.receipt) })
