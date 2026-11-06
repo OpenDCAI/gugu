@@ -50,12 +50,12 @@ function checkedSource(source: MarketCodeSource): void {
 }
 
 /** The receipt lives in .git, outside the bundle. Merely copying an App with the same id is never a fork install. */
-export function forkOfDirectory(sourceDir: string): (ForkRecord & { root: string }) | null {
+export async function forkOfDirectory(sourceDir: string): Promise<(ForkRecord & { root: string }) | null> {
   const sources = path.resolve(appSourcesRoot());
   const relative = path.relative(sources, path.resolve(sourceDir));
   if (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || relative === '..') return null;
   const root = path.join(sources, relative.split(path.sep)[0] ?? '');
-  const receipt = path.join(root, '.git', 'gugu-fork.json');
+  const receipt = await requireAgentFileAccess(path.join(root, '.git', 'gugu-fork.json'));
   if (!fs.existsSync(receipt)) return null;
   const record = forkRecordSchema.parse(JSON.parse(fs.readFileSync(receipt, 'utf8')));
   checkedSource(record.source);
@@ -95,7 +95,7 @@ export async function createAppFork(id: string, requestedName?: string) {
   if (auth && !auth.success) throw new Error(`Reconnect GitHub in Settings before forking: ${auth.error.message}`);
   const token = auth?.success ? auth.data : undefined;
   fs.mkdirSync(appSourcesRoot(), { recursive: true });
-  const existing = fs.existsSync(root) ? forkOfDirectory(sourceDir) : null;
+  const existing = fs.existsSync(root) ? await forkOfDirectory(sourceDir) : null;
   if (fs.existsSync(root) && (!existing || existing.id !== id || existing.name !== name)) {
     throw new Error(`The fork folder ${root} already exists; choose another name in app_create {fork_of, name}.`);
   }
@@ -155,8 +155,7 @@ export async function createAppFork(id: string, requestedName?: string) {
 
 export async function prepareForkVariant(sourceDir: string): Promise<ExtensionVariant | undefined> {
   await requireAgentFileTreeAccess(sourceDir);
-  await requireAgentFileAccess(path.join(sourceDir, '.git', 'gugu-fork.json'));
-  const fork = forkOfDirectory(sourceDir);
+  const fork = await forkOfDirectory(sourceDir);
   if (!fork) return undefined;
   const service = extensionsService();
   const { manifest, bytes, sha256 } = await packExtensionArchive(service, sourceDir);

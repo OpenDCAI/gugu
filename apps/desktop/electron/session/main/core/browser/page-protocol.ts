@@ -159,7 +159,7 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
       if (method === 'DOM.setFileInputFiles' && Array.isArray(params.files)) {
         for (const file of params.files) {
           if (typeof file !== 'string' || !isAbsolute(file)) throw new Error('page protocol: invalid upload path');
-          await requireAgentFileTreeAccess(file);
+          await requireAgentFileTreeAccess(file, { followLinks: true });
         }
       }
       await bounded(ready, signal);

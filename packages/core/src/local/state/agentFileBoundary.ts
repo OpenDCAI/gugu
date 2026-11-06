@@ -6,7 +6,7 @@ export { privateServicePermissionDirectory } from './protectedPrivateStorage'
 export const PRIVATE_PERMISSION_STATE_REFUSAL = 'Agent file access to protected private storage is forbidden'
 const within = (file: string, directory: string) => {
   const target = resolve(file).toLowerCase(), root = resolve(directory).toLowerCase()
-  return target === root || target.startsWith(root + sep)
+  return target === root || target.startsWith(root.endsWith(sep) ? root : root + sep)
 }
 const identity = (file: { dev: bigint; ino: bigint }) => `${file.dev}:${file.ino}`
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
@@ -91,17 +91,32 @@ export async function agentFileBoundary() {
       const info = await stat(file, { bigint: true }).catch(error => { if (missing(error)) return null; throw error })
       if (info && protectedFiles.files.has(identity(info))) throw new Error(PRIVATE_PERMISSION_STATE_REFUSAL)
     },
-    /** Bulk operations must not delegate a hidden hard-link alias to cp/rg before checking its identity. */
-    async assertTree(file: string, skip: (path: string) => boolean = () => false) {
-      if (!protectedFiles.externalLinks) return
+    /** cp/rg preserve nested links; consumers such as browser directory upload must also inspect their targets. */
+    async assertTree(file: string, skip: (path: string) => boolean = () => false, followLinks = false) {
+      if (!protectedFiles.externalLinks && !followLinks) return
       let visited = 0
+      const seen = new Set<string>(), active = new Set<string>()
       const walk = async (target: string): Promise<void> => {
         if (skip(target)) return
-        const info = await lstat(target, { bigint: true }).catch(error => { if (missing(error)) return null; throw error })
-        if (!info || info.isSymbolicLink()) return // cp -R/rg do not follow nested symbolic links.
+        let info = await lstat(target, { bigint: true }).catch(error => { if (missing(error)) return null; throw error })
+        if (!info) return
+        if (info.isSymbolicLink()) {
+          if (!followLinks) return
+          target = await canonicalTarget(target)
+          if (roots.some(root => within(target, root) || within(root, target))) throw new Error(PRIVATE_PERMISSION_STATE_REFUSAL)
+          info = await lstat(target, { bigint: true }).catch(error => { if (missing(error)) return null; throw error })
+          if (!info) return
+          if (info.isSymbolicLink()) throw new Error('Agent file tree could not be verified against private permission state')
+        }
         if (++visited > 10_000) throw new Error('Agent file tree could not be verified against private permission state')
         if (protectedFiles.files.has(identity(info))) throw new Error(PRIVATE_PERMISSION_STATE_REFUSAL)
-        if (info.isDirectory()) for (const name of await readdir(target)) await walk(join(target, name))
+        if (!info.isDirectory()) return
+        if (active.has(target)) throw new Error('Agent file tree could not be verified against private permission state')
+        if (seen.has(target)) return
+        seen.add(target)
+        active.add(target)
+        try { for (const name of await readdir(target)) await walk(join(target, name)) }
+        finally { active.delete(target) }
       }
       await walk(file)
     },
@@ -132,10 +147,10 @@ export async function requireAgentFileAccess(file: string, knownBoundary?: Await
 }
 
 /** A delegated workspace/archive/upload may access its whole tree, so an excluded descendant also forbids delegation. */
-export async function requireAgentFileTreeAccess(file: string): Promise<string> {
+export async function requireAgentFileTreeAccess(file: string, options: { followLinks?: boolean } = {}): Promise<string> {
   const boundary = await agentFileBoundary()
   const canonical = await requireAgentFileAccess(file, boundary)
   if (boundary.overlaps(canonical)) throw new Error(PRIVATE_PERMISSION_STATE_REFUSAL)
-  await boundary.assertTree(canonical)
+  await boundary.assertTree(canonical, undefined, options.followLinks)
   return canonical
 }

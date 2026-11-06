@@ -26,8 +26,13 @@ afterEach(async () => {
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-it.each(['upload', 'directory upload', 'drop', 'symbolic link', 'hard link', 'snapshot filename', 'screenshot filename', 'network filename'])('refuses browser %s before Playwright sees a private path', async kind => {
+it.each(['upload', 'directory upload', 'drop', 'symbolic link', 'hard link', 'nested symbolic file', 'nested symbolic directory', 'snapshot filename', 'screenshot filename', 'network filename'])('refuses browser %s before Playwright sees a private path', async kind => {
   let source = secret
+  if (kind.startsWith('nested symbolic')) {
+    source = path.join(root, 'ordinary-upload')
+    fs.mkdirSync(source)
+    fs.symlinkSync(kind === 'nested symbolic file' ? secret : privatePasswordVaultDirectory(), path.join(source, 'nested'))
+  }
   if (kind === 'symbolic link' || kind === 'hard link') {
     source = path.join(root, 'alias')
     if (kind === 'symbolic link') fs.symlinkSync(secret, source)
@@ -52,13 +57,42 @@ it.each(['upload', 'directory upload', 'drop', 'symbolic link', 'hard link', 'sn
 })
 
 it('refuses a protected CDP upload before native debugger dispatch, including an ancestor directory', async () => {
-  for (const file of [secret, root]) {
+  const upload = path.join(root, 'ordinary-upload')
+  fs.mkdirSync(upload)
+  fs.symlinkSync(privatePasswordVaultDirectory(), path.join(upload, 'nested'))
+  for (const file of [secret, root, upload]) {
     const fixture = page(['https://example.test/']), lease = createPageProtocol(fixture.contents)
     try {
       await expect(lease.send('DOM.setFileInputFiles', { files: [file], backendNodeId: 1 })).rejects.toThrow()
       expect(fixture.debuggerApi.sendCommand).not.toHaveBeenCalled()
     } finally { lease.close() }
   }
+})
+
+it('permits directory uploads with ordinary internal and external symbolic links', async () => {
+  const upload = path.join(root, 'ordinary-upload'), other = path.join(root, 'other')
+  fs.mkdirSync(upload)
+  fs.mkdirSync(other)
+  fs.writeFileSync(path.join(upload, 'ordinary.txt'), 'ordinary')
+  fs.writeFileSync(path.join(other, 'other.txt'), 'ordinary')
+  fs.symlinkSync(path.join(upload, 'ordinary.txt'), path.join(upload, 'internal'))
+  fs.symlinkSync(other, path.join(upload, 'external-directory'))
+  const fixture = page(['https://example.test/']), lease = createPageProtocol(fixture.contents)
+  try {
+    await expect(lease.send('DOM.setFileInputFiles', { files: [upload], backendNodeId: 1 })).resolves.toBeDefined()
+    expect(fixture.debuggerApi.sendCommand).toHaveBeenCalledWith('DOM.setFileInputFiles', expect.anything(), undefined)
+  } finally { lease.close() }
+})
+
+it('refuses a cyclic directory upload without dispatching it', async () => {
+  const upload = path.join(root, 'ordinary-upload')
+  fs.mkdirSync(upload)
+  fs.symlinkSync(upload, path.join(upload, 'cycle'))
+  const fixture = page(['https://example.test/']), lease = createPageProtocol(fixture.contents)
+  try {
+    await expect(lease.send('DOM.setFileInputFiles', { files: [upload], backendNodeId: 1 })).rejects.toThrow()
+    expect(fixture.debuggerApi.sendCommand).not.toHaveBeenCalled()
+  } finally { lease.close() }
 })
 
 it('permits an ordinary browser upload path through the same host wrapper', async () => {

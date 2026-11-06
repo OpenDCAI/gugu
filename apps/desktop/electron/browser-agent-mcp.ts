@@ -114,11 +114,11 @@ export class SessionBrowserTools {
 
   async checkFileArguments(args: Record<string, unknown> | undefined): Promise<void> {
     const cwd = await this.workspaceRoot() ?? this.outputDir
-    await requireAgentFileTreeAccess(this.outputDir)
+    await requireAgentFileTreeAccess(this.outputDir, { followLinks: true })
     if (Array.isArray(args?.paths)) {
       for (const file of args.paths) {
         if (typeof file !== 'string') throw new Error('Invalid browser file path')
-        await requireAgentFileTreeAccess(resolve(cwd, file))
+        await requireAgentFileTreeAccess(resolve(cwd, file), { followLinks: true })
       }
     }
     if (typeof args?.filename === 'string') await requireAgentFileAccess(resolve(cwd, args.filename))

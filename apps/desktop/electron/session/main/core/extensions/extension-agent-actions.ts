@@ -768,7 +768,8 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       const templateFiles = Object.fromEntries(
         Object.entries(bundle.templateFiles).filter(([name]) => !existing || !fs.existsSync(path.join(targetDir, name)))
       );
-      for (const name of Object.keys({ ...templateFiles, ...bundle.files })) await requireAgentFileAccess(path.resolve(targetDir, name));
+      // Retained template files can also be read back below, so check them even when not rewritten.
+      for (const name of Object.keys({ ...bundle.templateFiles, ...bundle.files })) await requireAgentFileAccess(path.resolve(targetDir, name));
       const { sourceDir, manifest } = scaffoldExtension({
         targetDir,
         manifest: bundle.manifest,
@@ -793,7 +794,7 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
         ...(existing ? { updated: true } : {}),
         tabs: manifest.contributes.tabs.map((tab) => tab.name),
         // The skeleton comes back only when the agent has not written its own app.js yet.
-        ...(action.template && !ownAppJs ? { app_js: fs.readFileSync(path.join(sourceDir, 'app.js'), 'utf8') } : {}),
+        ...(action.template && !ownAppJs ? { app_js: fs.readFileSync(await requireAgentFileAccess(path.join(sourceDir, 'app.js')), 'utf8') } : {}),
         // Said here rather than discovered at install: the agent is holding the pen
         // right now, and the person should know whether the next install call will
         // ask for consent rather than silently granting anything.

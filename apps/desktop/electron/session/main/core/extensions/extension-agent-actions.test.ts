@@ -1191,6 +1191,23 @@ describe('app_check', () => {
 
 // 摩擦单 F11:群里多人用的 App 从模板起 —— 投票这种 App,agent 只写几十行。
 describe('app_create { template: "group-json" }', () => {
+  it('refuses a retained app.js linked to private storage before returning its content', async () => {
+    vi.stubEnv('GUGU_HOME', path.join(workDir, 'host-state'));
+    try {
+      const target = path.join(workDir, 'retained-template');
+      const request = { action: 'create', target_dir: target, id: 'retained-template', name: 'Retained', template: 'group-json' };
+      await runExtensionAgentAction(request);
+      const privateRoot = path.join(workDir, 'host-state', 'private', 'password-vault', 'v1');
+      mkdirSync(privateRoot, { recursive: true });
+      const secret = path.join(privateRoot, 'ciphertext.bin');
+      writeFileSync(secret, 'synthetic-retained-template-canary');
+      rmSync(path.join(target, 'app.js'));
+      symlinkSync(secret, path.join(target, 'app.js'));
+      await expect(runExtensionAgentAction(request)).rejects.toThrow('protected private storage');
+      expect(readFileSync(secret, 'utf8')).toBe('synthetic-retained-template-canary');
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it('writes a group App with its explicit roster permission, page, style and app.js skeleton', async () => {
     const created = (await runExtensionAgentAction({
       action: 'create',

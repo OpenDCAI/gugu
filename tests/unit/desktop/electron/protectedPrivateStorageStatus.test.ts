@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 let directory: string
@@ -80,4 +80,9 @@ it('protects the default vault root before initialization creates any files', as
   const { protectedPrivateStorageStatus, requireAgentFileAccess } = await import('@gugu/core/local/state/agentFileBoundary')
   expect(await protectedPrivateStorageStatus(PASSWORD_VAULT_STORAGE)).toEqual({ status: 'ready' })
   await expect(requireAgentFileAccess(join(privatePasswordVaultDirectory(), 'future-control.json'))).rejects.toThrow()
+})
+
+it('refuses delegation of the filesystem root containing protected descendants', async () => {
+  const { requireAgentFileTreeAccess } = await import('@gugu/core/local/state/agentFileBoundary')
+  await expect(requireAgentFileTreeAccess(parse(directory).root)).rejects.toThrow('protected private storage')
 })
