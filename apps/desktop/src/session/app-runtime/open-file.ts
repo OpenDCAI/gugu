@@ -1535,6 +1535,7 @@ export class StoredTextSnapshot {
     private readonly host: GuguHost,
     private readonly entry: AppFileEntry,
     content: string,
+    private readonly exact: boolean,
   ) {
     if (content) this.text.insert(0, content);
   }
@@ -1583,6 +1584,7 @@ export class StoredTextSnapshot {
       entry: { get: () => ({ ...this.entry }) },
       readOnly: { value: true },
       readOnlyReason: { value: 'stored-bytes' },
+      exact: { value: this.exact },
       status: { get: () => (this.closed ? 'gone' : 'online') },
       saved: { value: true },
       onChange: { value: () => () => false },
@@ -1624,6 +1626,7 @@ export class StoredTextSnapshot {
       } },
       blob: { value: async () => blob },
       bytes: { value: async () => new Uint8Array(await blob.arrayBuffer()) },
+      read: { value: async (offset = 0, length = Infinity) => new Uint8Array(await blob.slice(offset, length === Infinity ? undefined : offset + length).arrayBuffer()) },
       size: { get: () => blob.size },
     }), { type: { value: 'text', enumerable: true } });
     internals.set(file, this);
@@ -1631,8 +1634,8 @@ export class StoredTextSnapshot {
   }
 }
 
-export function storedTextFile(host: GuguHost, entry: AppFileEntry, content: string, bytes: ArrayBuffer): object {
-  return new StoredTextSnapshot(host, entry, content).handle(new Blob([bytes], { type: entry.contentType }));
+export function storedTextFile(host: GuguHost, entry: AppFileEntry, read: { text: string; exact: boolean }, bytes: ArrayBuffer): object {
+  return new StoredTextSnapshot(host, entry, read.text, read.exact).handle(new Blob([bytes], { type: entry.contentType }));
 }
 
 /**

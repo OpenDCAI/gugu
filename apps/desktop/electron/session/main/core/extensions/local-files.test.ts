@@ -444,6 +444,15 @@ describe('gugu.files on a working copy', () => {
     const opened = await gated.open(new Page(nextId++, 'mine.md').surface, { ref });
     expect(opened).toMatchObject({ docName: '', access: 'ro', chunked: true, entry: { name: 'shot.png', type: 'binary', contentType: 'image/png', size: png.byteLength } });
     expect(opened.bytes).toBeUndefined();
+    // Text that cannot be a live document opens as its bytes, for the page to edit whole; what is not text stays in pieces.
+    for (const [name, content] of [['list.json', '[1,2,3]\n'], ['conf.json', '{\n  // comment\n  "a": 1,\n}\n'], ['gbk.txt', Buffer.from([0xc4, 0xe3, 0x0a])]] as const) {
+      write(name, content);
+      const text = await gated.open(new Page(nextId++, 'mine.md').surface, { ref: { workspace: WS, id: name } });
+      expect(text.bytes?.byteLength).toBe(Buffer.byteLength(content));
+      expect(text.chunked).toBeUndefined();
+    }
+    write('blob.unknown', Buffer.from([0x00, 0xff, 0x00]));
+    expect(await gated.open(new Page(nextId++, 'mine.md').surface, { ref: { workspace: WS, id: 'blob.unknown' } })).toMatchObject({ chunked: true });
     granted.clear();
     expect((await gated.open(new Page(nextId++, 'shot.png').surface, { ref })).access).toBe('ro');
     expect(grants).toEqual([]);

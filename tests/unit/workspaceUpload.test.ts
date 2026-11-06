@@ -7,7 +7,7 @@ describe('workspace text classification', () => {
     const bytes = new TextEncoder().encode(text);
 
     expect(workspaceUploadKind('note.md', 'application/octet-stream', bytes)).toMatchObject({ kind: 'file' });
-    expect(workspaceStoredText('note.md', 'application/octet-stream', bytes)).toEqual({ contentType: 'text/markdown', text });
+    expect(workspaceStoredText('note.md', 'application/octet-stream', bytes)).toEqual({ contentType: 'text/markdown', text, exact: true });
   });
 
   it('treats source files as collaborative text when their suffix names a text MIME type', () => {
@@ -24,6 +24,10 @@ describe('workspace text classification', () => {
 
   it('does not preview binary bytes or text-like files with invalid UTF-8', () => {
     expect(workspaceStoredText('scan.png', 'image/png', new Uint8Array([0x89, 0x50]))).toBeNull();
-    expect(workspaceStoredText('notes.md', 'text/markdown', new Uint8Array([0x63, 0x61, 0x66, 0xe9]))).toBeNull();
+    expect(workspaceStoredText('notes.md', 'text/markdown', new Uint8Array([0x63, 0, 0x66, 0xe9]))).toBeNull();
+    // Text in another encoding is text: read, marked as not its bytes, and never a live document.
+    const gbk = new Uint8Array([0xc4, 0xe3, 0xba, 0xc3]);
+    expect(workspaceStoredText('notes.md', 'text/markdown', gbk)).toEqual({ contentType: 'text/markdown', text: '你好', exact: false });
+    expect(workspaceUploadKind('notes.md', 'text/markdown', gbk)).toEqual({ kind: 'file', why: 'not valid UTF-8 text' });
   });
 });

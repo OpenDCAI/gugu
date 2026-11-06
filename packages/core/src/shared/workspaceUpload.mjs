@@ -10,6 +10,9 @@ import { mimeTypeFromName, normalizeMimeType } from './imageMime.mjs'
 /** 文件服务里一份打开的文本文件的上限(与 files.create、JSON 文件的 edit 同一个数)。 */
 export const WORKSPACE_TEXT_MAX_BYTES = 1024 * 1024
 
+/** A stored file (not a live document) opened as text, whole: the size the desktop's editor opens without asking. */
+export const WORKSPACE_STORED_TEXT_MAX_BYTES = 20 * 1024 * 1024
+
 /**
  * Whether JSON text is what a JSON file holds — an object at the top: `null` when it is, else why not (`invalid`, with
  * the parser's message, or `not-object`). The one rule for an upload, a new file's content and its
@@ -37,22 +40,35 @@ function textContentTypeOf(fileName, mimeType) {
 }
 
 /**
- * Read text-shaped stored bytes without making them live or editable. Used only as a read fallback for historical
- * stored files; new writes still go through `workspaceUploadKind` and its live-document size/JSON rules.
+ * The one answer to "is this file text": a known text suffix or type, and bytes that read as text. Every door asks it — an
+ * upload (`workspaceUploadKind`), a chat's stored file and a working copy's when they are opened. `exact: false` is text
+ * in another encoding: read as GB 18030, which cannot be written back byte for byte. NUL bytes in such a file say binary.
  *
  * @param {string} fileName
  * @param {string | null | undefined} mimeType
  * @param {Uint8Array} bytes
- * @returns {{ contentType: string, text: string } | null}
+ * @returns {{ contentType: string, text: string, exact: boolean } | null}
  */
 export function workspaceStoredText(fileName, mimeType, bytes) {
   const contentType = textContentTypeOf(fileName, mimeType)
   if (!contentType) return null
   try {
-    return { contentType, text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+    return { contentType, text: new TextDecoder('utf-8', { fatal: true }).decode(bytes), exact: true }
   } catch {
-    return null
+    return bytes.includes(0) ? null : { contentType, text: new TextDecoder('gb18030').decode(bytes), exact: false }
   }
+}
+
+/**
+ * Whether a stored file is worth reading whole to ask `workspaceStoredText`: its name or type says text, and it fits an
+ * editor. Over this, it is read in pieces.
+ *
+ * @param {string} fileName
+ * @param {string | null | undefined} mimeType
+ * @param {number | null} size
+ */
+export function opensAsStoredText(fileName, mimeType, size) {
+  return size !== null && size <= WORKSPACE_STORED_TEXT_MAX_BYTES && textContentTypeOf(fileName, mimeType) !== null
 }
 
 /**
@@ -72,7 +88,7 @@ export function workspaceUploadKind(fileName, mimeType, bytes) {
     return { kind: 'file', why: `over the ${WORKSPACE_TEXT_MAX_BYTES / 1024 / 1024} MiB of a live text file` }
   }
   const storedText = workspaceStoredText(fileName, contentType, bytes)
-  if (!storedText) return { kind: 'file', why: 'not valid UTF-8 text' }
+  if (!storedText?.exact) return { kind: 'file', why: 'not valid UTF-8 text' }
   const { text } = storedText
   const problem = contentType === 'application/json' ? jsonObjectProblem(text) : null
   if (problem?.problem === 'invalid') return { kind: 'file', why: 'not valid JSON' }

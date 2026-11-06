@@ -88,13 +88,13 @@ function entryAfterPaint(docName: string): void {
 }
 
 /**
- * Stored bytes stay the source of truth. Valid UTF-8 text-shaped files open as a read-only text snapshot; other files stay
+ * Stored bytes stay the source of truth. Text-shaped files open as a read-only text snapshot (`exact`: its text is its bytes, so writing it back with `files.replace` loses nothing); other files stay
  * binary, and `blob()` is what `<img>`, `<video>` and `<audio>` take through `URL.createObjectURL`.
  */
 function storedFile(host: GuguHost, entry: AppFileEntry, bytes: ArrayBuffer): object {
   const blob = new Blob([bytes], { type: entry.contentType });
   const preview = workspaceStoredText(entry.name, entry.contentType, new Uint8Array(bytes));
-  if (preview) return storedTextFile(host, entry, preview.text, bytes);
+  if (preview) return storedTextFile(host, entry, preview, bytes);
   return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, size: bytes.byteLength, bytes: async () => new Uint8Array(await blob.arrayBuffer()), blob: async () => blob, close: () => undefined });
 }
 

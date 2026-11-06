@@ -13,6 +13,7 @@
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
 import { INSERT_BLOCKS, isFrontmatter, listInsertion, moveBlock, previewBlock, sourceBlocks, turnBlockChanges } from './blocks.js'
+import { bufferAnchors, sourceFile } from './source-file.js'
 import { KINDS, SORTS, compareNames, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
@@ -70,6 +71,8 @@ const STRINGS = {
     offline: '离线：改动会在回线后补上',
     gone: '这个文件不在了：被删掉了，或者你已经不在这个对话里。',
     readOnly: '只读',
+    notUtf8ReadOnly: '这个文件不是 UTF-8 编码，在这里只能看，不能改。',
+    deletedHere: '这个文件已经被删除了。',
     edit: '编辑',
     split: '对照',
     preview: '阅读',
@@ -260,6 +263,8 @@ const STRINGS = {
     offline: 'Offline: changes catch up when back online',
     gone: 'This file is gone: it was deleted, or you are no longer in this chat.',
     readOnly: 'Read-only',
+    notUtf8ReadOnly: 'This file is not UTF-8: you can read it here, not change it.',
+    deletedHere: 'This file has been deleted.',
     edit: 'Edit',
     split: 'Side by side',
     preview: 'Read',
@@ -1955,8 +1960,13 @@ async function openHanded() {
       file.close()
       return
     }
-    // A stored file (a .json over a document's size is one): its details, to download — this App edits documents. The host
-    // handed it to this App (it claims the name), so nobody else says why: this page does (复核 10-15).
+    // Stored text (JSON that is not an object, a file over a document's size): edited as a whole, replaced when saved.
+    if (file.readOnlyReason === 'stored-bytes') {
+      await openStoredText(file, token)
+      return
+    }
+    // Not text, or over what an editor takes: its details, to download. The host handed it to this App (it claims the
+    // name), so nobody else says why: this page does (复核 10-15).
     if (file.type === 'binary') {
       file.close()
       showDocMessage(state.t.downloadOnly)
@@ -1978,6 +1988,124 @@ async function openHanded() {
   } finally {
     if (state.opening === token) state.opening = null
   }
+}
+
+const isMarkdownName = (name) => /\.(md|markdown)$/i.test(name)
+const LONG_TEXT = 1024 * 1024
+
+/**
+ * A stored text file as this page edits it: what `mountText` and the source view read of a file — `text`, `onChange`,
+ * `anchor` / `resolve` — on the editor's own document, and `bind`, which a live file's `gugu.bind.codemirror` stands for.
+ */
+function bufferFile(cm, entry, initial, readOnly, source) {
+  const anchors = bufferAnchors()
+  const listeners = new Set()
+  let view = null
+  return {
+    type: isMarkdownName(entry.name) ? 'text' : 'source',
+    readOnly,
+    get text() { return view ? view.state.doc.toString() : initial },
+    anchor: anchors.anchor,
+    resolve: anchors.resolve,
+    onChange(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    close: () => undefined,
+    bind(editor) {
+      view = editor
+      const { Transaction, StateEffect } = cm.state
+      const outsideHistory = Transaction.addToHistory.of(false)
+      view.dispatch({ changes: { from: 0, insert: initial }, annotations: outsideHistory })
+      view.dispatch({ effects: StateEffect.appendConfig.of([
+        cm.EditorState.readOnly.of(readOnly),
+        cm.EditorView.editable.of(!readOnly),
+        cm.EditorView.updateListener.of((update) => {
+          if (!update.docChanged) return
+          anchors.moved(update.changes)
+          source.edited()
+          for (const listener of listeners) listener({})
+        }),
+      ]) })
+      source.attach({
+        text: () => view.state.doc.toString(),
+        apply: (hunks) => view.dispatch({ changes: hunks.map(({ from, to, insert }) => ({ from, to, insert })), annotations: outsideHistory }),
+      })
+      return () => undefined
+    },
+  }
+}
+
+/** `handle`: the stored text `files.open` gave. Writing goes through `files.replace`, the stored file's one way in. */
+async function openStoredText(handle, token) {
+  const initial = handle.text
+  const { exact } = handle
+  const entry = handle.entry
+  handle.close()
+  const cm = await editorKit()
+  if (state.opening !== token) return
+  const current = { entry, view: null, unbind: null, offs: [] }
+  const source = sourceFile({
+    io: {
+      async read() {
+        const file = await gugu.files.open(current.entry)
+        try {
+          if (file.readOnlyReason !== 'stored-bytes') return { becameDocument: true }
+          current.entry = file.entry
+          return { content: file.text }
+        } finally {
+          file.close()
+        }
+      },
+      async write(text) {
+        const content = new Blob([text], { type: current.entry.contentType })
+        try {
+          current.entry = await gugu.files.replace(current.entry, content, current.entry.workspace ? {} : { expectedVersion: current.entry.version })
+        } catch (error) {
+          throw error.code === 'content-changed' ? Object.assign(new Error(error.message), { code: 'conflict' }) : error
+        }
+      },
+    },
+    text: cm,
+    onChange: () => showSourceState(current, source),
+    onError: (error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error'),
+    // Saved as what a document is (comments taken out of a JSON file, say): from here on it opens live.
+    onDocument: () => { if (state.current === current) void openHanded() },
+  })
+  source.load(initial)
+  const readOnly = !exact || !canWrite()
+  current.file = bufferFile(cm, entry, initial, readOnly, source)
+  current.source = source
+  current.jsonApply = () => source.save()
+  current.jsonDiscard = () => source.discard()
+  state.current = current
+  bindFileMenu(current)
+  showDoc(entry)
+  if (readOnly) {
+    $('doc-status').textContent = state.t.readOnly
+    if (!exact) showBanner(state.t.notUtf8ReadOnly, 'info', true)
+  }
+  const place = entry.workspace ? { workspace: entry.workspace } : { chat: entry.chat }
+  const changedHere = (change) => change.kind === 'resync' || change.gone?.includes(entry.id) || (change.changes ?? change.entries ?? []).some((c) => (c.id ?? c.path) === entry.id)
+  current.offs.push(gugu.files.onChanged(place, (change) => { if (changedHere(change)) void source.refresh() }))
+  if (current.file.type === 'text') {
+    await mountText(current, previewReady)
+    return
+  }
+  document.body.dataset.kind = 'json'
+  current.view = new cm.EditorView({
+    parent: $('editor'),
+    extensions: [cm.basicSetup, /\.json$/i.test(entry.name) ? cm.json() : [], cm.EditorView.lineWrapping, editorTheme(cm, false), selectionWatch(cm)],
+  })
+  current.unbind = current.file.bind(current.view)
+}
+
+function showSourceState(current, source) {
+  if (state.current !== current) return
+  document.body.classList.toggle('json-dirty', source.dirty)
+  if (source.deleted) showBanner(state.t.deletedHere, 'info', true)
+  else if (current.deletedShown) hideBanner()
+  current.deletedShown = source.deleted
 }
 
 async function mountText(current, preview) {
@@ -2002,9 +2130,14 @@ async function mountText(current, preview) {
     $('doc-empty').hidden = !empty
     $('empty-write').hidden = $('empty-draft').hidden = !!file.readOnly
   }
-  const changed = debounce(render, 120)
+  // A text this long takes the page many seconds to draw: it opens in its source, and its preview is drawn when asked for.
+  const noPreviewYet = () => document.body.dataset.mode === 'edit' && file.text.length > LONG_TEXT
+  const changed = debounce(() => { if (!noPreviewYet()) render() }, 120)
   current.offs.push(file.onChange((event) => { if (!event.entry) { current.previewPending = true; hideBlockHandle(); changed() } }))
-  render()
+  current.drawPreview = render
+  if (file.text.length > LONG_TEXT) setMode('edit')
+  if (noPreviewYet()) current.previewPending = true
+  else render()
   // Reading does not wait for the source editor's module and construction.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
   const cm = await editorKit()
@@ -2014,7 +2147,7 @@ async function mountText(current, preview) {
     parent: $('editor'),
     extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension, blockCompletions(current, cm)],
   })
-  current.unbind = gugu.bind.codemirror(current.view, file)
+  current.unbind = file.bind ? file.bind(current.view) : gugu.bind.codemirror(current.view, file)
   syncBlockControls()
   showPlace()
 }
@@ -2118,7 +2251,7 @@ function bindFileMenu(current) {
         pending = { requestId: detail.requestId, picks, held: [...state.held], source: { entry: { ...current.entry }, file: { type: current.file.type, text: current.file.text } } }
         detail.selection = { text: picks.map(pick => pick.text).join('\n') }
         detail.editable = id === 'editor' && !!current.view && !current.view.state.readOnly
-        if (detail.editable && current.file.type !== 'text') detail.editorHistory = { undo: state.cm.commands.undoDepth(current.view.state) > 0, redo: state.cm.commands.redoDepth(current.view.state) > 0 }
+        if (detail.editable && (current.file.type !== 'text' || current.source)) detail.editorHistory = { undo: state.cm.commands.undoDepth(current.view.state) > 0, redo: state.cm.commands.redoDepth(current.view.state) > 0 }
         detail.customSelectAll = id === 'editor'
       } else if (pending?.requestId === detail.requestId) {
         const captured = pending
@@ -2820,6 +2953,7 @@ function applyMode() {
   const mode = narrowPane?.matches && state.mode === 'split' ? 'preview' : state.mode
   document.body.dataset.mode = mode
   for (const m of ['edit', 'split', 'preview']) $(`mode-${m}`).setAttribute('aria-selected', String(m === mode))
+  if (mode !== 'edit' && state.current?.previewPending) state.current.drawPreview?.()
   syncBlockControls(true)
 }
 
@@ -3258,6 +3392,10 @@ function start() {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()
   })
   document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key === 's' && state.current?.source) {
+      event.preventDefault()
+      void state.current.source.save()
+    }
     if (event.key !== 'Escape') return
     if (!state.menuAnchor && state.details) closeDetails()
     else if (!state.menuAnchor && (state.picked.size || state.selecting)) clearPicks()

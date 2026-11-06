@@ -5,7 +5,7 @@ import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { FILE_CHUNK_BYTES, MissingFileObjectError, fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs';
-import { WORKSPACE_TEXT_MAX_BYTES, workspaceStoredText, workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
+import { opensAsStoredText, workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
 import type { ErrorDetail, ExtensionChat } from './bridge-protocol';
 import type { Grant, PageSync } from './file-sync-core';
 import {
@@ -727,9 +727,7 @@ export function createAppFiles(platform: FilesPlatform) {
   }
   const bytesOf = async (file: FileHandle) => (await fileBlob(file)).arrayBuffer();
   const storedOpen = async (surface: FileSurface, entry: AppFileEntry, access: Grant['access'], self: AppFileOpened['self'], local?: FileHandle): Promise<AppFileOpened> => {
-    // Empty input asks the canonical filename/MIME predicate without reading any file bytes.
-    const smallText = entry.size !== null && entry.size <= WORKSPACE_TEXT_MAX_BYTES && workspaceStoredText(entry.name, entry.contentType, new Uint8Array()) !== null;
-    if (smallText) return { entry, docName: '', access, self, bytes: await bytesOf(local ?? (await fileFor(surface, { id: entry.id }, entry.version ?? undefined))!) };
+    if (opensAsStoredText(entry.name, entry.contentType, entry.size)) return { entry, docName: '', access, self, bytes: await bytesOf(local ?? (await fileFor(surface, { id: entry.id }, entry.version ?? undefined))!) };
     if (entry.version === null) { await local?.dispose(); throw staleVersion(); }
     const file = local ?? (await fileFor(surface, { id: entry.id }, entry.version))!;
     if (file.revision.version !== entry.version) { await file.dispose(); throw staleVersion(); }

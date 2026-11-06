@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MissingFileObjectError, type FileHandle } from '@gugu/core/shared/fileResolver';
+import { WORKSPACE_STORED_TEXT_MAX_BYTES } from '@gugu/core/shared/workspaceUpload.mjs';
 import { createAppFiles, type FilesPlatform } from './app-files-core';
 import { bridgeFailure, callRefusal } from './bridge-protocol';
 
@@ -42,10 +43,10 @@ describe('chat stored files reuse verified, pinned range reads', () => {
     expect(await f.files.open(surface, { ref: { id: item } })).toMatchObject({ chunked: true, entry: { size: 32, version: 1 } });
     expect(f.read).not.toHaveBeenCalled();
   });
-  it('keeps small text compatible while large text is chunked without a byte read', async () => {
+  it('opens text an editor can hold whole, and chunks larger text without a byte read', async () => {
     const small = fixture('text/plain');
     expect(await small.files.open(surface, { ref: { id: item } })).toHaveProperty('bytes');
-    const large = fixture('text/plain', 1024 * 1024 + 1);
+    const large = fixture('text/plain', WORKSPACE_STORED_TEXT_MAX_BYTES + 1);
     expect(await large.files.open(surface, { ref: { id: item } })).toMatchObject({ chunked: true });
     expect(large.read).not.toHaveBeenCalled();
   });

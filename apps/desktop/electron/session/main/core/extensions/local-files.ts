@@ -7,7 +7,7 @@ import * as Y from 'yjs';
 import { applyJson, buildDoc, InvalidJson, isJson, parseJsonObject, readText, sameContent, spliceText } from '@gugu/files-core/content';
 import { createOpenFiles } from '@gugu/files-core/open-files';
 import { colorFor } from '@gugu/files-core/presence';
-import { WORKSPACE_TEXT_MAX_BYTES, workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
+import { WORKSPACE_TEXT_MAX_BYTES, opensAsStoredText, workspaceStoredText, workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
 import { AppFileError, contentTypeOf, tooLargeError, type FilesPlatform } from '@shared/extensions/app-files-core';
 import {
   APP_FILE_MAX_BYTES,
@@ -625,7 +625,10 @@ export function createLocalAppFiles(platform: {
     // never whole here, whatever its size.
     const kind = stat.size > MAX_BYTES ? null : documentKind(found.rel, fs.readFileSync(found.abs));
     if (kind?.kind !== 'document') {
-      return { entry: workingCopyEntry(surface.place, found.rel, stat), docName: '', access: 'ro', self: await platform.self(), chunked: true };
+      const opened = { entry: workingCopyEntry(surface.place, found.rel, stat), docName: '', access: 'ro' as const, self: await platform.self() };
+      const raw = opensAsStoredText(found.rel, localContentType(found.rel), stat.size) ? fs.readFileSync(found.abs) : null;
+      if (!raw || !workspaceStoredText(found.rel, localContentType(found.rel), raw)) return { ...opened, chunked: true };
+      return { ...opened, bytes: raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer };
     }
     const handedOver = found.rel === surface.filePath;
     let access: Grant['access'];
