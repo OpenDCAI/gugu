@@ -2,6 +2,7 @@ import { unit } from '@session-chat/core/units';
 import type { ItemSegmenter, SegmentCtx, SegmentItem } from '@session-chat/core/units';
 import { defaultChatTranslator } from '@session-chat/localization';
 import type { ChatItem, ChatMessage, OpenedOutputItem, TranscriptTurn } from '@session-chat/model';
+import { textFilePatch } from '@gugu/session-core/lib';
 import { describe, expect, it } from 'vitest';
 import { flattenTier } from './flatten';
 import { collectOpenedOutputs, openedOutputLook, outputsOfRun } from './opened-outputs';
@@ -15,7 +16,7 @@ function passthrough(kind: string): ItemSegmenter {
   return { kind, segment: (item: SegmentItem) => [unit(item.kind, item, item, { key: 'self' })] };
 }
 const SEGMENTERS: Record<string, ItemSegmenter> = Object.fromEntries(
-  ['message', 'mcp-tool-call', 'execute-tool-call', 'turn-outcome', 'turn-process', 'tool-run', 'opened-output'].map((k) => [
+  ['message', 'mcp-tool-call', 'execute-tool-call', 'turn-outcome', 'turn-process', 'tool-run', 'opened-output', 'file-change-summary'].map((k) => [
     k,
     passthrough(k),
   ])
@@ -73,6 +74,19 @@ const cards = (units: ReturnType<typeof flattenTier>) =>
   units.filter((u) => u.kind === 'opened-output').map((u) => (u.data as OpenedOutputItem).output);
 
 describe('flatten:成功的打开挂在这一轮最后', () => {
+  const edit = (id: string, path: string): ChatItem =>
+    ({ kind: 'diff', id, seq: 0, patches: [textFilePatch(path, null, 'one')], status: 'done' } as unknown as ChatItem);
+
+  it('一轮改完又打开同一个文件:只有「已编辑」卡,不再画输出卡;打开别的文件、网页照常挂', () => {
+    const units = flattenTier(
+      [turn('t1', [user('u1'), edit('d1', '/r/notes.md'), open('o1', { path: '/r/notes.md' }), open('o2', { path: '/r/other.pdf' }), open('o3', { url: 'https://example.com/x' }), reply('a1')])],
+      ctx(),
+      SEGMENTERS
+    );
+    expect(units.filter((u) => u.kind === 'file-change-summary')).toHaveLength(1);
+    expect(cards(units)).toEqual([{ kind: 'file', path: '/r/other.pdf' }, { kind: 'page', url: 'https://example.com/x' }]);
+  });
+
   it('折起来的一轮:过程收进时间头(打开那一步也在里面),卡片在最后那条回复下面', () => {
     const units = flattenTier(
       [turn('t1', [user('u1'), bash('b1'), open('o1', { path: '/r/report.html' }), bash('b2'), reply('a1')])],

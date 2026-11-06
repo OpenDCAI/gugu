@@ -16,6 +16,7 @@
  */
 
 import { compactionUnitDef } from '@session-chat/components/rows/boundary/compaction.def';
+import { activityUnitDef } from '@session-chat/components/rows/agent-activity/activity.def';
 import { contextResetUnitDef } from '@session-chat/components/rows/boundary/context-reset.def';
 import { sessionConditionUnitDef } from '@session-chat/components/rows/boundary/session-condition.def';
 import { backgroundTasksUnitDef } from '@session-chat/components/rows/background-tasks/background-tasks.def';
@@ -290,6 +291,7 @@ export const SEGMENTERS: Record<string, ItemSegmenter> = {
  * Composite item unit defs also handle their own internal layout.
  */
 export const UNIT_REGISTRY: Record<string, RegistryUnitDef> = {
+  'agent-activity': activityUnitDef as unknown as RegistryUnitDef,
   'conversation-process-steps': createProcessStepsUnitDef(() => UNIT_REGISTRY) as unknown as RegistryUnitDef,
   // Message unit (single unit per message, renders block stack internally)
   message: messageUnitDef as unknown as RegistryUnitDef,

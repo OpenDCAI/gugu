@@ -143,8 +143,13 @@ describe('file links use the same shell request', () => {
     await until('first file lookup started', () => held.has(a))
     await act(async () => { openedB = request({ kind: 'file', itemId: b }) })
     await until('second file lookup started', () => held.has(b))
-    await act(async () => { held.get(first)!(); await (first === a ? openedA : openedB) })
-    await act(async () => { held.get(second)!(); await (second === a ? openedA : openedB) })
+    const complete = async (id: string) => {
+      held.get(id)!()
+      if (id === a) await expect(openedA).rejects.toThrow('links.unavailable')
+      else await openedB
+    }
+    await act(async () => { await complete(first) })
+    await act(async () => { await complete(second) })
     expect(openFile).toHaveBeenCalledOnce()
     expect(openFile).toHaveBeenCalledWith(assistantChat, { kind: 'file', itemId: b }, expect.anything())
   })
@@ -174,8 +179,27 @@ describe('file links use the same shell request', () => {
     let opened!: ReturnType<typeof request>
     await act(async () => { opened = request({ kind: 'file', itemId: a }) })
     await until('file lookup started', () => mocked.file.mock.calls.length > 0)
-    await act(async () => { await click(assistantChat); finish(); await opened })
+    await act(async () => { await click(assistantChat); finish(); await expect(opened).rejects.toThrow('links.unavailable') })
     expect(openFile).not.toHaveBeenCalled()
     expect(mocked.reveal).toHaveBeenCalledWith(assistantChat, messageId, 'assistant:chat')
+  })
+  it('waits for the file destination receipt before acknowledging the link', async () => {
+    mocked.file.mockResolvedValue({ data: { chat_id: assistantChat } })
+    let accept!: () => void
+    openFile.mockImplementation(() => new Promise<void>(resolve => { accept = resolve }))
+    let result = 'pending'
+    const opened = request({ kind: 'file', itemId: a }).then(() => { result = 'opened' })
+    await act(async () => { await until('the file destination received the request', () => openFile.mock.calls.length === 1) })
+    expect(result).toBe('pending')
+    await act(async () => { accept(); await opened })
+    expect(result).toBe('opened')
+  })
+  it('returns the destination failure instead of acknowledging a queued file', async () => {
+    mocked.file.mockResolvedValue({ data: { chat_id: assistantChat } })
+    let refuse!: (error: Error) => void
+    openFile.mockImplementation(() => new Promise<void>((_resolve, reject) => { refuse = reject }))
+    const opened = request({ kind: 'file', itemId: a })
+    await act(async () => { await until('the file destination received the request', () => openFile.mock.calls.length === 1) })
+    await act(async () => { refuse(new Error('native file host unavailable')); await expect(opened).rejects.toThrow('links.unavailable') })
   })
 })

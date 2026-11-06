@@ -467,7 +467,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
       // 阴控:往上翻开之后内容再长高,不拽回来。
       scroller.scrollTop = 300
-      await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
+      await act(async () => { scroller.dispatchEvent(new Event('scroll')); await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))) })
       geometry.scrollHeight = 1600
       await act(async () => { observers.forEach((cb) => cb()) })
       expect(scroller.scrollTop).toBe(300)
@@ -578,7 +578,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     }))
     const scroller = harness.container.querySelector('[data-unread-stream-surface="aside"]') as HTMLElement
     Object.defineProperties(scroller, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 300 }, scrollTop: { configurable: true, value: 0, writable: true } })
-    await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
+    await act(async () => { scroller.dispatchEvent(new Event('scroll')); await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))) }) // read after paint (lib/afterPaint)
     expect(onRevealOlder).toHaveBeenCalledTimes(1)
   })
 

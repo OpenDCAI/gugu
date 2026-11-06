@@ -45,7 +45,7 @@ export async function resolveLifecycleScript({
     LifecycleScriptSettingsError
   >
 > {
-  const workspace = resolveWorkspace(projectId, workspaceId);
+  const workspace = await resolveWorkspace(projectId, workspaceId);
   if (!workspace) return err({ type: 'not_found', entity: 'workspace', workspaceId });
 
   const settings = await resolveLifecycleScriptForWorkspace(workspace, type);

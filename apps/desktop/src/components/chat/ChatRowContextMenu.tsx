@@ -31,7 +31,8 @@ export function ChatRowContextMenu({ chat, onPin, onSetNotificationLevel, onDele
   const markRead = useMarkChatsRead()
   const { settings, error } = useGroupChatSettings(chat.kind === 'group' || chat.kind === 'topic' ? chat.id : null)
   const peer = identitiesById[chat.peer_user_id ?? '']
-  const canDelete = conversationCanDelete(chat.kind, settings, Boolean(user && peer?.type === 'agent' && peer.owner_user_id === user.id))
+  const ownedAgentDm = user && peer?.type === 'agent' && peer.owner_user_id === user.id ? peer : undefined
+  const canDelete = conversationCanDelete(chat.kind, settings, ownedAgentDm)
   return <ConversationRowContextMenu {...menu} loadError={error} state={{ kind: 'chat', canDelete, pinned: chat.is_pinned,
     notificationsMuted: chat.notification_level === 'none',
     hasUnread: hasUnreadInRows(chatsInReadScope(chats, chat.id)) || nativeUnreadTargets(nativeRows, chatsInReadScope(chats, chat.id), false).length > 0,

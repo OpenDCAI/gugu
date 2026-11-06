@@ -13,6 +13,7 @@ import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localS
 import { DevicesContext, type DevicesContextValue } from '../../../../apps/desktop/src/store/devicesContext'
 import type { AccountRevisionListener } from '../../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import { presentationOfDisplayStatus } from '../../../support/agentDisplayStatusTestDouble'
+import { InitialResizeObserver } from '../../../support/initialResizeObserver'
 import type { ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
@@ -162,6 +163,7 @@ describe('ChatAreaPanel agent activity placement', () => {
       'other-1': 'working', 'other-2': 'working', 'mine-1': 'working', 'mine-2': 'working',
       'mine-3': 'working', 'mine-4': 'working', 'mine-idle': 'idle',
     }
+    vi.stubGlobal('ResizeObserver', InitialResizeObserver)
     await renderChatArea({ activeChat: chat({ id: 'chat-1', kind: 'group', name: 'Team' }), messages: [] })
 
     try {
@@ -178,6 +180,7 @@ describe('ChatAreaPanel agent activity placement', () => {
     } finally {
       width.mockRestore()
       pill.mockRestore()
+      vi.unstubAllGlobals()
     }
   })
 

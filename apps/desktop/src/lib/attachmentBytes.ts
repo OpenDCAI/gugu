@@ -3,7 +3,7 @@ import { fileBlob, MissingFileObjectError, type FileHandle, type FileMetadata, t
 import { fileSha256 } from '@gugu/core/shared/fileCipher'
 import { attachmentFileRef, type AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
 import { resolveFile, fileReader, fileReadSignal, attachmentCache, attachmentCacheOrigin } from './fileAccess'
-import { attachmentQueryClient } from './attachmentQueryClient'
+import { attachmentQuery, attachmentQueryClient } from './attachmentQueryClient'
 import { platform } from '../platform'
 import { openImageViewer, type ImageViewerItem } from './imageViewer'
 
@@ -75,14 +75,25 @@ const immutableSource = (source: AttachmentSource) => source.kind === 'message' 
  * 不记的话,每次重新挂载(切会话回来、120 行窗口换回来)都先等一个网络来回(实测 0.9–1.4 s 空占位)才画得出本地已有的图。
  * 不可变来源在本次运行里不再重问:被删 / 过期的文件这次运行内仍显示旧缩略图,打开原图照旧完整校验(attachmentBytes 'full')。
  */
-async function sessionThumb(source: AttachmentSource, onLink: (link: FileRevision) => void, metadata?: FileMetadata): Promise<AttachmentBytes> {
+async function sessionThumb(source: AttachmentSource, metadata?: FileMetadata): Promise<AttachmentBytes> {
+  const sourceKey = sourceKeyOf(source)
   return attachmentQueryClient.fetchQuery({
-    queryKey: ['attachment-thumb', fileReader().accountId, sourceKeyOf(source), metadata?.status === 'ready' ? metadata.revision.sha256 : metadata?.status ?? null],
-    queryFn: () => attachmentBytes(source, 'thumb', onLink, metadata),
+    ...thumbQuery(fileReader().accountId, sourceKey, metadata?.status === 'ready' ? metadata.revision.sha256 : metadata?.status ?? null, source, metadata ?? null),
     staleTime: immutableSource(source) ? Infinity : 0,
     gcTime: THUMB_GC_MS,
   })
 }
+/** A thumbnail's link (its size) arrives before its bytes: bubbles showing that source listen while they are mounted. */
+const linkListeners = new Map<string, Set<(link: FileRevision) => void>>()
+function listenForLink(sourceKey: string, listener: (link: FileRevision) => void): () => void {
+  let set = linkListeners.get(sourceKey)
+  if (!set) linkListeners.set(sourceKey, set = new Set())
+  set.add(listener)
+  return () => { set.delete(listener); if (!set.size) linkListeners.delete(sourceKey) }
+}
+const thumbQuery = attachmentQuery('attachment-thumb', (_accountId: string, sourceKey: string, _metadataKey: string | null,
+  source: AttachmentSource, metadata: FileMetadata | null) =>
+  attachmentBytes(source, 'thumb', (link) => linkListeners.get(sourceKey)?.forEach((listener) => listener(link)), metadata ?? undefined))
 
 /**
  * 气泡 / 预览用:给一个 object URL;failed 时 retry() 丢掉记着的链接重新签、重新下。
@@ -100,7 +111,8 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
     let objectUrl: string | null = null
     setView({ status: 'loading' })
     const onLink = (link: FileRevision) => alive && setView({ status: 'loading', link })
-    ;(variant === 'thumb' ? sessionThumb(source, onLink, metadata) : attachmentBytes(source, variant, onLink)).then(
+    const stopListening = variant === 'thumb' ? listenForLink(sourceKey, onLink) : () => undefined
+    ;(variant === 'thumb' ? sessionThumb(source, metadata) : attachmentBytes(source, variant, onLink)).then(
       (bytes) => {
         if (!alive) return
         if (bytes.status !== 'ready') return setView({ status: bytes.status })
@@ -111,6 +123,7 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
     )
     return () => {
       alive = false
+      stopListening()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sourceKey 就是 source 的身份
@@ -128,7 +141,7 @@ export function openAttachmentImage(source: AttachmentSource, fileName: string, 
   const urls: string[] = []
   let released = false, preview: Promise<string> | undefined, full: Promise<string> | undefined
   const read = async (variant: AttachmentVariant) => {
-    const bytes = await (variant === 'thumb' ? sessionThumb(source, () => undefined) : attachmentBytes(source, 'full'))
+    const bytes = await (variant === 'thumb' ? sessionThumb(source) : attachmentBytes(source, 'full'))
     if (bytes.status !== 'ready') throw new Error(bytes.status)
     file.contentType = bytes.link.content_type
     const url = URL.createObjectURL(bytes.blob)

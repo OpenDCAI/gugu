@@ -148,14 +148,14 @@ const MAX_PREVIEW_BYTES = 256 * 1024 * 1024;
  *
  * 每次打开都发一个新 id:上一次预览存下的东西不该被下一次读到,而 id 即 origin,换 id 就是换源。
  */
-export function createPreview(
+export async function createPreview(
   projectId: string,
   workspaceId: string,
   documentPath: string,
   documentHtml?: string
-): { url: string; previewId: string } | null {
+): Promise<{ url: string; previewId: string } | null> {
   // 工作区根由主进程自己查,❌ 不收渲染层传来的那一份 —— 围栏的边界不该由被围的那一侧给。
-  const env = resolveWorkspace(projectId, workspaceId);
+  const env = await resolveWorkspace(projectId, workspaceId);
   if (!env) return null;
   const root = previewRootFor(env.path, documentPath);
   const previewId = newPreviewId();
@@ -495,7 +495,7 @@ async function readPreviewBytes(
   }
 
   if (source.kind === 'chat') return { ok: false, response: notFound('a chat document is served by its own path') };
-  const fileSystem = workspaceFileSystem(source);
+  const fileSystem = await workspaceFileSystem(source);
   if (!fileSystem) return { ok: false, response: notFound('workspace is gone') };
 
   const result = await fileSystem.readBytes(resolved, { maxBytes: MAX_PREVIEW_BYTES });
@@ -629,8 +629,8 @@ function isRemotePanePreview(registration: PreviewRegistration | DocumentPreview
   return registration.source.kind === 'remote' && registration.surface === 'pane';
 }
 
-function workspaceFileSystem(source: Extract<PreviewSource, { kind: 'local' }>): IFileSystem | null {
-  const env = resolveWorkspace(source.projectId, source.workspaceId);
+async function workspaceFileSystem(source: Extract<PreviewSource, { kind: 'local' }>): Promise<IFileSystem | null> {
+  const env = await resolveWorkspace(source.projectId, source.workspaceId);
   return env?.fileSystem ?? null;
 }
 

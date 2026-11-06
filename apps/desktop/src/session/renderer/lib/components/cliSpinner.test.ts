@@ -38,7 +38,7 @@ function render(props: { variant?: '1' | '2'; animate?: boolean }): void {
   act(() => root.render(createElement(CLISpinner, props)));
 }
 const spinner = () => container.querySelector<HTMLElement>('.cli-spinner');
-const paused = () => spinner()?.style.getPropertyValue('--chat-shimmer-viewport-paused') === 'paused';
+const paused = () => spinner()?.style.getPropertyValue('--gugu-animation-viewport-paused') === 'paused';
 
 describe('CLISpinner', () => {
   it.each(['1', '2'] as const)('variant %s: the strip carries every frame and no timer ever runs', (variant) => {

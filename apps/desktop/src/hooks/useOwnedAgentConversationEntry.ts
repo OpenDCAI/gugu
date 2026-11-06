@@ -1,4 +1,4 @@
-import { hostOwnedAgentResources, suspendOwnedAgentResources } from '@/lib/ownedAgentResources'
+import { hostOwnedAgentResources, resumeOwnedAgentResources, suspendOwnedAgentResources } from '@/lib/ownedAgentResources'
 import { readAssistantShellBridge } from '@/lib/assistantShellBridge'
 import type { NativeComposerDraft } from '@/lib/nativeComposerHandoff'
 import { appendToDraft, useChatStore } from '@/store/chatContext'
@@ -10,7 +10,7 @@ import { useDevicesStore } from '@/store/devicesContext'
 import { directoryRows, liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { APP_SHOW_SESSION_EVENT } from '@/session/shared/extensions/app-runtime-protocol'
 import { desktopIpc } from '@/platform/desktopIpc'
-import { installOwnedAgentEntry, isOwnedAgent, ownedAgentConversation } from '@/lib/ownedAgentConversation'
+import { installOwnedAgentEntry, isOwnedAgent, ownedAgentConversation, type OwnedAgentOpenReceipt } from '@/lib/ownedAgentConversation'
 import { parseSessionpageAgentContext } from '@/lib/sessionpageAgentProjection'
 import { openTarget } from '@/lib/guguLinks'
 import { notify } from '@/lib/notices'
@@ -33,7 +33,7 @@ export function useOwnedAgentConversationEntry(input: {
   const generation = useRef(0)
   const cancelGroupRequest = useRef<GroupParticipantRequest | undefined>(undefined)
   useEffect(() => () => { ++generation.current; cancelGroupRequest.current?.() }, [input.ownerId])
-  const open = useCallback((chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string, purpose?: 'resource') => {
+  const open = useCallback((chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string, purpose?: 'resource', receipt?: OwnedAgentOpenReceipt) => {
     const state = current.current
     const asked = ++generation.current
     cancelGroupRequest.current?.()
@@ -51,7 +51,10 @@ export function useOwnedAgentConversationEntry(input: {
       rows: directoryRows([...devices, ...(phones ?? [])], liveDeviceSessions()),
       localContext: async () => api ? parseSessionpageAgentContext(await api.invoke('sessionpage:agent-context', contact.id)) : null,
     }).then(async target => {
-      if (asked !== generation.current || current.current.ownerId !== state.ownerId) return
+      if (asked !== generation.current || current.current.ownerId !== state.ownerId) {
+        receipt?.reject(new Error('The conversation opening was superseded'))
+        return
+      }
       // The phone task is a pushed layer. Keep its IM opener selected underneath
       // so Back returns there instead of exposing an empty agent DM.
       if (!sourceChatId && !state.mobile) {
@@ -86,9 +89,13 @@ export function useOwnedAgentConversationEntry(input: {
       if (purpose && chatId && !state.mobile && asked === generation.current && current.current.ownerId === state.ownerId) {
         hostOwnedAgentResources(state.ownerId, chatId, target.kind === 'local' ? target : { projectId: target.session.projectId, sessionId: target.session.conversationId })
       }
+      if (asked !== generation.current || current.current.ownerId !== state.ownerId) receipt?.reject(new Error('The conversation opening was superseded'))
+      else receipt?.resolve()
     }).catch(error => {
       if (asked === generation.current) cancelGroupRequest.current?.()
-      if (asked === generation.current && current.current.ownerId === state.ownerId) notify({ tier: 'error', title: messageForUser(error) })
+      if (purpose && chatId && asked === generation.current) resumeOwnedAgentResources(state.ownerId, chatId)
+      if (receipt) receipt.reject(error)
+      else if (asked === generation.current && current.current.ownerId === state.ownerId) notify({ tier: 'error', title: messageForUser(error) })
     })
     return true
   }, [devices, phones])

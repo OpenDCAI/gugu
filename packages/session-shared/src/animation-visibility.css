@@ -6,8 +6,8 @@
 
 /* One pause policy for CSS motion, including inline animation shorthands,
    Tailwind utilities and pseudo-elements. Window/surface pauses take priority
-   over the existing shimmer viewport state. Keep the animation clock intact
+   over the per-element viewport state (pauseAnimationsOffscreen). Keep the animation clock intact
    so showing the same surface resumes rather than restarting its animation. */
 *, ::before, ::after {
-  animation-play-state: var(--gugu-animation-window-paused, var(--gugu-animation-surface-paused, var(--chat-shimmer-viewport-paused, running))) !important;
+  animation-play-state: var(--gugu-animation-window-paused, var(--gugu-animation-surface-paused, var(--gugu-animation-viewport-paused, running))) !important;
 }
