@@ -1,0 +1,15 @@
+# Mobile Messages list diagnostics
+
+This instrumentation investigates two unproven causes in #1892: the whole Messages root going blank after Back, and a single Agent row disappearing. It changes no list selection, filtering, routing, network state or recovery behavior. The two symptoms are not assumed to share a cause.
+
+The renderer keeps at most 80 metadata observations in memory and emits at most 60 per minute through the existing `mobile/list-diagnostics` renderer logger. Suppressed observations are counted. The desktop logger can write to its existing local sink; on Android the existing console fallback is available to native app logs. The in-memory snapshot is also included as `mobile_list_diagnostics` only when the person explicitly submits the existing problem-feedback form. There are no new requests, storage files or automatic uploads. App restart, logout or account replacement clears the in-memory observations.
+
+| Event | Trigger | Recorded facts |
+| --- | --- | --- |
+| `shell` | 250 ms after a navigation state change, or after scrolling/clicking/resizing settles; visibility/page-show events sample immediately | Active/root tab enums, list/detail mode, hidden/layer/tab-bar flags, foreground and network booleans, viewport dimensions, pager offset/width, shell/list-pane/list/My-button rectangles and display/visibility/content-visibility/inert values. Missing elements are explicitly null. |
+| `rows` | The mobile Messages list's existing render inputs change | Input/rendered counts, loading flag, additions/losses/changed flags for at most 12 rows, total changed count. Flags distinguish source loss from filtering and show ownership, search match, activity presence before/after native projection, selection and draft presence. Unchanged observations are deduplicated. |
+| `row-open` | A normal click on an existing `data-chat-row` element | An anonymous row ordinal correlates entry with later list observations. No event is consumed or navigation initiated. |
+
+Row ordinals are process-local mapping keys, not hashes or raw chat/Agent/account IDs. At most 2,048 keys are retained, after which correlation is null. Row losses are placed before additions in a truncated refresh. The output contains no message/preview text, titles, search text, draft text, email, URL, token or raw account/chat/Agent/device ID. The account ID is used only to clear the previous owner's memory, and is never emitted. A snapshot is copied before export so readers cannot alter the retained evidence.
+
+When the problem recurs, submit feedback before logging out or restarting. Match its timestamps and anonymous row ordinal to the normal Back or row-open sequence. A missing source row, a present-but-filtered row and a zero/hidden/off-page root are different observations, not root-cause verdicts. The trailing 250 ms samples describe settled layout; they do not establish the exact start or duration of a transient blank frame. Instrumentation is bounded and may suppress a busy burst; the count must be considered when interpreting gaps.

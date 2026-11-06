@@ -33,7 +33,8 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
-import { openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
+import { isOwnedAgentPeer, openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
+import { mobileListDiagnostics } from '@/mobile/mobileListDiagnostics'
 import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, useSidebarNotificationsOpen, type ShellChatDialog } from '../lib/sidebarChatsBridge'
 import { NotificationSlot } from './needsYou/NotificationSlot'
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '../lib/retainedSurface'
@@ -666,6 +667,18 @@ export function ChatListPanel({
     [shownChats, topicNesting, activeTopicChatId, collapsedTopicSources, expandedTopicSources, mobile],
   )
   const visibleChatIds = useMemo(() => visibleChats.map((chat) => chat.id), [visibleChats])
+
+  useEffect(() => {
+    if (!mobile || inSidebar) return
+    const visible = new Set(visibleChatIds), source = new Map(imChats.map(chat => [chat.id, chat]))
+    mobileListDiagnostics.rows(chats.map(chat => ({ id: chat.id, facts: {
+      kind: chat.kind, listed: isListed(chat), rendered: visible.has(chat.id), searchMatch: matchesSearch(chat),
+      owned: isOwnedAgentPeer(chat.peer_user_id), imActivity: !!source.get(chat.id)?.last_message_at,
+      projectedActivity: !!chat.last_message_at, selected: chat.id === selectedChatId, draft: !!drafts[chat.id]?.trim(),
+    } })), loadingChats)
+    // Read the exact render predicates; the diagnostic never changes their decisions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobile, inSidebar, imChats, chats, visibleChatIds, loadingChats, selectedChatId, drafts, listQuery, assistantShell, workrooms, shownAsLead, projectGroupChats])
 
   useEffect(() => {
     if (focusedChatId && visibleChatIds.includes(focusedChatId)) return
