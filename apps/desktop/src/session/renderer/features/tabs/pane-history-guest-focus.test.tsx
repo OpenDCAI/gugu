@@ -92,6 +92,8 @@ async function readyGuest() {
   if (!('getWebContentsId' in guest)) {
     const id = nextGuestId++;
     Object.defineProperty(guest, 'getWebContentsId', { configurable: true, value: () => id });
+    // The host zooms an App page on its dom-ready (zoom B); a jsdom element has no Electron webview methods.
+    Object.defineProperty(guest, 'setZoomFactor', { configurable: true, value: () => {} });
     await act(async () => guest.dispatchEvent(new Event('dom-ready')));
   }
   const claim = [...extensionViewStore.claims.values()].find(claim => claim.element.isConnected)!;
