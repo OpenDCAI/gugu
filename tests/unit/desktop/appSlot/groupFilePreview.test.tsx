@@ -161,6 +161,33 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
   })
 
+  it('the phone back key goes from a file to the folder that opened it, then to the chat', async () => {
+    boundary.mobile = true
+    const folder = openPanelItem('preview-group', folderItem())!
+    const file = { ...detail('md'), choice: { kind: 'one' as const, candidate } }
+    await slot(file as never, true, { from: folder })
+    expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+    expect(isFolderItem(shownItem(file.chatId)!)).toBe(true)
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(shownPanelTab(file.chatId)).toBeNull()
+  })
+
+  it('a file in a tab of its own: the phone back key closes it, so it does not come back after the folder is left', async () => {
+    boundary.mobile = true
+    const folder = openPanelItem('preview-group', folderItem())!
+    const file = { ...detail('md'), choice: { kind: 'one' as const, candidate } }
+    openPanelItem(file.chatId, { kind: candidate.tabKind, itemId: file.itemId, title: file.name, fileName: file.name, typedName: file.typedName } as never, { from: folder, intent: 'newTab' })
+    await redraw(file.chatId)
+    expect(shownItem(file.chatId)).toMatchObject({ itemId: file.itemId })
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(shownPanelTab(file.chatId)).toBeNull()
+    expect(panelTabsOf(file.chatId)).toEqual([])
+  })
+
   it.each([false, true])('ordinary openWith plays MP4 on the host (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
     const file = detail('mp4')
