@@ -1,0 +1,90 @@
+import { anySignal } from '@gugu/core/shared/anySignal'
+import { createHash } from 'node:crypto'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { app, ipcMain, BrowserWindow } from 'electron'
+import { createErrorSummaryReporter } from '../shared/error-summary-reporter'
+import { errorSummaryFromError, sanitizeErrorSummary } from '../shared/error-summary'
+import { errorSummaryDestination, errorSummaryEnvelope } from '../shared/error-summary-transport'
+
+declare const __GUGU_ERROR_REPORTING_DSN__: string | undefined
+
+export function registerErrorSummaryReporting(deps: {
+  eligible: boolean
+  owner: () => string | null | undefined
+}) {
+  const destination = errorSummaryDestination(typeof __GUGU_ERROR_REPORTING_DSN__ === 'string' ? __GUGU_ERROR_REPORTING_DSN__ : '')
+  // No endpoint means no queue reads/writes, hooks, timers or reporting requests.
+  if (!deps.eligible || !destination) return
+  const file = join(app.getPath('userData'), 'pending-error-summaries.json')
+  const context = () => {
+    let allowed = false
+    ipcMain.emit('error-summary:read-local-consent', (snapshot: unknown) => {
+      if (snapshot && typeof snapshot === 'object') {
+        const value = snapshot as { eligible?: unknown; decision?: unknown }
+        allowed = value.eligible === true && value.decision === 'allowed'
+      }
+    })
+    const owner = deps.owner()
+    return { eligible: deps.eligible, allowed, scope: owner === undefined ? undefined : owner === null ? 'anonymous' : createHash('sha256').update(owner).digest('hex') }
+  }
+  const reporter = createErrorSummaryReporter({
+    configured: true,
+    context,
+    now: Date.now,
+    read: () => {
+      try { return JSON.parse(readFileSync(file, 'utf8')) } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+        throw error
+      }
+    },
+    save: pending => {
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(`${file}.tmp`, JSON.stringify(pending), { mode: 0o600 })
+      renameSync(`${file}.tmp`, file)
+    },
+    send: async (summary, signal) => {
+      // A private connection: never use the signed-in Chromium session/cookie jar.
+      const eventId = createHash('sha256').update(JSON.stringify(summary)).digest('hex').slice(0, 32)
+      const body = errorSummaryEnvelope(summary, eventId)
+      if (!body) return
+      const response = await fetch(destination.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-sentry-envelope', 'x-sentry-auth': destination.authorization },
+        body,
+        signal: anySignal([signal, AbortSignal.timeout(5_000)]),
+        redirect: 'error',
+        credentials: 'omit',
+      })
+      if (!response.ok) throw new Error('Error summary receiver rejected event')
+      await response.body?.cancel()
+    },
+  })
+  const safely = (action: () => void) => { try { action() } catch { /* No recursive error-reporting failures. */ } }
+  const metadata = () => ({ version: app.getVersion(), system: process.platform, time: new Date().toISOString() })
+  const reportError = (error: unknown, type?: string) => safely(() => reporter.report(errorSummaryFromError(error, metadata(), type)))
+  let initialized = false
+  let previousOwner = deps.owner()
+  ipcMain.on('error-summary:consent-changed', () => safely(() => {
+    const owner = deps.owner()
+    if (owner === undefined) return
+    if (!initialized) { initialized = true; previousOwner = owner; reporter.start(); return }
+    if (owner !== previousOwner || !context().allowed) reporter.changed()
+    previousOwner = owner
+  }))
+  ipcMain.on('error-summary:report', (event, candidate: unknown) => {
+    if (!BrowserWindow.fromWebContents(event.sender)) return
+    safely(() => {
+      const summary = sanitizeErrorSummary(candidate)
+      // The main process supplies trusted version, OS and time, not the sender.
+      if (summary) reporter.report({ ...summary, ...metadata() })
+    })
+  })
+  process.on('uncaughtExceptionMonitor', error => reportError(error))
+  process.on('unhandledRejection', error => reportError(error))
+  app.on('render-process-gone', (_event, _contents, details) => {
+    if (details.reason !== 'clean-exit') reportError(null, 'RendererProcessGone')
+  })
+  if (context().scope !== undefined) safely(() => { initialized = true; reporter.start() })
+  // No hot retries: retry only on restart or another reportable occurrence.
+}

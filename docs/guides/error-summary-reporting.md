@@ -1,0 +1,48 @@
+# Desktop Beta error summaries
+
+The optional `GUGU_ERROR_REPORTING_DSN` build configuration defaults to empty.
+An empty/invalid value, a local build, a production build, mobile, or a headless
+server does not activate the reporting host. A configured published desktop Beta
+still requires explicit local consent for the current signed-in account (or the
+separate signed-out context). The consent UI is tracked in #1937.
+
+The reporting host asks the consent owner synchronously through the internal
+`error-summary:read-local-consent` callback signal. If the consent host is absent,
+unavailable or has not resolved the current identity, reporting remains disabled.
+The local `error-summary:consent-changed` signal cancels in-flight work and clears
+pending records on withdrawal or account changes. No identifiers leave the host.
+
+The pure `sanitizeErrorSummary` function rebuilds an object containing only error
+type, application-owned locations, version, OS and time. It drops error messages,
+unknown fields, nested context, user identifiers, query keys and SDK metadata.
+A second pass rejects suspected credentials, email and phone values. Source paths
+are reduced to application roots; user home directories, third-party files and
+URL parameters are excluded. No raw log, screenshot, memory, replay, trace,
+profile, session tracking, cookie or breadcrumb collector is initialized.
+
+The minimal Sentry-compatible envelope adds protocol constants and a deterministic
+random-looking event identifier derived only from the sanitized event. It uses
+Node fetch, without the signed-in Chromium session/cookie jar, refuses redirects,
+and has a five-second timeout. A receipt only follows a successful HTTP response.
+The deployment must separately verify GlitchTip compatibility, disable IP request
+logging/retention and enforce the server-side field contract. No real receiver has
+been configured or deployed by this change.
+
+Already-sanitized events may be saved locally (maximum 20, maximum age 24 hours).
+They are rebuilt from the allowlist before transmission. Fatal JavaScript capture
+saves synchronously without waiting for networking. A failed send is retried only
+on a later occurrence or restart; no hot retry loop runs. Pre-consent occurrences
+are not enqueued or replayed. Withdrawal and account switching clear pending work.
+
+Coverage in this first client change: main-process uncaught JavaScript exceptions
+and unhandled rejections; renderer error/rejection hooks; React boundary signals
+from the consent change; renderer-process exit summaries; and an explicitly
+reviewed settings-read handled-error boundary. The static handled-error entry
+point is available for further reviewed boundaries. The broader handled-error
+inventory, native hard-crash metadata/Crashpad, signed-package source maps,
+receiver deployment, localization/legal policy changes and cross-platform crash
+exercises remain separate pilot acceptance work. Raw native dumps are never sent.
+
+Protocol references: https://develop.sentry.dev/sdk/foundations/transport/ and
+https://develop.sentry.dev/sdk/data-model/event-payloads/. GlitchTip SDK guidance:
+https://glitchtip.com/sdkdocs/electron/.
