@@ -21,8 +21,8 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const [sending, setSending] = useState(false)
-  const [sendFailure, setSendFailure] = useState<string | null>(null)
-  useSessionInputNotice(`chat-send:${chatId ?? 'new'}:${currentUserId ?? 'self'}`, sendFailure ? { title: t('composer.sendFailedRetry'), diagnostic: sendFailure } : null)
+  const [sendFailure, setSendFailure] = useState<{ chatId: string | undefined; reason: string } | null>(null)
+  useSessionInputNotice(`chat-send:${chatId ?? 'new'}:${currentUserId ?? 'self'}`, sendFailure && sendFailure.chatId === chatId ? { title: t('composer.sendFailedRetry'), diagnostic: sendFailure.reason } : null)
   const sendingRef = useRef(false)
   const activeChatIdRef = useRef(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
@@ -84,7 +84,6 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       clear()
       flush()
       onQuoteConsumed?.()
-      setSendFailure(null)
       scheduleComposerFocus('message-sent', { target: () => inputRef.current, mobileShell: mobile })
       if (pendingFiles.length > 0 && onSendAttachments) await beforeSend?.()
 
@@ -94,6 +93,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       if (typed && (!captionOnImage || !onSendAttachments)) {
         await onSend(content, { ...sendOptions, beforeDeliver: beforeSend, submittedAt })
       }
+      setSendFailure(null)
       // Successful send → object URLs are no longer needed
       revokeAttachmentPreviewUrls(snapshotAttachments)
       if (!mobile && isGroupChat && currentUserId && chatId && !whisperTarget) {
@@ -127,7 +127,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       }
       // Drop the now-stale snapshot URLs (replaced by fresh ones above, or unused when persisting to store).
       revokeAttachmentPreviewUrls(snapshotAttachments)
-      setSendFailure(reason)
+      setSendFailure({ chatId, reason })
     } finally {
       sendingRef.current = false
       setSending(false)
