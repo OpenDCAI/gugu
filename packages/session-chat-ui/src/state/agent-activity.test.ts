@@ -22,7 +22,8 @@ describe('agent activity identity and grouping', () => {
   it('folds only authenticated agent inputs, leaving human, unknown and mixed deliveries readable', () => {
     expect(incomingActivity(incoming('a'), ctx)?.count).toBe(1);
     expect(incomingActivity(incoming('h', 'human', human), ctx)).toBeNull();
-    expect(incomingActivity(incoming('u', ''), ctx)).toBeNull();
+    expect(incomingActivity(incoming('u', '', 'user:unknown'), ctx)).toBeNull();
+    expect(incomingActivity(incoming('legacy', ''), ctx)?.count).toBe(1);
     const mixed = { ...incoming('m'), text: incoming('a').text + '\n' + incoming('h', 'human', human).text };
     expect(incomingActivity(mixed, ctx)).toBeNull();
   });

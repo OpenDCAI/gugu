@@ -29,7 +29,13 @@ function actor(address: string, ctx: SegmentCtx, fallback?: string | null): Acti
 export function incomingActivity(item: ChatMessage, ctx: SegmentCtx, live = false): AgentActivityEvent | null {
   if (item.role !== 'user') return null;
   const segments = readDeliveryEnvelope(item.text)?.segments;
-  if (!segments?.length || segments.some(part => part.facts?.fromType !== 'agent' || !part.facts.fromId)) return null;
+  if (!segments?.length || segments.some(part => {
+    const facts = part.facts;
+    if (!facts?.fromId) return true;
+    // Legacy session-direct envelopes omit from_type. The existing identity directory/roster
+    // may still prove the sender is an agent; absence of both facts remains unknown and visible.
+    return facts.fromType ? facts.fromType !== 'agent' : ctx.actor?.(facts.fromId)?.type !== 'agent';
+  })) return null;
   const actors = segments.map(part => actor(part.facts!.fromId!, ctx, part.facts!.from));
   if (actors.some(value => !value)) return null;
   return { id: item.id, direction: 'received', actors: actors as ActivityActor[], count: segments.length, live };
