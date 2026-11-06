@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement, Fragment } from 'react'
 import { notifyManager } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast, type Action } from 'sonner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
@@ -71,8 +71,8 @@ describe('group manager storage notice', () => {
     expect(lastWarning()[1]).toMatchObject({ duration: Infinity, closeButton: true })
     const listener = vi.fn()
     window.addEventListener(UI_EVENTS.openApp, listener)
-    const action = lastWarning()[1]?.action as { onClick: () => void }
-    action.onClick()
+    const action = lastWarning()[1]?.action as Action
+    action.onClick({} as never)
     expect(listener.mock.calls[0][0].detail).toEqual({ extensionId: 'workspace', chatId })
     window.removeEventListener(UI_EVENTS.openApp, listener)
   })
