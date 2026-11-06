@@ -223,7 +223,7 @@ describe('owner-private permission state is excluded from Agent file actions', (
     expect(JSON.stringify(result)).not.toContain('jsonl')
     expect(JSON.stringify(result)).not.toContain('private-service-permissions')
   })
-  it.skipIf(!hasRipgrep)('excludes the private tree from a real ripgrep search of its visible parent', async () => {
+  it.skipIf(!hasRipgrep).each([undefined, '**'])('excludes the private tree from a real ripgrep search of its visible parent (glob: %s)', async glob => {
     const f = await privateState()
     fs.writeFileSync(path.join(f.guguHome, 'ordinary.txt'), 'private-session ordinary-marker')
     const outputs: string[] = []
@@ -232,13 +232,16 @@ describe('owner-private permission state is excluded from Agent file actions', (
       outputs.push(result.stdout)
       return result
     } })
-    const result = data(await run('fs.grep', { path: f.guguHome, pattern: 'private-session' }))
+    const result = data(await run('fs.grep', { path: f.guguHome, pattern: 'private-session', ...(glob ? { glob } : {}) }))
     expect(result.total).toBe(1)
     expect(JSON.stringify(result)).toContain('ordinary-marker')
-    expect(outputs.join('')).not.toContain('.jsonl')
-    expect(outputs.join('')).not.toContain('private-agent')
+    expect(outputs).toHaveLength(1)
+    const stdout = outputs.join('')
+    expect(stdout).toContain('ordinary-marker')
+    expect(stdout).not.toContain('private-agent')
+    expect(stdout).not.toContain('.jsonl')
   })
-  it.skipIf(!hasRipgrep)('protects a root that is itself a regular file before real ripgrep reads it', async () => {
+  it.skipIf(!hasRipgrep).each([undefined, '**'])('protects a root that is itself a regular file before real ripgrep reads it (glob: %s)', async glob => {
     const guguHome = H('Elsewhere/single-file-root')
     vi.stubEnv('GUGU_HOME', guguHome)
     fs.mkdirSync(guguHome)
@@ -251,7 +254,10 @@ describe('owner-private permission state is excluded from Agent file actions', (
       outputs.push(result.stdout)
       return result
     } })
-    expect(data(await run('fs.grep', { path: guguHome, pattern: 'single-file-canary' })).total).toBe(1)
+    const result = data(await run('fs.grep', { path: guguHome, pattern: 'single-file-canary', ...(glob ? { glob } : {}) }))
+    expect(result.total).toBe(1)
+    expect(outputs).toHaveLength(1)
+    expect(outputs.join('')).toContain('ordinary-data')
     expect(outputs.join('')).not.toContain('private-data')
     const alias = H('Elsewhere/single-file-alias')
     fs.linkSync(protectedFile, alias)

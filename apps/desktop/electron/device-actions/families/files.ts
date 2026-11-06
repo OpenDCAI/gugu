@@ -1316,7 +1316,8 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
       const maxResults = clampInt(num(args, 'maxResults'), 100, 1, 500)
       const context = clampInt(num(args, 'contextLines'), 0, 0, 20)
       const cli = ['--json', '--no-config', '--max-columns', '500', '--max-columns-preview', '--max-filesize', '20M', '-m', String(maxResults)]
-      // rg must never read the private tree, even when its parent is an explicitly searched visible folder.
+      if (str(args, 'glob')) cli.push('-g', str(args, 'glob'))
+      // rg uses the last matching glob: mandatory exclusions must follow the caller's glob to prevent private reads.
       for (const root of scope.privatePaths.roots) {
         const relative = path.relative(where.path, root).split(path.sep).join('/').replace(/([*?[\]{}!\\])/g, '\\$1')
         if (relative && !relative.startsWith('../')) cli.push('-g', `!**/${relative}`, '-g', `!**/${relative}/**`)
@@ -1324,7 +1325,6 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
       if (bool(args, 'caseSensitive') === false) cli.push('-i')
       if (bool(args, 'fixedStrings') === true) cli.push('-F')
       if (context > 0) cli.push('-C', String(context))
-      if (str(args, 'glob')) cli.push('-g', str(args, 'glob'))
       cli.push('--', args.pattern as string, ...targets)
       ctx.note('正在搜文件内容…')
       const r = await ctx.deps.exec(rg, cli, { signal: ctx.signal, timeoutMs: 60_000, maxBuffer: 32 * 1024 * 1024 })
