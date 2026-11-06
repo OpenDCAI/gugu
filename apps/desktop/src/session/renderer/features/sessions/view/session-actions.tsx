@@ -53,6 +53,8 @@ export const SessionActionsProvider = observer(function SessionActionsProvider({
     const pending = pendingReload;
     if (!pending) return;
     setReloading(true);
+    // Acceptance returns to the transcript; the action stays unavailable until the host finishes.
+    setPendingReload(null);
     try {
       const result = await requestSessionReload({ sessionId: pending.sessionId, reason: 'manual' });
       if (!result.ok) {
