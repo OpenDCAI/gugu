@@ -25,6 +25,7 @@ import type { SessionTabContext } from '../tabs/core/session-tab-context';
 import { diffTabProvider } from './diff-view/diff-tab-provider';
 import { reviewTabProvider } from './diff-view/review-tab-provider';
 import { fileTabProvider } from './editor/file-tab-provider';
+import { fileViewTabProvider } from './file-view/file-view-tab-provider';
 import { createSessionTabPersistor } from './stores/session-tab-view-persistor';
 import { terminalTabProvider } from './terminals/terminal-tab-provider';
 import { remotePortsTabProvider } from '../remote-hosts/workspace/remote-ports-tab';
@@ -35,6 +36,7 @@ export const sessionTabView = createTabView(
     acpChatTabProvider,
     sideChatTabProvider,
     fileTabProvider,
+    fileViewTabProvider,
     chatResourceTabProvider,
     reviewTabProvider,
     diffTabProvider,
