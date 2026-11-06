@@ -2179,7 +2179,7 @@ async function mountText(current, preview) {
     if (state.current !== current) return
     md.render($('preview'), longFile() ? firstBytes(file.text, LONG_TEXT) : file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
     $('preview-cut').hidden = !longFile()
-    current.previewPending = false
+    current.previewPending = current.previewDeferred = false
     syncBlockControls()
     previewMarks()
     // A task is ticked where it is read (its line's [ ] / [x], below); not in a file this person may only read.
@@ -2190,11 +2190,11 @@ async function mountText(current, preview) {
     $('empty-write').hidden = $('empty-draft').hidden = !!file.readOnly
   }
   const noPreviewYet = () => document.body.dataset.mode === 'edit' && longFile()
-  const changed = debounce(() => { if (!noPreviewYet()) render() }, 120)
+  const changed = debounce(() => { if (noPreviewYet()) current.previewDeferred = true; else render() }, 120)
   current.offs.push(file.onChange((event) => { if (!event.entry) { current.previewPending = true; hideBlockHandle(); changed() } }))
   current.drawPreview = render
   if (longFile()) setMode('edit')
-  if (noPreviewYet()) current.previewPending = true
+  if (noPreviewYet()) current.previewPending = current.previewDeferred = true
   else render()
   // Reading does not wait for the source editor's module and construction.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
@@ -3034,7 +3034,7 @@ function applyMode() {
   const mode = narrowPane?.matches && state.mode === 'split' ? 'preview' : state.mode
   document.body.dataset.mode = mode
   for (const m of ['edit', 'split', 'preview']) $(`mode-${m}`).setAttribute('aria-selected', String(m === mode))
-  if (mode !== 'edit' && state.current?.previewPending) state.current.drawPreview?.()
+  if (mode !== 'edit' && state.current?.previewDeferred) state.current.drawPreview()
   syncBlockControls(true)
 }
 
