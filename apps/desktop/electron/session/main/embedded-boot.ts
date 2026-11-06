@@ -1258,7 +1258,7 @@ export async function reloadEmdashSession(input: {
   }
   if (!session.workspaceId) throw new Error(`session ${sessionId} workspace is not ready`)
   const mounted = await sessionService.ensureSessionMounted(sessionId)
-  const workspace = resolveWorkspace(session.projectId, mounted.workspaceId)
+  const workspace = await resolveWorkspace(session.projectId, mounted.workspaceId)
   if (!workspace) throw new Error(`session ${sessionId} workspace is not mounted`)
   const reloadSurface = session.runtime === 'acp' ? 'acp' : 'tui'
   const sourceChangeSession = getPlugin(session.providerId).capabilities.sessionBundle
