@@ -3,12 +3,12 @@ import { For, Show } from 'solid-js'
 import { defineUnit } from '@session-chat/core/units'
 import type { MeasureCtx } from '@session-chat/core/define'
 import { useCommands } from '@session-chat/components/contexts/CommandsContext'
-import { IconChevronDown, IconChevronRight, IconDocument, IconImage } from '@session-chat/components/primitives/icons'
+import { IconChevronDown, IconDocument, IconImage } from '@session-chat/components/primitives/icons'
 import { useChatTranslator } from '@session-chat/localization'
 import { basename } from '@session-chat/lib/path'
 import type { FileChangeSummaryItem } from '@session-chat/model'
 import { openedOutputLook } from '@session-chat/state/opened-outputs'
-import { accentOf, OPENED_OUTPUT_ROW_H } from '../opened-output/opened-output.def'
+import { accentOf, OPENED_OUTPUT_ROW_H, outputControlWidth, OutputRowEnd } from '../opened-output/opened-output.def'
 import { chevron, detail, nameRow, text, tile } from '../opened-output/opened-output.css'
 import { readableLabel, rowTranslator } from '../readable-label'
 import * as css from './file-change-summary.css'
@@ -41,13 +41,13 @@ function headLayout(item: FileChangeSummaryItem, ctx: MeasureCtx) {
   const label = readableLabel(rowTranslator(ctx)('transcript.editedFiles', { count: item.files.length }), ctx, ctx.width - BORDER - 24 - 12 - 16 - stats, 14, 20, 500)
   return { label, rowHeight: Math.max(HEAD, label.height + 32) }
 }
-/** Tile 40, the gaps around the text 12 + 12, the › 16, the row's padding 12 + 12. */
-const textWidth = (ctx: MeasureCtx) => ctx.width - BORDER - 24 - 40 - 24 - 16
+/** Tile 40, the gaps around the text 12 + 12, the row's end, the row's padding 12 + 12. */
+const textWidth = (file: File, ctx: MeasureCtx) => ctx.width - BORDER - 24 - 40 - 24 - outputControlWidth({ kind: 'file', path: file.path }, ctx, !!ctx.commands?.onOpenFile)
 /** Name, then 「已编辑 · +3 −0 · …/a/b」: both wrap where they must (never hidden), the row grows with them. */
 function fileLayout(file: File, ctx: MeasureCtx) {
-  const name = readableLabel(basename(file.path), ctx, textWidth(ctx), 14, 20, 500)
+  const name = readableLabel(basename(file.path), ctx, textWidth(file, ctx), 14, 20, 500)
   const detailText = [rowTranslator(ctx)('transcript.edited'), statsText(file), lastTwoFolders(file.path)].filter(Boolean).join(' · ')
-  const description = readableLabel(detailText, ctx, textWidth(ctx), 12, 18)
+  const description = readableLabel(detailText, ctx, textWidth(file, ctx), 12, 18)
   return { name, description, rowHeight: Math.max(OPENED_OUTPUT_ROW_H, name.height + description.height + 24) }
 }
 function height(item: FileChangeSummaryItem, ctx: MeasureCtx): number {
@@ -99,14 +99,22 @@ export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record
           <For each={props.data.files}>
             {(file) => {
               const look = () => openedOutputLook({ kind: 'file', path: file.path })
+              const openFile = () => commands().onOpenFile?.({ path: file.path, itemId: file.diffs[0].id, source: 'diff' })
               return (
-                <button
-                  type="button"
+                <div
                   class={css.file}
                   style={{ height: `${fileLayout(file, props.ctx.measureCtx!()).rowHeight}px` }}
                   title={file.path}
-                  disabled={!commands().onOpenFile}
-                  onClick={() => commands().onOpenFile?.({ path: file.path, itemId: file.diffs[0].id, source: 'diff' })}
+                  role={commands().onOpenFile ? 'button' : undefined}
+                  tabIndex={commands().onOpenFile ? 0 : undefined}
+                  aria-disabled={commands().onOpenFile ? undefined : true}
+                  onClick={openFile}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openFile()
+                    }
+                  }}
                 >
                   <span class={tile} style={{ color: accentOf(look()), background: `color-mix(in srgb, ${accentOf(look())} 12%, transparent)` }}>
                     <Show when={look().kind === 'image'} fallback={<IconDocument />}><IconImage /></Show>
@@ -115,8 +123,8 @@ export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record
                     <span class={nameRow}>{fileLayout(file, props.ctx.measureCtx!()).name.text}</span>
                     <span class={detail}><Detail text={fileLayout(file, props.ctx.measureCtx!()).description.text} counts={file} /></span>
                   </span>
-                  <Show when={commands().onOpenFile}><span class={chevron} aria-hidden="true"><IconChevronRight /></span></Show>
-                </button>
+                  <OutputRowEnd output={{ kind: 'file', path: file.path }} itemId={file.diffs[0].id} name={look().name} canOpen={!!commands().onOpenFile} />
+                </div>
               )
             }}
           </For>
