@@ -359,6 +359,7 @@ export default {
     "reupload": "重新上传",
     "selectOriginal": "选择原文件",
     "storageWarning": "群文件存储空间即将用尽（{{used}} / {{limit}}）。",
+    "manageFiles": "管理文件",
     "storageFull": "群文件存储空间已满（{{used}} / {{limit}}），暂时无法上传新文件。",
     "usageUnavailable": "文件用量暂不可用。",
 
