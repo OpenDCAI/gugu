@@ -6,6 +6,9 @@ import { defineEvent } from '@shared/lib/ipc/events';
 import type { CommandId } from '@shared/commands';
 import type { TabNavigationDirection } from '@shared/shortcuts';
 
+/** A working copy's file or folder moved (`to`: its path there now) or deleted (`to` null): what shows it follows. */
+export const workingCopyMovedChannel = defineEvent<{ workspace: string; from: string; to: string | null }>('app:working-copy-moved');
+
 // App editing actions (renderer → main, no payload)
 export const appUndoChannel = defineEvent<void>('app:undo');
 export const appRedoChannel = defineEvent<void>('app:redo');
