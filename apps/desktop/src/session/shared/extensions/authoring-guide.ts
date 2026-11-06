@@ -557,7 +557,7 @@ The place is \`{ workspace: ctx.workspace.id }\`. An entry's \`id\` is its path 
 - Another machine's working copy needs \`files:read:all-machines\` as well; every call below is done on that machine.
 - With \`files:write\`: \`gugu.files.create\`, \`gugu.files.rename\` (a path moves it), \`gugu.files.mkdir({ workspace, path })\`, \`gugu.files.move(entry, { folder, name })\`, \`gugu.files.remove\` (a folder with all in it; a link, not what it points at). A name already there: \`name-taken\`, nothing changed.
 - \`gugu.files.upload({ workspace, folder }, file, { replace, onProgress, signal })\`: a File or a list of them, in parts, of any size, folders made as needed. A name already there is \`name-taken\` until \`replace: true\`. \`onProgress\` is told the bytes sent and the total; an aborted \`signal\` leaves nothing.
-- \`gugu.files.download(folderEntry)\` (a click or key): one place asked, the folder saved with all in it.
+- \`gugu.files.download(entry, { onProgress, signal })\` (a click or key): a file, or a folder with all in it; \`onProgress\` is told the bytes saved and the total; an aborted \`signal\` leaves nothing.
 - \`gugu.files.reveal(entry)\` (a page, this computer's working copy): shows it in the file manager.
 - After \`rename\`, \`move\` or \`remove\`, the host's panes that show the file follow it.
 `;

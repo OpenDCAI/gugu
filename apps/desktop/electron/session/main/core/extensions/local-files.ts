@@ -798,13 +798,7 @@ export function createLocalAppFiles(platform: {
       service.removed(found.abs);
     },
 
-    /** What saving a file of the working copy takes — gated like opening it read-only: its name and its bytes. */
-    downloadSource(surface: LocalSurface, args: { ref: WorkspaceFileRef }): { name: string; bytes: Uint8Array } {
-      const found = readable(surface, args.ref, 'saving');
-      return { name: path.posix.basename(found.rel), bytes: fs.readFileSync(found.abs) };
-    },
-
-    /** 「用 X 打开」: which file of the working copy — gated like saving it. Who opens it is the host's to work out. */
+    /** 「用 X 打开」 and saving: which file of the working copy, gated as opening it read-only. Who opens it is the host's to work out. */
     openTarget(surface: LocalSurface, args: { ref: WorkspaceFileRef }): { place: WorkspacePlace; path: string; name: string } {
       const found = readable(surface, args.ref, 'opening');
       return { place: surface.place, path: found.rel, name: path.posix.basename(found.rel) };
