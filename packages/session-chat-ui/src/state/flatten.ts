@@ -65,9 +65,9 @@ import { resolveSeamGap } from '@session-chat/core/spacing';
 import type { FoldGate, ItemSegmenter, Margin, RenderUnit, SegmentCtx } from '@session-chat/core/units';
 import { stampGroupRoles } from '@session-chat/core/units';
 import { localDayKey } from '@session-chat/lib/day-boundary';
-import type { ChatItem, ChatMessage, SyntheticItem, TranscriptItem, TranscriptTurn } from '@session-chat/model';
-import { fileChangeSummary, successfulFileDiff } from '@session-chat/state/file-change-summary';
-import { collectOpenedOutputs, openedOutputKey, outputsOfRun } from '@session-chat/state/opened-outputs';
+import type { ChatItem, ChatMessage, FileChangeSummaryItem, SyntheticItem, TranscriptItem, TranscriptTurn } from '@session-chat/model';
+import { fileChangeSummary, isListedInSummary, successfulFileDiff } from '@session-chat/state/file-change-summary';
+import { collectOpenedOutputs, openedFilePath, openedOutputKey, outputsOfRun } from '@session-chat/state/opened-outputs';
 import { tallyToolRun, toolRunCategory, toolRunLabel, toolRunNow } from '@session-chat/state/tool-run';
 import { completedTurnResult, itemIsUser, pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, turnProcessExpanded } from '@session-chat/state/turn-fold';
 import { isEmptyAgentTurn } from './turn-visibility';
@@ -517,15 +517,19 @@ export function flattenTier(
       }
     }
 
+    let summary: FileChangeSummaryItem | null = null;
     if (!ctx.active) {
       let runEnd = turnIndex + 1;
       while (runEnd < turns.length && absorbed[runEnd]) runEnd++;
-      const summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id);
+      summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id);
       if (summary) processItem(summary, undefined, resultOwner);
     }
 
-    // 这一轮交出来的东西(含被它并进来的后续轮):最后那条回复下面,一份一张卡。
-    const outputs = outputsOfRun(opened, turnIndex, absorbed);
+    // 这一轮交出来的东西(含被它并进来的后续轮):最后那条回复下面,一份一张卡;已在「已编辑」卡里的不再画一遍。
+    const outputs = outputsOfRun(opened, turnIndex, absorbed).filter(({ output }) => {
+      const path = openedFilePath(output);
+      return !path || !isListedInSummary(summary, path);
+    });
     outputs.forEach(({ output }, index) => {
       processItem({
         kind: 'opened-output',
