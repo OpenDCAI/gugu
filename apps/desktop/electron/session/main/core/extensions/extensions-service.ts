@@ -167,6 +167,7 @@ export class ExtensionsService {
   private readonly publishersFile: JsonFile<Record<string, ExtensionPublisher>>;
   private readonly openWithFile: JsonFile<Record<string, string>>;
   private readonly unreadBindingsFile: JsonFile<Record<string, import('@shared/extensions/unread-binding').StoredUnreadBinding>>;
+  private readonly unreadAuthorities = new Map<string, { scope: string; value: string }>();
 
   constructor(private readonly rootDir: string) {
     this.unreadBindingsFile = jsonFile(rootDir, '.conversation-unread-bindings.json', '{}', readUnreadBindings, 0o600);
@@ -206,6 +207,15 @@ export class ExtensionsService {
     return binding?.name === name ? binding : null;
   }
 
+  /** Host-only stamp: a pending selection must not cross an installation or grant change. */
+  conversationUnreadAuthority(ownerId: string, extensionId: string, name: string): string {
+    const binding = this.conversationUnreadBinding(ownerId, extensionId, name);
+    const scope = JSON.stringify([ownerId, appKey(this.identityOf(extensionId)!), this.get(extensionId).manifestDigest, name, binding?.handle ?? null]);
+    let authority = this.unreadAuthorities.get(extensionId);
+    if (authority?.scope !== scope) { authority = { scope, value: randomUUID() }; this.unreadAuthorities.set(extensionId, authority); }
+    return authority.value;
+  }
+
   /** Only the host's common permission UI calls this, after validating current membership. */
   setConversationUnreadBinding(ownerId: string, extensionId: string, name: string, chatId: string | null): void {
     this.conversationUnreadBinding(ownerId, extensionId, name);
@@ -214,6 +224,7 @@ export class ExtensionsService {
     if (chatId === null) delete stored[key];
     else stored[key] = { ownerId, name, chatId: z.string().uuid().parse(chatId), handle: randomUUID() };
     this.unreadBindingsFile.write(readUnreadBindings(stored));
+    this.unreadAuthorities.delete(extensionId);
   }
 
   private forgetConversationUnreadBindings(extensionId: string): void {
@@ -429,6 +440,7 @@ export class ExtensionsService {
       }
     }
     const installed = this.get(manifest.id);
+    this.unreadAuthorities.delete(manifest.id);
     if (resetUnreadBinding) this.forgetConversationUnreadBindings(manifest.id);
     if (origin !== 'preinstalled') activitySignal({ event_id: randomUUID(), kind: firstInstall ? 'app.installed' : 'app.replaced',
       object_id: manifest.id, app_version: manifest.version, occurred_at: Date.now() });
@@ -646,6 +658,7 @@ export class ExtensionsService {
    * silently switched off.
    */
   setEnabled(extensionId: string, enabled: boolean): void {
+    this.unreadAuthorities.delete(extensionId);
     this.get(extensionId);
     if (!enabled && this.origins()[extensionId] === 'preinstalled') {
       throw new Error(`"${extensionId}" is a preinstalled App and cannot be switched off.`);
@@ -747,7 +760,10 @@ export class ExtensionsService {
     else current.add(permission);
     if (current.size === 0) delete revocations[extensionId];
     else revocations[extensionId] = [...current];
-    if (!granted && permission === 'chat:unread') this.forgetConversationUnreadBindings(extensionId);
+    if (permission === 'chat:unread') {
+      this.unreadAuthorities.delete(extensionId);
+      if (!granted) this.forgetConversationUnreadBindings(extensionId);
+    }
     this.revocationsFile.write(revocations);
   }
 
@@ -769,6 +785,7 @@ export class ExtensionsService {
     // caller sees a failure and skips the rest of its teardown — its cookies and
     // localStorage would outlive it. Nothing is destroyed until every step that
     // can fail has succeeded.
+    this.unreadAuthorities.delete(extensionId);
     this.forgetConversationUnreadBindings(extensionId);
     this.forgetRevocations(extensionId);
     const settings = this.settingsFile.read();

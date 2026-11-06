@@ -754,7 +754,7 @@ export const extensionsController = createRPCController({
     } catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
   },
 
-  setUnreadBinding: async (args: { extensionId: string; name: string; ownerId: string; chatId: string | null }) => {
+  setUnreadBinding: async (args: { extensionId: string; name: string; ownerId: string; authority: string; chatId: string | null }) => {
     try {
       const { setUnreadBinding } = await import('./app-unread-bindings');
       await setUnreadBinding(args);

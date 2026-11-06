@@ -40,8 +40,8 @@ function UnreadBindingChooser({ extensionId, name, api, translate, disabled, own
   async function save(chatId: string | null) {
     setBusy(true);
     try {
-      if (accountId() !== ownerId) throw new Error('Account changed');
-      const result = await api.setUnreadBinding({ extensionId, name, ownerId, chatId });
+      if (!choices || accountId() !== ownerId) throw new Error('Account changed');
+      const result = await api.setUnreadBinding({ extensionId, name, ownerId, authority: choices.authority, chatId });
       if (!result.success) throw new Error(result.error);
       if (accountId() === ownerId) { setChoices(null); setError(''); }
     } catch (cause) {
