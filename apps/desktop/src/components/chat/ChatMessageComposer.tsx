@@ -138,7 +138,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const { dataDropTypes, onDataDropped, invitation } = useChatTaskDrop({ chatId, isGroupChat: isGroupChat && !mobile, groupMembers, provider: mentionProvider, editorApiRef, enabled: !hidden && !disabled })
   const receiveInput = useCallback((element: HTMLElement | null) => { inputRef.current = element }, [])
   const enqueueFiles = useCallback((files: File[]) => {
-    const picked = fileSelection.select(files)
+    const picked = fileSelection.choose(files)
     if (picked.length) setAttachments((pending) => [...pending, ...picked.map(({ file, id }) => makePendingAttachment(file, id))])
   }, [fileSelection, setAttachments])
 
@@ -195,8 +195,8 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
         {mobile && <>
           {/* 照片 = 系统相册(只写 image/*:写多个类型时 Android 壳退回成文件选择器);拍摄 = 直接开相机。 */}
-          <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.select(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
-          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.select(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
+          <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.choose(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
+          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.choose(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
         </>}
         <ChatComposerContextBands {...deliveryProps} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
@@ -222,7 +222,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
           ...[...(attachMenu ?? []), ...(phoneTask.action ? [phoneTask.action] : [])].map((action): PhoneAttachEntry => ({ ...action, icon: action.icon ?? <Plus /> })),
         ]} />}
         {photos && <PhonePhotoPreview files={photos} caption={text} onCancel={() => setPhotos(null)}
-          onSend={(ready, caption) => { setPhotos(null); const accepted = fileSelection.select(ready); void handleSend(caption, accepted.map(({ file, id }) => makePendingAttachment(file, id))).finally(() => fileSelection.release(accepted)) }} />}
+          onSend={(ready, caption) => { setPhotos(null); const accepted = fileSelection.choose(ready); void handleSend(caption, accepted.map(({ file, id }) => makePendingAttachment(file, id))).finally(() => fileSelection.release(accepted)) }} />}
       </div>
     </MessageProvider>
   </ThemeProvider>

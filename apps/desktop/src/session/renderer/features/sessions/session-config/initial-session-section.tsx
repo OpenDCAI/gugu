@@ -567,7 +567,7 @@ export function useInitialSessionState(
     [placements]
   );
   const enqueueAttachments = useCallback(async (files: File[]) => {
-    const selected = fileSelection.select(files);
+    const selected = fileSelection.choose(files);
     if (!selected.length) return;
     try {
       const queued = await Promise.all(
