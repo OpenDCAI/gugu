@@ -125,10 +125,10 @@ async function 右键改名(): Promise<void> {
   )
   await until(
     'context menu items render',
-    () => document.querySelectorAll('[data-slot="context-menu-item"]').length > 0
+    () => document.querySelectorAll('[role="menuitem"]').length > 0
   )
   const items = Array.from(
-    document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')
+    document.querySelectorAll<HTMLElement>('[role="menuitem"]')
   )
   const item = items.find((el) => /重命名|Rename/.test(el.textContent ?? ''))
   expect(

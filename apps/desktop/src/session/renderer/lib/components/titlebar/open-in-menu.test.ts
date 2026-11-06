@@ -123,11 +123,11 @@ vi.mock('@renderer/lib/ui/select', async () => {
   };
 });
 
-vi.mock('@renderer/lib/ui/context-menu', async () => {
+vi.mock('@/components/ui/Menu', async () => {
   const React = await import('react');
   return {
-    ContextMenuItem: ({ children, disabled, onClick }: { children: React.ReactNode; disabled?: boolean; onClick?: () => void }) =>
-      React.createElement('button', { disabled, onClick, 'data-testid': 'open-in-row' }, children),
+    MenuItem: ({ icon, children, disabled, onClick }: { icon?: React.ReactNode; children: React.ReactNode; disabled?: boolean; onClick?: () => void }) =>
+      React.createElement('button', { disabled, onClick, 'data-testid': 'open-in-row' }, icon, children),
   };
 });
 

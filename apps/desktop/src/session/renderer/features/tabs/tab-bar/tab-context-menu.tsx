@@ -1,36 +1,23 @@
-import { detectPlatform, parseHotkey } from '@tanstack/react-hotkeys';
+import { detectPlatform, type Hotkey } from '@tanstack/react-hotkeys';
 import { observer } from 'mobx-react-lite';
 import { Fragment, type ReactNode } from 'react';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
 import type { ResolvedTab, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from '@renderer/lib/ui/context-menu';
+import { ContextMenu, MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { toast } from '@renderer/lib/hooks/use-toast';
-import { BoundShortcut, Shortcut } from '@renderer/lib/ui/shortcut';
+import { formatHotkeyText } from '@renderer/lib/ui/shortcut-format';
+import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts';
+import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import type { CommandId } from '@shared/commands';
 import type { TabCommand } from './tab-commands';
 
 const _PLATFORM = detectPlatform();
 
-/** Renders a shortcut hint that works with both a settings key and a raw getter. */
-function CmdShortcut({
-  shortcut,
-}: {
-  shortcut?: CommandId | (() => string | undefined);
-}) {
-  if (!shortcut) return null;
-  if (typeof shortcut === 'function') {
-    const raw = shortcut();
-    const parsed = raw ? (parseHotkey(raw, _PLATFORM) as any) : null;
-    return parsed ? <Shortcut hotkey={parsed} className="ml-auto" /> : null;
-  }
-  return <BoundShortcut commandId={shortcut} className="ml-auto" />;
+/** A command's shortcut as menu text: a bound command's current hotkey, or a raw getter's hotkey. */
+function shortcutText(shortcut: TabCommand['shortcut'], keyboard: Parameters<typeof getEffectiveHotkey>[1]): string | undefined {
+  if (!shortcut) return undefined;
+  const hotkey = typeof shortcut === 'function' ? shortcut() : getEffectiveHotkey(shortcut, keyboard);
+  return hotkey ? formatHotkeyText(hotkey as Hotkey, _PLATFORM) : undefined;
 }
 
 /**
@@ -54,6 +41,7 @@ export const TabContextMenu = observer(function TabContextMenu({
   children: ReactNode;
 }) {
   const { translate } = useSessionMessages();
+  const { value: keyboard } = useAppSettingsKey('keyboard');
   const index = host.resolvedTabs.findIndex((t) => t.tabId === tab.tabId);
   const count = host.resolvedTabs.length;
   const engineCommands: TabCommand[] = [
@@ -119,26 +107,24 @@ export const TabContextMenu = observer(function TabContextMenu({
     .filter((commands) => commands.length > 0);
 
   return (
-    <ContextMenu>
+    <ContextMenu.Root>
       {/* 这层 trigger 长在 .session-tab-slot **里面**(见 generic-tab-item.tsx 的说明),所以它必须
           把 slot 填满并允许自己被压缩:`w-full` 撑满分到的宽度,`min-w-0` 解除 flex 的自动最小尺寸
           —— 少了 min-w-0,页签标题的 min-content 会变成一道压不下去的地板,slot 缩了它也不缩,
           于是标题溢出到邻居身上。 */}
-      <ContextMenuTrigger className="flex h-full w-full min-w-0">{children}</ContextMenuTrigger>
-      <ContextMenuContent finalFocus={false}>
+      <ContextMenu.Trigger className="flex h-full w-full min-w-0">{children}</ContextMenu.Trigger>
+      <ContextMenu.Content finalFocus={false}>
         {groups.map((commands, groupIndex) => (
           <Fragment key={commands[0].id}>
-            {groupIndex > 0 && <ContextMenuSeparator />}
+            {groupIndex > 0 && <MenuSeparator />}
             {commands.map((cmd) => (
-              <ContextMenuItem key={cmd.id} disabled={cmd.isEnabled?.() === false} onClick={() => void cmd.run()}>
-                {cmd.icon ? <cmd.icon className="size-4" /> : null}
+              <MenuItem key={cmd.id} icon={cmd.icon ? <cmd.icon /> : undefined} shortcut={shortcutText(cmd.shortcut, keyboard)} disabled={cmd.isEnabled?.() === false} onClick={() => void cmd.run()}>
                 {cmd.label}
-                <CmdShortcut shortcut={cmd.shortcut} />
-              </ContextMenuItem>
+              </MenuItem>
             ))}
           </Fragment>
         ))}
-      </ContextMenuContent>
-    </ContextMenu>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
   );
 });

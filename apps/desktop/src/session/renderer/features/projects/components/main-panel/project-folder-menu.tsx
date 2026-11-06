@@ -4,7 +4,7 @@ import type { ReactElement } from 'react';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
+import { ContextMenu, MenuItem } from '@/components/ui/Menu';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { ProjectFoldersState, ShownFolder } from './project-folders';
 
@@ -39,15 +39,15 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
     }
   };
   return (
-    <ContextMenu onOpenChange={(open, details) => {
+    <ContextMenu.Root onOpenChange={(open, details) => {
       if (open && (disabled || folder.offline)) details.cancel();
     }}>
-      <ContextMenuTrigger render={children} />
-      <ContextMenuContent onClick={(event) => event.stopPropagation()}>
-        <ContextMenuItem disabled={disabled || folder.offline} onClick={() => { void detach(); }}>
+      <ContextMenu.Trigger render={children} />
+      <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
+        <MenuItem disabled={disabled || folder.offline} onClick={() => { void detach(); }}>
           {translate('projects.folders.detach')}
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+        </MenuItem>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
   );
 }

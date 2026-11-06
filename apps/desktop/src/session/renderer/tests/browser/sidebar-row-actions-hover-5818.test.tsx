@@ -437,8 +437,8 @@ it('#7334 右键「复制会话 ID」:复制完整的会话 ID', async () => {
   await mounted()
   const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
   row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }))
-  await until('context menu items render', () => document.querySelectorAll('[data-slot="context-menu-item"]').length > 0)
-  const items = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]'))
+  await until('context menu items render', () => document.querySelectorAll('[role="menuitem"]').length > 0)
+  const items = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
   const item = items.find((el) => /复制会话 ID|Copy session ID/.test(el.textContent ?? ''))
   expect(item, `菜单里该有「复制会话 ID」这一格,实际:${items.map((i) => i.textContent).join(' | ')}`).toBeDefined()
   await userEvent.click(item!)
@@ -531,8 +531,8 @@ it('shows the sanitized clipboard refusal when copying the session ID', async ()
   await mounted()
   const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
   row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }))
-  await until('context menu opens', () => document.querySelector('[data-slot="context-menu-item"]') !== null)
-  const item = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')).find(el => /复制会话 ID|Copy session ID/.test(el.textContent ?? ''))!
+  await until('context menu opens', () => document.querySelector('[role="menuitem"]') !== null)
+  const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(el => /复制会话 ID|Copy session ID/.test(el.textContent ?? ''))!
   await userEvent.click(item)
   await until('session id copy was attempted', () => clipboard.mock.calls.length > 0)
   expect(notice).toHaveBeenCalledWith({ title: expect.stringMatching(/复制失败|Copy failed/), description: 'Clipboard denied [path] [redacted token]', variant: 'destructive' })

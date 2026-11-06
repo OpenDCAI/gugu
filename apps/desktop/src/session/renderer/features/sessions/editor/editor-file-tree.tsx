@@ -61,7 +61,7 @@ import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { showModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
+import { ContextMenu, MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { EmptyState } from '@renderer/lib/ui/empty-state';
 import { InlineAccentAction } from '@renderer/lib/ui/inline-accent-action';
 import { panelHeaderBarClass } from '@renderer/lib/ui/panel-header-bar';
@@ -420,8 +420,8 @@ const FileTreeRow = observer(function FileTreeRow({
   };
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger
+    <ContextMenu.Root>
+      <ContextMenu.Trigger
         style={{ ...style, paddingLeft }}
         className={cn(
           'flex h-7 cursor-pointer select-none items-center gap-2 rounded-md pr-2 hover:bg-row-hover',
@@ -490,66 +490,56 @@ const FileTreeRow = observer(function FileTreeRow({
             {chainPath !== null ? <CompactedPathLabel path={chainPath} /> : node.name}
           </span>
         )}
-      </ContextMenuTrigger>
-      <ContextMenuContent>
+      </ContextMenu.Trigger>
+      <ContextMenu.Content>
         {isOpenable && <>
-          <ContextMenuItem onClick={() => open('newTab')}>{translate('tabs.openNew')}</ContextMenuItem>
-          <ContextMenuItem onClick={() => open('beside')}>{translate('tabs.openBeside')}</ContextMenuItem>
-          <ContextMenuSeparator />
+          <MenuItem onClick={() => open('newTab')}>{translate('tabs.openNew')}</MenuItem>
+          <MenuItem onClick={() => open('beside')}>{translate('tabs.openBeside')}</MenuItem>
+          <MenuSeparator />
         </>}
-        <ContextMenuItem onClick={() => onNew('file')}>
-          <FilePlus2 className="size-4" />
+        <MenuItem onClick={() => onNew('file')} icon={<FilePlus2 />}>
           {translate('fileTree.newFile')}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => onNew('folder')}>
-          <FolderPlus className="size-4" />
+        </MenuItem>
+        <MenuItem onClick={() => onNew('folder')} icon={<FolderPlus />}>
           {translate('fileTree.newFolder')}
-        </ContextMenuItem>
-        {(tree.download || tree.uploadFiles) && <ContextMenuSeparator />}
+        </MenuItem>
+        {(tree.download || tree.uploadFiles) && <MenuSeparator />}
         {tree.download && (
-          <ContextMenuItem onClick={() => void tree.download?.(scope, entryOf(node))}>
-            <Download className="size-4" />
+          <MenuItem onClick={() => void tree.download?.(scope, entryOf(node))} icon={<Download />}>
             {translate('fileTree.download')}
-          </ContextMenuItem>
+          </MenuItem>
         )}
         {tree.uploadFiles && (
-          <ContextMenuItem onClick={() => onUpload(targetDirPath)}>
-            <ArrowUpToLine className="size-4" />
+          <MenuItem onClick={() => onUpload(targetDirPath)} icon={<ArrowUpToLine />}>
             {translate('fileTree.upload')}
-          </ContextMenuItem>
+          </MenuItem>
         )}
-        <ContextMenuSeparator />
+        <MenuSeparator />
         {isOpenable && (
-          <ContextMenuItem onClick={() => void copyFile()}>
-            <FileText className="size-4" />
+          <MenuItem onClick={() => void copyFile()} icon={<FileText />}>
             {translate('task.copy')}
-          </ContextMenuItem>
+          </MenuItem>
         )}
-        <ContextMenuItem onClick={() => void copyPath()}>
-          <Copy className="size-4" />
+        <MenuItem onClick={() => void copyPath()} icon={<Copy />}>
           {translate('task.copyPath')}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => void copyText(relNodePath, translate('fileTree.relativePathCopied'))}>
-          <Copy className="size-4" />
+        </MenuItem>
+        <MenuItem onClick={() => void copyText(relNodePath, translate('fileTree.relativePathCopied'))} icon={<Copy />}>
           {translate('task.copyRelativePath')}
-        </ContextMenuItem>
+        </MenuItem>
         {tree.canReveal && (
-          <ContextMenuItem onClick={() => void revealInFileManager()}>
-            <FolderOpen className="size-4" />
+          <MenuItem onClick={() => void revealInFileManager()} icon={<FolderOpen />}>
             {translate(REVEAL_LABEL_KEY)}
-          </ContextMenuItem>
+          </MenuItem>
         )}
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={onRename}>
-          <Pencil className="size-4" />
+        <MenuSeparator />
+        <MenuItem onClick={onRename} icon={<Pencil />}>
           {translate('fileTree.rename')}
-        </ContextMenuItem>
-        <ContextMenuItem variant="destructive" onClick={() => confirmDelete(ctx, node, translate)}>
-          <Trash2 className="size-4" />
+        </MenuItem>
+        <MenuItem danger onClick={() => confirmDelete(ctx, node, translate)} icon={<Trash2 />}>
           {translate('task.delete')}
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+        </MenuItem>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
   );
 });
 

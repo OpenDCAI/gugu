@@ -21,7 +21,7 @@ import { useTabDrag } from '@renderer/features/tabs/use-tab-drag';
 import { PaneTreeView } from '@renderer/features/tabs/pane-tree-view';
 import { TabDragOverlay } from '@renderer/features/tabs/tab-bar/tab-drag-preview';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
+import { ContextMenu, MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { sessionViewOfRuntime } from '@shared/core/sessions/sessions';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
@@ -258,8 +258,8 @@ const SessionGrip = observer(function SessionGrip() {
   const title = sessionRegistry.get(sessionId)?.sessions.get(sessionId)?.data.title ?? '';
   const content = { kind: 'session', projectId, sessionId } as const;
   return (
-    <ContextMenu>
-      <ContextMenuTrigger className="flex h-full items-center">
+    <ContextMenu.Root>
+      <ContextMenu.Trigger className="flex h-full items-center">
         <BlockGrip
           label={translate('screen.grip')}
           onDragStart={(event) => startSessionBlockDrag(event, { projectId, sessionId, title })}
@@ -268,20 +268,20 @@ const SessionGrip = observer(function SessionGrip() {
             if (!windowId && droppedOutsideWindow(event)) openInWindow(content, { screenX: event.screenX, screenY: event.screenY });
           }}
         />
-      </ContextMenuTrigger>
-      <ContextMenuContent finalFocus={false}>
+      </ContextMenu.Trigger>
+      <ContextMenu.Content finalFocus={false}>
         {windowId ? (
-          <ContextMenuItem onClick={() => putBackFromWindow(windowId)}>{translate('screen.putBack')}</ContextMenuItem>
+          <MenuItem onClick={() => putBackFromWindow(windowId)}>{translate('screen.putBack')}</MenuItem>
         ) : (
-          <ContextMenuItem onClick={() => openInWindow(content)}>{translate('screen.openInWindow')}</ContextMenuItem>
+          <MenuItem onClick={() => openInWindow(content)}>{translate('screen.openInWindow')}</MenuItem>
         )}
         {multi && blockId ? (
           <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => closeScreenBlock(blockId)}>{translate('screen.closeBlock')}</ContextMenuItem>
+            <MenuSeparator />
+            <MenuItem onClick={() => closeScreenBlock(blockId)}>{translate('screen.closeBlock')}</MenuItem>
           </>
         ) : null}
-      </ContextMenuContent>
-    </ContextMenu>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
   );
 });
