@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
@@ -12,6 +12,7 @@ import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type Menti
 import { contentWithQuote } from './messageQuoteContent'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { useChatStore } from '../../store/chatContext'
+import { WhisperDeliveryFailure } from '../../store/whisperDelivery'
 
 /** Chat delivery owns recipients and rollback; the shared editor only submits its document. */
 export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatDraft, members: MentionCandidate[], activeMentionTargets: MentionTarget[], inputRef: RefObject<HTMLElement | null>, mobile = false) {
@@ -24,11 +25,35 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const sendingRef = useRef(false)
   const activeChatIdRef = useRef(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
+  // A visit, rather than just an id: leaving and returning while a send is pending
+  // must not let its completion change the newly opened composer's privacy mode.
+  const chatVisit = useRef({ chatId: chatId ?? null })
+  if (chatVisit.current.chatId !== (chatId ?? null)) chatVisit.current = { chatId: chatId ?? null }
+  const activeWhisperPeer = useRef(whisperTarget?.userId)
+  activeWhisperPeer.current = whisperTarget?.userId
+  const [publicNoticeVisit, setPublicNoticeVisit] = useState<typeof chatVisit.current | null>(null)
+  const failedWhisper = useRef<{ id: string; visit: typeof chatVisit.current; peer: string } | null>(null)
+  // Retry is owned by the existing failed-message bubble. Its authoritative row
+  // is also the completion signal for the original composer's privacy state.
+  useEffect(() => {
+    const failed = failedWhisper.current
+    if (!failed) return
+    if (failed.visit !== chatVisit.current || failed.peer !== whisperTarget?.userId) {
+      failedWhisper.current = null
+      return
+    }
+    const acknowledged = props.messages?.find(message => message.id === failed.id)
+    if (!acknowledged || acknowledged.seq <= 0 || acknowledged.local_send_state) return
+    failedWhisper.current = null
+    setPublicNoticeVisit(failed.visit)
+    onExitWhisper?.()
+  }, [chatId, whisperTarget, props.messages, sending, onExitWhisper])
   const rosterNameIndex = useMemo(() => buildRosterNameIndex(props.groupMembers ?? []), [props.groupMembers])
   // `picked`: files sent straight from a picker page (phone photos) together with the draft's own attachments.
   const handleSend = useCallback(async (value?: string, picked: PendingAttachment[] = []) => {
     // 回车走 handleKeyDown 直达这里、不看按钮的 disabled:在途时再进就会把同一批附件重发一遍。
     if (sendingRef.current) return
+    const sendingVisit = chatVisit.current
     const submittedAt = performance.now()
     const typed = (value ?? text).trim()
     const batch = picked.length ? [...attachments, ...picked] : attachments
@@ -98,8 +123,20 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
         if (first !== undefined) rememberGroupMention(currentUserId, chatId, first)
       }
       // @@@whisper (#820) — clear whisper mode after a successful send.
-      if (whisperTarget) onExitWhisper?.()
+      if (chatVisit.current === sendingVisit && activeWhisperPeer.current === whisperTarget?.userId) {
+        setPublicNoticeVisit(whisperTarget ? sendingVisit : null)
+        if (whisperTarget) onExitWhisper?.()
+      }
     } catch (err) {
+      // The outbox already owns this failed row and its retry. Restoring the same
+      // text as a new draft would duplicate a later retry; keep the private target.
+      if (err instanceof WhisperDeliveryFailure) {
+        if (whisperTarget && chatVisit.current === sendingVisit && activeWhisperPeer.current === whisperTarget.userId) {
+          failedWhisper.current = { id: err.clientMessageId, visit: sendingVisit, peer: whisperTarget.userId }
+        }
+        revokeAttachmentPreviewUrls(snapshotAttachments)
+        return
+      }
       const reason = String((err as Error)?.message ?? err)
       rendererLogger('chat/send').error({ chatId, error: reason }, 'message send failed')
       // Rollback restores only UNSENT intent. @@@2188 - the send is phased (attachments commit one by
@@ -131,5 +168,5 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
     }
   }, [beforeSend, chatId, currentUserId, text, attachments, activeMentionTargets, members, rosterNameIndex, isGroupChat, onSend, onSendAttachments, quoteContent, onQuoteConsumed, t, toast, disabled, disabledReason, whisperTarget, onExitWhisper, writeDraft, setMentionTargets, setAttachments, clear, persistTo, flush, inputRef, mobile])
 
-  return { sending, handleSend }
+  return { sending, handleSend, returnedToPublic: publicNoticeVisit === chatVisit.current && !whisperTarget }
 }

@@ -1,4 +1,5 @@
 import { useChatListState } from './chatListState'
+import { waitForWhisperDelivery } from './whisperDelivery'
 import { useChatCatchupPriority, useChatCatchupResume } from './chatCatchupPriority'
 import { useChatListRefresh } from './chatListRefresh'
 import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
@@ -704,8 +705,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         }
         throw error
       }
-      // 侧栏预览不在入队时乐观写:丢弃无法回滚会让列表永远展示已丢弃文本(#1762 评审[10]);
-      // 预览唯一写点 = wiring.onSent(送达后)。
+      if (opts.isWhisper) await waitForWhisperDelivery(outboxRef.current!.outbox, id)
       // @@@threads (#1531) — await root delivery before opening replies; failures still throw for composer rollback/toast.
       if (opts.isThreadRoot) await outboxRef.current!.outbox.delivered(id)
       // @@@threads (#957) — 返回消息 id,供「新建话题」首条发完后 openThread(它) 进入话题。
