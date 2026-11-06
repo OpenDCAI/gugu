@@ -40,21 +40,26 @@ export async function appUnreadBinding(extensionId: string, input: unknown): Pro
 /** Trusted App permissions UI only. This is not an App bridge verb. */
 export async function unreadBindingChoices(extensionId: string, name: string) {
   const { ownerId } = await account();
+  const authority = extensionsService().conversationUnreadAuthority(ownerId, extensionId, name);
   const selected = extensionsService().conversationUnreadBinding(ownerId, extensionId, name);
   const chats = await unreadBindingChatChoices();
   await current(ownerId);
-  extensionsService().conversationUnreadBinding(ownerId, extensionId, name);
-  return { ownerId, selected: selected?.chatId ?? null, chats: chats.map(({ id, name: title, kind }) => ({ id, name: title, kind })) };
+  if (extensionsService().conversationUnreadAuthority(ownerId, extensionId, name) !== authority) throw denied('App unread authority changed');
+  return { ownerId, authority, selected: selected?.chatId ?? null, chats: chats.map(({ id, name: title, kind }) => ({ id, name: title, kind })) };
 }
 
 /** Host-only write; expectedOwner binds the person's selection to the account that drew it. */
 export async function setUnreadBinding(input: unknown): Promise<void> {
-  const args = z.strictObject({ extensionId: z.string(), name: z.string(), ownerId: z.string().uuid(), chatId: z.string().uuid().nullable() }).parse(input);
+  const args = z.strictObject({ extensionId: z.string(), name: z.string(), ownerId: z.string().uuid(), authority: z.string().uuid(), chatId: z.string().uuid().nullable() }).parse(input);
   const { token, ownerId } = await account();
   if (ownerId !== args.ownerId) throw denied('Account changed');
-  extensionsService().conversationUnreadBinding(ownerId, args.extensionId, args.name);
+  const assertAuthority = () => {
+    if (extensionsService().conversationUnreadAuthority(ownerId, args.extensionId, args.name) !== args.authority) throw denied('App unread authority changed');
+  };
+  assertAuthority();
   if (args.chatId !== null) await member(token, ownerId, args.chatId);
   await current(ownerId);
+  assertAuthority();
   extensionsService().setConversationUnreadBinding(ownerId, args.extensionId, args.name, args.chatId);
 }
 

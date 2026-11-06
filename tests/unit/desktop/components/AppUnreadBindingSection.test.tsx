@@ -12,7 +12,8 @@ vi.mock('@/components/Avatar', () => ({ Avatar: () => null }));
 const OWNER = '11000000-0000-4000-8000-000000000001';
 const OTHER = '22000000-0000-4000-8000-000000000002';
 const CHAT = '33000000-0000-4000-8000-000000000003';
-const choices = () => ({ success: true as const, data: { ownerId: OWNER, selected: null, chats: [{ id: CHAT, name: 'Chosen conversation', kind: 'dm' as const }] } });
+const AUTHORITY = '44000000-0000-4000-8000-000000000004';
+const choices = () => ({ success: true as const, data: { ownerId: OWNER, authority: AUTHORITY, selected: null, chats: [{ id: CHAT, name: 'Chosen conversation', kind: 'dm' as const }] } });
 const api: UnreadBindingApi = { unreadBindingChoices: vi.fn(), setUnreadBinding: vi.fn() };
 let root: Root;
 let element: HTMLDivElement;
@@ -43,7 +44,7 @@ describe('host App unread permission selection', () => {
     await click(`[data-pick-row="${CHAT}"]`);
     expect(api.setUnreadBinding).not.toHaveBeenCalled();
     await click('[data-testid="app-unread-binding-sheet-action"]');
-    expect(api.setUnreadBinding).toHaveBeenCalledExactlyOnceWith({ extensionId: 'reader', name: 'main', ownerId: OWNER, chatId: CHAT });
+    expect(api.setUnreadBinding).toHaveBeenCalledExactlyOnceWith({ extensionId: 'reader', name: 'main', ownerId: OWNER, authority: AUTHORITY, chatId: CHAT });
     expect(document.querySelector('[data-testid="app-unread-binding-sheet"]')).toBeNull();
   });
 
@@ -75,6 +76,6 @@ describe('host App unread permission selection', () => {
     await click('[data-testid="app-unread-binding-choose"]');
     await click(`[data-pick-row="${CHAT}"]`);
     await click('[data-testid="app-unread-binding-sheet-action"]');
-    expect(api.setUnreadBinding).toHaveBeenCalledExactlyOnceWith({ extensionId: 'different-app', name: 'main', ownerId: OWNER, chatId: CHAT });
+    expect(api.setUnreadBinding).toHaveBeenCalledExactlyOnceWith({ extensionId: 'different-app', name: 'main', ownerId: OWNER, authority: AUTHORITY, chatId: CHAT });
   });
 });

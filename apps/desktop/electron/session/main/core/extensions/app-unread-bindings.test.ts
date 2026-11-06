@@ -95,4 +95,28 @@ describe('one-conversation unread permission boundary', () => {
     install(manifest('main', false)); install();
     expect(service.conversationUnreadBinding(OWNER, ID, 'main')).toBeNull();
   });
+
+  it('does not reuse a permission selection authority across accounts', () => {
+    const { service } = fixture();
+    expect(service.conversationUnreadAuthority(OWNER, ID, 'main')).not.toBe(service.conversationUnreadAuthority(OTHER, ID, 'main'));
+  });
+
+  it.each(['rebind', 'remove', 'revoke-restore', 'disable-enable', 'compatible-upgrade', 'publisher-change', 'reinstall'])(
+    'invalidates a pending permission selection on %s', change => {
+      const { service, install } = fixture();
+      service.setConversationUnreadBinding(OWNER, ID, 'main', CHAT);
+      const authority = service.conversationUnreadAuthority(OWNER, ID, 'main');
+      expect(service.conversationUnreadAuthority(OWNER, ID, 'main')).toBe(authority);
+      switch (change) {
+        case 'rebind': service.setConversationUnreadBinding(OWNER, ID, 'main', OTHER); break;
+        case 'remove': service.setConversationUnreadBinding(OWNER, ID, 'main', null); break;
+        case 'revoke-restore': service.setPermissionGranted(ID, 'chat:unread', false); service.setPermissionGranted(ID, 'chat:unread', true); break;
+        case 'disable-enable': service.setEnabled(ID, false); service.setEnabled(ID, true); break;
+        case 'compatible-upgrade': install(); expect(service.conversationUnreadBinding(OWNER, ID, 'main')?.chatId).toBe(CHAT); break;
+        case 'publisher-change': install(manifest(), OTHER); break;
+        case 'reinstall': service.uninstall(ID); install(); break;
+      }
+      expect(service.conversationUnreadAuthority(OWNER, ID, 'main')).not.toBe(authority);
+    },
+  );
 });
