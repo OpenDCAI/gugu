@@ -1,10 +1,10 @@
 /**
- * #7337 咕咕给新会话起名。新建一条会话,侧栏先挂首轮兜底;这条会话一拿到 agent 身份,就以它的名义签一张平台票
+ * #7337 咕咕给新会话起名。新建一条会话先用序号名;短首轮直接成为自动名,长首轮在 agent 身份就绪后以它的名义签一张平台票
  * (与它开会话、与语音笔记同一个签发口 `model-access issue`,按积分记在它名下),把首轮交给设置里选的模型要一个短名。
  *
  * - 自动名先到先得、只起一次:harness 先起了名、或人先改了名,模型回来的那一刻 `applyTitle` 就不收(判据在落库事务里)。
- * - 预算 5 秒(签票 + 模型):过了就放弃,标题留在兜底 / harness 起的名上;不等待、不重试。显示层独立处理起名占位。
- * - 没积分、模型要会员、没登录 = 不起名,与关掉起名一样安静;这不是故障,只记 info。
+ * - 预算 5 秒(签票 + 模型):过了就放弃,名字留在序号名 / harness 起的名上;不等待、不重试。显示层独立处理起名占位。
+ * - 长首轮没积分、模型要会员、没登录 = 不调用模型,与关掉起名一样安静;这不是故障,只记 info。
  *
  * 签票必须挂在一个归当前账号的 agent 名下,而新会话的身份是建完之后才供给的 ⇒ 建会话时只记下来,
  * 等 `onSessionpageAgentProvisioned` 那一刻再起;本机身份到了之后它的云端那一发可能还在路上,签票前先等它落地
@@ -25,6 +25,7 @@ import {
   parseGeneratedSessionTitle,
   sessionTitleRequestBody,
   shouldGenerateSessionTitle,
+  shortFirstUtteranceTitle,
 } from '../src/session/shared/core/sessions/session-title-namer'
 
 const log = createLogger('session-title-namer')
@@ -57,7 +58,7 @@ export interface SessionTitleNamerDeps {
   awaitAgentIdentity: (agentUserId: string) => Promise<void>
   /** 设置里选的起名模型(null = 关掉了)与追加的起名要求。 */
   titleSettings: () => Promise<{ model: string | null; instructions: string }>
-  /** 这条会话的标题此刻是不是首轮兜底,以及它的首轮。 */
+  /** 这条会话此刻是不是引擎默认名,以及它的首轮。 */
   titleState: (sessionId: string) => { fallback: boolean; firstUtterance: string | undefined }
   /** 落名;返回 false = 这一刻已经有别的名(人改的 / harness 起的),不收。 */
   applyTitle: (sessionId: string, title: string) => Promise<boolean>
@@ -99,9 +100,16 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
     if (!model) return 'disabled'
     const state = deps.titleState(sessionId)
     if (!state.fallback) return 'not-fallback'
-    if (!shouldGenerateSessionTitle(state.firstUtterance)) return 'too-short'
+    if (!shouldGenerateSessionTitle(state.firstUtterance)) {
+      const title = shortFirstUtteranceTitle(state.firstUtterance)
+      if (!title) return 'too-short'
+      const applied = await deps.applyTitle(sessionId, title)
+      log.info({ sessionId, applied, elapsedMs: now() - startedAt }, 'session title: used the short first turn')
+      return applied ? 'named' : 'superseded'
+    }
     const authProvider = deps.authProvider()
     if (!authProvider) return 'signed-out'
+    log.info({ sessionId, agentUserId }, 'session title: waiting for cloud identity')
     try {
       await deps.awaitAgentIdentity(agentUserId)
     } catch (error) {
@@ -208,9 +216,11 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
     /** 这条会话拿到了 agent 身份:刚建的就起名。返回结局(测试与日志用)。 */
     async agentProvisioned(sessionId: string, agentUserId: string): Promise<SessionTitleOutcome> {
       forgetStale()
-      if (!pending.delete(sessionId)) return 'not-pending'
-      const outcome = await name(sessionId, agentUserId, now())
-      if (outcome === 'timeout') log.info({ sessionId, budgetMs: SESSION_TITLE_TIMEOUT_MS }, 'session title: no name within budget, keeping the current title')
+      const startedAt = now()
+      const outcome = pending.delete(sessionId)
+        ? await name(sessionId, agentUserId, startedAt)
+        : 'not-pending'
+      log.info({ sessionId, agentUserId, outcome, elapsedMs: now() - startedAt, ...(outcome === 'timeout' ? { budgetMs: SESSION_TITLE_TIMEOUT_MS } : {}) }, 'session title: finished')
       return outcome
     },
   }

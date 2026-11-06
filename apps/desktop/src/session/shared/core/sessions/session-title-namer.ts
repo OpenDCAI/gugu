@@ -29,10 +29,10 @@ export function parseSessionTitleModelOptions(raw: unknown): SessionTitleModelOp
   });
 }
 
-/** 从开始起名(签票 + 模型)到落名的预算。过了就放弃,标题留在首轮兜底 / harness 起的名上。 */
+/** 从开始起名(签票 + 模型)到落名的预算。过了就放弃,名字留在序号名 / harness 起的名上。 */
 export const SESSION_TITLE_TIMEOUT_MS = 5_000;
 
-/** 首轮这么短,兜底标题(首轮本身)已经是一个完整的名字 —— 不为它花一次调用。 */
+/** 完整的短首轮直接作为自动名,不为它花一次模型调用。 */
 const SHORT_FIRST_UTTERANCE = 16;
 
 /** 起出来的名长过这个就不收(说明模型在写句子,不是在起名);❌ 截断成半句话。 */
@@ -77,9 +77,24 @@ function collapse(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-/** 这句首轮值不值得起名:够长,兜底标题才会是截断的半句话。 */
+function usableFirstUtterance(firstUtterance: string | undefined): string | null {
+  const text = collapse(firstUtterance ?? '');
+  // Emoji can contain letter-like symbols or keycap digits. They do not make
+  // an otherwise empty/punctuation-only first turn a useful task name.
+  const meaningful = text.replace(/[0-9#*]\uFE0F?\u20E3|\p{Extended_Pictographic}/gu, '');
+  return /[\p{L}\p{N}]/u.test(meaningful) ? text : null;
+}
+
+/** A short first turn is already a complete automatic name; it still needs applying. */
+export function shortFirstUtteranceTitle(firstUtterance: string | undefined): string | null {
+  const text = usableFirstUtterance(firstUtterance);
+  return text !== null && text.length <= SHORT_FIRST_UTTERANCE ? text : null;
+}
+
+/** Only a meaningful, longer first turn needs a model-generated name. */
 export function shouldGenerateSessionTitle(firstUtterance: string | undefined): boolean {
-  return collapse(firstUtterance ?? '').length > SHORT_FIRST_UTTERANCE;
+  const text = usableFirstUtterance(firstUtterance);
+  return text !== null && text.length > SHORT_FIRST_UTTERANCE;
 }
 
 function boundedInput(firstUtterance: string): string {

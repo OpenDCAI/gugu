@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const issuePlatformModelAccess = vi.fn()
 const revokePlatformModelAccess = vi.fn(async (..._args: unknown[]) => undefined)
 const fetchMock = vi.fn()
+const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 
 vi.mock('electron', () => ({ net: { fetch: (...args: unknown[]) => fetchMock(...args) } }))
 vi.mock('../../../../apps/desktop/electron/model-access', () => ({
@@ -13,7 +14,7 @@ vi.mock('../../../../apps/desktop/electron/model-access', () => ({
   modelAccessFailureReason: () => 'membership-required',
 }))
 vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({
-  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+  createLogger: () => log,
 }))
 
 const { createSessionTitleNamer } = await import('../../../../apps/desktop/electron/session-title-namer')
@@ -34,10 +35,11 @@ const awaitAgentIdentity = vi.fn(async (_agentUserId: string) => undefined)
 let state = { fallback: true, firstUtterance: LONG as string | undefined }
 let model: string | null = 'glm-5.3-flash'
 let instructions = ''
+let signedIn = true
 
 function namer() {
   return createSessionTitleNamer({
-    authProvider: () => ({}) as never,
+    authProvider: () => signedIn ? ({}) as never : null,
     awaitAgentIdentity,
     titleSettings: async () => ({ model, instructions }),
     titleState: () => state,
@@ -51,6 +53,8 @@ beforeEach(() => {
   state = { fallback: true, firstUtterance: LONG }
   model = 'glm-5.3-flash'
   instructions = ''
+  signedIn = true
+  Object.values(log).forEach(method => method.mockClear())
   applyTitle.mockReset().mockResolvedValue(true)
   awaitAgentIdentity.mockReset().mockResolvedValue(undefined)
   issuePlatformModelAccess.mockReset().mockResolvedValue(ticket())
@@ -62,6 +66,30 @@ afterEach(() => {
 })
 
 describe('起名', () => {
+  it.each([
+    ['搜索一下南京天气', '搜索一下南京天气'],
+    ['  修复登录跳转  ', '修复登录跳转'],
+    ['  南京\n  天气\t ', '南京 天气'],
+  ])('短首轮 %j 直接成为自动名,不等待云端身份或调用模型', async (firstUtterance, title) => {
+    state = { fallback: true, firstUtterance }
+    const n = namer()
+    n.sessionCreated({ id: 'short' })
+    await expect(n.agentProvisioned('short', 'agent-short')).resolves.toBe('named')
+    expect(applyTitle).toHaveBeenCalledWith('short', title)
+    expect(awaitAgentIdentity).not.toHaveBeenCalled()
+    expect(issuePlatformModelAccess).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each([' \n\t ', '？！……', '😀🎉', 'ℹ️', '1️⃣'])('无可用文字的首轮 %j 保持默认名', async firstUtterance => {
+    state = { fallback: true, firstUtterance }
+    const n = namer()
+    n.sessionCreated({ id: 'empty' })
+    await expect(n.agentProvisioned('empty', 'agent-empty')).resolves.toBe('too-short')
+    expect(applyTitle).not.toHaveBeenCalled()
+    expect(issuePlatformModelAccess).not.toHaveBeenCalled()
+  })
+
   it('新建的会话拿到身份后以它的名义签票,把首轮交给设置里的模型,落下起出来的名,结掉票', async () => {
     const n = namer()
     n.sessionCreated({ id: 's1', createdAt: '2026-10-16 19:00:00' })
@@ -126,11 +154,11 @@ describe('起名', () => {
     expect(issuePlatformModelAccess).not.toHaveBeenCalled()
   })
 
-  it('设置里关掉了、标题已不是兜底、首轮太短:都不签票', async () => {
+  it('设置里关掉了、已有名字、首轮没有可用文字:都不签票', async () => {
     for (const [setup, outcome] of [
       [() => { model = null }, 'disabled'],
       [() => { state = { fallback: false, firstUtterance: LONG } }, 'not-fallback'],
-      [() => { state = { fallback: true, firstUtterance: '你好' } }, 'too-short'],
+      [() => { state = { fallback: true, firstUtterance: '  ' } }, 'too-short'],
     ] as const) {
       model = 'glm-5.3-flash'
       state = { fallback: true, firstUtterance: LONG }
@@ -139,6 +167,27 @@ describe('起名', () => {
       n.sessionCreated({ id: 's1' })
       await expect(n.agentProvisioned('s1', 'agent-1')).resolves.toBe(outcome)
     }
+    expect(issuePlatformModelAccess).not.toHaveBeenCalled()
+  })
+
+  it('短首轮落名时仍尊重先到的人为或自动名', async () => {
+    state = { fallback: true, firstUtterance: '南京天气' }
+    applyTitle.mockResolvedValue(false)
+    const n = namer()
+    n.sessionCreated({ id: 'short' })
+    await expect(n.agentProvisioned('short', 'agent-short')).resolves.toBe('superseded')
+    expect(issuePlatformModelAccess).not.toHaveBeenCalled()
+  })
+
+  it.each(['disabled', 'not-fallback', 'too-short', 'signed-out', 'not-pending'] as const)('记录不发请求的起名结局 %s', async outcome => {
+    if (outcome === 'disabled') model = null
+    if (outcome === 'not-fallback') state.fallback = false
+    if (outcome === 'too-short') state.firstUtterance = '  '
+    if (outcome === 'signed-out') signedIn = false
+    const n = namer()
+    if (outcome !== 'not-pending') n.sessionCreated({ id: 's1' })
+    await expect(n.agentProvisioned('s1', 'agent-1')).resolves.toBe(outcome)
+    expect(log.info).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1', outcome }), 'session title: finished')
     expect(issuePlatformModelAccess).not.toHaveBeenCalled()
   })
 
