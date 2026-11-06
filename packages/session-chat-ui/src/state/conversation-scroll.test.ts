@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { unit, type ItemSegmenter, type RenderUnit, type SegmentCtx } from '@session-chat/core/units';
 import { defaultChatTranslator } from '@session-chat/localization';
-import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
+import type { TranscriptTurn } from '@session-chat/model';
 import { flattenTier } from './flatten';
 
-const record: TranscriptTurn = { id: 'scroll', seq: 0, initiator: 'user', items: Array.from({ length: 10 }, (_, i) => ({
-  kind: 'message', id: `say-${i}`, seq: i, role: i === 0 ? 'user' : 'assistant', text: `step ${i}`,
-} as ChatMessage)) as TranscriptTurn['items'] };
-const segmenters = Object.fromEntries(['day-separator', 'message', 'turn-process', 'tool-run'].map(kind => [kind, {
+const record: TranscriptTurn = { id: 'scroll', seq: 0, initiator: 'user', items: [
+  { kind: 'message', id: 'say-0', seq: 0, role: 'user', text: 'Question' },
+  ...Array.from({ length: 8 }, (_, i) => ({ kind: 'execute-tool-call' as const, id: `say-${i + 1}`, seq: i + 1,
+    toolCallId: `say-${i + 1}`, title: 'Run command', status: 'done' as const, command: `echo ${i}` })),
+  { kind: 'message', id: 'say-9', seq: 9, role: 'assistant', text: 'Answer' },
+] };
+const segmenters = Object.fromEntries(['day-separator', 'message', 'turn-process', 'tool-run', 'execute-tool-call'].map(kind => [kind, {
   kind, segment: item => [unit(item.kind, item, item, { key: 'self' })],
 } satisfies ItemSegmenter]));
 const context = (over: Partial<SegmentCtx> = {}): SegmentCtx => ({ caches: {}, expanded: () => false, active: true,
   foldTurnProcess: true, agentConversation: true, translate: defaultChatTranslator, plan: () => null,
+  isTurnProcessExpanded: id => id.includes(':run:'),
   pendingToolCallIds: () => new Set(), terminalSnapshot: () => null,
   ...over,
 } as SegmentCtx);
@@ -22,7 +26,7 @@ describe('live conversation process viewport', () => {
     expect(rows.some(row => row.itemId.endsWith(':earlier'))).toBe(false);
     const block = rows.find(row => row.kind === 'conversation-process-steps');
     expect(block).toBeDefined();
-    expect((block!.data as { units: RenderUnit[] }).units.map(row => row.itemId)).toEqual(
+    expect((block!.data as { units: RenderUnit[] }).units.filter(row => row.kind !== 'tool-run').map(row => row.itemId)).toEqual(
       Array.from({ length: 8 }, (_, i) => `say-${i + 1}`));
     expect(rows.indexOf(block!)).toBeLessThan(rows.findIndex(row => row.itemId === 'say-9'));
   });
@@ -39,7 +43,7 @@ describe('live conversation process viewport', () => {
     const block = rows.find(row => row.kind === 'conversation-process-steps');
     expect(block).toBeDefined();
     expect(block!.data).toMatchObject({ live: false });
-    expect(block!.children).toHaveLength(8);
+    expect(block!.children?.filter(row => row.kind !== 'tool-run')).toHaveLength(8);
   });
 
 });

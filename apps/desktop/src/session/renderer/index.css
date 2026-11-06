@@ -1243,6 +1243,7 @@
  */
 .emlight {
   --chat-fg: var(--foreground);
+  --chat-color-scheme: light;
   --chat-fg-muted: var(--foreground-muted);
   --chat-fg-passive: var(--foreground-passive);
   --chat-bg: var(--background);
@@ -1301,6 +1302,7 @@
 
 .emdark {
   --chat-fg: var(--foreground);
+  --chat-color-scheme: dark;
   --chat-fg-muted: var(--foreground-muted);
   --chat-fg-passive: var(--foreground-passive);
   --chat-bg: var(--background-secondary-1);
@@ -1734,4 +1736,3 @@ html[data-gugu-dragging] :is(webview, iframe) {
   pointer-events: none;
   box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--color-foreground) 16%, transparent);
 }
-

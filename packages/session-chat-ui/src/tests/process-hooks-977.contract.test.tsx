@@ -118,18 +118,20 @@ describe('conversation hooks remain semantic process steps', () => {
     expect(v.host.textContent).not.toContain('Bash');
   });
 
-  it('lets a truncated narration open its full text and keeps the next row below it', async () => {
+  it('lets a truncated panel reply open its full text and keeps the next row below it', async () => {
     const text = 'An observable intermediate detail. '.repeat(50) + 'Narration ending.';
     const v = mount([{ kind: 'message', id: 'narration', seq: 1, role: 'assistant', text }, bash('after', 2)]);
+    v.state.viewState.setCollapsed('hooks:process@narration', true);
     await until('the reply appears', () => v.host.textContent?.includes('Fixture done.') === true);
-    const row = v.host.querySelector<HTMLElement>('[data-conversation-narration="narration"]')!;
-    const trigger = row.querySelector<HTMLButtonElement>('[data-collapse-id]');
+    const row = v.host.querySelector<HTMLElement>('[data-user-card="narration"]')!;
+    const trigger = v.host.querySelector<HTMLButtonElement>('[data-expand-user-card="narration"]');
     expect(trigger).not.toBeNull();
+    const beforeHeight = row.offsetHeight;
     trigger!.click();
-    await until('the full narration opens', () => v.host.querySelector('[data-conversation-narration="narration"]')?.textContent?.includes('Narration ending.') === true);
+    await until('the full reply opens', () => (v.host.querySelector<HTMLElement>('[data-user-card="narration"]')?.offsetHeight ?? 0) > beforeHeight);
     await v.settle();
-    const full = v.host.querySelector<HTMLElement>('[data-conversation-narration="narration"]')!;
-    expect(full.offsetHeight).toBeGreaterThan(32);
+    const full = v.host.querySelector<HTMLElement>('[data-user-card="narration"]')!;
+    expect(full.offsetHeight).toBeGreaterThan(252);
     const next = v.host.querySelector<HTMLElement>('[data-slot="tool-run"]')!;
     expect(full.getBoundingClientRect().bottom).toBeLessThanOrEqual(next.getBoundingClientRect().top + 1);
   });
@@ -148,13 +150,14 @@ describe('conversation hooks remain semantic process steps', () => {
     expect(v.host.querySelector<HTMLElement>('[data-conversation-terminal-reason]')!.offsetHeight).toBeGreaterThan(32);
   });
 
-  it('counts SessionStart without splitting the reply or exposing a standalone hook row', async () => {
+  it('keeps panel words visible while counting SessionStart without a standalone hook row', async () => {
     const v = mount([bash('before', 1), { kind: 'message', id: 'narration', seq: 2, role: 'assistant', text: 'Still working.' },
       { kind: 'session-notice', id: 'start-hook', seq: 3, code: 'provider-notice', title: 'SessionStart:compact says: Context ready.', detail: 'SessionStart:compact says: Context ready.', at: 4000 }, bash('after', 4)]);
+    v.state.viewState.setCollapsed('hooks:process@narration', true);
     await until('the reply appears', () => v.host.textContent?.includes('Fixture done.') === true);
     await v.settle();
-    expect(v.host.querySelectorAll('[data-conversation-part="head"]')).toHaveLength(1);
-    expect(v.host.querySelector('[data-agent-conversation-message="narration"][data-conversation-part="body"]')).toBeNull();
+    expect(v.host.querySelectorAll('[data-conversation-part="head"]')).toHaveLength(2);
+    expect(v.host.querySelector('[data-agent-conversation-message="narration"][data-conversation-part="body"]')).not.toBeNull();
     expect(v.host.textContent).toMatch(/triggered 1 hook/i);
     expect(v.host.textContent).not.toContain('SessionStart:compact says:');
     expect(v.host.querySelector('[data-slot="hook-notice"]')).toBeNull();
