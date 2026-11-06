@@ -59,6 +59,7 @@ class ShellErrorBoundaryImpl extends React.Component<React.PropsWithChildren, Sh
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    window.dispatchEvent(new CustomEvent('gugu:react-error', { detail: error }))
     // 响亮:这条日志是「兜底接住了一次本该白屏的崩溃」的唯一痕迹。被兜住 ≠ 被修好。
     shellLog.error(
       { err: error.stack ?? String(error), componentStack: info.componentStack ?? null, attempt: this.state.attempt },

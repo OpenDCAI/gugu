@@ -37,8 +37,11 @@ import { StartupMotionBoundary } from './components/StartupMotionBoundary'
 import { AndroidStartupFrame } from './platform/AndroidStartupFrame'
 import '@gugu/session-shared/animation-visibility.css'
 import { isAnimationWindowVisible } from '@gugu/session-shared/animation-visibility'
+import { ErrorSummaryConsentDialog } from './components/ErrorSummaryConsent'
+import { installErrorSummaryConsent } from './lib/errorSummaryConsent'
 import { installPerfCounterResponder } from './lib/perfCounterResponder'
 
+installErrorSummaryConsent()
 installPerfCounterResponder(window.electronAPI)
 // The shared getter also installs this document's native/DOM visibility listeners.
 isAnimationWindowVisible()
@@ -98,6 +101,9 @@ renderEntryRoot(
   <React.StrictMode>
     <StartupMotionBoundary>
       <AndroidStartupFrame />
+      <LocalizationProvider>
+        <ErrorSummaryConsentDialog />
+      </LocalizationProvider>
       <AppErrorBoundary>
         <LocalizationProvider>
           <App />
