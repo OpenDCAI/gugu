@@ -1,0 +1,17 @@
+name: Build Android for CI
+description: Build the complete Android debug app; the required Source checks job owns type validation
+runs:
+  using: composite
+  steps:
+    - run: pnpm build:mobile-agent
+      shell: bash
+    # Source checks already runs the complete typecheck on this exact checkout. Keep both
+    # renderer build stages, Capacitor sync and assembleDebug, without a second tsgo invocation.
+    - run: pnpm build:renderer:ci
+      shell: bash
+    - run: node scripts/build/phone-web-dir.mts
+      shell: bash
+    - run: pnpm exec cap sync
+      shell: bash
+    - run: bash scripts/build/android-gradle-build.sh assembleDebug
+      shell: bash

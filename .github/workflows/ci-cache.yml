@@ -36,7 +36,7 @@ jobs:
   unit:
     name: Seed Vitest (${{ matrix.shard }}/6)
     # At most one background hosted job: leave room for the full PR matrix.
-    needs: mac
+    needs: android
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -72,3 +72,38 @@ jobs:
       - uses: ./.github/actions/setup-playwright
         with:
           save-cache: 'true'
+  android:
+    name: Seed Android Gradle dependencies and wrapper
+    # Keep the existing single background hosted slot; PR payloads stay restore-only.
+    needs: mac
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+      - id: java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            apps/mobile/android/**/*.gradle*
+            apps/mobile/android/**/gradle-wrapper.properties
+            apps/mobile/android/gradle.properties
+      - if: steps.java.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-community
+      - if: steps.java.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends icu-devtools llvm clang lld
+      - if: steps.java.outputs.cache-hit != 'true'
+        uses: ./.github/actions/build-android-ci
+      - if: steps.java.outputs.cache-hit != 'true'
+        name: Run Android JVM unit tests while seeding
+        run: bash scripts/build/android-gradle-build.sh testDebugUnitTest
