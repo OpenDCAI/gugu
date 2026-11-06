@@ -118,9 +118,19 @@ describe('final group toolbar v4', () => {
     expect(harness.container.querySelector('[data-agent-display-status="working"]')).toBeNull()
   })
 
-  it.each(['mobile', 'strip', 'width'] as const)('%s: keeps topics but moves invitation and Apps into More', async (reason) => {
+  it('mobile: no topics button, invitation and Apps are in More', async () => {
+    headerWidth = 900
+    await header('group', { menu: true, mobile: true })
+    expect(button('话题')).toBeUndefined()
+    expect(button('邀请')).toBeUndefined()
+    expect(button('应用')).toBeUndefined()
+    expect(menuItem('邀请')).toBeDefined()
+    expect(menuItem('应用')).toBeDefined()
+  })
+
+  it.each(['strip', 'width'] as const)('%s: keeps topics but moves invitation and Apps into More', async (reason) => {
     headerWidth = reason === 'width' ? 560 : 900
-    await header('group', { menu: true, mobile: reason === 'mobile', stripNarrow: reason === 'strip' })
+    await header('group', { menu: true, stripNarrow: reason === 'strip' })
     expect(button('话题')).toBeDefined()
     expect(button('邀请')).toBeUndefined()
     expect(button('应用')).toBeUndefined()
@@ -136,7 +146,7 @@ describe('final group toolbar v4', () => {
     expect(button('应用')).toBeDefined()
   })
 
-  it.each(['wide', 'strip', 'width', 'mobile'] as const)('%s: keeps the topic unread total and dropdown row counts consistent', async (mode) => {
+  it.each(['wide', 'strip', 'width'] as const)('%s: keeps the topic unread total and dropdown row counts consistent', async (mode) => {
     headerWidth = mode === 'width' ? 560 : 900
     const topics = [
       topicFixture({ id: 'live', kind: 'topic', source_chat_id: 'chat', unread_count: 4 }),
@@ -144,7 +154,7 @@ describe('final group toolbar v4', () => {
       topicFixture({ id: 'archived', kind: 'topic', source_chat_id: 'chat', unread_count: 70, status: 'archived' }),
       topicFixture({ id: 'elsewhere', kind: 'topic', source_chat_id: 'another-group', unread_count: 90 }),
     ]
-    await header('group', { topics, stripNarrow: mode === 'strip', mobile: mode === 'mobile' })
+    await header('group', { topics, stripNarrow: mode === 'strip' })
     const trigger = button('话题')!
     expect(trigger.querySelector('.gg-chip')?.textContent).toBe('4')
     await clickElement(trigger)
