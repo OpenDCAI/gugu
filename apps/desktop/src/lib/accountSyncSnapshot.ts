@@ -69,7 +69,7 @@ export async function initializeAccountSync(repository: AccountImRepository): Pr
   const snapshot = decodeAccountSnapshot(data, repository.accountId)
   const chats = assemble(snapshot.cells, repository.accountId)
   await alignMessageStore(repository.accountId, snapshot.revision, createSupabaseAccountRevisionSource(), currentAuthSessionSignal())
-  await ingestMessages(repository.accountId, { writes: messageAccessWrites(snapshot.cells, repository.accountId), revisions: [] })
+  await ingestMessages(repository.accountId, { writes: messageAccessWrites(snapshot.cells, repository.accountId, snapshot.cells.keys()), revisions: [] })
   await prefetchMessages(repository.accountId, chats.map(chat => chat.id))
   const outbox = repository.snapshot().outbox
   await repository.transaction((transaction) => {

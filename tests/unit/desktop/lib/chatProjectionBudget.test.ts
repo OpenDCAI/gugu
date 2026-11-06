@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // 会话列表每次更新的读:只读这一批脏了的会话,走两条集合 RPC;列表不显示的事实(回应、设备回执、别人的读位)一发不读。
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { displayIdentity as identity } from '../../../support/testHarness'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 
@@ -30,6 +30,7 @@ vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', () => ({
 const { createChatProjection, toProjectionOperations } = await import('../../../../apps/desktop/src/lib/chatProjection')
 const viewer = 'viewer'
 const signal = new AbortController().signal
+afterEach(() => vi.restoreAllMocks())
 const time = '2026-11-02T10:00:00Z'
 const locator = (root: string, count: number) => ({ chat_id: 'c1', stream_id: `thread:c1:${root}`,
   stream_kind: 'thread', thread_root_id: root, message_id: `first-${root}`, message_seq: 6,
@@ -138,13 +139,14 @@ it('publishes the settled rows of a batch superseded by another conversation', a
 
 it('keeps first-wave changes when a later wave fails and another conversation wakes the owner', async () => {
   const owner = await hydrated()
+  const ingest = vi.spyOn(await import('../../../../apps/desktop/src/lib/messageIngest'), 'ingestMessages')
   rows.set('active_members', [...rows.get('active_members')!, { chat_id: 'c2', user_id: 'new-peer',
     last_read_seq: 0, is_marked_unread: false, version: 1, notification_level: 'all', is_pinned: false,
     joined_at: time, updated_at: time, inbox_published_at: time }])
   rows.set('list_chat_previews', [{ chat_id: 'c1', created_at: time, preview: 'first' }])
   errors.add('identity')
   await expect(owner.advance([
-    ...toProjectionOperations([{ revision: '1', event: 'message_created', payload: { chat_id: 'c1', entity_id: 'm1' } }]),
+    ...toProjectionOperations([{ revision: '1', event: 'chat_changed', payload: { chat_id: 'c1' } }]),
     { revision: '1', event: 'chat_members_changed', chatId: 'c2', entityId: 'new-peer' },
   ], '1', signal)).rejects.toThrow('identity read failed')
   errors.delete('identity')
@@ -153,6 +155,9 @@ it('keeps first-wave changes when a later wave fails and another conversation wa
   expect(owner.current().find(row => row.id === 'c1')?.last_message_preview).toBe('first')
   expect(owner.current().find(row => row.id === 'c2')?.member_user_ids).toContain('new-peer')
   expect(owner.current().find(row => row.id === 'c3')?.last_message_preview).toBe('third')
+  expect(ingest.mock.calls.at(-1)?.[1]).toMatchObject({ writes: expect.arrayContaining([
+    { type: 'chatAccess', access: expect.objectContaining({ chatId: 'c1', revision: '1' }) },
+  ]) })
 })
 
 it('does not consume pending message keys when another conversation is personally deleted', async () => {

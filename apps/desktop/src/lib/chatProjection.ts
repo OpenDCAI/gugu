@@ -511,7 +511,7 @@ export function createChatProjection(viewerId: string, held?: HeldObjects): Chat
         return null
       }
       const { keys } = await runWaves(batch.head, batchSignal, { trigger, from: batch.from, requests: keysetRequests })
-      await ingestMessages(viewerId, { writes: messageAccessWrites(cache, viewerId), revisions: [] })
+      await ingestMessages(viewerId, { writes: messageAccessWrites(cache, viewerId, keys), revisions: [] })
       // A newer queued batch owns these unread keys. Publishing this older snapshot
       // would mistake an unobserved conversation for a removed one.
       if ([...planner.dirty.values()].some((stamp) => compareStamp(stamp, batch.head) > 0)) return null
