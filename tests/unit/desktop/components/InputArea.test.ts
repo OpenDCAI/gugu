@@ -398,7 +398,7 @@ describe('ChatMessageComposer', () => {
     await act(async () => { rejectSend(new Error('upload denied')); await Promise.resolve() })
     await flush()
     expect(chips(), 'failed send must not leak into the now-active chat-b').toHaveLength(0)
-    expect(notifyMock).toHaveBeenCalledWith(expect.objectContaining({ title: '这条消息未发出，请重新发送。', ongoing: true }))
+    expect(notifyMock).toHaveBeenCalledWith(expect.objectContaining({ key: 'chat-send:chat-a:self', title: '这条消息未发出，请重新发送。', ongoing: true }))
     await harness.render(createElement(StatefulHost, { chatId: 'chat-a', onSend: vi.fn(async () => {}), onSendAttachments }))
     await flush()
     expect(chips(), 'failed send is recoverable in its original chat-a').toHaveLength(1)

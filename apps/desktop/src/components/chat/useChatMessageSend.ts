@@ -22,7 +22,8 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const { toast } = useToast()
   const [sending, setSending] = useState(false)
   const [sendFailure, setSendFailure] = useState<{ chatId: string | null | undefined; reason: string } | null>(null)
-  useSessionInputNotice(`chat-send:${chatId ?? 'new'}:${currentUserId ?? 'self'}`, sendFailure && sendFailure.chatId === chatId ? { title: t('composer.sendFailedRetry'), diagnostic: sendFailure.reason } : null)
+  const failureChatId = sendFailure ? sendFailure.chatId : chatId
+  useSessionInputNotice(`chat-send:${failureChatId ?? 'new'}:${currentUserId ?? 'self'}`, sendFailure ? { title: t('composer.sendFailedRetry'), diagnostic: sendFailure.reason } : null)
   const sendingRef = useRef(false)
   const activeChatIdRef = useRef(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
