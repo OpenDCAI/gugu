@@ -4,7 +4,7 @@ import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { CONVERSATION_PREVIEW_MAX_H } from '@session-chat/components/engine/row-metrics';
 import { createChatState } from '@session-chat/state/chat-state';
-import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
+import type { TranscriptItem, TranscriptTurn } from '@session-chat/model';
 import { until, untilStable } from '../../../../tests/support/awaitCondition';
 
 const dispose: (() => void)[] = [];
@@ -13,14 +13,21 @@ function mount() {
   const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
+  state.viewState.setCollapsed('scroll:run:say-1', true);
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;width:800px;height:800px';
   document.body.append(host);
   let view = createChatView({ context, state, parent: host });
   dispose.push(() => { view.dispose(); state.dispose(); context.dispose(); host.remove(); });
   const record = (parts: number, longReply = false) => ({ id: 'scroll', seq: 0, initiator: 'user',
-    items: Array.from({ length: parts + 2 }, (_, i) => ({ kind: 'message', id: `say-${i}`, seq: i,
-      role: i === 0 ? 'user' : 'assistant', text: longReply && i === parts + 1 ? 'Long reply paragraph for the shared preview cap.\n\n'.repeat(60) : `${i === 1 ? 'needle-first ' : ''}Visible process part ${i}` } as ChatMessage)),
+    // Panel replies are now separate visible bubbles. Exercise the bounded
+    // process with explicitly opened tool steps rather than hiding replies in it.
+    items: Array.from({ length: parts + 2 }, (_, i): TranscriptItem => i > 0 && i <= parts
+      ? { kind: 'execute-tool-call', id: `say-${i}`, seq: i, toolCallId: `say-${i}`, status: 'done',
+        title: `${i === 1 ? 'needle-first ' : ''}Visible process part ${i}`,
+        command: `${i === 1 ? 'needle-first ' : ''}Visible process part ${i}` }
+      : { kind: 'message', id: `say-${i}`, seq: i,
+        role: i === 0 ? 'user' : 'assistant', text: longReply && i === parts + 1 ? 'Long reply paragraph for the shared preview cap.\n\n'.repeat(60) : `Visible reply ${i}` }),
   } as TranscriptTurn);
   const set = (parts: number, longReply = false) => state.transcript.activeTurn.set(record(parts, longReply));
   const complete = (parts: number, longReply = false, fillers = 0) => {
@@ -41,14 +48,14 @@ function mount() {
 describe('running process native scrolling', () => {
   it('caps the process, keeps all rows, follows only near the bottom and fades the scrolled top', async () => {
     const { host, set } = mount();
-    set(12);
-    await until('the latest bubble renders', () => !!host.querySelector('[data-agent-conversation-message="say-13"]'));
+    set(20);
+    await until('the latest bubble renders', () => !!host.querySelector('[data-agent-conversation-message="say-21"]'));
     await untilStable('transcript geometry settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
     const viewport = host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]');
     expect(viewport).not.toBeNull();
     expect(viewport!.clientHeight).toBe(CONVERSATION_PREVIEW_MAX_H);
     expect(viewport!.scrollHeight).toBeGreaterThan(viewport!.clientHeight);
-    expect(viewport!.querySelectorAll('[data-conversation-narration]')).toHaveLength(12);
+    expect(viewport!.querySelectorAll('[data-process-step]')).toHaveLength(21);
     expect(host.textContent).not.toMatch(/earlier parts|前面还有/);
     await until('starts at latest step', () => viewport!.scrollHeight - viewport!.scrollTop - viewport!.clientHeight < 1);
     expect(getComputedStyle(viewport!).scrollbarWidth).toBe('none');
@@ -60,14 +67,14 @@ describe('running process native scrolling', () => {
     expect(getComputedStyle(fade).opacity).toBe('1');
     viewport!.scrollTop = 32;
     viewport!.dispatchEvent(new Event('scroll'));
-    set(14);
-    await until('new step is present without moving reader', () => !!viewport!.querySelector('[data-conversation-narration="say-14"]'));
+    set(22);
+    await until('new step is present without moving reader', () => !!viewport!.querySelector('[data-process-step][data-item-id="say-22"]'));
     await untilStable('preserved scroll offset', () => viewport!.scrollTop);
     expect(viewport!.scrollTop).toBe(32);
     viewport!.scrollTop = viewport!.scrollHeight;
     viewport!.dispatchEvent(new Event('scroll'));
-    set(16);
-    await until('follows appended steps at bottom', () => !!viewport!.querySelector('[data-conversation-narration="say-16"]') && viewport!.scrollHeight - viewport!.scrollTop - viewport!.clientHeight < 1);
+    set(24);
+    await until('follows appended steps at bottom', () => !!viewport!.querySelector('[data-process-step][data-item-id="say-24"]') && viewport!.scrollHeight - viewport!.scrollTop - viewport!.clientHeight < 1);
   });
 
   it('uses content height for a short process', async () => {
@@ -76,7 +83,9 @@ describe('running process native scrolling', () => {
     await until('the latest bubble renders', () => !!host.querySelector('[data-agent-conversation-message="say-2"]'));
     const viewport = host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]');
     expect(viewport).not.toBeNull();
-    expect(viewport!.clientHeight).toBe(32);
+    expect(viewport!.clientHeight).toBeGreaterThan(0);
+    expect(viewport!.clientHeight).toBeLessThan(CONVERSATION_PREVIEW_MAX_H);
+    expect(viewport!.clientHeight).toBe(64);
   });
   it('keeps the reader position when the virtual view remounts and reveals a targeted inner step', async () => {
     const { host, set, remount, scrollTo, state } = mount();
@@ -93,8 +102,9 @@ describe('running process native scrolling', () => {
     expect(viewport()!.scrollTop).toBe(64);
     scrollTo('say-1');
     await untilStable('navigation settles', () => viewport()?.scrollTop);
-    expect(viewport()!.scrollTop).toBe(0);
-    expect(getComputedStyle(host.querySelector<HTMLElement>('[data-slot="conversation-process-top-fade"]')!).opacity).toBe('0');
+    // The first command sits below its 32px semantic summary.
+    expect(viewport()!.scrollTop).toBe(32);
+    expect(getComputedStyle(host.querySelector<HTMLElement>('[data-slot="conversation-process-top-fade"]')!).opacity).toBe('1');
   });
 
   it('follows within 24px but preserves the position at that boundary', async () => {
@@ -107,13 +117,13 @@ describe('running process native scrolling', () => {
     el.dispatchEvent(new Event('scroll'));
     const before = el.scrollTop;
     set(13);
-    await until('new process step arrives', () => !!el.querySelector('[data-conversation-narration="say-13"]'));
+    await until('new process step arrives', () => !!el.querySelector('[data-process-step][data-item-id="say-13"]'));
     await untilStable('24px boundary keeps its offset', () => el.scrollTop);
     expect(el.scrollTop).toBe(before);
     el.scrollTop = el.scrollHeight - el.clientHeight - 23;
     el.dispatchEvent(new Event('scroll'));
     set(14);
-    await until('inside threshold follows the new tail', () => !!el.querySelector('[data-conversation-narration="say-14"]') && el.scrollHeight - el.scrollTop - el.clientHeight < 1);
+    await until('inside threshold follows the new tail', () => !!el.querySelector('[data-process-step][data-item-id="say-14"]') && el.scrollHeight - el.scrollTop - el.clientHeight < 1);
   });
 
   it('bounds the process while keeping the latest long bubble full and the row measurement exact', async () => {
@@ -164,7 +174,7 @@ describe('running process native scrolling', () => {
     const before = viewport!.scrollTop;
     expect(getComputedStyle(fade()).opacity).toBe('1');
     complete(20, true, 1);
-    await until('completed replay updates all steps', () => !!viewport!.querySelector('[data-conversation-narration="say-20"]'));
+    await until('completed replay updates all steps', () => !!viewport!.querySelector('[data-process-step][data-item-id="say-20"]'));
     await untilStable('completed reader offset settles', () => viewport!.scrollTop);
     expect(viewport!.scrollTop).toBe(before);
   });

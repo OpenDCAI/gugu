@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { textFilePatch } from '@gugu/session-core/lib';
-import { fileChangeSummary } from './file-change-summary';
+import { fileChangeSummary, isListedInSummary } from './file-change-summary';
 import type { ChatDiff, ChatItem } from '../model';
 const turn = (items: ChatItem[]) => ({ items });
 const diff = (id: string, path: string, before: string | null, after: string): ChatDiff =>
@@ -39,5 +39,19 @@ describe('settled patch totals', () => {
     const result = fileChangeSummary([turn([first])], 't');
     expect(result).toMatchObject({ adds: 1, dels: 1 });
     expect(result?.files).toMatchObject([{ path: '/a', adds: null, dels: null }, { path: '/new', adds: null, dels: null }]);
+  });
+});
+
+describe('is this file already on the Edited card', () => {
+  const summary = (path: string) => fileChangeSummary([turn([diff('d', path, null, 'one')])], 't1');
+  it('the same absolute path, and a patch named relative to the working copy', () => {
+    expect(isListedInSummary(summary('/r/a/notes.md'), '/r/a/notes.md')).toBe(true);
+    expect(isListedInSummary(summary('a/notes.md'), '/r/a/notes.md')).toBe(true);
+    expect(isListedInSummary(summary('C:\\r\\notes.md'), 'C:/r/notes.md')).toBe(true);
+  });
+  it('another file of the same name, a name that only ends the same, no card at all', () => {
+    expect(isListedInSummary(summary('/r/b/notes.md'), '/r/a/notes.md')).toBe(false);
+    expect(isListedInSummary(summary('notes.md'), '/r/my-notes.md')).toBe(false);
+    expect(isListedInSummary(null, '/r/a/notes.md')).toBe(false);
   });
 });

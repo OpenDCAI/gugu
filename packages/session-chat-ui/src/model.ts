@@ -117,6 +117,8 @@ export type ChatMessage = {
   conversationTail?: boolean;
   /** Where this message_send output went (same reading as the session page's 「发到 …」 line, `agentSendOf`). */
   sentTo?: AgentSend['to'];
+  /** Original typed addresses, kept separate from transport display names. */
+  sentAddresses?: import('@gugu/session-core/session-record/send-addresses').SendAddresses;
   /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
   sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
@@ -126,7 +128,8 @@ export type ChatMessage = {
    * process line, each `body` only a bubble. The process steps go between them, so they never land
    * under the bubble; every output of the turn (message_send ones too) is its own bubble.
    */
-  conversationPart?: 'head' | 'body';
+  conversationPart?: 'head' | 'body' | 'group-reply';
+  groupReply?: import('./state/agent-activity').ActivityActor;
   /** A `body`'s head row — background tasks still hang on that process line. */
   conversationHead?: string;
   /**
