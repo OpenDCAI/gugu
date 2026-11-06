@@ -59,6 +59,7 @@ export default {
     },
     "turnFailure": {
       "card": {
+        "appUnavailable": "App 用不了",
         "deliveryRejected": "消息未送达",
         "generic": "回复没有完成",
         "authentication": "模型服务拒绝了授权",
@@ -91,6 +92,7 @@ export default {
       "notAdmitted": "消息已保留，助理就绪后回复。",
       "outcomeUnknown": "投递结果未知：消息可能已经送到助理，没有重投。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
+      "appUnavailable": "未送达：这条来自一个 App，它在这个 Agent 所在的设备上用不了（没有安装、已关闭、需要更新，或手机上不能运行）。",
       "retry": "重试",
       "retrying": "重试中…",
       "timeout": "Agent 长时间未响应，本次回复未完成"

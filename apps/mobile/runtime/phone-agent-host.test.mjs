@@ -1945,3 +1945,19 @@ test('resolves files at run time, warns without blocking later text, and persist
     } finally { await timeline.close(); }
   } finally { await fx.close(); }
 });
+
+test('a delivery from an App is recorded as failed with its reason, and reads no inbox', async () => {
+  let nudge
+  const fx = await fixture(async () => { throw new Error('no model turn expected') }, { prepare: seedInboxAgents, onRpcStart: ({ onCommand }) => { nudge = onCommand } })
+  try {
+    await until(() => inboxCalls(fx).length > 0)
+    const before = inboxCalls(fx).length
+    fx.commands.push({ id: randomUUID(), type: 'agent.deliver', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId, source: 'notes' } })
+    await nudge()
+    await flushInbox()
+    const command = fx.commands.at(-1)
+    assert.equal(command.status, 'error')
+    assert.deepEqual(command.result, { reply_notice: 'context', reason: 'appUnavailable' })
+    assert.equal(inboxCalls(fx).length, before)
+  } finally { await fx.close() }
+})

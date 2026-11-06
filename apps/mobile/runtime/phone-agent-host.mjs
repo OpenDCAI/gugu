@@ -290,7 +290,11 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   }
   const handlers = {
     'agent.create': createFromCommand,
-    'agent.deliver': async (command) => ({ agent_user_id: command.payload.agent_user_id, delivered: (await inbox(command.payload.agent_user_id)).injected > 0 }),
+    'agent.deliver': async (command) => {
+      // From an App, not a chat (`source`): the chat inbox has nothing of it and App programs do not run here. Said, ❌ recorded as done.
+      if (command.payload.source) throw Object.assign(new Error(`App ${command.payload.source} cannot deliver to an agent on a phone`), { reason: 'appUnavailable' })
+      return { agent_user_id: command.payload.agent_user_id, delivered: (await inbox(command.payload.agent_user_id)).injected > 0 }
+    },
     'agent.stop': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (!agent) throw new Error('Agent 没有在这台手机上建立会话'); await cancel(agent); return { stopped: true } },
     // Retire hands the identity to its new device: archive here, keep the social identity.
     'agent.retire': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (agent) await archive(agent, false); return { retired: true } },

@@ -59,6 +59,7 @@ export default {
     },
     "turnFailure": {
       "card": {
+        "appUnavailable": "App unavailable",
         "deliveryRejected": "Message not delivered",
         "generic": "Reply not completed",
         "authentication": "Model authorization refused",
@@ -92,6 +93,7 @@ export default {
       "notAdmitted": "Messages retained. Your assistant will reply when ready.",
       "outcomeUnknown": "Delivery result unknown: the message may have reached your assistant, and it was not resent.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
+      "appUnavailable": "Not delivered: this came from an App that cannot run where this Agent lives (not installed, turned off, needs an update, or not possible on a phone).",
       "retry": "Retry",
       "retrying": "Retrying…",
       "timeout": "This Agent did not respond in time"
