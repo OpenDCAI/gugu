@@ -23,13 +23,17 @@ export type NeedsYouTask = {
 }
 
 /** Acknowledge through the task host's existing read bit; never clear its error or settle an ask. */
-export async function markNeedsYouTaskSeen(task: NeedsYouTask): Promise<void> {
+export async function markNeedsYouTaskSeen(task: Pick<NeedsYouTask, 'deviceId' | 'local' | 'phoneHost'> & { session: Pick<SessionpageSessionSummary, 'conversationId'> }): Promise<void> {
   if (task.phoneHost) return invokePhoneHost(task.deviceId, 'sessions.markSessionSeen', [task.session.conversationId])
   await machineRpc(task.deviceId, task.local).sessions.markSessionSeen(task.session.conversationId)
 }
 
-/** The existing sidebar state and machine directory, including a desktop's own host. No per-task polling. */
-export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAttention; error: string | null } {
+/**
+ * The existing sidebar state and machine directory, including a desktop's own host. No per-task polling.
+ * Like the sidebar's Needs you group, a task is listed while its state asks for attention (presentationAttention) and
+ * counted only while it needs you (isNeedsYou): reading a failure drops it from `count`, never from `tasks`.
+ */
+export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; count: number; attention: AgentAttention; error: string | null } {
   const { user } = useAuth()
   const { devices, phones = [] } = useDevicesStore()
   usePhoneAgentDirectory([...devices, ...phones])
@@ -51,7 +55,7 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAtt
 
   const tasks: NeedsYouTask[] = []
   const statuses: AgentAttention[] = []
-  if (!ownerId) return { tasks, attention: null, error: null }
+  if (!ownerId) return { tasks, count: 0, attention: null, error: null }
   for (const device of devices) {
     const here = device.device_id === localId
     const live = directory[device.device_id]
@@ -61,11 +65,11 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAtt
     for (const session of sessions) {
       // 列出的只有连得上的宿主;有身份的 agent 读共享 presence,与侧栏同一个判据。
       const presentation = sessionPresentation(session, true)
-      if (!isNeedsYou(presentation, session.unseen === true)) continue
-      statuses.push(presentationAttention(presentation))
+      if (presentationAttention(presentation) === null) continue
+      if (isNeedsYou(presentation, session.unseen === true)) statuses.push(presentationAttention(presentation))
       tasks.push({ deviceId: device.device_id, machine: device.label, local: here, phoneHost: isPhoneDevice(device), session })
     }
   }
   tasks.sort((a, b) => (Date.parse(b.session.lastInteractedAt ?? '') || 0) - (Date.parse(a.session.lastInteractedAt ?? '') || 0))
-  return { tasks, attention: mostUrgentAttention(statuses), error: localId ? error : null }
+  return { tasks, count: statuses.length, attention: mostUrgentAttention(statuses), error: localId ? error : null }
 }

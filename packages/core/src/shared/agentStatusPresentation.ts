@@ -61,8 +61,9 @@ export interface AgentStatusPresentation {
 }
 
 /**
- * 被动「需要你」列表与计数(铃铛、侧栏分组、项目点、手机项目页):等待人操作,或还没看过的失败。
- * 失败一旦看过(宿主的已读位),就只是那一行上的红色状态,不再要人 —— ❌ 一个月前的旧失败堆进计数。
+ * 被动「需要你」计数(铃铛角标、项目点、手机项目页):等待人操作,或还没看过的失败。
+ * 失败一旦看过(宿主的已读位),仍留在铃铛列表和侧栏分组里(它们按 `presentationAttention` 列),只是不再计数 ——
+ * ❌ 一个月前的旧失败堆进计数。
  * 已读位缺失(旧宿主)按看过算。
  */
 export function isNeedsYou(presentation: AgentStatusPresentation | null | undefined, unseen: boolean): boolean {
