@@ -39,7 +39,15 @@ export function assertCredentialAgentContents(contents: WebContents): void {
   if (privateContents.has(contents) || candidates.has(contents)) throw new Error('credential_private_page_unavailable');
   if (contents.isDestroyed()) throw new Error('the browser tab was closed');
   const restriction = sessions.get(contents.session);
-  if (restriction && !restriction.allowsPublication(contents)) throw new Error('credential_partition_isolated');
+  if (restriction) throw new Error('credential_partition_isolated');
+}
+
+/** Only native registry adoption uses this exception; it never opens an Agent connection. */
+export function assertCredentialNativeAdoption(contents: WebContents): void {
+  if (privateContents.has(contents) || contents.isDestroyed()) throw new Error('credential_private_page_unavailable');
+  const restriction = sessions.get(contents.session);
+  if (candidates.has(contents) && restriction?.allowsPublication(contents)) return;
+  assertCredentialAgentContents(contents);
 }
 
 /** Internal isolation lifecycle hooks. These neither approve a use nor resume an old observer. */

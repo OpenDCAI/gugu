@@ -3,7 +3,7 @@ import type { WebContents } from 'electron';
 import { app } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CredentialPartitionIsolation } from './credential-partition-isolation';
-import { assertCredentialAgentContents, credentialAgentPartitionBlocked, registerPrivateCredentialSurface } from './credential-isolation-registry';
+import { assertCredentialAgentContents, assertCredentialNativeAdoption, credentialAgentPartitionBlocked, registerPrivateCredentialSurface } from './credential-isolation-registry';
 import { createPageProtocol } from './page-protocol';
 import type { CredentialUseBinding } from './credential-use-contract';
 
@@ -142,14 +142,30 @@ describe('physical B partition isolation prototype', () => {
     const candidate = boundary.prepareCandidate(() => ({ webContents: contents(f.nativeSession).wc }));
     expect(() => assertCredentialAgentContents(candidate.webContents)).toThrow('credential_private_page_unavailable');
     boundary.publishCandidate(candidate.webContents, () => {
-      expect(() => assertCredentialAgentContents(candidate.webContents)).not.toThrow();
+      expect(() => assertCredentialAgentContents(candidate.webContents)).toThrow();
+      expect(() => createPageProtocol(candidate.webContents)).toThrow();
+      expect(() => assertCredentialNativeAdoption(candidate.webContents)).not.toThrow();
       native.published.set(candidate.webContents.id, f.binding.browserId);
     });
+    expect(credentialAgentPartitionBlocked(f.partition)).toBe(true);
+    expect(() => assertCredentialAgentContents(candidate.webContents)).toThrow();
+    boundary.confirmCandidate(candidate.webContents);
     expect(credentialAgentPartitionBlocked(f.partition)).toBe(false);
     expect(boundary.signal.aborted).toBe(false);
     expect(() => boundary.assertLifecycleCurrent(f.binding)).not.toThrow();
     expect(() => boundary.assertCurrent(f.binding)).toThrow('credential_isolation_unavailable');
     expect(() => boundary.assertLifecycleCurrent(f.binding)).not.toThrow();
+  });
+
+  it('retracts a pending registration synchronously and refuses a late confirmation', async () => {
+    const f = fixture(), boundary = await f.prepare(); boundary.beginCleanup(); f.login.wc.close();
+    const candidate = boundary.prepareCandidate(() => ({ webContents: contents(f.nativeSession).wc }));
+    boundary.publishCandidate(candidate.webContents, () => { native.published.set(candidate.webContents.id, f.binding.browserId); });
+    boundary.retractCandidate(candidate.webContents);
+    expect(() => createPageProtocol(candidate.webContents)).toThrow();
+    expect(() => boundary.confirmCandidate(candidate.webContents)).toThrow();
+    expect(credentialAgentPartitionBlocked(f.partition)).toBe(true);
+    expect(boundary.signal.aborted).toBe(true);
   });
 
   it.each(['async', 'wrong-owner', 'throw'])('retains a %s publication without reopening or exposing the candidate', async kind => {

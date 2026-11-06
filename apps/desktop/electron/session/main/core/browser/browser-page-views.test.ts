@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   nativeSessions: new Map<string, object>(),
   identities: new Map<string, object>(),
   owners: new Map<string, any>(),
+  adoptHook: undefined as (() => void) | undefined,
 }));
 
 vi.mock('electron', async () => {
@@ -47,6 +48,7 @@ vi.mock('electron', async () => {
       return Promise.resolve();
     }
     setBackgroundThrottling = vi.fn();
+    setWindowOpenHandler = vi.fn();
     executeJavaScript = vi.fn(async () => undefined);
     capturePage = vi.fn(async () => ({ isEmpty: () => false, toJPEG: () => Buffer.from([1, 2]) }));
     beginFrameSubscription = vi.fn((_dirty: boolean, callback: (image: { isEmpty: () => boolean }) => void) => { queueMicrotask(() => callback({ isEmpty: () => false })); });
@@ -155,7 +157,7 @@ vi.mock('@main/lib/events', () => ({ events: { emit: (_channel: unknown, payload
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('../../../../devtools-lock', () => ({ hardenWebPreferences: <T>(prefs: T) => prefs }));
 vi.mock('./browser-webcontents-registry', async () => {
-  const { assertCredentialAgentContents } = await import('./credential-isolation-registry');
+  const { assertCredentialNativeAdoption } = await import('./credential-isolation-registry');
   return {
   browserWebContentsRegistry: {
     get registeredPartitions() {
@@ -167,10 +169,11 @@ vi.mock('./browser-webcontents-registry', async () => {
     browsersOfSession: () => [...state.owners].map(([browserId, webContents]) => ({ browserId, webContents })),
     browserIdFor: (id: number) => [...state.owners].find(([, wc]) => wc.id === id)?.[0],
     adoptPageWebContents: (browserId: string, contents: any, placement: (typeof state.adopted)[number]['placement']) => {
-      assertCredentialAgentContents(contents);
+      assertCredentialNativeAdoption(contents);
       state.owners.set(browserId, contents);
       contents.once('destroyed', () => { if (state.owners.get(browserId) === contents) state.owners.delete(browserId); });
       state.adopted.push({ browserId, placement });
+      state.adoptHook?.();
     },
   },
 }; });
@@ -191,6 +194,7 @@ import { acquireBrowserPage } from './browser-page-runtime';
 import { prepareCredentialBrowserPartition } from './credential-browser-destination';
 import { assertCredentialAgentContents, credentialAgentPartitionBlocked, registerPrivateCredentialSurface } from './credential-isolation-registry';
 import type { CredentialUseBinding } from './credential-use-contract';
+import { createPageProtocol } from './page-protocol';
 import { windowLayerResponse } from '../../../../window-layers';
 import { agentOverlayOfFrame, agentOverlayWindowName, buildTagWindowName, isBuildTagWindowName } from '@shared/aux-window';
 
@@ -219,6 +223,7 @@ beforeEach(() => {
   state.registered.clear();
   state.boxes.length = 0;
   state.nativeSessions.clear(); state.identities.clear(); state.owners.clear();
+  state.adoptHook = undefined;
 });
 
 afterEach(() => {
@@ -792,12 +797,56 @@ describe('credential fresh native destination', () => {
     expect(state.owners.has(f.binding.browserId)).toBe(false);
     expect(destination.publish()).toEqual({ status: 'published' });
     expect(state.owners.get(f.binding.browserId)).toBe(candidate.webContents);
+    expect(() => assertCredentialAgentContents(candidate.webContents)).toThrow();
+    expect(await snapshotBrowserPage(f.binding.browserId)).toBeNull();
+    state.emitted.length = 0;
+    candidate.webContents.emit('console-message', { message: 'pending confirmation' });
+    expect(state.emitted).toEqual([]);
+    expect(candidate.visible).toBe(false);
+    destination.confirm();
+    expect(mountBrowserPage({ browserId: f.binding.browserId, partition: f.partition, url: f.binding.origin, windowName: '' }).success).toBe(true);
     expect(candidate.bounds).toEqual(RECT);
     expect(candidate.visible).toBe(true);
     expect(() => f.destination.assertCurrent(f.binding)).not.toThrow();
     await destination.dispose(); // Cleanup cannot close an already published page.
     expect(candidate.webContents.isDestroyed()).toBe(false);
     expect(() => destination.publish()).toThrow();
+  });
+
+  it('retracts an adopted pending target before any late confirmation can open admission', async () => {
+    const f = await fixture(); f.cleanup();
+    const destination = await f.destination.prepare(f.binding), candidate = state.views.at(-1);
+    await destination.loadOrigin(f.binding.origin); destination.publish();
+    destination.retract();
+    expect(candidate.webContents.isDestroyed()).toBe(true);
+    expect(() => destination.confirm()).toThrow();
+    expect(credentialAgentPartitionBlocked(f.partition)).toBe(true);
+    await destination.dispose();
+    expect(state.owners.has(f.binding.browserId)).toBe(false);
+  });
+
+  it.each(['synchronous callback', 'microtask'] as const)('denies Agent access throughout %s revocation before confirmation', async timing => {
+    const f = await fixture(); f.cleanup();
+    const destination = await f.destination.prepare(f.binding), candidate = state.views.at(-1);
+    await destination.loadOrigin(f.binding.origin);
+    const revoke = () => {
+      expect(() => createPageProtocol(candidate.webContents)).toThrow();
+      destination.retract();
+      expect(credentialAgentPartitionBlocked(f.partition)).toBe(true);
+    };
+    if (timing === 'synchronous callback') {
+      state.adoptHook = revoke;
+      expect(() => destination.publish()).toThrow();
+      state.adoptHook = undefined;
+    } else {
+      destination.publish();
+      await Promise.resolve(); revoke();
+    }
+    await destination.dispose();
+    expect(() => destination.confirm()).toThrow();
+    expect(state.owners.has(f.binding.browserId)).toBe(false);
+    expect(candidate.webContents.isDestroyed()).toBe(true);
+    expect(await snapshotBrowserPage(f.binding.browserId)).toBeNull();
   });
 
   it.each(['revoke', 'discard'] as const)('cannot publish after %s while actual native loading is pending', async action => {

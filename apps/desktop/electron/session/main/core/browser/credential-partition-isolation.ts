@@ -19,7 +19,7 @@ export class CredentialPartitionIsolation {
   private readonly releaseRestriction: () => void;
   private readonly nativeSession: WebContents['session'];
   private readonly registration: object;
-  private phase: 'preparing' | 'isolated' | 'cleaning' | 'publishing' | 'handed_back' | 'fault' = 'preparing';
+  private phase: 'preparing' | 'isolated' | 'cleaning' | 'publishing' | 'published_pending' | 'handed_back' | 'fault' = 'preparing';
   private candidate: WebContents | undefined;
   private constructingCandidate = false;
   private candidateCreations = 0;
@@ -65,7 +65,7 @@ export class CredentialPartitionIsolation {
 
   /** Lifecycle guard also accepts the already-published replacement; fill readiness never does. */
   assertLifecycleCurrent(binding: CredentialUseBinding): void {
-    if (this.phase !== 'handed_back') { this.assertCurrent(binding); return; }
+    if (this.phase !== 'handed_back') { this.assertPhysical(binding); return; }
     if (!credentialBindingMatches(this.binding, binding)
       || this.signal.aborted || !this.candidate || this.candidate.isDestroyed()
       || browserWebContentsRegistry.registrationIdentity(binding.browserId) !== this.registration
@@ -76,6 +76,11 @@ export class CredentialPartitionIsolation {
   }
 
   assertCurrent(binding: CredentialUseBinding): void {
+    this.assertPhysical(binding);
+    if (this.phase === 'publishing' || this.phase === 'published_pending') throw new Error('credential_fill_finished');
+  }
+
+  private assertPhysical(binding: CredentialUseBinding): void {
     if (!credentialBindingMatches(this.binding, binding)) {
       throw new Error('credential_isolation_unavailable');
     }
@@ -118,7 +123,7 @@ export class CredentialPartitionIsolation {
 
   /**
    * B-3 calls only after its own cleanup/audit/fresh checks and the new page's actual load.
-   * Publish is synchronous native adoption of that PREPARED page; never async navigation.
+   * Publish is synchronous native adoption of that PREPARED page; Agent admission stays CLOSED.
    * This method is not an IPC, person action, proof verifier or second handback authority.
    */
   publishCandidate(contents: WebContents, publish: () => void): void {
@@ -127,7 +132,7 @@ export class CredentialPartitionIsolation {
       || !this.surface.contents.isDestroyed() || contents.debugger.isAttached()) throw new Error('credential_handoff_candidate_unavailable');
     try {
       assertCredentialWebsite(contents.getURL(), this.binding.origin);
-      this.phase = 'publishing'; publishCredentialHandoffCandidate(contents);
+      this.phase = 'publishing';
       const result: unknown = publish();
       if (result && (typeof result === 'object' || typeof result === 'function') && 'then' in result) {
         void Promise.resolve(result).catch(() => {});
@@ -136,11 +141,30 @@ export class CredentialPartitionIsolation {
       if (this.signal.aborted || contents.isDestroyed() || browserWebContentsRegistry.browserIdFor(contents.id) !== this.binding.browserId) {
         throw new Error('credential_handoff_publish_unconfirmed');
       }
-      this.phase = 'handed_back'; this.unwire(); this.releaseRestriction();
+      this.phase = 'published_pending';
     } catch (error) {
       markCredentialHandoffCandidate(contents); this.invalidate();
       throw error;
     }
+  }
+
+  /** B-3's final fresh proof/current check and this callback have no intervening await.
+   * This switch performs no navigation, events, callbacks or other externally controlled work.
+   */
+  confirmCandidate(contents: WebContents): void {
+    this.assertLifecycleCurrent(this.binding);
+    if (this.phase !== 'published_pending' || contents !== this.candidate || contents.isDestroyed()
+      || browserWebContentsRegistry.browserIdFor(contents.id) !== this.binding.browserId
+      || contents.debugger.isAttached()) throw new Error('credential_handoff_confirmation_unavailable');
+    assertCredentialWebsite(contents.getURL(), this.binding.origin);
+    publishCredentialHandoffCandidate(contents);
+    this.phase = 'handed_back'; this.unwire(); this.releaseRestriction();
+  }
+
+  /** Synchronous fail-close before waiting for native destruction. Confirmed handbacks are final. */
+  retractCandidate(contents: WebContents): void {
+    if (contents !== this.candidate || this.phase === 'handed_back') return;
+    markCredentialHandoffCandidate(contents); this.invalidate();
   }
 
   allowsPublication(contents: WebContents): boolean { return this.phase === 'publishing' && contents === this.candidate; }

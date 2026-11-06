@@ -25,7 +25,7 @@ import {
 import { wirePageDialogs, type PageDialogs } from './browser-page-dialogs';
 import { BrowserPageRuntime } from './browser-page-runtime';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
-import { credentialAgentPartitionBlocked } from './credential-isolation-registry';
+import { assertCredentialAgentContents, assertCredentialNativeAdoption, credentialAgentPartitionBlocked } from './credential-isolation-registry';
 import type { CredentialUseBinding } from './credential-use-contract';
 import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
 
@@ -90,6 +90,7 @@ const hostsWired = new WeakSet<BrowserWindow>();
 
 function emitPageEvent(page: BrowserPage, type: BrowserPageEventType, detail: Record<string, unknown> = {}): void {
   if (page.webContents.isDestroyed() || page.runtime.initializing) return;
+  try { assertCredentialAgentContents(page.webContents); } catch { return; }
   events.emit(browserPageEventChannel, { browserId: page.browserId, type, detail, state: pageState(page.webContents) });
 }
 
@@ -157,7 +158,8 @@ function applyLayout(page: BrowserPage): void {
   const host = page.runtime.host;
   if (!host || host.isDestroyed()) return;
   const sized = page.rect !== null && page.rect.width > 0 && page.rect.height > 0;
-  const shown = pageIsShown(page);
+  let shown = pageIsShown(page);
+  try { assertCredentialAgentContents(page.webContents); } catch { shown = false; }
   // 先定大小再挂上去:挂上的那一帧就在新位置。
   page.runtime.layout(page.fullscreen ? contentRect(host) : sized ? page.rect : null, shown);
   placeAgentLayers(page);
@@ -260,6 +262,8 @@ function installBrowserPage(page: BrowserPage): void {
     window: () => (page.runtime.host && !page.runtime.host.isDestroyed() ? page.runtime.host : null),
     origin: () => (page.fullscreen ? { x: 0, y: 0 } : { x: page.rect?.x ?? 0, y: page.rect?.y ?? 0 }),
   });
+  // A synchronous host callback during adoption can revoke/retire this very candidate.
+  assertCredentialNativeAdoption(page.webContents);
   pages.set(page.browserId, page);
   wirePage(page);
   moveToHost(page, page.windowName);
@@ -292,6 +296,7 @@ export function captureCredentialBrowserSlot(binding: CredentialUseBinding) {
       if (created || !original.webContents.isDestroyed()) throw new Error('credential_handoff_target_unavailable');
       const candidate = createBrowserPage(presentation);
       created = candidate;
+      candidate.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
       candidate.rect = presentation.rect;
       // Initial viewport exists, but the candidate is neither shown nor registered/observed.
       candidate.runtime.moveTo(resolveHost(presentation.windowName));
@@ -303,7 +308,6 @@ export function captureCredentialBrowserSlot(binding: CredentialUseBinding) {
           candidate.mode = presentation.mode;
           candidate.ready = true;
           installBrowserPage(candidate);
-          emitPageEvent(candidate, 'dom-ready');
         },
         dispose: () => {
           if (pages.get(binding.browserId) === candidate) destroyBrowserPage(binding.browserId);
@@ -473,7 +477,8 @@ export function destroyBrowserPage(browserId: string): void {
 
 function livePage(browserId: string): BrowserPage | null {
   const page = pages.get(browserId);
-  return page && !page.webContents.isDestroyed() ? page : null;
+  if (!page || page.webContents.isDestroyed()) return null;
+  try { assertCredentialAgentContents(page.webContents); return page; } catch { return null; }
 }
 
 export function navigateBrowserPage(browserId: string, url: string): boolean {

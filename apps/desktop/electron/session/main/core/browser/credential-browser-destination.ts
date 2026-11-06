@@ -28,11 +28,11 @@ export async function prepareCredentialBrowserPartition(binding: CredentialUseBi
       if (attempted) throw new Error('credential_handoff_already_prepared');
       attempted = true;
       const candidate = isolation.prepareCandidate(slot.create);
-      let loaded = false, loading = false, published = false, disposed = false;
+      let loaded = false, loading = false, published = false, confirmed = false, disposed = false;
       let disposal: Promise<void> | undefined;
       const dispose = (): Promise<void> => {
-        if (published) return Promise.resolve();
-        disposed = true; isolation.invalidate();
+        if (confirmed) return Promise.resolve();
+        disposed = true; isolation.retractCandidate(candidate.webContents);
         disposal ??= new Promise<void>((resolve, reject) => {
           const contents = candidate.webContents;
           if (contents.isDestroyed()) { resolve(); return; }
@@ -69,6 +69,13 @@ export async function prepareCredentialBrowserPartition(binding: CredentialUseBi
             published = true;
             return { status: 'published' as const };
           } catch (error) { isolation.invalidate(); throw error; }
+        },
+        retract: () => { if (!confirmed) { void dispose().catch(() => {}); } },
+        confirm: () => {
+          assertCurrent(fixed);
+          if (!published || disposed || confirmed) throw new Error('credential_handoff_confirmation_unavailable');
+          isolation.confirmCandidate(candidate.webContents);
+          confirmed = true;
         },
         dispose,
       });

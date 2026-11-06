@@ -4,6 +4,7 @@ import { events } from '@main/lib/events';
 import { browserAppShortcutChannel, tabNavigationShortcutChannel } from '@shared/events/appEvents';
 import { browserFocusedChannel } from '@shared/events/browserEvents';
 import { BrowserWebContentsRegistry, isSamePreviewNavigation } from './browser-webcontents-registry';
+import { markCredentialHandoffCandidate, publishCredentialHandoffCandidate, restrictCredentialPartition } from './credential-isolation-registry';
 
 const sessionsByPartition = new Map<string, object>();
 
@@ -162,6 +163,27 @@ describe('BrowserWebContentsRegistry', () => {
     registry.unregisterSession(input.browserId);
     input.sessionId = 'owner'; registry.registerSession(input);
     expect(registry.registrationIdentity(input.browserId)).not.toBe(original);
+  });
+
+  it('permits native pending adoption while refusing Agent lists, DevTools, clipboard capture and popup events', async () => {
+    const registry = new BrowserWebContentsRegistry(), partition = 'persist:gugu-browser-pending-admission';
+    const contents = fakeWebContents(partition), capture = vi.fn();
+    Object.assign(contents, { capturePage: capture });
+    registry.registerSession({ browserId: 'pending', partition, sessionId: 'owner' });
+    const release = restrictCredentialPartition(partition, contents.session, { allowsPublication: candidate => candidate === contents });
+    markCredentialHandoffCandidate(contents);
+    try {
+      adopt(registry, 'pending', contents);
+      expect(registry.browsersOfSession('owner')).toEqual([]);
+      expect(registry.openDevTools('pending')).toBe(false);
+      await expect(registry.captureScreenshotToClipboard('pending')).rejects.toThrow();
+      expect(capture).not.toHaveBeenCalled();
+      expect(contents.openDevTools).not.toHaveBeenCalled();
+      expect(contents.windowOpenHandler!({ url: 'https://example.com/private', disposition: 'foreground-tab' } as never).action).toBe('deny');
+      expect(events.emit).not.toHaveBeenCalled();
+    } finally { publishCredentialHandoffCandidate(contents); release(); }
+    expect(registry.browsersOfSession('owner')).toHaveLength(1);
+    expect(registry.openDevTools('pending')).toBe(true);
   });
 
   it('#7274 同一份配置上的几张网页各归各的页签', () => {
