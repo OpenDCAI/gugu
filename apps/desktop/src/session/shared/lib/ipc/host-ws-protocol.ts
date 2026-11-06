@@ -104,8 +104,22 @@ function u8Reviver(this: unknown, _key: string, value: unknown): unknown {
   return value
 }
 
+// invoke 的参数要和走 Electron IPC 时一样到达宿主。JSON 会把数组里的 undefined 写成 null:
+// `agents.install(id, 'mise', undefined)`(下载源「自动」)到了宿主就成了 registry=null,
+// 按「点名了 null 这个源」去挑装法,结果一条都挑不到(「这个平台上没有 codex 的安装命令」)。
+// 末尾的 undefined 不写进帧,于是任何版本的宿主读到的都是 undefined。
+// 中间位置的 undefined 仍然会变成 null:JSON 里没有哪个值能让旧宿主读回 undefined。
+function withoutTrailingUndefined(args: unknown[]): unknown[] {
+  let end = args.length
+  while (end > 0 && args[end - 1] === undefined) end -= 1
+  return end === args.length ? args : args.slice(0, end)
+}
+
 /** 编码一条信封:含 blob-chunk 的 pm 帧走二进制,其余走文本。 */
 export function encodeHostWsMessage(message: HostWsMessage): string | Uint8Array<ArrayBuffer> {
+  if (message.t === 'invoke') {
+    return JSON.stringify({ ...message, args: withoutTrailingUndefined(message.args) }, u8Replacer)
+  }
   if (message.t === 'pm' && isBlobChunk(message.msg)) {
     const { data, ...rest } = message.msg
     const header = textEncoder.encode(JSON.stringify({ ...message, msg: rest }, u8Replacer))
