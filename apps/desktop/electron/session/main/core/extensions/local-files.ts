@@ -798,43 +798,7 @@ export function createLocalAppFiles(platform: {
       service.removed(found.abs);
     },
 
-    /**
-     * Write each file into the working copy under its name — a path in it, folders made as needed — as a chat's upload
-     * puts it in the chat. A new file only: one already there is not written over (`invalid`, said). Every size is
-     * checked before the first byte goes; if one fails, the ones before it stay, and the rejection names what did not.
-     */
-    upload(surface: LocalSurface, files: readonly AppFileUpload[]): AppFileEntry[] {
-      for (const file of files) {
-        if (!file || typeof file.name !== 'string' || !file.name.trim() || !(file.bytes instanceof ArrayBuffer)) {
-          throw new AppFileError('invalid', 'Each upload needs a name and its bytes');
-        }
-      }
-      const tooLarge = files.filter((file) => file.bytes.byteLength > APP_FILE_MAX_BYTES).map((file) => file.name);
-      if (tooLarge.length > 0) throw tooLargeError(tooLarge);
-      const entries: AppFileEntry[] = [];
-      for (const [index, file] of files.entries()) {
-        const name = file.name.trim();
-        try {
-          makeFolderOf(surface.workspaceRoot, name);
-          const target = inside(surface.workspaceRoot, name, 'new');
-          fs.writeFileSync(target.abs, new Uint8Array(file.bytes), { flag: 'wx', mode: FRESH_MODE });
-          entries.push(workingCopyEntry(surface.place, target.rel, fs.statSync(target.abs)));
-        } catch (error) {
-          const notIn = files.slice(index).map((f) => f.name).join(', ');
-          const why = code(error) === 'EEXIST' ? `${name} already exists` : messageOf(error);
-          throw new AppFileError(code(error) === 'EEXIST' ? 'invalid' : 'failed', `Upload stopped at ${name} (${why}); not uploaded: ${notIn}`);
-        }
-      }
-      return entries;
-    },
-
-    /** What saving a file of the working copy takes — gated like opening it read-only: its name and its bytes. */
-    downloadSource(surface: LocalSurface, args: { ref: WorkspaceFileRef }): { name: string; bytes: Uint8Array } {
-      const found = readable(surface, args.ref, 'saving');
-      return { name: path.posix.basename(found.rel), bytes: fs.readFileSync(found.abs) };
-    },
-
-    /** 「用 X 打开」: which file of the working copy — gated like saving it. Who opens it is the host's to work out. */
+    /** 「用 X 打开」 and saving: which file of the working copy, gated as opening it read-only. Who opens it is the host's to work out. */
     openTarget(surface: LocalSurface, args: { ref: WorkspaceFileRef }): { place: WorkspacePlace; path: string; name: string } {
       const found = readable(surface, args.ref, 'opening');
       return { place: surface.place, path: found.rel, name: path.posix.basename(found.rel) };
