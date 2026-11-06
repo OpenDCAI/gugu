@@ -28,7 +28,7 @@ describe.skipIf(!enabled)('projection factory through real media with Electron',
     };
     const entry = path.join(repo, 'apps/desktop/electron/session/main/core/extensions/test-support/projection-media-electron.ts');
     const main = path.join(temporary, 'main.cjs');
-    await build({ entryPoints: [entry], outfile: main, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], plugins: [{
+    await build({ banner: {js: `process.stderr.write('BUNDLE_ENTER1863=' + JSON.stringify({at:Date.now(),pid:process.pid}) + '\\n');`}, entryPoints: [entry], outfile: main, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], plugins: [{
       name: 'pipeline-fixture-adapters', setup(builder) {
         builder.onResolve({ filter: /^@shared\// }, ({ path: imported }) => ({ path: path.join(repo, 'apps/desktop/src/session/shared', imported.slice(8) + '.ts') }));
         builder.onResolve({ filter: /.*/ }, ({ path: imported }) => stubs[imported] ? { path: imported, namespace: 'fixture' } : undefined);
@@ -42,7 +42,16 @@ describe.skipIf(!enabled)('projection factory through real media with Electron',
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => { stdout += chunk.toString(); });
     child.stderr.on('data', chunk => { stderr += chunk.toString(); });
-    const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+    const launched = Date.now();
+    child.on('spawn', () => process.stderr.write('PARENT_SPAWN=' + JSON.stringify({ pid: child.pid, at: Date.now(), env: {GUGU_HOME: env.GUGU_HOME, GUGU_USER_DATA_DIR: env.GUGU_USER_DATA_DIR} }) + '\n'));
+    child.on('exit', (code, signal) => process.stderr.write('PARENT_EXIT=' + JSON.stringify({ code, signal, ms: Date.now()-launched }) + '\n'));
+    child.on('close', (code, signal) => { if (process.env.GUGU_BROWSER_PROBE_REPORT_DIR) fs.writeFileSync(path.join(process.env.GUGU_BROWSER_PROBE_REPORT_DIR, 'child-close.json'), JSON.stringify({code,signal,ms:Date.now()-launched,stdout,stderr})); });
+    const code = await new Promise<number | null>((resolve, reject) => { child.once('error', error => {process.stderr.write('PARENT_ERROR=' + JSON.stringify({name:error.name,message:error.message,ms:Date.now()-launched})+'\n');reject(error)}); child.once('close', resolve); }).finally(() => {
+      if (process.env.GUGU_BROWSER_PROBE_REPORT_DIR) {
+        fs.mkdirSync(process.env.GUGU_BROWSER_PROBE_REPORT_DIR, { recursive: true });
+        fs.writeFileSync(path.join(process.env.GUGU_BROWSER_PROBE_REPORT_DIR, 'child-finally.json'), JSON.stringify({ms:Date.now()-launched, stdout, stderr}));
+      }
+    });
     if (process.env.GUGU_BROWSER_PROBE_REPORT_DIR) {
       fs.mkdirSync(process.env.GUGU_BROWSER_PROBE_REPORT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.GUGU_BROWSER_PROBE_REPORT_DIR, 'native-projection-pipeline.log'), stdout + '\n' + stderr);

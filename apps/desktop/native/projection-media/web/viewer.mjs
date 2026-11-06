@@ -59,6 +59,7 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
     return work
   }
   const matched = () => {
+    globalThis.PROJECTION1863_TRACE?.({phase:'matched',visible,receipts:[...receipts],closing})
     if (!visible || closing) return
     const frame = receipts.get(visible.rtpTimestamp)
     if (!frame || frame.sequence < lastPainted || (frame.sequence === lastPainted && frame.rtpTimestamp === lastPaintedStamp)) return
@@ -74,6 +75,7 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
   const observe = (now, metadata) => {
     if (closing) return
     try {
+      globalThis.PROJECTION1863_TRACE?.({phase:'observe',metadata})
       if (!Number.isInteger(metadata.rtpTimestamp) || metadata.rtpTimestamp < 0 || metadata.rtpTimestamp > 0xffffffff
         || !positive(metadata.width) || !positive(metadata.height)) throw new Error('Projection decoder omitted frame correlation metadata')
       visible = { rtpTimestamp: metadata.rtpTimestamp, width: metadata.width, height: metadata.height }
@@ -84,6 +86,7 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
   }
   callback = video.requestVideoFrameCallback(observe)
   peer.ontrack = guard(event => {
+    globalThis.PROJECTION1863_TRACE?.({phase:'ontrack',kind:event.track.kind})
     if (event.track.kind !== 'video' || tracks.size) throw new Error('Unexpected projection media track')
     tracks.add(event.track)
     event.track.onended = () => close(new Error('Projection video track ended'))
@@ -91,6 +94,7 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
     void video.play().catch(error => close(error))
   })
   peer.onconnectionstatechange = () => {
+    globalThis.PROJECTION1863_TRACE?.({phase:'connection',state:peer.connectionState})
     if (['failed', 'disconnected', 'closed'].includes(peer.connectionState)) close(new Error('Projection media connection closed'))
   }
   peer.ondatachannel = guard(event => {
@@ -105,6 +109,7 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
     incoming.onclose = () => close(new Error('Projection input channel closed'))
     incoming.onerror = () => close(new Error('Projection input channel failed'))
     incoming.onmessage = guard(event => {
+      globalThis.PROJECTION1863_TRACE?.({phase:'data-channel',data:event.data})
       if (typeof event.data !== 'string' || new TextEncoder().encode(event.data).length > MAX_CONTROL) throw new Error('Invalid projection control message')
       let value
       try { value = JSON.parse(event.data) } catch { /* App control bytes need not be JSON. */ }

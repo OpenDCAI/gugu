@@ -1,495 +1,59 @@
-name: CI
+name: Projection timeout investigation 1863
 on:
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
-  actions: read
-# Also constrain built-in caches in setup-go/setup-java and immutable reusable callees.
-cache-mode: read
-concurrency:
-  group: community-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   CI: true
   GUGU_SUPABASE_URL: http://127.0.0.1:54321
   VITE_SUPABASE_URL: http://127.0.0.1:54321
   GUGU_SUPABASE_ANON_KEY: community-build-placeholder
   VITE_SUPABASE_ANON_KEY: community-build-placeholder
-  # Match pnpm-lock.yaml; update the version and digest together when Playwright changes.
-  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
+  TZ: UTC
 jobs:
-  # Docs-only PRs skip tests and packaging; mixed/source PRs retain every test.
-  # ci-spec-coverage accepts only this exact tests output guard, not arbitrary test conditions.
-  # Manual diagnostic runs always build everything; ci-dev-mac.yml compiles merged dev changes.
-  changes:
-    name: Detect changed areas
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      build: ${{ steps.classify.outputs.build }}
-      desktop-mac: ${{ steps.classify.outputs.desktop-mac }}
-      desktop-linux: ${{ steps.classify.outputs.desktop-linux }}
-      tests: ${{ steps.classify.outputs.tests }}
-      android: ${{ steps.classify.outputs.android }}
-    steps:
-      # A pull_request run checks out the merge commit; its first parent is the base branch tip,
-      # so HEAD^1..HEAD is exactly what the PR changes.
-      - if: github.event_name == 'pull_request'
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-          sparse-checkout: .github
-      - id: classify
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          build=true
-          desktop_mac=true
-          desktop_linux=true
-          android=true
-          tests=true
-          # Preserve the approved exact same-repository integration full-validation window.
-          if [ "$EVENT_NAME" = pull_request ] && {
-            [ "$GITHUB_REPOSITORY" != GUYI-AI/gugu ] ||
-              [ "$PR_HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] ||
-              [ "$PR_HEAD_REF" != integration/beta-20261103 ]
-          }; then
-            build=false
-            desktop_mac=false
-            desktop_linux=false
-            android=false
-            tests=false
-            changed=$(git diff --name-only HEAD^1 HEAD)
-            # An empty/unavailable change list must never silently exempt a source PR.
-            test -n "$changed"
-            while IFS= read -r file; do
-              [ -n "$file" ] || continue
-              case "$file" in
-                *.md|docs/*) continue ;;
-              esac
-              tests=true
-              build=true
-              # Mobile-only inputs still build the web renderer and Android, but no desktop app.
-              case "$file" in
-                apps/mobile/*|capacitor.config.ts|scripts/build/android-gradle-build.sh|scripts/build/phone-web-dir.mts)
-                  android=true
-                  continue
-                  ;;
-              esac
-              desktop_linux=true
-              case "$file" in
-                .github/workflows/ci.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
-                  desktop_mac=true
-                  android=true
-                  ;;
-              esac
-              case "$file" in
-                apps/desktop/native/*|apps/desktop/session-tooling/node-deps/*)
-                  desktop_mac=true
-                  ;;
-              esac
-            done <<< "$changed"
-          fi
-          {
-            echo "build=$build"
-            echo "desktop-mac=$desktop_mac"
-            echo "desktop-linux=$desktop_linux"
-            echo "android=$android"
-            echo "tests=$tests"
-          } >> "$GITHUB_OUTPUT"
-          echo "::notice title=ci-job-outputs::build=$build desktop-mac=$desktop_mac desktop-linux=$desktop_linux android=$android tests=$tests"
-  policy:
-    name: Source checks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      # PRs restore only; ci-cache.yml seeds dependencies from dev pushes.
-      - id: setup
-        uses: ./.github/actions/setup-community
-        with:
-          save-cache: 'true'
-      # Restore the latest compatible dev snapshot; ESLint validates file content.
-      - uses: actions/cache/restore@v4
-        with:
-          path: node_modules/.cache/eslint
-          key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/checks/eslint-cached.mts', 'scripts/checks/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
-          restore-keys: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/checks/eslint-cached.mts', 'scripts/checks/button-style-debt-baseline.json') }}-
-      - name: Check permanent removal call sites
-        run: node scripts/checks/check-permanent-removal.mts
-      - name: Check frozen source file growth
-        if: github.event_name == 'pull_request'
-        # Compare against the base this merge commit was built on (its first parent), not the
-        # branch tip at fetch time: the base branch can move between checkout and fetch.
-        run: |
-          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
-          failed=0
-          for file in \
-            apps/desktop/src/components/ContactsPanel.tsx \
-            apps/desktop/src/components/ChatAreaPanel.tsx \
-            apps/desktop/src/lib/chat.ts \
-            apps/desktop/src/store/chat.tsx \
-            apps/desktop/src/components/chat/GroupMembersSection.tsx \
-            apps/desktop/src/components/chat/MessageBubble.tsx; do
-            base_lines=$(git show "HEAD^1:$file" | wc -l | tr -d ' ')
-            head_lines=$(wc -l < "$file" | tr -d ' ')
-            if [ "$head_lines" -gt "$base_lines" ]; then
-              echo "::error file=$file::Frozen source grew: $base_lines -> $head_lines"
-              failed=1
-            fi
-          done
-          exit "$failed"
-      - run: node scripts/checks/ui-state-debt-check.mjs --root apps/desktop/src
-      - run: pnpm typecheck
-      - run: pnpm lint:source
-      - name: Verify e2e and integration spec execution coverage
-        run: |
-          # Read exact callee objects without moving the original PR base.
-          git fetch --no-tags --no-write-fetch-head --depth=1 origin 499a1ee16cb7650190e8a7869bec59e4f4ee9f22
-          git fetch --no-tags --no-write-fetch-head --depth=1 origin 0970e2e3af61985a54bedd313278f72673ccc493
-          args=()
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-            args+=(--base FETCH_HEAD --head HEAD --base-ref "${{ github.base_ref }}" --event-action "${{ github.event.action }}")
-          fi
-          node scripts/ci/ci-spec-coverage.mts "${args[@]}"
-  unit:
-    name: Unit tests (${{ matrix.shard }}/4)
-    needs: changes
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      GUGU_VITEST_MODULE_CACHE: '1'
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - if: needs.changes.outputs.tests == 'true'
-        uses: actions/checkout@v4
-      - if: needs.changes.outputs.tests == 'true'
-        id: setup
-        uses: ./.github/actions/setup-community
-      # Each shard restores its compatible dev module snapshot without writing a PR cache.
-      - if: needs.changes.outputs.tests == 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: node_modules/.experimental-vitest-cache
-          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
-          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-
-      - if: needs.changes.outputs.tests == 'true'
-        run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
-  renderer-build:
-    name: Renderer build (web target)
-    needs: changes
-    if: needs.changes.outputs.build == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
-      NODE_OPTIONS: --max-old-space-size=6144
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-community
-      - run: pnpm build:renderer:ci
-  desktop-build-linux:
-    name: Desktop app build (ubuntu-24.04)
-    needs: changes
-    if: needs.changes.outputs.desktop-linux == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
-      NODE_OPTIONS: --max-old-space-size=6144
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y tmux libnss3 libgtk-3-0t64 libgbm1 libasound2t64
-      - uses: ./.github/actions/setup-community
-      - run: pnpm build:app:ci
-      - run: pnpm rebuild:native
-  # Immutable callees choose the isolated Mac pool for same-repository PRs; forks stay hosted.
-  # Keep calls unconditional so docs/mobile skips still register their child checks.
-  desktop-build-mac:
-    name: Desktop app build (macos-15)
-    needs: changes
-    uses: GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@499a1ee16cb7650190e8a7869bec59e4f4ee9f22
-    with:
-      build-required: ${{ needs.changes.outputs.desktop-mac }}
-  android-build:
-    name: Android debug build
-    needs: changes
-    if: needs.changes.outputs.android == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
-      GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
-      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
-      NODE_OPTIONS: --max-old-space-size=6144
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-          cache-dependency-path: |
-            apps/mobile/android/**/*.gradle*
-            apps/mobile/android/**/gradle-wrapper.properties
-            apps/mobile/android/gradle.properties
-      - uses: ./.github/actions/setup-community
-      # The embedded runtime's ICU data is trimmed with ICU's tools and relinked with LLVM (apps/mobile/runtime/README.md).
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends icu-devtools llvm clang lld
-      - run: pnpm android:build
-      - name: Run Android JVM unit tests
-        run: bash scripts/build/android-gradle-build.sh testDebugUnitTest
-  session-db:
-    name: Session database, chat UI browser and tooling
-    needs: changes
-    uses: GUYI-AI/gugu/.github/workflows/ci-mac-session.yml@0970e2e3af61985a54bedd313278f72673ccc493
-    with:
-      tests-required: ${{ needs.changes.outputs.tests }}
-  projection-media:
-    name: Projection native media
-    needs: changes
-    if: needs.changes.outputs.tests == 'true'
-    runs-on: ubuntu-24.04
+  measure:
+    name: Five projection-media phase samples
+    runs-on: macos-15
     timeout-minutes: 20
-    env:
-      CGO_ENABLED: '1'
-    # Same pinned browser image as PLAYWRIGHT_IMAGE. This module has no Node dependency tree.
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
-      options: --shm-size=1g
-    defaults:
-      run:
-        working-directory: apps/desktop/native/projection-media
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version-file: .node-version
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: '1.26.0'
-          cache-dependency-path: apps/desktop/native/projection-media/go.sum
-      - name: Install the encoder, decoder and race detector toolchain
-        run: apt-get update && apt-get install --no-install-recommends -y ffmpeg gcc libc6-dev
-      - name: Test native IPC, direct media and actual Chromium decoding
-        shell: bash
-        run: |
-          # checkout's safe.directory lives in the action's temporary HOME;
-          # Go's VCS stamping runs later as the browser container's root user.
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git -C "$GITHUB_WORKSPACE" status --porcelain
-          test -z "$(gofmt -l .)"
-          go build -race -o "$RUNNER_TEMP/projection-media" ./cmd/projection-media
-          export GUGU_TEST_MEDIA_HELPER="$RUNNER_TEMP/projection-media"
-          export GUGU_TEST_CHROMIUM
-          GUGU_TEST_CHROMIUM=$(find /ms-playwright -type f -path '*/chrome-linux64/chrome' -print)
-          test -x "$GUGU_TEST_CHROMIUM"
-          go test -race -tags 'browser helper' -count=3 -timeout=5m ./...
-          go vet -tags 'browser helper' ./...
-          export GUGU_PROJECTION_FFMPEG
-          GUGU_PROJECTION_FFMPEG=$(command -v ffmpeg)
-          for _ in 1 2 3; do
-            node --test node/*.node-test.mjs
-          done
-  session-browser:
-    name: Session browser project (${{ matrix.shard }}/2)
-    needs: changes
-    if: needs.changes.outputs.tests == 'true'
-    # On GitHub-hosted macOS (macos-14 and macos-15 alike) a full session-browser run turns animation,
-    # IME and tab-density cases red that pass there in isolation, on Linux runners and on local Macs;
-    # until that host difference is understood this project runs on Linux (87/87 green there).
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
-    steps:
-      - uses: actions/checkout@v4
+          persist-credentials: false
       - uses: ./.github/actions/setup-community
       - uses: ./.github/actions/setup-playwright
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          container-image: ${{ env.PLAYWRIGHT_IMAGE }}
-      - run: node scripts/test-infra/vitest-browser-shards.mjs --project session-browser --shard-group=${{ matrix.shard }}/2 --shards-per-group=4
-        shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
-  web-smoke:
-    name: Web E2E (${{ matrix.id }})
-    needs: changes
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - id: local
-            runtime: local
-            db_target: ''
-            playwright_project: ci-local
-            shard_arg: ''
-    env:
-      GUGU_DB_TARGET: ${{ matrix.db_target }}
-      GUGU_E2E_CI_PROJECT: ${{ matrix.runtime }}
-      GUGU_E2E_PORT: '4173'
-      # The vite dev server serving the renderer needs the same heap headroom as the build.
-      NODE_OPTIONS: --max-old-space-size=6144
-    steps:
-      - if: needs.changes.outputs.tests == 'true'
-        uses: actions/checkout@v4
-      - if: needs.changes.outputs.tests == 'true'
-        uses: ./.github/actions/setup-community
-      - if: needs.changes.outputs.tests == 'true'
-        name: Bind run-owned web resources
-        run: echo "GUGU_E2E_RUN_ID=community-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-      - if: needs.changes.outputs.tests == 'true'
-        uses: ./.github/actions/setup-playwright
-        with:
-          container-image: ${{ env.PLAYWRIGHT_IMAGE }}
-      - if: needs.changes.outputs.tests == 'true'
-        name: Run automatically discovered CI web specs
-        run: pnpm exec playwright test --project=${{ matrix.playwright_project }} ${{ matrix.shard_arg }} --workers=1
-        shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
-      - if: ${{ always() && needs.changes.outputs.tests == 'true' }}
-        name: Verify local Playwright artifacts exist
-        run: test -d playwright-report && test -d test-results
-      - if: ${{ always() && needs.changes.outputs.tests == 'true' }}
-        name: Upload Playwright report and test artifacts
-        uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: web-e2e-${{ matrix.id }}-${{ github.run_attempt }}
-          path: |
-            playwright-report/
-            test-results/
-          if-no-files-found: error
-          retention-days: 14
-  supabase-contract:
-    name: Client and community database contracts
-    needs: changes
-    if: needs.changes.outputs.tests == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      GUGU_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
-      GUGU_INSTALL_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
-      # Neither Supabase mirror holds up from hosted runners: public.ecr.aws runs out of the anonymous
-      # quota those runner IPs share, and GHCR caps pulls per publishing organization, so every pull
-      # of a Supabase image anywhere draws on one budget ("allowed: 44000/minute"). Take the Docker
-      # Hub originals through Google's Docker Hub cache; the daemon falls back to Docker Hub.
-      SUPABASE_INTERNAL_IMAGE_REGISTRY: docker.io
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-community
-      - name: Read public backend version
+          go-version: 1.26.0
+          cache-dependency-path: apps/desktop/native/projection-media/go.sum
+      - name: Build the original real race helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
+          go -C apps/desktop/native/projection-media build -p 2 -race -buildvcs=false -o "$RUNNER_TEMP/projection-media-factory" ./cmd/projection-media
+          printf '%s\n' "GUGU_TEST_MEDIA_HELPER=$RUNNER_TEMP/projection-media-factory" "GUGU_PROJECTION_FFMPEG=$(command -v ffmpeg)" "GUGU_TEST_CHROMIUM=$(node -p 'require("playwright").chromium.executablePath()')" >> "$GITHUB_ENV"
+      - name: Record five independent samples without retries or changed deadlines
+        shell: bash
         env:
-          BACKEND_DEPLOY_KEY: ${{ secrets.GUGU_SUPABASE_DEPLOY_KEY_RO }}
+          GUGU_BROWSER_REAL_ELECTRON: ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
         run: |
-          if [ -n "$BACKEND_DEPLOY_KEY" ]; then echo "HAS_BACKEND_DEPLOY_KEY=true" >> "$GITHUB_ENV"; fi
-          echo "BACKEND_REPOSITORY=$(node -p "require('./.github/community-backend.json').repository")" >> "$GITHUB_ENV"
-          echo "BACKEND_REF=$(node -p "require('./.github/community-backend.json').ref")" >> "$GITHUB_ENV"
-      # While the backend repository is private, the default GITHUB_TOKEN cannot read it; a read-only
-      # deploy key on that repository is the only credential used here. Once it is public the secret
-      # can be deleted and the anonymous checkout below takes over unchanged.
-      - if: ${{ env.HAS_BACKEND_DEPLOY_KEY == 'true' }}
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.BACKEND_REPOSITORY }}
-          ref: ${{ env.BACKEND_REF }}
-          path: .gugu-supabase
-          ssh-key: ${{ secrets.GUGU_SUPABASE_DEPLOY_KEY_RO }}
-          persist-credentials: false
-      - if: ${{ env.HAS_BACKEND_DEPLOY_KEY != 'true' }}
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.BACKEND_REPOSITORY }}
-          ref: ${{ env.BACKEND_REF }}
-          path: .gugu-supabase
-          persist-credentials: false
-      - run: pnpm --dir .gugu-supabase install --frozen-lockfile
-      - name: Pull Docker Hub images through mirror.gcr.io
-        run: |
-          config=/etc/docker/daemon.json
-          current=$(sudo cat "$config" 2>/dev/null || echo '{}')
-          echo "$current" | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee "$config"
-          sudo systemctl restart docker
-          docker info --format '{{.RegistryConfig.Mirrors}}'
-      - run: pnpm --dir .gugu-supabase test:db:start
-      - run: pnpm --dir .gugu-supabase test:installation
-      - run: pnpm exec vitest run --project supabase-contract
-      - if: ${{ always() }}
-        run: pnpm --dir .gugu-supabase test:db:stop
-  gate:
-    name: Typecheck, lint, and test
-    if: ${{ always() }}
-    needs: [changes, policy, unit, renderer-build, desktop-build-linux, desktop-build-mac, android-build, session-db, session-browser, projection-media, web-smoke, supabase-contract]
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Require every due test job to have passed
-        run: |
-          test "${{ needs.changes.result }}" = success
-          test "${{ needs.policy.result }}" = success
-          case "${{ needs.changes.outputs.tests }}" in
-            true)
-              if [ "${{ needs.unit.result }}" != "success" ] ||
-                 [ "${{ needs.session-db.result }}" != "success" ] ||
-                 [ "${{ needs.session-browser.result }}" != "success" ] ||
-                 [ "${{ needs.projection-media.result }}" != "success" ] ||
-                 [ "${{ needs.web-smoke.result }}" != "success" ] || \
-                 [ "${{ needs.supabase-contract.result }}" != "success" ]; then
-                exit 1
-              fi
-              ;;
-            false)
-              for result in "${{ needs.unit.result }}" "${{ needs.session-db.result }}" "${{ needs.session-browser.result }}" "${{ needs.projection-media.result }}" "${{ needs.web-smoke.result }}" "${{ needs.supabase-contract.result }}"; do
-                # Only a successful classifier may exempt docs-only test payloads.
-                case "$result" in success|skipped) ;; *) exit 1 ;; esac
-              done
-              ;;
-            *) exit 1 ;;
-          esac
-      # A path-filtered build may be skipped only when `changes` (which passed above) said it was
-      # not due; when it was due, only success counts.
-      - name: Require every due packaging build to have passed
-        env:
-          BUILD_DUE: ${{ needs.changes.outputs.build }}
-          DESKTOP_LINUX_DUE: ${{ needs.changes.outputs.desktop-linux }}
-          DESKTOP_MAC_DUE: ${{ needs.changes.outputs.desktop-mac }}
-          ANDROID_DUE: ${{ needs.changes.outputs.android }}
-          RENDERER_BUILD: ${{ needs.renderer-build.result }}
-          DESKTOP_BUILD_LINUX: ${{ needs.desktop-build-linux.result }}
-          DESKTOP_BUILD_MAC: ${{ needs.desktop-build-mac.result }}
-          ANDROID_BUILD: ${{ needs.android-build.result }}
-        run: |
-          for due in "$BUILD_DUE" "$DESKTOP_LINUX_DUE" "$DESKTOP_MAC_DUE" "$ANDROID_DUE"; do
-            case "$due" in true|false) ;; *) exit 1 ;; esac
-          done
+          set -uo pipefail
+          node -e 'console.log(JSON.stringify({node:process.version,arch:process.arch,cpus:require("node:os").availableParallelism(),load:require("node:os").loadavg()}))'
           failed=0
-          require() {
-            if [ "$2" = success ] || { [ "$3" != true ] && [ "$2" = skipped ]; }; then
-              echo "$1: $2 (due: $3)"
-            else
-              echo "::error::$1 finished as $2 (due: $3)"
-              failed=1
-            fi
-          }
-          require renderer-build "$RENDERER_BUILD" "$BUILD_DUE"
-          require desktop-build-linux "$DESKTOP_BUILD_LINUX" "$DESKTOP_LINUX_DUE"
-          require desktop-build-mac "$DESKTOP_BUILD_MAC" "$DESKTOP_MAC_DUE"
-          require android-build "$ANDROID_BUILD" "$ANDROID_DUE"
+          for sample in 1 2 3 4 5; do
+            export GUGU_BROWSER_PROBE_REPORT_DIR="$RUNNER_TEMP/projection1863-$sample"
+            export GUGU_HOME="$GUGU_BROWSER_PROBE_REPORT_DIR/parent-home"
+            export GUGU_USER_DATA_DIR="$GUGU_BROWSER_PROBE_REPORT_DIR/parent-user-data"
+            mkdir -p "$GUGU_BROWSER_PROBE_REPORT_DIR" "$GUGU_HOME" "$GUGU_USER_DATA_DIR"
+            printf 'SAMPLE_START=%s\n' "$sample"
+            pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/extensions/projection-media.real-electron.test.ts
+            code=$?
+            printf 'SAMPLE_EXIT=%s:%s\n' "$sample" "$code"
+            for report in "$GUGU_BROWSER_PROBE_REPORT_DIR"/*.json "$GUGU_BROWSER_PROBE_REPORT_DIR"/*.log; do
+              if [ -f "$report" ]; then printf 'REPORT=%s\n' "$(basename "$report")"; cat "$report"; printf '\n'; fi
+            done
+            if [ "$code" -ne 0 ]; then failed=1; fi
+          done
           exit "$failed"

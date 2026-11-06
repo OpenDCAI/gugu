@@ -19,10 +19,15 @@ import { ProjectionSignals } from '../../../../../../native/projection-media/nod
 if (!process.env.GUGU_HOME || !process.env.GUGU_USER_DATA_DIR) throw new Error('Pipeline fixture needs isolated paths');
 app.setPath('userData', process.env.GUGU_USER_DATA_DIR);
 app.dock?.hide();
+const trace = (phase: string, extra: unknown = {}) => process.stderr.write('PHASE1863=' + JSON.stringify({phase, ms: performance.now(), extra}) + '\n');
+trace('module-loaded', {pid: process.pid, home: process.env.GUGU_HOME, userData: app.getPath('userData')});
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 void app.whenReady().then(async () => {
+  trace('app-ready');
+  trace('service-before');
   const id = 'projection-media-native-fixture', service = extensionsService();
+  trace('service-after');
   const bundle = path.join(app.getPath('userData'), 'fixture-app');
   fs.mkdirSync(bundle, { recursive: true });
   fs.writeFileSync(path.join(bundle, 'index.html'), '<body>Fixture App</body>');
@@ -31,7 +36,9 @@ void app.whenReady().then(async () => {
     platforms: ['desktop'], entry: 'index.html', permissions: { capabilities: ['agents:tools'], network: [] },
     contributes: { instructions: 'Projection fixture tools.', tabs: [{ name: 'main', title: 'Fixture' }], mcpServers: [{ name: 'fixture', command: 'node', args: ['fixture.mjs'] }] },
   }));
+  trace('install-before');
   service.installFromDirectory(bundle, service.inspectDirectory(bundle).manifestDigest, 'folder');
+  trace('install-after');
   const source = new BrowserWindow({ show: false, frame: false, useContentSize: true, width: 128, height: 96,
     webPreferences: { backgroundThrottling: false } });
   const appPage = new BrowserWindow({ show: false });
@@ -54,7 +61,10 @@ void app.whenReady().then(async () => {
   const decoded: number[][] = [];
   let disconnected = 0, viewerGeneration = "";
   const encoded = new Map<number, number>();
+  if (process.env.TRACE_PRE_CAPTURE_DELAY_MS) { trace('controlled-delay-before', {ms:process.env.TRACE_PRE_CAPTURE_DELAY_MS}); await pause(Number(process.env.TRACE_PRE_CAPTURE_DELAY_MS)); trace('controlled-delay-after'); }
+  trace('source-load-before');
   await source.loadURL('data:text/html,' + encodeURIComponent('<body style="margin:0;background:rgb(26,96,190)"><textarea style="width:60px;height:20px"></textarea><script>document.querySelector("textarea").focus()</script>'));
+  trace('source-load-after');
   const publisher = await runtime.create({
     input: async (input, { signal }) => { signal.throwIfAborted(); assert.equal(input.kind, 'text');
       if (input.kind === 'text') { inputCalls++; await source.webContents.insertText(input.text); } },
@@ -62,7 +72,9 @@ void app.whenReady().then(async () => {
     refresh: async () => { await capture(); },
   });
   async function capture() {
+    trace('capture-before');
     const picture = await source.webContents.capturePage();
+    trace('capture-after');
     assert.deepEqual(picture.getSize(), { width: 128, height: 96 });
     return publisher.publish({ width: 128, height: 96, mime: 'image/png', data: picture.toPNG().toString('base64') });
   }
@@ -77,10 +89,12 @@ void app.whenReady().then(async () => {
           const at = (80 * frame.width + 110) * 4; decoded.push([...lease.data.subarray(at, at + 4)]); return lease;
         };
       }, async (size, signal, onControl) => {
+        trace('media-open-before');
         const media = await openMediaProcess({ ...size, executable: process.env.GUGU_TEST_MEDIA_HELPER!,
           ffmpeg: process.env.GUGU_PROJECTION_FFMPEG!, fps: 10, bitrate: 500000, signal,
           onControl: raw => { const packet = JSON.parse(raw); if (packet.type === 'ack') viewerGeneration ||= packet.generation; onControl(raw); } });
-        return { ...media, async publish(sequence, data) { const receipt = await media.publish(sequence, data);
+        trace('media-open-after');
+        return { ...media, async publish(sequence, data) { trace('encode-before', {sequence}); const receipt = await media.publish(sequence, data); trace('encode-after', {sequence, receipt});
           encoded.set(sequence, receipt.rtpTimestamp); return receipt; } };
       });
       feeds.set(feed.lease, feed); return feed.lease;
@@ -90,16 +104,20 @@ void app.whenReady().then(async () => {
   let server: ReturnType<typeof createServer> | undefined, browser: ReturnType<typeof spawn> | undefined;
   let browserExit = Promise.resolve(), exited = false;
   try {
+    trace('offer-before');
     const opened = await signals.receive(context, { type: 'open', requestId: 'fixture-open', sourceId: publisher.id }) as { id: string; offer: { type: 'offer'; sdp: string } };
+    trace('offer-after');
     assert.ok(opened?.offer);
     server = createServer(async (request, response) => {
       try {
+        trace('http', {url:request.url,method:request.method});
         if (request.url === '/viewer.mjs') { response.setHeader('Content-Type', 'text/javascript'); response.end(fs.readFileSync(path.join(process.cwd(), 'apps/desktop/native/projection-media/web/viewer.mjs'))); return; }
         if (request.url === '/offer') { response.end(JSON.stringify(opened.offer)); return; }
         if (request.method !== 'POST') { response.setHeader('Content-Type', 'text/html; charset=utf-8'); response.end(html); return; }
         let data = '';
         for await (const chunk of request) { data += chunk; if (data.length > 128 * 1024) throw new Error('Fixture message too large'); }
-        if (request.url === '/answer') await signals.receive(context, { type: 'answer', id: opened.id, sdp: JSON.parse(data) });
+        if (request.url === '/trace') trace('viewer-trace', JSON.parse(data));
+        else if (request.url === '/answer') await signals.receive(context, { type: 'answer', id: opened.id, sdp: JSON.parse(data) });
         else if (request.url === '/paint') paints.push(JSON.parse(data));
         else if (request.url === '/result') outcomes.push(JSON.parse(data));
         else if (request.url === '/error') throw new Error(data);
@@ -109,8 +127,10 @@ void app.whenReady().then(async () => {
     const listening = server;
     await new Promise<void>(resolve => listening.listen(0, '127.0.0.1', resolve));
     const address = server.address(); assert.ok(address && typeof address !== 'string');
+    trace('chromium-before');
     browser = spawn(process.env.GUGU_TEST_CHROMIUM!, ['--headless=new', '--autoplay-policy=no-user-gesture-required',
       '--disable-dev-shm-usage', `--user-data-dir=${path.join(app.getPath('userData'), 'headless-viewer')}`, `http://127.0.0.1:${address.port}`], { stdio: ['ignore', 'ignore', 'pipe'] });
+    trace('chromium-after', {pid:browser.pid});
     let stderr = '';
     browser.stderr?.on('data', data => { stderr = (stderr + data).slice(-4096); });
     const chromium = browser;
@@ -120,7 +140,9 @@ void app.whenReady().then(async () => {
       while (!condition()) { if (fault) throw fault; if (exited) throw new Error('Chromium exited: ' + stderr);
         if (Date.now() > deadline) throw new Error('Pipeline timed out: ' + stderr); await pause(20); }
     };
+    trace('first-paint-before');
     await until(() => paints.some(paint => paint.sequence === 1) && outcomes.length > 0);
+    trace('first-paint-after', {paints,outcomes});
     const first = paints.find(paint => paint.sequence === 1)!;
     for (const [channel, wanted] of [26, 96, 190].entries()) assert.ok(Math.abs(first.rgb[channel]! - wanted) < 12, JSON.stringify(first));
     assert.equal(first.rtpTimestamp, encoded.get(1));
@@ -129,49 +151,67 @@ void app.whenReady().then(async () => {
     assert.equal(inputCalls, 1);
     assert.equal(await source.webContents.executeJavaScript('document.querySelector("textarea").value'), '整链中文🙂');
     // JS completion can precede compositor capture; witness the new paint first.
+    trace('raf-before');
     await source.webContents.executeJavaScript('document.body.style.background="rgb(190,40,26)"; new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    trace('raf-after');
     assert.equal(await capture(), 2);
+    trace('second-paint-before');
     await until(() => paints.some(paint => paint.sequence === 2));
+    trace('second-paint-after');
     const second = paints.find(paint => paint.sequence === 2)!;
     for (const [channel, wanted] of [190, 40, 26].entries()) assert.ok(Math.abs(second.rgb[channel]! - wanted) < 12, JSON.stringify({ second, decoded }));
     assert.equal(second.rtpTimestamp, encoded.get(2));
     assert.equal(pixels.length, 2); assert.equal(pixels[0], pixels[1]);
+    trace('ownership-capture-before');
     const ownershipPicture = await source.webContents.capturePage();
+    trace('ownership-capture-after');
+    trace('ownership-before');
     const ownership = await probeFeedOwnership(runtime, page, context,
       { width: 128, height: 96, mime: 'image/png', data: ownershipPicture.toPNG().toString('base64') },
       () => openMediaProcess({ executable: process.env.GUGU_TEST_MEDIA_HELPER!, ffmpeg: process.env.GUGU_PROJECTION_FFMPEG!,
         width: 128, height: 96, fps: 10, bitrate: 500000, signal: new AbortController().signal }));
+    trace('ownership-after');
+    trace('device-before');
     const device = await probeDeviceProjection(id);
+    trace('device-after');
     service.setPermissionGranted(id, 'agents:tools', false);
     await assert.rejects(publisher.publish({ width: 128, height: 96, mime: 'image/png', data: 'YQ==' }), /revoked/);
     revokeExtensionProgramAccess(id);
     await until(() => stopped && [...feeds.values()][0]!.lease.signal.aborted);
+    trace('dispose-before');
     await signals.dispose();
+    trace('dispose-after');
     assert.ok(disconnected > 0); assert.equal(inputCalls, 1);
     process.stdout.write('PROJECTION_PIPELINE_RESULT=' + JSON.stringify({ passed: true, ownership, device, paints, decoded, inputCalls, reused: pixels[0] === pixels[1],
       home: process.env.GUGU_HOME, userData: app.getPath('userData'), electron: process.versions.electron }) + '\n');
   } finally {
-    try { await signals.dispose(); }
+    trace('finally-before');
+    try { await signals.dispose(); trace('finally-signals-after'); }
     finally {
+      trace('browser-close-before');
       if (!exited) browser?.kill('SIGTERM'); await browserExit;
+      trace('browser-close-after');
       if (server) { server.closeAllConnections(); const currentServer = server;
         await new Promise<void>(resolve => currentServer.close(() => resolve())); }
       bridge.closePage(page.pageId); bridge.closePage(program.pageId); source.destroy(); appPage.destroy();
     }
   }
+  trace('app-quit');
   app.quit();
-}).catch(error => { process.stderr.write(String(error) + '\n'); app.exit(1); });
+}).catch(error => { trace('caught', {error:String(error),stack:error.stack}); process.stderr.write(String(error) + '\n'); app.exit(1); });
 
 const html = `<!doctype html><meta charset="utf-8"><video autoplay muted playsinline></video><canvas width="128" height="96"></canvas><script type="module">
 import {openProjectionVideo} from '/viewer.mjs';
+const trace = extra => void fetch('/trace',{method:'POST',body:JSON.stringify({ms:performance.now(),...extra})});
+globalThis.PROJECTION1863_TRACE = trace; trace({phase:'html-loaded'});
 (async()=>{
  let generation, sent=false;
  const video=document.querySelector('video'), ctx=document.querySelector('canvas').getContext('2d');
  await openProjectionVideo({video,offer:await(await fetch('/offer')).json(),
  answer:async sdp=>{const response=await fetch('/answer',{method:'POST',body:JSON.stringify(sdp)});if(!response.ok)throw new Error(await response.text())},
- onControl:raw=>{const value=JSON.parse(raw);if(value.type==='projection-generation')generation=value.generation;
+ onControl:raw=>{trace({phase:'on-control',raw});const value=JSON.parse(raw);if(value.type==='projection-generation')generation=value.generation;
  else if(value.type==='input-result')void fetch('/result',{method:'POST',body:raw})},
- onFrame:(frame,send)=>{if(!frame||!generation)return;ctx.drawImage(video,0,0,128,96);const p=ctx.getImageData(110,80,1,1).data;
+ onFrame:(frame,send)=>{trace({phase:'on-frame',frame,generation,ready:video.readyState});if(!frame||!generation)return;ctx.drawImage(video,0,0,128,96);const p=ctx.getImageData(110,80,1,1).data;
  send(JSON.stringify({type:'ack',generation,frame:frame.sequence}));
  void fetch('/paint',{method:'POST',body:JSON.stringify({...frame,rgb:[p[0],p[1],p[2]]})});
  if(!sent){sent=true;send(JSON.stringify({type:'input',generation,frame:frame.sequence,sequence:1,input:{kind:'text',text:'整链中文🙂'}}))}}
