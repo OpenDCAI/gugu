@@ -33,6 +33,8 @@ function mount(label = '正在工作 · Running a long command') {
   return { host, setActive, setText };
 }
 
+const viewportPaused = (host: HTMLElement) => host.style.getPropertyValue('--gugu-animation-viewport-paused') === 'paused';
+
 function watchSweepEvent(sweep: HTMLElement, type: 'animationstart' | 'animationend') {
   let seen = false;
   const listener = (event: AnimationEvent) => {
@@ -46,7 +48,7 @@ function watchSweepEvent(sweep: HTMLElement, type: 'animationstart' | 'animation
 
 it('keeps one semantic label, its geometry and live text while animating only transforms', async () => {
   const { host, setText, setActive } = mount();
-  await until('the shimmer enters the viewport', () => host.dataset.shimmerVisible === 'true');
+  await until('the shimmer enters the viewport', () => !viewportPaused(host));
   const box = host.getBoundingClientRect().toJSON();
   const animations = host.getAnimations({ subtree: true });
   expect(animations).toHaveLength(4);
@@ -77,15 +79,15 @@ it('keeps one semantic label, its geometry and live text while animating only tr
 
 it('pauses outside the viewport, on retained surfaces, and when the host window hides', async () => {
   const { host } = mount();
-  await until('the shimmer starts', () => host.dataset.shimmerVisible === 'true');
+  await until('the shimmer starts', () => !viewportPaused(host));
   const animations = host.getAnimations({ subtree: true });
   expect(animations).toHaveLength(4);
   window.dispatchEvent(new CustomEvent('__window_seen', { detail: false }));
-  expect(host.dataset.shimmerVisible).toBeUndefined();
+  expect(viewportPaused(host)).toBe(true);
   expect(host.getAnimations({ subtree: true })).toEqual(animations);
   expect(host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'paused')).toBe(true);
   window.dispatchEvent(new CustomEvent('__window_seen', { detail: true }));
-  expect(host.dataset.shimmerVisible).toBe('true');
+  expect(viewportPaused(host)).toBe(false);
   surface!.style.visibility = 'hidden';
   surface!.inert = true;
   await until('the retained surface pauses', () => host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'paused'));
@@ -93,9 +95,9 @@ it('pauses outside the viewport, on retained surfaces, and when the host window 
   surface!.inert = false;
   await until('the retained surface resumes', () => host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'running'));
   surface!.style.top = '-200px';
-  await until('the offscreen shimmer pauses', () => host.dataset.shimmerVisible === undefined);
+  await until('the offscreen shimmer pauses', () => viewportPaused(host));
   surface!.style.top = '20px';
-  await until('the shimmer returns', () => host.dataset.shimmerVisible === 'true');
+  await until('the shimmer returns', () => !viewportPaused(host));
 });
 
 it('keeps reduced-motion labels flat and readable with no running sweep', async () => {
@@ -121,9 +123,9 @@ it('keeps replaying when the row data is rebuilt during the hold while it stays 
     const host = surface.firstElementChild as HTMLElement;
     const ended = watchSweepEvent(host.querySelector<HTMLElement>(`.${textShimmerBaseSweep}`)!, 'animationend');
     await until('the shimmer animations are ready', () => ({
-      visible: host.dataset.shimmerVisible,
+      visible: !viewportPaused(host),
       animations: host.getAnimations({ subtree: true }).length,
-    }), (state) => state.visible === 'true' && state.animations === 4);
+    }), (state) => state.visible && state.animations === 4);
     const animations = host.getAnimations({ subtree: true });
     for (const animation of animations) animation.finish();
     await ended('the finished sweep emits animationend');
@@ -144,10 +146,10 @@ it('finishes each sweep, holds without running animations, and rewinds without o
     const sweep = host.querySelector<HTMLElement>(`.${textShimmerBaseSweep}`)!;
     const ended = watchSweepEvent(sweep, 'animationend');
     await until('the shimmer animations are ready after motion emulation resets', () => ({
-      visible: host.dataset.shimmerVisible,
+      visible: !viewportPaused(host),
       reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
       animations: host.getAnimations({ subtree: true }).map((animation) => animation.playState),
-    }), (state) => state.visible === 'true' && !state.reducedMotion && state.animations.length === 4);
+    }), (state) => state.visible && !state.reducedMotion && state.animations.length === 4);
     const animations = host.getAnimations({ subtree: true });
     expect(animations).toHaveLength(4);
     for (const animation of animations) {

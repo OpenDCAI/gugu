@@ -64,10 +64,6 @@ export const textShimmer = style({
   position: 'relative',
   color: 'transparent',
   WebkitTextFillColor: 'transparent',
-  vars: { '--chat-shimmer-viewport-paused': 'paused' },
-  selectors: {
-    '&[data-shimmer-visible="true"]': { vars: { '--chat-shimmer-viewport-paused': 'initial' } },
-  },
   '@media': { '(prefers-reduced-motion: reduce)': { color: vars.fgPassive, WebkitTextFillColor: vars.fgPassive } },
 });
 

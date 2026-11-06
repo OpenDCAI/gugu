@@ -34,7 +34,7 @@ async function mount(doc = document) {
     }]} />
     <Avatar name="Running agent" seed="animation-agent" avatarUrl={avatar} isAgent agentStatus="working" harnessBadge={false} />
   </>);
-  await until('the real running highlight and two avatar pulse rings animate', () => host.getAnimations({ subtree: true }).length === 6 && host.querySelector('.rtb-state')?.getAttribute('data-shimmer-visible') === 'true');
+  await until('the real running highlight and two avatar pulse rings animate', () => host.getAnimations({ subtree: true }).length === 6 && host.querySelector<HTMLElement>('.rtb-state')?.style.getPropertyValue('--gugu-animation-viewport-paused') === '');
   const animations = host.getAnimations({ subtree: true });
   expect(animations.filter((animation) => (animation as CSSAnimation).animationName === 'av-status-pulse')).toHaveLength(2);
   expect(host.querySelector('.rtb-state')!.getAnimations({ subtree: true })).toHaveLength(4);
@@ -83,6 +83,16 @@ it('pauses and resumes the running highlight and avatar pulses on the shared nat
   await until('a retained inert surface pauses the same clocks', () => animations.every((animation) => animation.playState === 'paused'));
   host.inert = false;
   await until('showing the retained surface resumes motion', () => animations.every((animation) => animation.playState === 'running'));
+});
+
+it('pauses avatar pulses scrolled out of view and resumes the same clocks when they return', async () => {
+  const { host, animations } = await mount();
+  const pulses = animations.filter((animation) => (animation as CSSAnimation).animationName === 'av-status-pulse');
+  host.style.cssText = 'position:fixed;left:0;top:-2000px';
+  await until('the off-screen pulses pause', () => pulses.every((animation) => animation.playState === 'paused'));
+  host.style.cssText = '';
+  await until('the pulses resume on screen', () => pulses.every((animation) => animation.playState === 'running'));
+  expect(host.getAnimations({ subtree: true })).toEqual(animations);
 });
 
 it('keeps a visible portal animated while the opener hides and stops it when its own window hides', async () => {
