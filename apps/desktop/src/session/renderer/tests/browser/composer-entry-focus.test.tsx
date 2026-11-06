@@ -81,3 +81,13 @@ it('a mobile conversation entry keeps the keyboard closed', async () => {
     await page.viewport(1280, 900)
   }
 })
+
+it('a later resource opening cancels an entry whose composer has not appeared', async () => {
+  const { row, render } = await mount(false)
+  row.focus()
+  requestComposerEntryFocus('chat:entry-group')
+  requestComposerEntryFocus(null)
+  render(true)
+  await settle()
+  expect(document.activeElement).toBe(row)
+})

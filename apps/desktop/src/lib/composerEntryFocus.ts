@@ -7,9 +7,9 @@ const read = () => pending
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }
 const emit = () => { for (const listener of listeners) listener() }
 
-/** A user entry is an intent even when its retained conversation is already selected. */
-export function requestComposerEntryFocus(target: string): void {
-  pending = { target }
+/** A user entry is an intent even when already selected; null leaves the keyboard with a resource. */
+export function requestComposerEntryFocus(target: string | null): void {
+  pending = target === null ? null : { target }
   emit()
 }
 

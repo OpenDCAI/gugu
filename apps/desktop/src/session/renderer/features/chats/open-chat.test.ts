@@ -36,7 +36,8 @@ it('keeps group files in their project block and preserves ordinary beside entry
   host.project.mockReturnValue('sidebar-project');
   openChatOnScreen('group', false, 'resource');
   expect(host.show).toHaveBeenCalledWith({ kind: 'project', projectId: 'sidebar-project' });
-  expect(host.focus).not.toHaveBeenCalled();
+  expect(host.focus).toHaveBeenCalledExactlyOnceWith(null);
+  host.focus.mockClear();
   host.project.mockReturnValue(null);
   openChatOnScreen('human-dm', true);
   expect(host.beside).toHaveBeenCalledWith({ kind: 'chat', chatId: 'human-dm' });

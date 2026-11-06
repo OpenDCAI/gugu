@@ -17,5 +17,5 @@ export function openChatOnScreen(chatId: string, beside: boolean, purpose?: 'res
     ? { kind: 'project', projectId }
     : { kind: 'chat', chatId };
   (beside && isScreenView(appState.navigation.currentViewId) ? showBesideOnScreen : showOnScreen)(content);
-  if (!purpose) requestComposerEntryFocus('chat:' + chatId);
+  requestComposerEntryFocus(purpose ? null : 'chat:' + chatId);
 }

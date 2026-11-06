@@ -214,7 +214,7 @@ it('acknowledges a resource only after native navigation can host the file', asy
   await opened
   expect(outcome).toBe('true')
   expect(canTakeOwnedAgentResource('owner', 'dm')).toBe(true)
-  expect(scope.focus).not.toHaveBeenCalled()
+  expect(scope.focus).toHaveBeenCalledExactlyOnceWith(null)
 })
 
 it.each(['missing mapping', 'failed native navigation'])('rejects a file with %s and releases its suspended host', async reason => {
