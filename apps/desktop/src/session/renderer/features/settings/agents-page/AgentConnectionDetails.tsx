@@ -13,7 +13,7 @@ export function AgentConnectionDetails({
   machine: string | null
 }) {
   const { translate } = useSessionMessages()
-  const { auth, state } = useConnectionAvailability(agent.id, machine)
+  const { auth, state } = useConnectionAvailability(agent.id, machine, false, true)
   const platform = usePlatformModelCatalog(agent.id, 'acp')
   const hasGuguModels = platform.models.some(offeredInModelPicker)
   const description =

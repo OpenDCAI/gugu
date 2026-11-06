@@ -50,7 +50,11 @@ function connectionsKey(machine: string | null, providerId: string) {
   return ['subscriptions', machine ?? 'local', providerId, 'connections']
 }
 
-export function useSubscriptionConnections(machine: string | null, providerId: string) {
+export function useSubscriptionConnections(
+  machine: string | null,
+  providerId: string,
+  background = false
+) {
   return useQuery({
     queryKey: connectionsKey(machine, providerId),
     queryFn: async () => {
@@ -62,7 +66,7 @@ export function useSubscriptionConnections(machine: string | null, providerId: s
     },
     enabled: providerId === 'claude' || providerId === 'codex',
     staleTime: 30_000,
-    retry: true,
+    retry: background,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 30_000)
   })
 }
@@ -123,7 +127,7 @@ export function SubscriptionConnections({
   const queryClient = useQueryClient()
   const showSignIn = useShowModal('agentSignInModal')
   const host = useLibraryHost()
-  const connections = useSubscriptionConnections(machine, agent.id)
+  const connections = useSubscriptionConnections(machine, agent.id, settingsRows)
   const method = resolveSignInMethod(agent.capabilities)
   const canSignIn = method?.kind === 'cli-login' && (!machine || !!method.headlessArgs)
   const refresh = () => {
