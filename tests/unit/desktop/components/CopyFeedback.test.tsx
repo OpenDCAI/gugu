@@ -43,13 +43,16 @@ describe('mobile copy confirmation', () => {
     expect(button.hasAttribute('data-copied')).toBe(false)
   })
 
-  it('does not claim success when the native clipboard rejects', async () => {
+  it.each(['toast', 'inline'] as const)('does not claim success when the native clipboard rejects (%s)', async feedback => {
     const toast = vi.fn()
     vi.spyOn(platform, 'writeClipboardText').mockRejectedValue(new Error('Native clipboard refused'))
-    await renderWithAppProviders(harness, <CopyValue value="exact text" message="Copied" />, { toast })
+    await renderWithAppProviders(harness, <CopyValue value="exact text" message="Copied" feedback={feedback} />, { toast })
     await clickElement(harness.container.querySelector('button')!)
     expect(harness.container.querySelector('[data-copied]')).toBeNull()
-    expect(toast).toHaveBeenCalledWith(expect.any(String), 'error', 'Native clipboard refused')
+    if (feedback === 'inline') {
+      expect(harness.container.querySelector('[aria-live]')?.textContent).toBe('Native clipboard refused')
+      expect(toast).not.toHaveBeenCalled()
+    } else expect(toast).toHaveBeenCalledWith(expect.any(String), 'error', 'Native clipboard refused')
     expect(notify).not.toHaveBeenCalled()
   })
 })

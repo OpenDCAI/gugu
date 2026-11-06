@@ -115,7 +115,7 @@ export function CopyValue({
       >
         {mobile && buttonCopied ? <Check size={12} /> : <Copy size={12} />}
       </button>
-      <output aria-live="polite" className="sr-only">{mobile && buttonCopied ? message : ''}</output>
+      {mobile && buttonCopied && <output aria-live="polite" className="sr-only">{message}</output>}
       {feedback === 'inline' && copied && (!mobile || copied !== message) ? (
         <span
           aria-live="polite"
