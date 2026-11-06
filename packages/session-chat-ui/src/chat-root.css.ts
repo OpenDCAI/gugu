@@ -47,6 +47,7 @@ export const outerClip = style({
   // sans font rather than the browser default. Prose/code set font-family
   // explicitly; this only affects elements that rely on inheritance.
   fontFamily: vars.fontSans,
+  colorScheme: vars.colorScheme,
 });
 
 /** Scroll container — the element ChatRoot attaches its scroll listener to. */

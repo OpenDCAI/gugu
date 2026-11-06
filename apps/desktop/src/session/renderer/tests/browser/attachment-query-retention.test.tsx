@@ -40,10 +40,11 @@ it('a left conversation is collected even though its attachment state stays cach
   await renderWithAppProviders(harness, createNode('div', null));
   // The cache still holds a query per attachment shown (that is its job) ...
   expect(attachmentQueryClient.getQueryCache().findAll({ queryKey: ['attachment-state'] }).length).toBeGreaterThanOrEqual(12);
-  // ... but none of the panes that showed them. The pane shown last may still be referenced
-  // by the renderer for a while (seen once on CI); every earlier one must be gone. The parent kept all twelve, through queryFn.
+  // ... but none of the panes that showed them. React keeps the last two committed trees (current and alternate fibers),
+  // so the two panes shown last may still be referenced for a while under load (seen on CI with index 10 and 11); every
+  // earlier one must be gone. The parent kept all twelve, through queryFn, so this still fails without the fix.
   const kept = () => lists.map((ref, index) => ref.deref() === undefined ? null : index).filter((index) => index !== null);
-  const leftEarlier = () => kept().filter((index) => index! < 11);
+  const leftEarlier = () => kept().filter((index) => index! < 10);
   for (let round = 0; round < 8 && leftEarlier().length > 0; round++) {
     await renderWithAppProviders(harness, createNode('div', { key: round }));
     await collect();
