@@ -184,7 +184,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
       const page = ask.tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${ask.app}.${ask.tab}`) : installedExtensionsStore.mainTabOf(ask.app)
       const namesFile = !ask.tab && installedExtensionsStore.isEnabled(ask.app) && installedExtensionsStore.manifestFor(ask.app)?.contributes.tabs.some((tab) => tab.chatFile)
       if (page?.enabled && !namesFile) {
-        show(chatId, { kind: page.kind, title: page.title }, {})
+        void Promise.resolve(show(chatId, { kind: page.kind, title: page.title }, {})).catch(error => setUnopened(String(error)))
         return
       }
       if (namesFile) {
