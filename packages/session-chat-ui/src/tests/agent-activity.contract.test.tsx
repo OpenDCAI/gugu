@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cdp, page } from 'vitest/browser';
 import { batch } from 'solid-js';
+import { textFilePatch } from '@gugu/session-core/lib';
+import type { ChatItem } from '../model';
 import { createChatContext } from '../chat-context';
 import { createChatState } from '../state/chat-state';
 import { createChatView } from '../chat-view';
@@ -41,6 +43,25 @@ async function mount(width: number, records = [turn('in', [delivery('incoming')]
 }
 
 describe('approved A2A activity', () => {
+  it('folds the producing activity with its edited file and preview, then restores both on open', async () => {
+    const items: ChatItem[] = [delivery('with-file'),
+      { kind: 'diff', id: 'owned-edit', status: 'done', patches: [textFilePatch('/work/owned.md', null, 'ready')] },
+      { kind: 'mcp-tool-call', id: 'owned-preview', seq: 2, toolCallId: 'owned-preview', title: 'Open preview', server: 'gugu', tool: 'session_open_in_tab',
+        status: 'done', rawInput: '{"path":"/work/preview.html"}', outputText: '{"opened":true,"path":"/work/preview.html"}' }];
+    const records = [{ ...turn('with-file', []), items: items as TranscriptTurn['items'] }, turn('after-file', [delivery('after-file')])];
+    const t = await mount(390, records);
+    expect(t.host.querySelectorAll('[data-agent-activity]')).toHaveLength(1);
+    expect(t.host.querySelector('[data-slot="file-change-summary"]')).toBeNull();
+    expect(t.host.textContent).not.toContain('preview.html');
+    t.button().click();
+    await until('owned artifacts open inside the original activity', () => !!t.host.querySelector('[data-slot="file-change-summary"]') && !!t.host.textContent?.includes('preview.html'));
+    expect(t.host.querySelectorAll('[data-agent-activity]')).toHaveLength(1);
+    expect(t.host.textContent).toContain('owned.md');
+    t.button().click();
+    await until('owned artifacts collapse again', () => !t.host.querySelector('[data-slot="file-change-summary"]'));
+    expect(t.host.textContent).not.toContain('preview.html');
+    expect(t.head()!.textContent).toContain('Received 2 messages');
+  });
   it('combines tool-only incoming turns while preserving their original process on open', async () => {
     const records = ['one', 'two'].map((id, seq): TranscriptTurn => ({ ...turn(id, [delivery(`${id}-input`)]), seq, items: [delivery(`${id}-input`),
       { kind: 'mcp-tool-call', id: `${id}-read`, toolCallId: `${id}-read`, seq: 1, title: 'Read history', server: 'gugu', tool: 'message_history', status: 'done', rawInput: '{"chat_id":"group"}', outputText: '[]' }] }));

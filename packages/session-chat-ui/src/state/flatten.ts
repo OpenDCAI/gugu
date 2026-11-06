@@ -2,6 +2,7 @@ import { decorateConversationDensity } from './conversation-density';
 import { conversationOutput } from './conversation-process';
 import { conversationMessages } from './conversation-messages';
 import { withSentReplies } from './sent-replies';
+import { activityArtifacts } from './activity-artifacts';
 import { planConversationSegments } from './conversation-segments';
 import { continuedActivityHeader, foldActivityUnits, hasUnconfirmedSend, incomingActivity, outgoingActivity, pendingActivity,
   viewerGroupReply, type AgentActivityEvent, type AgentActivityGroup } from './agent-activity';
@@ -433,6 +434,7 @@ export function flattenTier(
     let inlineCompletion = false;
     const fold = foldPlans[turnIndex];
     let resultOwner: string | undefined;
+    const artifactItems = new Set<string>(), turnOutputs = outputsOfRun(opened, turnIndex, absorbed);
     if (ctx.agentConversation) {
       const live = ctx.active && turnIndex === turns.length - 1;
       const blocks = planConversationSegments(turn, live, true);
@@ -456,7 +458,12 @@ export function flattenTier(
         const silentCopyText = output.silent && block === blocks.at(-1) && completionResult !== null ? completionResult : undefined;
         if (silentCopyText !== undefined) inlineCompletion = true;
         const ops = planRows(outsideProcess(output.rest));
-        if (!output.reply && activityEvent && ops.length === 0) { activityEvent = undefined; inlineCompletion = true; continue; }
+        const artifacts = activityEvent && !ctx.active ? activityArtifacts(block.items, turnOutputs, turn.id, block.id) : [];
+        const emitArtifacts = () => {
+          if (activityEvent && !ctx.active) for (const item of block.items) artifactItems.add(item.id);
+          for (const artifact of artifacts) processItem(artifact, undefined, output.reply ? `${block.id}:head` : block.id);
+        };
+        if (!output.reply && activityEvent && ops.length === 0) { emitArtifacts(); activityEvent = undefined; inlineCompletion = true; continue; }
         const process = { id: block.id, ...(block.live ? { live: true } : {}),
           startedAt: block.startedAt, endedAt: block.endedAt, ...(block.idleMs && !block.live ? { idleMs: block.idleMs } : {}), ...(block.live && ctx.pendingStarting?.() ? { starting: ctx.pendingStarting?.() } : {}), steps: output.steps.length,
           ...(ops.length ? {} : { empty: true }) };
@@ -496,6 +503,7 @@ export function flattenTier(
           steps();
           if (output.stopReason) processItem(output.stopReason);
         }
+        emitArtifacts();
         conversationOwner = undefined;
         activityEvent = undefined;
       }
@@ -563,14 +571,15 @@ export function flattenTier(
     if (!ctx.active) {
       let runEnd = turnIndex + 1;
       while (runEnd < turns.length && absorbed[runEnd]) runEnd++;
-      summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id);
+      const source = turns.slice(turnIndex, runEnd);
+      summary = fileChangeSummary(artifactItems.size ? source.map(turn => ({ items: (turn.items as readonly ChatItem[]).filter(item => !artifactItems.has(item.id)) })) : source, turn.id);
       if (summary) processItem(summary, undefined, resultOwner);
     }
 
     // 这一轮交出来的东西(含被它并进来的后续轮):最后那条回复下面,一份一张卡;已在「已编辑」卡里的不再画一遍。
-    const outputs = outputsOfRun(opened, turnIndex, absorbed).filter(({ output }) => {
+    const outputs = turnOutputs.filter(({ output, item }) => {
       const path = openedFilePath(output);
-      return !path || !isListedInSummary(summary, path);
+      return !artifactItems.has(item.id) && (!path || !isListedInSummary(summary, path));
     });
     outputs.forEach(({ output }, index) => {
       processItem({
