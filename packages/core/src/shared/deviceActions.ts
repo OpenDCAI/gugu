@@ -4,7 +4,8 @@
  * 调用走那台设备的设备 RPC 频道(`gugu:{device_id}:rpc`):请执行 → 收到 → 每 15 秒「还在跑」→ 结果 → 结果收到。
  * ❌ 不走 `gugu_device_commands`:type 有白名单(加类型要迁移库)、没有进度列,「掉线重领」还会把建日程做两遍。
  *
- * 这一份是**线上合同**:桌面、咕咕 server、手机(安卓壳)三端都按它收发;改字段 = 改合同,三端一起改。
+ * 这一份是**线上合同**:桌面、手机(安卓壳)登记并执行动作;咕咕 server 不登记动作(它不是谁的电脑,没有人能在它上面
+ * 点「连接」),只作调用方发起 device_call。改字段 = 改合同,各端一起改。
  * 协议原文贴在 #7199 的评论里。
  */
 
@@ -81,7 +82,16 @@ export interface DeviceActionsCapability {
    * 不占 token),点名调用其中一个时回 detail,如实说没装或停用了,❌ 只回「没有登记这个动作」。
    */
   switched_off?: DeviceActionsSwitchedOff[]
+  /**
+   * The device could not read its own action list; the text is why. "Unknown", not "no actions": on the wire the block
+   * has no `actions` array (older readers fall back to "no list"), and normalizing gives an empty one that no reader may
+   * present as a list.
+   */
+  read_error?: string
 }
+
+/** What a device writes in `capabilities.actions` when reading its action list threw. */
+export type DeviceActionsReadFailure = Required<Pick<DeviceActionsCapability, 'v' | 'read_error'>>
 
 /** Device-list transport omits the documentation needed only for agent calls. */
 export type DeviceActionSummary = Omit<DeviceActionManifestEntry, 'description' | 'input_schema'>
@@ -268,7 +278,10 @@ function normalizeDeviceActions<T extends DeviceActionSummary>(
   raw: unknown,
   readAction: (item: Record<string, unknown>, summary: DeviceActionSummary) => T,
 ): (Omit<DeviceActionsCapability, 'actions'> & { actions: T[] }) | null {
-  if (!isRecord(raw) || !Array.isArray(raw.actions)) return null
+  if (!isRecord(raw)) return null
+  const v = typeof raw.v === 'number' ? raw.v : DEVICE_ACTION_PROTOCOL_VERSION
+  if (typeof raw.read_error === 'string' && raw.read_error) return { v, actions: [], read_error: raw.read_error }
+  if (!Array.isArray(raw.actions)) return null
   const actions: T[] = []
   for (const item of raw.actions) {
     if (!isRecord(item)) continue
@@ -291,7 +304,7 @@ function normalizeDeviceActions<T extends DeviceActionSummary>(
     }))
   }
   return {
-    v: typeof raw.v === 'number' ? raw.v : DEVICE_ACTION_PROTOCOL_VERSION,
+    v,
     ...(typeof raw.timezone === 'string' && raw.timezone ? { timezone: raw.timezone } : {}),
     actions,
     ...withSwitchedOff(raw.switched_off),
