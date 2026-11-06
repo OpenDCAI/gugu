@@ -138,6 +138,7 @@ export interface ChatContextValue {
   upsertChat: (chat: ChatItem) => void
   pinChat: (chatId: string, pinned: boolean) => Promise<void>
   deleteChat: (chatId: string, persist?: boolean) => Promise<void>
+  hideConversation: (chatId: string) => Promise<void>
   // #901 退出群聊（成员自删 chat_members 行 + 本地移除）；区别于 deleteChat(owner 归档解散)。
   leaveGroup: (chatId: string) => Promise<void>
   markUnread: (chatId: string) => Promise<void>
@@ -207,6 +208,7 @@ const EMPTY_CHAT_STORE: ChatContextValue = {
   upsertChat: () => {},
   pinChat: async () => {},
   deleteChat: async () => {},
+  hideConversation: async () => {},
   leaveGroup: async () => {},
   markUnread: async () => {},
   setChatNotificationLevel: async () => {},

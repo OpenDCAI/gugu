@@ -1,21 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { chatsInReadScope, conversationCanDelete, conversationRowMenu, hasUnreadInRows } from '../../../../apps/desktop/src/session/shared/conversation-row-menu'
+import { chatsInReadScope, conversationCanHide, conversationRowMenu, hasUnreadInRows } from '../../../../apps/desktop/src/session/shared/conversation-row-menu'
 
 describe('conversation row actions', () => {
-  it('limits owned agent DM deletion to archived or removed identities', () => {
-    expect(conversationCanDelete('dm', null, { session_archived_at: null, removed_at: null })).toBe(false)
-    expect(conversationCanDelete('dm', null, {})).toBe(false)
-    expect(conversationCanDelete('dm', null, { session_archived_at: '2026-11-06T10:00:00Z' })).toBe(true)
-    expect(conversationCanDelete('dm', null, { removed_at: '2026-11-06T10:00:00Z' })).toBe(true)
-  })
-  it('keeps distinct server authority for groups and topics', () => {
-    expect(conversationCanDelete('dm', { can_dissolve: true })).toBe(false)
-    expect(conversationCanDelete('ai', { can_dissolve: true }, { removed_at: '2026-11-06T10:00:00Z' })).toBe(false)
-    expect(conversationCanDelete('group', null)).toBe(false)
-    expect(conversationCanDelete('group', { can_archive_topic: true })).toBe(false)
-    expect(conversationCanDelete('group', { can_dissolve: true })).toBe(true)
-    expect(conversationCanDelete('topic', { can_dissolve: true })).toBe(false)
-    expect(conversationCanDelete('topic', { can_archive_topic: true })).toBe(true)
+  it('supports personal hiding for every conversation without Agent archival or group authority', () => {
+    for (const kind of ['dm', 'ai', 'group', 'topic']) expect(conversationCanHide(kind)).toBe(true)
+    expect(conversationCanHide(null)).toBe(false)
   })
   it('puts the same scoped read action first, followed only by the row type’s own actions', () => {
     const chat = conversationRowMenu({ kind: 'chat', canDelete: true, hasUnread: true, hasAnyUnread: true })

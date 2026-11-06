@@ -1,4 +1,5 @@
 import { useChatListState } from './chatListState'
+import { useConversationHiding } from './useConversationHiding'
 import { useChatCatchupPriority, useChatCatchupResume } from './chatCatchupPriority'
 import { useChatListRefresh } from './chatListRefresh'
 import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
@@ -794,15 +795,16 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     }
   }, [chatsRef, setChats, userId])
 
+  const hideConversation = useConversationHiding(userId, chatProjection)
   const deleteChat = useCallback(async (chatId: string, persist = false) => {
-    if (persist) { const receipt = await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId)); if (imRepositoryScope.disposed || receipt && !await chatProjection.confirmPersonalDeletion(userId!, receipt)) return }
+    if (persist) { await (chatsRef.current.find((chat) => chat.id === chatId)?.kind === 'topic' ? topicService.archiveTopic(chatId) : chatService.archiveChat(chatId)); if (imRepositoryScope.disposed) return }
     projectionRef.current.forgetChat(chatId) // 显式删除是权威动作:乐观行与投影水位一起出列 (#4314)
     setChats((prev) => prev.filter((c) => c.id !== chatId))
     dropTextDraft(chatId)
     dropDraftAttachments(chatId) // @@@draft-attachment (#1872) - drop queued attachments alongside the draft
     cache.delete(chatId)
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
-  }, [setChats, dropTextDraft, dropDraftAttachments, cache, setActiveChatId, chatsRef, imRepositoryScope.disposed, chatProjection, userId])
+  }, [setChats, dropTextDraft, dropDraftAttachments, cache, setActiveChatId, chatsRef, imRepositoryScope.disposed])
   // #901 退出群聊：共同 RPC 确认移除本人席位后，再本地清理。
   const leaveGroup = useCallback(async (chatId: string) => {
     if (!userId) throw new Error('Not authenticated')
@@ -814,9 +816,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     cache.delete(chatId)
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
   }, [userId, setChats, dropTextDraft, dropDraftAttachments, cache, setActiveChatId])
-
   const markUnread = useCallback((chatId: string) => markManualUnreadAndRefresh(chatId, { chats: chatsRef.current, patchChat, toast, refresh: loadChats }), [chatsRef, loadChats, patchChat, toast])
-
   const setChatNotificationLevel = useCallback(async (chatId: string, level: NotificationLevel) => {
     if (!userId) throw new Error('Not authenticated')
     const previousChat = chatsRef.current.find((chat) => chat.id === chatId)
@@ -834,7 +834,6 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       throw err
     }
   }, [chatsRef, setChats, userId])
-
   // ── Dock / 托盘角标:与通知同一把尺 —— 群与话题只算叫到你的；列表内仍安静显示全部未读 ──────
   useEffect(() => {
     if (!platform.capabilities.badge) return
@@ -900,6 +899,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         upsertChat,
         pinChat,
         deleteChat,
+        hideConversation,
         leaveGroup,
         markUnread,
         setChatNotificationLevel,
