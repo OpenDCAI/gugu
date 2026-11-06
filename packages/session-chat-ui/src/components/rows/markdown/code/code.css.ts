@@ -21,6 +21,13 @@ export const codeWrapper = style({
   scrollbarWidth: 'thin',
 });
 
+// A conversation bubble already bounds its content. The page's artifact outline
+// is uneven on inverted bubbles; keep the same borderless code in either bubble.
+// Retain the reserved border width so measured code geometry does not change.
+globalStyle(`[data-chat-root][data-agent-conversation="true"] [data-user-card] ${codeWrapper}`, {
+  borderColor: 'transparent',
+});
+
 /** Both palettes are emitted by Shiki; the painted surface chooses between them. */
 globalStyle(`${codeWrapper} span`, {
   color: 'light-dark(var(--shiki-light), var(--shiki-dark))',

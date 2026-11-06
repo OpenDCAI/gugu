@@ -68,6 +68,14 @@ it.each(['light', 'dark'] as const)('pairs code text and tokens with both bubble
     const scheme = role === 'user' ? theme === 'light' ? 'dark' : 'light' : theme;
     const background = getComputedStyle(card).backgroundColor;
     expect(background).not.toBe('rgba(0, 0, 0, 0)');
+    const fences = [...card.querySelectorAll<HTMLElement>(`.${codeWrapper}`)];
+    expect(fences).toHaveLength(2);
+    for (const fence of fences) {
+      const style = getComputedStyle(fence);
+      expect(style.borderTopColor).toBe('rgba(0, 0, 0, 0)');
+      expect(style.borderTopWidth).toBe('1px');
+      expect(style.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    }
     const lines = [...card.querySelectorAll<HTMLElement>(`.${codeLine}`)];
     expect(lines.length).toBe(8);
     for (const line of lines) {
