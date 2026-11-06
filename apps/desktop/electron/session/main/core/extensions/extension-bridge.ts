@@ -1928,6 +1928,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesRead':
     case 'filesReadText':
     case 'filesExists':
+    case 'filesDraft':
     case 'filesWriteText':
     case 'filesSearch':
     case 'filesRecent':
@@ -1967,6 +1968,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesRead: 'readAppFile',
         filesReadText: 'readAppFileText',
         filesExists: 'appFileExists',
+        filesDraft: 'appFileDraft',
         filesWriteText: 'writeAppFileText',
         filesSearch: 'searchAppFiles',
         filesRecent: 'recentAppFiles',

@@ -111,6 +111,8 @@ export function createGugu(
     /** A working copy's text whole, where the page holds it and no live document does; and whether it is there. */
     readText: (file: unknown, options?: { maxBytes?: number }) => withRef(file, (ref) => host.appFiles.readText({ ref, ...(options?.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }) })),
     exists: (file: unknown) => withRef(file, (ref) => host.appFiles.exists({ ref })),
+    /** A file's unsaved edits, kept on its machine for after a crash: read (no `text`), kept, dropped (`null`). */
+    draft: (file: unknown, text?: string | null) => withRef(file, (ref) => host.appFiles.draft({ ref, ...(text === undefined ? {} : { text }) })),
     /** Saves over the version `readText` read: `content-changed` when the disk moved on since. */
     writeText: (file: unknown, text: string) => withRef(file, (ref) => host.appFiles.writeText({ ref, text })),
     /** Whether whoever reads may delete each file (an entry, or a list of them), in order — ask as its menu opens. */

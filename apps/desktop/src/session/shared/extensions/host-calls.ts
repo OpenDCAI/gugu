@@ -88,6 +88,7 @@ export const HOST_CALLS = {
   'appFiles.read': { verb: 'filesRead' },
   'appFiles.readText': { verb: 'filesReadText' },
   'appFiles.exists': { verb: 'filesExists' },
+  'appFiles.draft': { verb: 'filesDraft' },
   'appFiles.writeText': { verb: 'filesWriteText' },
   'appFiles.search': { verb: 'filesSearch' },
   'appFiles.recent': { verb: 'filesRecent' },
