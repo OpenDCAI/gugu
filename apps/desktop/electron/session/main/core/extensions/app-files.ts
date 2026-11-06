@@ -456,17 +456,21 @@ export async function watchAppFile(page: DesktopFilePage, value: unknown, hear: 
     const { watchWorkingCopyFile } = await import('./working-copy-files');
     return watchWorkingCopyFile(ref, ref.id, hear);
   }
+  return hearElsewhere(workspaceSession(ref)!, { file: ref.id }, hear);
+}
+
+/** A file or folder of a session on another machine: its changes reach the window only, so main asks the window to tell it. */
+export function hearElsewhere(sessionId: string, what: { file: string } | { folder: string }, hear: (change: ExtensionFileChangeBatch) => void): () => void {
   if (!hearingElsewhere) {
     hearingElsewhere = true;
     events.on(appFileHeardElsewhereChannel, ({ key, change }) => watchesElsewhere.get(key)?.(change));
   }
   const key = randomUUID();
-  const sessionId = workspaceSession(ref)!;
   watchesElsewhere.set(key, hear);
-  events.emit(appFileWatchElsewhereChannel, { key, sessionId, file: ref.id, on: true });
+  events.emit(appFileWatchElsewhereChannel, { key, sessionId, ...what, on: true });
   return () => {
     watchesElsewhere.delete(key);
-    events.emit(appFileWatchElsewhereChannel, { key, sessionId, file: ref.id, on: false });
+    events.emit(appFileWatchElsewhereChannel, { key, sessionId, ...what, on: false });
   };
 }
 

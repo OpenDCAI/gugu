@@ -205,14 +205,13 @@ export async function writeWorkingCopyChunk(place: WorkspacePlace, chunk: Worksp
  * by its path there, from the change feed the file panel and the search index hear. Where a whole tree is watched one
  * directory at a time (Linux, `@@@tree-by-directories`) the feed only carries directories someone watches, so the folder
  * named is watched here and what a page has listed is watched by its tree; deeper changes reach a page on Linux only
- * from there. A session's working copy on another machine sends nothing across machines: the watch is taken and stays
- * quiet (listing again shows its changes).
+ * from there. A session's working copy on another machine is heard through the window that holds the session.
  */
 export async function watchWorkingCopy(place: WorkspacePlace, folder: string | undefined, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
   const session = workspaceSession(place);
   const { sessionMachine } = await import('./app-programs-elsewhere');
-  if (session && await sessionMachine(session).catch(() => null)) return () => {};
-  const { localRootOf } = await import('./app-files');
+  const { localRootOf, hearElsewhere } = await import('./app-files');
+  if (session && await sessionMachine(session).catch(() => null)) return hearElsewhere(session, { folder: folder ?? '' }, hear);
   const { workspaceRoot: root } = await localRootOf(place);
   await requireAgentFileTreeAccess(root);
   const named = folderPath(root, folder) ?? root;

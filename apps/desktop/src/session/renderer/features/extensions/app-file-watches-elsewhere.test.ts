@@ -28,6 +28,40 @@ function rig(located = true) {
   return { machineBack: () => back(), request: (r: AppFileWatchRequest) => request(r), heard, fire, change, letGo, mount, watchDirectory, feeds, warn };
 }
 
+describe('a page hearing one folder on another machine', () => {
+  it('hears what changes below it by its path in the working copy, not .git or node_modules', () => {
+    const r = rig();
+    r.request({ key: 'k', sessionId: 's', folder: '', on: true });
+    r.fire(r.change('create', '/srv/a/new.txt'));
+    r.fire(r.change('update', '/srv/a/.git/index'));
+    r.fire(r.change('update', '/srv/a/node_modules/x/y.js'));
+    r.fire(r.change('create', '/srv/b/elsewhere.txt'));
+    expect(r.heard).toEqual([{ key: 'k', change: { kind: 'changes', changes: [{ kind: 'create', path: 'new.txt' }] } }]);
+  });
+
+  it('a named folder: only below it, and that folder is watched there', async () => {
+    const r = rig();
+    r.request({ key: 'k', sessionId: 's', folder: 'docs', on: true });
+    await flush();
+    expect(r.watchDirectory).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'w' }), '/srv/a/docs');
+    r.fire(r.change('update', '/srv/a/docs2/a.md'));
+    r.fire(r.change('update', '/srv/a/docs/a.md'));
+    expect(r.heard).toEqual([{ key: 'k', change: { kind: 'changes', changes: [{ kind: 'update', path: 'docs/a.md' }] } }]);
+    r.request({ key: 'k', sessionId: 's', folder: 'docs', on: false });
+    expect(r.letGo).toHaveBeenCalled();
+  });
+
+  it('says resync when that machine is back', async () => {
+    const r = rig();
+    r.request({ key: 'k', sessionId: 's', folder: '', on: true });
+    await flush();
+    r.machineBack();
+    await flush();
+    expect(r.heard).toEqual([{ key: 'k', change: { kind: 'resync' } }]);
+    expect(r.mount).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('a page hearing one file on another machine', () => {
   it('hears that file, by the name it asked with, from the event the file panel hears', () => {
     const r = rig();

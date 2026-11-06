@@ -200,7 +200,7 @@ it('hears a file on another machine through the window, which has that machine\'
   f.machine.mockResolvedValue({ deviceId: 'there', projectId: null });
   const { events } = await import('@main/lib/events');
   const { appFileHeardElsewhereChannel, appFileWatchElsewhereChannel } = await import('@shared/events/appEvents');
-  const asked: { key: string; sessionId: string; file: string; on: boolean }[] = [];
+  const asked: ({ key: string; sessionId: string; on: boolean } & ({ file: string } | { folder: string }))[] = [];
   const off = events.on(appFileWatchElsewhereChannel, (request) => asked.push(request));
   const heard: unknown[] = [];
   const stop = await watchAppFile(page(), { workspace, id: 'a.md' }, (change) => heard.push(change));

@@ -487,6 +487,7 @@ const state = {
   root: null,
   folder: null, // the folder the list shows (子文件夹): a folder entry's id, null for the top
   listed: new Set(), // a working copy's folders listed so far ('' the top): it is read one folder at a time
+  folderWatches: new Map(), // the listed folders below the top that are heard, each by its own watch
   dragging: null, // the entry being dragged onto a folder (desktop)
   mode: 'preview', // 阅读 first (owner 10-30, folder-docs)
   current: null, // { entry, file, view, unbind, offs: [] }
@@ -629,6 +630,8 @@ async function applyContext(ctx) {
       ? [ctx.chat && gugu.files.onChanged({ chat: ctx.chat.id }, heardIn('chat')), ctx.workspace && roots.includes('workspace') && gugu.files.onChanged({ workspace: ctx.workspace.id }, heardIn('workspace'))].filter(Boolean)
       : []
     state.unwatch = watching.length ? () => watching.forEach((stop) => stop()) : null
+    for (const stop of state.folderWatches.values()) stop()
+    state.folderWatches.clear()
     // One root: that one. Both: the person picks (the list shows the two), unless the one shown is still here.
     const shown = state.root
     const shownPlace = (c) => (shown === 'workspace' ? c?.workspace?.id : shown === 'chat' ? c?.chat?.id : undefined)
@@ -772,6 +775,8 @@ async function listFolder(folder, again = false) {
   if (!inWorkspace() || state.ctx?.workspace?.id !== workspace) return
   const parent = folder || null
   state.listed.add(folder)
+  // Where a tree is watched one folder at a time, a folder is heard once it is named.
+  if (folder && !state.folderWatches.has(folder)) state.folderWatches.set(folder, gugu.files.onChanged({ workspace, folder }, heardIn('workspace')))
   state.listError = null
   state.entries = [...state.entries.filter((entry) => (entry.parentId ?? null) !== parent), ...listed]
   showList()

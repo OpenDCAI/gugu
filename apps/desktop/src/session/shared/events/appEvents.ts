@@ -124,10 +124,10 @@ export const sessionManageTabsResultChannel = defineEvent<SessionPaneTabsResult 
 }>('session:manage-tabs-result');
 
 /**
- * A page hears one file of a session on another machine: that machine's file changes reach the window only, so main asks
+ * A page hears one file or folder of a session on another machine: that machine's file changes reach the window only, so main asks
  * the window to listen and to tell it (`app-file-watches-elsewhere`).
  */
-export const appFileWatchElsewhereChannel = defineEvent<{ key: string; sessionId: string; file: string; on: boolean }>('session:app-file-watch-elsewhere');
+export const appFileWatchElsewhereChannel = defineEvent<{ key: string; sessionId: string; on: boolean } & ({ file: string } | { folder: string })>('session:app-file-watch-elsewhere');
 /** A file call its machine is too old for: the window says so, with the way to update that machine. */
 export const appFileMachineOutdatedChannel = defineEvent<{ deviceId: string; label: string }>('session:app-file-machine-outdated');
 export const appFileHeardElsewhereChannel = defineEvent<{ key: string; change: ExtensionFileChangeBatch }>('session:app-file-heard-elsewhere');
