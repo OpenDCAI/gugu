@@ -37,6 +37,7 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     let observer: IntersectionObserver;
     let frame = 0;
     let settle: ReturnType<typeof setTimeout> | undefined;
+    const readableRows = '[data-agent-conversation-message], [data-activity-read-ids]';
     const candidates = new Map<Element, { geometry: string; since: number }>();
     const readable = (element: Element) => {
       const viewport = host.getBoundingClientRect();
@@ -58,17 +59,19 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       for (const element of elements) {
         if (!readable(element)) { candidates.delete(element); continue; }
         const rect = element.getBoundingClientRect();
-        const geometry = `${rect.top}/${rect.bottom}/${slot?.getBoundingClientRect().top ?? ''}`;
+        const activityIds = element.getAttribute('data-activity-read-ids');
+        const geometry = `${rect.top}/${rect.bottom}/${slot?.getBoundingClientRect().top ?? ''}/${activityIds ?? ''}`;
         const candidate = candidates.get(element);
         if (!candidate || candidate.geometry !== geometry) candidates.set(element, { geometry, since: performance.now() });
         else if (performance.now() - candidate.since >= 250) {
           const id = element.getAttribute('data-agent-conversation-message');
           if (id) ids.push(id);
+          if (activityIds) ids.push(...JSON.parse(activityIds) as string[]);
         }
       }
       if (settle === undefined && elements.some(element => { const candidate = candidates.get(element); return candidate && performance.now() - candidate.since < 250; })) settle = setTimeout(() => {
         settle = undefined;
-        report([...host.querySelectorAll('[data-agent-conversation-message]')]);
+        report([...host.querySelectorAll(readableRows)]);
       }, 260);
       if (ids.length) onVisibleItems(ids);
     };
@@ -78,10 +81,10 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        report([...host.querySelectorAll('[data-agent-conversation-message]')]);
+        report([...host.querySelectorAll(readableRows)]);
       });
     };
-    const observe = () => host.querySelectorAll('[data-agent-conversation-message]').forEach(element => {
+    const observe = () => host.querySelectorAll(readableRows).forEach(element => {
       if (!seen.has(element)) { seen.add(element); observer.observe(element); }
     });
     const resetObserver = () => {
@@ -100,15 +103,15 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     resize?.observe(host);
     if (slot) resize?.observe(slot);
     const mutations = new MutationObserver(records => {
-      for (const record of records) if (record.type === 'attributes' && (record.target as Element).hasAttribute('data-agent-conversation-message')) { observer.unobserve(record.target as Element); observer.observe(record.target as Element); }
+      for (const record of records) if (record.type === 'attributes' && (record.target as Element).matches(readableRows)) { observer.unobserve(record.target as Element); observer.observe(record.target as Element); }
       observe();
       schedule();
     });
-    mutations.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-agent-conversation-message', 'style'] });
+    mutations.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-agent-conversation-message', 'data-activity-read-ids', 'style'] });
     observe();
     const visibleAgain = () => {
       if (!observing || document.visibilityState === 'hidden') return;
-      host.querySelectorAll('[data-agent-conversation-message]').forEach(element => { observer.unobserve(element); observer.observe(element); });
+      host.querySelectorAll(readableRows).forEach(element => { observer.unobserve(element); observer.observe(element); });
       schedule();
     };
     document.addEventListener('visibilitychange', visibleAgain);
