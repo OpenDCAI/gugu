@@ -567,7 +567,7 @@ function InnerLayout({
   useEffect(() => {
     if (!mobile) return
     const open = () => { void import('@/lib/connectionBridge').then(async ({ connectionBridge }) => {
-      const route = await connectionBridge().routing.read().catch(() => null)
+      const route = await Promise.resolve().then(() => connectionBridge().routing.read()).catch(() => null)
       if (route?.mode === 'legacy' && phoneAssistant.available) setActiveTab('assistant')
       else openSettingsSection('connectors')
     }) }

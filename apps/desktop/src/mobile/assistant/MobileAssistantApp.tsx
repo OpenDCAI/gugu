@@ -118,7 +118,7 @@ function MobileAssistantAppContent({
   const { t } = useTranslation('assistant')
   const [route, setRoute] = useState<PhoneRoute>({ tab: 'chat' })
   useEffect(() => {
-    const open = () => { void connectionBridge().routing.read().then(authority => {
+    const open = () => { void Promise.resolve().then(() => connectionBridge().routing.read()).then(authority => {
       if (authority.mode === 'legacy') setRoute({ tab: 'profile',sub: 'connectors' })
     }).catch(() => {}) }
     window.addEventListener(UI_EVENTS.openAssistantConnectors,open)

@@ -152,7 +152,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
 
   const selectSection = async (section: ActiveSection) => {
     if (mobile && section === 'connectors') {
-      const route = await connectionBridge().routing.read().catch(() => null)
+      const route = await Promise.resolve().then(() => connectionBridge().routing.read()).catch(() => null)
       if (route?.mode === 'legacy') { window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors)); return }
     }
     if (mobile) setParentSection(mobilePane === 'detail' ? activeSection : null)
