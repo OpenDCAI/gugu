@@ -23,7 +23,8 @@ import { getHostIpc } from '@main/lib/host-ipc';
 import { appScope } from '@main/app/app-scope';
 import { resolveLocalAgentRunContext } from '@main/core/agents/agent-run-context';
 import { setProviderSessionId } from '@main/core/sessions/set-session-id';
-import { persistCommittedTurn, storedRevertBoundary, truncateStoredHistory } from '@main/core/sessions/session-turn-store';
+import { persistCommittedTurn, withStoredTurns, storedRevertBoundary, truncateStoredHistory } from '@main/core/sessions/session-turn-store';
+import { openNativeConversationPreviews } from '@main/core/sessions/session-conversation-live';
 import { createHistoryReverter } from './history-revert';
 import { connectNativePromptPreparation } from './native-prompt-preparation';
 import { applyTurnToAuthExpiry, type AuthExpiryWriter } from '@main/core/agent-config/auth-expiry-from-turns';
@@ -283,10 +284,18 @@ const acpWorker = lazyWorker(
           },
         })
       );
+      const conversationPreviews = openNativeConversationPreviews(sessionId => withStoredTurns(sessionId, async () => undefined));
+      handle.scope.add(() => conversationPreviews.dispose());
+      handle.scope.add(await handle.client.conversationActivity.subscribe(undefined, {
+        onEvent: event => {
+          void conversationPreviews.update(event).catch(error => log.error('Failed to update personal conversation preview', { sessionId: event.sessionId, error }));
+        },
+      }));
       // #881 The assistant panel's per-turn notice is prepared here, in the host, for the runtime's provider requests.
       handle.scope.add(await connectNativePromptPreparation(handle.client, log));
       handle.scope.add(
         handle.onRestarted(() => {
+          conversationPreviews.reset();
           // A restarted worker has no surviving adapter processes or session records.
           void releaseEmdashPlatformSession(null);
         })

@@ -35,7 +35,11 @@ export function useNativeAgentChats(chats: readonly ChatItem[]): ChatItem[] {
   return useStructurallyShared(chats.map(chat => {
     if ((chat.kind !== 'dm' && chat.kind !== 'ai') || !isOwnedAgentPeer(chat.peer_user_id)) return chat
     const sessions = sessionsByAgent.get(chat.peer_user_id ?? '') ?? []
-    const last = sessions[0]?.nativeLastMessage
+    // Several conversations can belong to the same agent; the latest reply can be in an older task.
+    const last = sessions.reduce<SessionpageSessionSummary['nativeLastMessage']>((latest, session) => {
+      const candidate = session.nativeLastMessage
+      return candidate && (!latest || Date.parse(candidate.at) > Date.parse(latest.at)) ? candidate : latest
+    }, undefined)
     const notifications = sessions[0]?.nativeOwnerNotificationUnreadCount ?? 0
     const withNotifications = notifications ? { ...chat, unread_count: chat.unread_count + notifications } : chat
     const newer = last && Date.parse(last.at) > (chat.last_message_at ? Date.parse(chat.last_message_at) : 0)
