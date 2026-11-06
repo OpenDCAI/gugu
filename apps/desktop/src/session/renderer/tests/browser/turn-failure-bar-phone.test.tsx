@@ -32,7 +32,7 @@ it.each(['zh-CN', 'en-US'] as const)('%s: a long agent name leaves a readable ph
   root.render(
     <LocalizationProvider>
       <AgentTurnFailureBar
-        failure={{ agentUserId: 'agent-1', commandId: 'command-1', at: 1, reason: 'generic' }}
+        failure={{ agentUserId: 'agent-1', commandId: 'command-1', departed: false, at: 1, reason: 'generic' }}
         displayName="接手 Codex 114：#589 + 钉钉脚本 + 云电脑换版"
         avatar={null}
         onDismiss={() => {}}

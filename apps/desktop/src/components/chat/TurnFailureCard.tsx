@@ -56,7 +56,7 @@ export function TurnFailureCard({ reason, displayName: name, agentId, avatar, cr
             {createdAt ? <time className="tfc-time" dateTime={createdAt}>{formatCalendarDay(createdAt, { withTime: true })}</time> : null}
           </div>
           <Button variant="ghost" size="sm" className="tfc-reason block h-auto min-h-0 max-[719px]:min-h-0 p-0" aria-label={cause} onClick={() => setDetailOpen(true)}>
-            {cause}{placement === 'stream' ? ` · ${t(presentation.nextMessageKey)}` : ''}
+            {cause}{placement === 'stream' && presentation.nextMessageKey ? ` · ${t(presentation.nextMessageKey)}` : ''}
           </Button>
           {placement === 'composer' ? (
             <div className="tfc-actions">
@@ -81,7 +81,7 @@ export function TurnFailureCard({ reason, displayName: name, agentId, avatar, cr
       {detailOpen ? (
         <Sheet onClose={() => setDetailOpen(false)} ariaLabel={title} mobileFitContent>
           <div className="tfc-detail"><strong>{displayName} · {title}</strong><p>{cause}</p>
-            {placement === 'stream' ? <p>{t(presentation.nextMessageKey)}</p> : null}
+            {placement === 'stream' && presentation.nextMessageKey ? <p>{t(presentation.nextMessageKey)}</p> : null}
           </div>
         </Sheet>
       ) : null}
