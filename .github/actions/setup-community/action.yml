@@ -3,9 +3,8 @@ description: Install the pinned public toolchain without internal runners or cre
 inputs:
   save-cache:
     description: >-
-      Save the pnpm store and Electron download caches at the end of the job when the exact key
-      missed. Exactly one job per runner OS sets this; every other job only restores, so parallel
-      jobs do not each compress the ~900 MB store and then race for the same cache key.
+      Save installed dependencies after an exact miss, only on a dev push. Exactly one job per
+      runner OS sets this; PR/manual callers always restore without writing PR-scoped archives.
     required: false
     default: 'false'
 outputs:
@@ -27,29 +26,38 @@ runs:
       shell: bash
       run: |
         echo "source-tree=$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
-        echo "pnpm-store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-        if [ "$RUNNER_OS" = macOS ]; then
-          echo "electron=$HOME/Library/Caches/electron" >> "$GITHUB_OUTPUT"
-        else
-          echo "electron=$HOME/.cache/electron" >> "$GITHUB_OUTPUT"
-        fi
+        # Workspace-relative archives restore into either hosted or isolated runner checkouts.
+        echo 'pnpm-store=.ci-cache/pnpm' >> "$GITHUB_OUTPUT"
+        echo 'electron=.ci-cache/electron' >> "$GITHUB_OUTPUT"
+        echo "electron_config_cache=$GITHUB_WORKSPACE/.ci-cache/electron" >> "$GITHUB_ENV"
     # Keyed on the lockfile; on a lockfile change the newest older store is restored and pnpm only
     # downloads the difference.
-    - if: inputs.save-cache == 'true'
-      uses: actions/cache@v4
-      with:
-        path: |
-          ${{ steps.cache-paths.outputs.pnpm-store }}
-          ${{ steps.cache-paths.outputs.electron }}
-        key: community-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
-        restore-keys: community-deps-v1-${{ runner.os }}-${{ runner.arch }}-
-    - if: inputs.save-cache != 'true'
+    - id: pnpm-cache
       uses: actions/cache/restore@v4
       with:
-        path: |
-          ${{ steps.cache-paths.outputs.pnpm-store }}
-          ${{ steps.cache-paths.outputs.electron }}
-        key: community-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
-        restore-keys: community-deps-v1-${{ runner.os }}-${{ runner.arch }}-
+        path: ${{ steps.cache-paths.outputs.pnpm-store }}
+        key: community-pnpm-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: community-pnpm-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-
+    - id: electron-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.cache-paths.outputs.electron }}
+        key: community-electron-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: community-electron-v2-${{ runner.os }}-${{ runner.arch }}-
     - shell: bash
-      run: pnpm install --frozen-lockfile
+      env:
+        PNPM_CACHE_HIT: ${{ steps.pnpm-cache.outputs.cache-hit }}
+        ELECTRON_CACHE_HIT: ${{ steps.electron-cache.outputs.cache-hit }}
+      run: node scripts/ci/seed-community-caches.mjs
+    - shell: bash
+      run: pnpm install --frozen-lockfile --prefer-offline --store-dir "$GITHUB_WORKSPACE/.ci-cache/pnpm"
+    - if: inputs.save-cache == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.pnpm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.cache-paths.outputs.pnpm-store }}
+        key: ${{ steps.pnpm-cache.outputs.cache-primary-key }}
+    - if: inputs.save-cache == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.electron-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.cache-paths.outputs.electron }}
+        key: ${{ steps.electron-cache.outputs.cache-primary-key }}
