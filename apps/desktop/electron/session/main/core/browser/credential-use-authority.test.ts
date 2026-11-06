@@ -15,16 +15,28 @@ function fixture() {
     now: () => now, id: () => String(++next) });
   const cleanup = vi.fn(async (_binding: CredentialUseBinding): Promise<CredentialUseCleanup> => ({ status: 'cleaned' }));
   const register = vi.fn((_capability: VaultUseCapability, _binding: CredentialUseBinding, _revoked: AbortSignal): void => {});
-  const bridge = new CredentialUseAuthorityBridge({ approval, isolationCurrent: isolation, cleanup, registerUse: register });
+  const host = { approval, isolationCurrent: isolation, cleanup, registerUse: register };
+  const bridge = new CredentialUseAuthorityBridge(host);
   const request = approval.request(target, 'operation');
   const binding = { ...target, requestId: request.requestId, useId: request.useId };
-  return { approval, bridge, binding, request, current, isolation, cleanup, register,
+  return { approval, bridge, binding, request, current, isolation, cleanup, register, host,
     advance: (ms: number) => { now += ms; },
     approve: () => approval.decide(request.requestId, 'allow_once', person),
     issue: () => bridge.issue(request.requestId, binding) };
 }
 
 describe('host-only bridge to the unique credential approval authority', () => {
+  it('captures its trusted adapter methods and approval methods once at construction', () => {
+    const f = fixture(); f.approve();
+    f.host.isolationCurrent = vi.fn(() => { throw new Error('replacement guard'); });
+    f.host.registerUse = vi.fn(() => { throw new Error('replacement registrar'); });
+    f.approval.claimSubmission = vi.fn();
+    const lease = f.bridge.claimCredentialSink(f.issue(), f.binding);
+    lease.claimSubmission();
+    expect(f.register).toHaveBeenCalledOnce();
+    expect(f.approval.status(f.request.requestId).effectPossible).toBe(true);
+    expect(f.approval.claimSubmission).not.toHaveBeenCalled();
+  });
   it('cannot issue from claimed confirmation, an unanswered request or an expired approval', () => {
     const f = fixture();
     expect(() => f.issue()).toThrow('not_approved');

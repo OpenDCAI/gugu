@@ -20,6 +20,11 @@ type Entry = {
   binding: CredentialUseBinding; status: CredentialApprovalStatus; requestUntil: number; requestExpiresAt: number;
   startUntil?: number; startBefore?: number; effectPossible: boolean; controller: AbortController;
 };
+type ApprovalHost = {
+  current(binding: CredentialUseBinding): boolean;
+  verifyLocalDecision(binding: CredentialUseBinding, evidence: unknown): boolean;
+  now?: () => number; wallNow?: () => number; id?: () => string;
+};
 type StateError = 'request_unavailable' | 'owner_verification_required' | 'guard_unavailable' | 'target_invalidated'
   | 'not_approved' | 'already_consumed' | 'caller_mismatch' | 'approval_expired';
 export class CredentialApprovalError extends Error {
@@ -39,15 +44,14 @@ export class CredentialApprovalState {
   private readonly now: () => number;
   private readonly wallNow: () => number;
   private readonly id: () => string;
+  private readonly host: Readonly<Pick<ApprovalHost, 'current' | 'verifyLocalDecision'>>;
 
-  constructor(private readonly host: {
-    current(binding: CredentialUseBinding): boolean;
-    verifyLocalDecision(binding: CredentialUseBinding, evidence: unknown): boolean;
-    now?: () => number; wallNow?: () => number; id?: () => string;
-  }) {
-    this.now = host.now ?? (() => performance.now());
-    this.wallNow = host.wallNow ?? Date.now;
-    this.id = host.id ?? randomUUID;
+  constructor(host: ApprovalHost) {
+    // Capture method identities, rather than retaining a caller-mutable dependency object.
+    this.host = Object.freeze({ current: host.current.bind(host), verifyLocalDecision: host.verifyLocalDecision.bind(host) });
+    this.now = host.now?.bind(host) ?? (() => performance.now());
+    this.wallNow = host.wallNow?.bind(host) ?? Date.now;
+    this.id = host.id?.bind(host) ?? randomUUID;
   }
 
   request(target: Target, operationId: string): CredentialApprovalView {

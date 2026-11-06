@@ -12,6 +12,19 @@ type Use = {
   binding: CredentialUseBinding; claim: CredentialApprovalClaim; signal: AbortSignal;
   controller: AbortController; claimed: boolean; cleanup?: Promise<CredentialUseCleanup>;
 };
+type AuthorityHost = {
+  approval: Pick<CredentialApprovalState, 'claimStart' | 'assertStarted' | 'claimSubmission' | 'invalidate' | 'cancel'>;
+  /** Checks the actual private surface identity, isolation readiness and caller binding. */
+  isolationCurrent(binding: CredentialUseBinding): boolean;
+  /**
+   * Synchronously registers the original identity in the fixed handback lifecycle BEFORE issuance.
+   * This signal represents approval revocation only; proof-only cleanup does not abort it.
+   * A missing/async registration must never release a capability to storage.
+   */
+  registerUse(capability: VaultUseCapability, binding: CredentialUseBinding, revoked: AbortSignal): void;
+  /** Proof only. The fixed coordinator owns audit/outcome decisions and any later handback. */
+  cleanup(binding: CredentialUseBinding): Promise<CredentialUseCleanup>;
+};
 
 export class CredentialUseAuthorityError extends Error {
   constructor(readonly code: 'capability_unavailable' | 'binding_mismatch' | 'isolation_unavailable') { super(code); }
@@ -25,20 +38,16 @@ export class CredentialUseAuthorityError extends Error {
 export class CredentialUseAuthorityBridge implements CredentialUseAuthority {
   private readonly capabilities = new WeakMap<object, Use>();
   private readonly uses = new Map<string, Use>();
+  private readonly host: Readonly<AuthorityHost>;
 
-  constructor(private readonly host: {
-    approval: CredentialApprovalState;
-    /** Checks the actual private surface identity, isolation readiness and caller binding. */
-    isolationCurrent(binding: CredentialUseBinding): boolean;
-    /**
-     * Synchronously registers the original identity in the fixed handback lifecycle BEFORE issuance.
-     * This signal represents approval revocation only; proof-only cleanup does not abort it.
-     * A missing/async registration must never release a capability to storage.
-     */
-    registerUse(capability: VaultUseCapability, binding: CredentialUseBinding, revoked: AbortSignal): void;
-    /** Proof only. The fixed coordinator owns audit/outcome decisions and any later handback. */
-    cleanup(binding: CredentialUseBinding): Promise<CredentialUseCleanup>;
-  }) {}
+  constructor(host: AuthorityHost) {
+    const approval = host.approval;
+    this.host = Object.freeze({
+      approval: Object.freeze({ claimStart: approval.claimStart.bind(approval), assertStarted: approval.assertStarted.bind(approval),
+        claimSubmission: approval.claimSubmission.bind(approval), invalidate: approval.invalidate.bind(approval), cancel: approval.cancel.bind(approval) }),
+      isolationCurrent: host.isolationCurrent.bind(host), registerUse: host.registerUse.bind(host), cleanup: host.cleanup.bind(host),
+    });
+  }
 
   /** Host-only issuance after an actual local decision; caller-supplied confirmation is never accepted. */
   issue(requestId: string, current: CredentialUseBinding): VaultUseCapability {
