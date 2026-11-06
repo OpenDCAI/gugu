@@ -509,8 +509,8 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
  * app — the extension received `/Users/…/probe.sql` while the protocol said
  * relative, which is a contract the host broke, not the extension.
  *
- * Outside the working copy is dropped rather than passed through: the surface
- * consented to this working copy, and a path it cannot place is worse than none.
+ * A file it cannot place in the working copy stays absolute: outside it, or in a working copy on another machine. It is
+ * still the file the host handed this page (`ctx.file`), and that one file is all an absolute path reaches (`app-files`).
  */
 async function workspaceRelativeFile(place: WorkspacePlace | null, filePath?: string): Promise<string | null> {
   if (!filePath) return null;
@@ -518,9 +518,11 @@ async function workspaceRelativeFile(place: WorkspacePlace | null, filePath?: st
   if (!place) return null;
   const { localRootOf } = await import('@main/core/extensions/app-files');
   const root = await localRootOf(place).then((found) => found.workspaceRoot, () => null);
-  if (!root) return null;
-  const relative = path.relative(root, fs.realpathSync(filePath));
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  if (!root) return filePath;
+  // Gone from the disk: a restored tab still names it, and the page says so when it reads it.
+  const real = await fs.promises.realpath(filePath).catch(() => filePath);
+  const relative = path.relative(root, real);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return filePath;
   return relative.split(path.sep).join('/');
 }
 
@@ -1920,6 +1922,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesClose':
     case 'filesList':
     case 'filesRead':
+    case 'filesReadText':
+    case 'filesExists':
     case 'filesSearch':
     case 'filesRecent':
     case 'filesViewPreferences':
@@ -1956,6 +1960,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesClose: 'closeAppFile',
         filesList: 'listAppFiles',
         filesRead: 'readAppFile',
+        filesReadText: 'readAppFileText',
+        filesExists: 'appFileExists',
         filesSearch: 'searchAppFiles',
         filesRecent: 'recentAppFiles',
         filesCreate: 'createAppFile',

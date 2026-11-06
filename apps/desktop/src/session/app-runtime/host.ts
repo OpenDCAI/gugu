@@ -1,6 +1,7 @@
 import type { WorkingCopyPart } from '@shared/extensions/working-copy-upload';
 import type { TabOpenIntent } from '@shared/view-state';
-import { fileRefOf, type AppFileChunk, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, type AppFileChunk, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef,
+  type AppFileText, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts } from '@shared/extensions/bridge-protocol';
 import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, AppSessionRead } from '@shared/extensions/app-sessions';
 import type { ProjectionHost } from './projection-source';
@@ -67,6 +68,8 @@ export interface GuguHost extends ProjectionHost {
     keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
     watch(args: { watchId: string; place: AppPlace & { folder?: string }; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
+    readText(args: { ref: AppFileRef; maxBytes?: number }): Promise<AppFileText>;
+    exists(args: { ref: AppFileRef }): Promise<boolean>;
     /** Whether whoever reads may delete each file, in order: asked as a file's menu opens, never carried by a list. */
     canDelete(args: { refs: AppFileRef[] }): Promise<boolean[]>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;

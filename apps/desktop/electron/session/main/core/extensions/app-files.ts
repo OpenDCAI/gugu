@@ -30,6 +30,8 @@ import {
   type AppFileEntry,
   type AppFileOpened,
   type AppFileRef,
+  type AppFileText,
+  DEFAULT_TEXT_MAX_BYTES,
   type AppForwardFilesDetail,
   type AppFileUpload,
   type AppFileVersion,
@@ -44,7 +46,8 @@ import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } from '@main/core/extensions/account-token';
 import { fileServiceUrl, fileSync, localFileService } from '@main/core/extensions/file-sync';
 import { createLocalAppFiles, workingCopyEntry, type LocalSurface } from '@main/core/extensions/local-files';
-import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
+import { REMOTE_WORKSPACE_CHUNK_BYTES, REMOTE_WORKSPACE_MAX_FILE_BYTES } from '@gugu/session-core/session-record/contract';
+import { decodeUtf8Sample } from '@gugu/session-core/files';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
 import { fileIconKey } from '@shared/extensions/app-icon';
 import { claimantOf, openerChoice as chatOpenerChoice, requireOwnTabChoice } from '@shared/extensions/file-openers';
@@ -275,9 +278,26 @@ const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
   return ref;
 };
 
+/** Whether this is the file the host handed the page: the file its tab names, whether just clicked or restored. */
+const isHanded = (page: DesktopFilePage, ref: WorkspaceFileRef): boolean =>
+  !!page.handed && isWorkspace(page.handed) && page.handed.workspace === ref.workspace && 'id' in ref && page.handed.id === ref.id;
+
+/** An absolute path reaches one file only: the one the host handed this page. No capability opens any other. */
+function checkAbsolute(page: DesktopFilePage, ref: WorkspaceFileRef): void {
+  const named = 'id' in ref ? ref.id : ref.name;
+  if (path.isAbsolute(named) && !isHanded(page, ref)) {
+    throw new AppFileError('denied', 'Not permitted: an absolute path reaches only the file the host handed this page');
+  }
+}
+
 export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened> {
   const ref = fileRefOf(args.ref);
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
+  // Outside the working copy there is no live document: it is read and written whole (`readAppFileText`).
+  if (!isChat(ref) && path.isAbsolute('id' in ref ? ref.id : ref.name)) {
+    checkAbsolute(page, ref);
+    return { entry: workingCopyEntry({ workspace: ref.workspace }, 'id' in ref ? ref.id : ref.name, null), docName: '', access: 'ro', self: await files.self(), chunked: true };
+  }
   // Another machine's file is read there in pieces (`f.read`), read only, whatever it is: no live document across machines.
   if (!isChat(ref) && await elsewhereGated(page, ref)) {
     const name = 'id' in ref ? ref.id : ref.name;
@@ -326,10 +346,79 @@ export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; 
   const offset = Number(args.offset ?? 0);
   const length = Number(args.length ?? 0);
   if (isChat(ref)) return files.read(chatSurface(page), { ref: { ...ref, version: (args.ref as { version?: number })?.version }, offset, length });
+  checkAbsolute(page, ref);
+  return workspaceAppFileChunk(await workingCopyPiece(page, ref, offset, length));
+}
+
+/** A piece of a working copy's file, on the machine it is on. */
+async function workingCopyPiece(page: DesktopFilePage, ref: WorkspaceFileRef, offset: number, length: number) {
   const there = await onItsMachine(page, ref, 'filesRead', { ref, offset, length });
-  if (there.there) return workspaceAppFileChunk(there.value as { size: number; offset: number; data: string });
+  if (there.there) return there.value as { size: number; etag: string; offset: number; data: string };
   const { readWorkingCopy } = await import('./working-copy-files');
-  return workspaceAppFileChunk(await readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length));
+  return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length);
+}
+
+/** The file a whole-file call names, and that it may: the one handed to the page needs nothing, any other `capability`. */
+function wholeFileRef(page: DesktopFilePage, value: unknown, capability: 'files:read' | 'files:write', what: string): WorkspaceFileRef & { id: string } {
+  const ref = withId(fileRefOf(value), what);
+  if (isChat(ref)) throw new AppFileError('invalid', `${what} takes a working copy's file: a chat's opens live (files.open)`);
+  checkAbsolute(page, ref);
+  if (!isHanded(page, ref) && !extensionsService().hasCapability(page.extensionId, capability)) {
+    throw new AppFileError('denied', `Not permitted: ${what} on a file other than the one this page was opened for needs "${capability}"`);
+  }
+  return ref as WorkspaceFileRef & { id: string };
+}
+
+/** The version each page last read of each file: its save is checked against it, here, not by the page. */
+const readVersions = new Map<number, Map<string, string>>();
+const versionKey = (ref: WorkspaceFileRef & { id: string }) => `${ref.workspace}\0${ref.id}`;
+export function forgetReadVersions(pageId: number): void {
+  readVersions.delete(pageId);
+}
+
+/**
+ * `files.readText(file, { maxBytes })`: a working copy's text whole, in the file panel's pieces, on the machine it is on.
+ * What it holds is decided as the file panel decides it (`decodeUtf8Sample`); over `maxBytes` it is not read, only sized.
+ */
+export async function readAppFileText(page: DesktopFilePage, args: { ref?: unknown; maxBytes?: unknown }): Promise<AppFileText> {
+  const ref = wholeFileRef(page, args.ref, 'files:read', 'readText');
+  const maxBytes = typeof args.maxBytes === 'number' ? Math.min(args.maxBytes, REMOTE_WORKSPACE_MAX_FILE_BYTES) : DEFAULT_TEXT_MAX_BYTES;
+  const entry = workingCopyEntry({ workspace: ref.workspace }, ref.id, null);
+  for (let attempt = 0; ; attempt++) {
+    const pieces: Uint8Array[] = [];
+    let at = 0;
+    let first = await workingCopyPiece(page, ref, 0, REMOTE_WORKSPACE_CHUNK_BYTES);
+    const { size, etag } = first;
+    if (size > maxBytes) return { entry: { ...entry, size }, content: '', truncated: true, totalSize: size };
+    let moved = false;
+    for (;;) {
+      const bytes = workspaceAppFileChunk(first).data;
+      pieces.push(bytes);
+      at += bytes.byteLength;
+      if (at >= size || bytes.byteLength === 0) break;
+      first = await workingCopyPiece(page, ref, at, REMOTE_WORKSPACE_CHUNK_BYTES);
+      if (first.etag !== etag) { moved = true; break; }
+    }
+    // Changed while it was read: pieces of two versions are neither. Once more; still moving, say so.
+    if (moved) {
+      if (attempt === 0) continue;
+      throw new AppFileError('content-changed', `${ref.id} keeps changing on its computer while it is read`);
+    }
+    if (!readVersions.has(page.pageId)) readVersions.set(page.pageId, new Map());
+    readVersions.get(page.pageId)!.set(versionKey(ref), etag);
+    const decoded = decodeUtf8Sample(Buffer.concat(pieces), false);
+    return { entry: { ...entry, size }, content: decoded.content, ...(decoded.binary ? { binary: true as const } : {}), truncated: false, totalSize: size };
+  }
+}
+
+/** `files.exists(file)`: whether a working copy's file is there now, on the machine it is on. */
+export async function appFileExists(page: DesktopFilePage, args: { ref?: unknown }): Promise<boolean> {
+  const ref = wholeFileRef(page, args.ref, 'files:read', 'exists');
+  return workingCopyPiece(page, ref, 0, 0).then(() => true, (error: unknown) => {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code === 'not-found' || code === 'invalid') return false;
+    throw error;
+  });
 }
 
 /**
