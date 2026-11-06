@@ -4,6 +4,9 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type PhotoSwipe from 'photoswipe'
+import { detectPlatform } from '@tanstack/react-hotkeys'
+import { CommandShortcutBinder } from '../../../../apps/desktop/src/session/renderer/lib/commands/command-shortcut-binder'
+import { commandRegistry } from '../../../../apps/desktop/src/session/renderer/lib/commands/registry'
 import { ImagePreviewProvider } from '../../../../apps/desktop/src/components/ImagePreviewProvider'
 import { openImageViewer } from '../../../../apps/desktop/src/lib/imageViewer'
 import { isSheetOpen } from '../../../../apps/desktop/src/components/ui/sheetStack'
@@ -22,6 +25,7 @@ import {
   waitForCondition,
 } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
+vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: undefined }) }))
 
 const IMAGES = [
   { url: 'https://example.test/one.png', alt: 'one' },
@@ -277,6 +281,40 @@ describe('ImagePreviewProvider', () => {
     window.removeEventListener('keydown', pageBehind)
     expect(pageBehind).not.toHaveBeenCalled()
     await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay) === null, 'Escape did not close the viewer')
+  })
+
+  it('closes the image viewer without closing a tab, then restores the normal tab shortcut', async () => {
+    const previousPlatform = document.documentElement.dataset.platform
+    const mac = detectPlatform() === 'mac'
+    document.documentElement.dataset.platform = mac ? 'mac' : 'win'
+    const tabs = ['conversation', 'first file', 'second file']
+    const dispose = commandRegistry.register({
+      scopeId: 'session-sub',
+      getCommands: () => [{ id: 'session.tabClose', execute: () => { tabs.pop() } }],
+    })
+    const pressClose = async (target: EventTarget) => act(async () => {
+      target.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'w', code: 'KeyW', metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true,
+      }))
+    })
+    try {
+      await renderWithAppProviders(harness, createNode(ImagePreviewProvider, null, createNode(CommandShortcutBinder, null)))
+      await pressClose(document.body)
+      expect(tabs).toEqual(['conversation', 'first file'])
+
+      await act(async () => openImageViewer(IMAGES))
+      await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewClose) !== null, 'viewer toolbar never mounted')
+      await pressClose(byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)!)
+      expect(tabs).toEqual(['conversation', 'first file'])
+      await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay) === null, 'close shortcut did not remove the viewer')
+
+      await pressClose(document.body)
+      expect(tabs).toEqual(['conversation'])
+    } finally {
+      dispose()
+      if (previousPlatform === undefined) delete document.documentElement.dataset.platform
+      else document.documentElement.dataset.platform = previousPlatform
+    }
   })
 
   // @@@1892 - 跨域 URL 上 <a download> 会被 Chromium 忽略并整窗导航到裸图,

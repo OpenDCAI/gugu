@@ -1,6 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { matchesKeyboardEvent } from '@tanstack/react-hotkeys'
 import { useTranslation } from 'react-i18next'
 import type PhotoSwipe from 'photoswipe'
 import type { Bounds, PhotoSwipeOptions, SlideData } from 'photoswipe'
@@ -498,10 +499,11 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
   }, [viewer, editing, isTopLayer])
   useEffect(() => {
     if (!openPswp) return
-    // Esc:不在栈里的 Base UI 对话框在 document 上听 Esc。window 捕获阶段先于所有 document 监听,
-    // 在这里关查看器并截住这一下,压在下面的对话框才不会跟着关。
-    const onEscapeCapture = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.isComposing || !isTopLayer()) return
+    // window 捕获阶段先于 document 上的 Esc 和页签快捷键监听,
+    // 在这里沿同一条路径关闭并截住按键,避免关掉底下的对话框或页签。
+    const onCloseCapture = (event: KeyboardEvent) => {
+      const closeShortcut = matchesKeyboardEvent(event, 'Mod+W', readRendererPlatform() === 'mac' ? 'mac' : 'windows')
+      if ((event.key !== 'Escape' && !closeShortcut) || event.isComposing || !isTopLayer()) return
       event.stopPropagation()
       event.preventDefault()
       if (editing && event.target instanceof HTMLElement && event.target.closest('input,textarea,[contenteditable="true"]')) {
@@ -510,8 +512,8 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
       } else if (editing) setEditing(null)
       else openPswp.close()
     }
-    window.addEventListener('keydown', onEscapeCapture, { capture: true })
-    return () => window.removeEventListener('keydown', onEscapeCapture, { capture: true })
+    window.addEventListener('keydown', onCloseCapture, { capture: true })
+    return () => window.removeEventListener('keydown', onCloseCapture, { capture: true })
   }, [openPswp, editing, isTopLayer, viewer])
 
   return (
