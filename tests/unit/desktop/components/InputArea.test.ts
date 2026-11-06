@@ -648,7 +648,7 @@ describe('ChatMessageComposer', () => {
     await flush()
     expect(document.body.textContent).toContain('新入群 Agent')
   })
-  it('#2166 warns only for an explicitly offline resolved agent status', async () => {
+  it('#2166 shows inline status only for an explicitly offline resolved Agent', async () => {
     const offlineAgent = rosterMember('offline-agent', '设备离线 Agent', 'agent')
     const reachableAgent = rosterMember('reachable-agent', '可对话 Agent', 'agent')
     await harness.render(createElement(ChatMessageComposer, {
@@ -670,9 +670,10 @@ describe('ChatMessageComposer', () => {
       offlineOption?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
     })
     await flush()
-    expect(container.querySelector('[data-agent-status-surface="mention-selection"][data-agent-id="offline-agent"]')?.textContent)
-      .toContain('当前不在线，可能无法及时回复')
-    expect(container.querySelector('[data-agent-status-surface="mention-selection"][data-agent-id="reachable-agent"]')).toBeNull()
+    expect(container.querySelector('[data-agent-status-surface="mention-inline"][data-agent-id="offline-agent"]')?.textContent)
+      .toBe('不在线')
+    expect(container.querySelector('[data-agent-status-surface="mention-inline"][data-agent-id="reachable-agent"]')).toBeNull()
+    expect(container.querySelector('[data-agent-status-surface="mention-selection"]')).toBeNull()
   })
   it('3a a name with a space stays pickable, and picking it closes the popup', async () => {
     const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
