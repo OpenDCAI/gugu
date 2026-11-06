@@ -493,7 +493,7 @@ const ComposerForStore = observer(function ComposerForStore({
 
   /** 拖 / 粘 / 选进来的文件(图片也是):各上一枚 chip,当场开始放进私聊文件夹。 */
   const attachFiles = useCallback(async (files: File[], source?: 'paste' | 'drop') => {
-    const selected = fileSelection.select(files);
+    const selected = fileSelection.choose(files);
     try {
       for (const { id, file } of selected) {
         // 用户读的名字是 `file.name`,❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。

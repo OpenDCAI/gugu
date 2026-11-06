@@ -12,7 +12,7 @@ export function useAttachmentFileSelection(attachments: readonly { id: string; f
   })) }), [scope])
   selection.observe(attachments)
   return useMemo(() => ({
-    select: (files: readonly File[]) => selection.select(files, mobile),
+    choose: (files: readonly File[]) => selection.choose(files, mobile),
     release: selection.release,
   }), [selection, mobile])
 }

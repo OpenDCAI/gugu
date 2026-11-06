@@ -407,7 +407,7 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
       cancelable: true, retryable: failed && !!file && file.size <= MAX_ATTACHMENT_BYTES };
   });
   const addFiles = (files: File[]) => {
-    for (const picked of fileSelection.select(files)) {
+    for (const picked of fileSelection.choose(files)) {
       void composer.addAttachment(picked.file).catch(error => {
         fileSelection.release([picked]);
         notify({ title: translateSessionMessage('composer.attachmentUploadFailed'), description: messageForUser(error), tier: 'error' });
