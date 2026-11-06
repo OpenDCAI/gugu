@@ -62,7 +62,7 @@ export function NoticeHost({ closeLabel, embedded = false }: { closeLabel?: stri
   if (!owner) return null
   return (
     <Toaster
-      className="gugu-notices"
+      className={composerBottom === undefined ? 'gugu-notices' : 'gugu-notices gugu-notices-above-composer'}
       position="bottom-right"
       offset={composerBottom === undefined ? undefined : { bottom: composerBottom }}
       mobileOffset={composerBottom === undefined ? undefined : { bottom: composerBottom }}

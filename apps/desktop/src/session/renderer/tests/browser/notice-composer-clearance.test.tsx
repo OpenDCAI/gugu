@@ -19,8 +19,8 @@ function Layout({ height = 120, split = false, filePane = false, hidden = false 
   return <><NoticeHost />
     <div style={{ position: 'fixed', left: 200, right: filePane ? 240 : 20, bottom: 20, display: hidden ? 'none' : 'flex', gap: 12 }}>
       {split && <div data-slot="composer" style={{ width: '40%', height: height + 50, background: 'white' }}><textarea aria-label="Topic message" /></div>}
-      <div data-slot="composer" data-testid="visible-composer" style={{ flex: 1, height, background: 'white' }}>
-        <textarea aria-label="Message" /><button data-testid="send" style={{ float: 'right' }}>Send</button>
+      <div data-slot="composer" data-testid="visible-composer" style={{ flex: 1, height, background: 'white', position: 'relative' }}>
+        <textarea aria-label="Message" style={{ width: '100%', height: '100%' }} /><button data-testid="send" style={{ position: 'absolute', right: 4, bottom: 4 }}>Send</button>
       </div>
     </div>
     <div style={{ position: 'fixed', inset: 0, contentVisibility: 'hidden' }}>
@@ -34,6 +34,18 @@ it('keeps the real notice stack above visible composers as they grow, split, res
   harness = createReactHarness()
   await harness.render(<Layout />)
   await act(async () => { notify({ key: 'clearance', title: 'Please retry this operation.', tier: 'error', ongoing: true, action: { label: 'Retry', onClick() {} } }) })
+  await until('notice subscribes', () => !!card())
+  // Upstream enter/exit/swipe animations cross the origin even when the settled
+  // card is correctly positioned. Its clipped area must not intercept input.
+  const assertInputClear = async () => {
+    for (let frame = 0; frame < 30; frame++) {
+      const box = composer().getBoundingClientRect()
+      const hit = document.elementFromPoint(box.right - 60, box.top + 5)
+      expect(card()?.contains(hit)).not.toBe(true)
+      await new Promise(requestAnimationFrame)
+    }
+  }
+  await assertInputClear()
   await until('notice is 8px above the composer', () => !!card() && Math.abs(gap() - 8) < 1)
   const originalRight = window.innerWidth - card().getBoundingClientRect().right
   const send = document.querySelector<HTMLElement>('[data-testid="send"]')!
@@ -46,6 +58,11 @@ it('keeps the real notice stack above visible composers as they grow, split, res
   await page.viewport(900, 650)
   await until('both split composers are clear', () => [...document.querySelectorAll<HTMLElement>('[data-slot="composer"]')].filter((element) => element.checkVisibility()).every((element) => card().getBoundingClientRect().bottom <= element.getBoundingClientRect().top - 8))
   expect(window.innerWidth - card().getBoundingClientRect().right).toBeCloseTo(originalRight, 0)
+
+  await act(async () => dismissNotice('clearance'))
+  await assertInputClear()
+  await act(async () => { notify({ key: 'clearance', title: 'Please retry this operation.', tier: 'error', ongoing: true }) })
+  await until('new notice appears above the split', () => !!card() && Math.abs(gap() - 8) < 1)
 
   await harness.render(<Layout hidden />)
   await until('a page without a composer restores the ordinary bottom inset', () => window.innerHeight - card().getBoundingClientRect().bottom < 50)
