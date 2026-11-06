@@ -12,7 +12,7 @@ export interface RealElectronFixtureOptions {
 }
 
 interface Failure { phase: string; message: string; stack?: string }
-interface ProcessFailure { message: string; code?: string; stack?: string }
+interface ProcessFailure { message: string; code?: string | number; stack?: string }
 export interface FixtureDiagnostics {
   name: string;
   executable: string;
@@ -24,8 +24,14 @@ export interface FixtureDiagnostics {
   stderr: string;
   primaryFailure?: Failure;
   processError?: ProcessFailure;
-  abortReason?: string;
-  shutdownError?: string;
+  termination: { abort?: ProcessFailure; shutdown?: ProcessFailure };
+}
+
+// Machine-readable exceptions are diagnostic records, never user-copy reason slots.
+function failureDetails(error: unknown): ProcessFailure {
+  return error instanceof Error
+    ? { message: error.message, stack: error.stack, code: (error as NodeJS.ErrnoException).code }
+    : { message: String(error) };
 }
 
 function primaryFailure(stderr: string): Failure | undefined {
@@ -41,7 +47,7 @@ function primaryFailure(stderr: string): Failure | undefined {
 /** A fixture owns its detached process group until both the tree and stdio close. */
 export function startRealElectronFixture(options: RealElectronFixtureOptions) {
   let stdout = '', stderr = '', processError: ProcessFailure | undefined;
-  let aborted = false, abortReason: string | undefined;
+  let aborted = false, abortFailure: ProcessFailure | undefined;
   let terminal!: () => void, closed!: () => void;
   const ending = new Promise<void>(resolve => { terminal = resolve; });
   const close = new Promise<void>(resolve => { closed = resolve; });
@@ -49,7 +55,7 @@ export function startRealElectronFixture(options: RealElectronFixtureOptions) {
   const owned = spawnOwnedChild(options.executable, options.args, {
     env: options.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     onError(error) {
-      processError ??= { message: error.message, code: (error as NodeJS.ErrnoException).code, stack: error.stack };
+      processError ??= failureDetails(error);
       terminal();
     },
   });
@@ -63,8 +69,7 @@ export function startRealElectronFixture(options: RealElectronFixtureOptions) {
   const stop = () => stopping ??= owned.stop();
   const abort = () => {
     aborted = true;
-    const reason: unknown = options.signal?.reason;
-    abortReason = reason instanceof Error ? reason.message : String(reason);
+    abortFailure = failureDetails(options.signal?.reason);
     terminal();
   };
   options.signal?.addEventListener('abort', abort, { once: true });
@@ -72,16 +77,16 @@ export function startRealElectronFixture(options: RealElectronFixtureOptions) {
 
   const result = (async (): Promise<FixtureDiagnostics> => {
     await ending;
-    let shutdownError: string | undefined;
+    let shutdownFailure: ProcessFailure | undefined;
     try { await stop(); await close; }
-    catch (error) { shutdownError = error instanceof Error ? error.message : String(error); }
+    catch (error) { shutdownFailure = failureDetails(error); }
     finally { options.signal?.removeEventListener('abort', abort); }
     const diagnostics: FixtureDiagnostics = {
       name: options.name, executable: options.executable, args: options.args, pid: child.pid,
       code: child.exitCode, signal: child.signalCode, stdout, stderr,
-      primaryFailure: primaryFailure(stderr), processError, abortReason, shutdownError,
+      primaryFailure: primaryFailure(stderr), processError, termination: { abort: abortFailure, shutdown: shutdownFailure },
     };
-    const failed = aborted || processError || shutdownError || diagnostics.code !== 0;
+    const failed = aborted || processError || shutdownFailure || diagnostics.code !== 0;
     // The CI log is an unconditional failure artifact, including when the caller's
     // beforeAll deadline fires before it gets to inspect this promise.
     if (failed) process.stderr.write('REAL_ELECTRON_FIXTURE_DIAGNOSTICS=' + JSON.stringify(diagnostics) + '\n');
@@ -91,7 +96,7 @@ export function startRealElectronFixture(options: RealElectronFixtureOptions) {
       fs.writeFileSync(path.join(options.reportDirectory, options.name + '.log'), stdout + '\n' + stderr);
     }
     if (failed) {
-      const reason = diagnostics.primaryFailure?.message ?? processError?.message ?? shutdownError ?? abortReason ?? `exit ${diagnostics.code} (${diagnostics.signal})`;
+      const reason = diagnostics.primaryFailure?.message ?? processError?.message ?? shutdownFailure?.message ?? abortFailure?.message ?? `exit ${diagnostics.code} (${diagnostics.signal})`;
       throw Object.assign(new Error(`${options.name}: ${reason}\n${stdout}\n${stderr}`), { diagnostics });
     }
     return diagnostics;

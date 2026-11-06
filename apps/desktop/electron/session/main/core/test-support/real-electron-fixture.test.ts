@@ -88,7 +88,7 @@ describe('real Electron fixture ownership', () => {
       expect(error.message).toContain('Pipeline timed out');
       expect(error.message).toContain('cleanup diagnostic after cancellation');
       expect(error.diagnostics).toMatchObject({ name: 'native-projection-pipeline', executable: '/fixture/Electron', args: ['/fixture/main.cjs'],
-        primaryFailure: { phase: 'first-paint', message: 'Pipeline timed out' }, signal: 'SIGTERM' });
+        primaryFailure: { phase: 'first-paint', message: 'Pipeline timed out' }, signal: 'SIGTERM', termination: { abort: { message: 'outer deadline' } } });
       const saved = JSON.parse(fs.readFileSync(path.join(temporary, 'reports/native-projection-pipeline.json'), 'utf8'));
       expect(saved.stderr).toContain('cleanup diagnostic after cancellation');
       expect(saved.primaryFailure.message).toBe('Pipeline timed out');
@@ -141,6 +141,8 @@ describe('real Electron fixture ownership', () => {
     // Finish the fake's stream lifecycle so a failing assertion cannot leave
     // this test's bookkeeping pending after it has already detected the defect.
     fake.child.exitCode = 1; fake.child.stdout.end(); fake.child.stderr.end(); fake.child.emit('close', 1, null);
-    expect(await result).toBeInstanceOf(Error);
+    const failure = await result;
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.diagnostics.termination.shutdown).toMatchObject({ message: 'owned process group still running' });
   });
 });
