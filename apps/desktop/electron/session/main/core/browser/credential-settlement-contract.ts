@@ -21,8 +21,10 @@ declare const postUseAuditProof: unique symbol;
 /** Issued only by the fixed storage/audit adapter after reliable persistence. */
 export type PostUseAuditProof = Readonly<{ [postUseAuditProof]: true }>;
 
-export type PostUseAuditResult =
-  | Readonly<{ status: 'recorded'; eventId: string; recordId: string; proof: PostUseAuditProof }>
+export type RecordedPostUseAudit = Readonly<{
+  status: 'recorded'; eventId: string; recordId: string; proof: PostUseAuditProof;
+}>;
+export type PostUseAuditResult = RecordedPostUseAudit
   | Readonly<{ status: 'unavailable' | 'uncertain' | 'not_attempted' }>;
 
 /**
@@ -33,11 +35,11 @@ export interface FixedOutcomeAuditPort {
   /** Encrypted audit remains the sole writer; the coordinator requests an actual current outcome event. */
   appendOutcome(context: UseOutcomeContext): Promise<PostUseAuditResult>;
   /**
-   * Checks issuer-owned in-process proof identity AND the complete expected context.
-   * A cloned/serialized object or recordId string cannot qualify.
+   * Checks issuer-owned proof identity, the receipt's eventId/recordId AND the complete context.
+   * Replacing either ID, cloning/serializing the proof or supplying only a string cannot qualify.
    * Proof metadata is audit readiness, not a second approval/submission ledger.
    */
-  matches(proof: PostUseAuditProof, expected: UseOutcomeContext): boolean;
+  matches(recorded: RecordedPostUseAudit, expected: UseOutcomeContext): boolean;
 }
 
 /**
@@ -84,7 +86,7 @@ export interface CredentialHandoffCoordinator {
  *   do NOT claim the credential/submission a second time.
  * - Cleanup is proven by the coordinator's fixed adapters/state. No outcome/retain flag,
  *   settle field or recordId is accepted as a substitute.
- * - 'recorded' qualifies only with matches(proof, exactContext) from the injected issuer,
+ * - 'recorded' qualifies only with matches(recorded, exactContext) from the injected issuer,
  *   including use/surface id+epoch, outcome and effectPossible.
  * - appendOutcome produces proof only from that exact closure's actual recorded event;
  *   unavailable/uncertain/not_attempted never has proof.
