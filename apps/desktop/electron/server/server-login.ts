@@ -34,6 +34,7 @@ import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
 import { writeStoredServerSession } from './server-auth'
 import { prepareAccountLogin, assertAccountLayoutReady, assertAccountLogin } from './server-startup'
 import { EXIT_CONFIG } from './server-exit'
+import { controllerOwnsUpdates } from './server-package-environment.mts'
 import { accountDataDir, applyAccountEnv, clearSignedOutMark, emailFromAccessToken, readServerAccount, serverHome, writeAccountMeta, writeServerConnectVia } from './server-layout'
 
 type StartResponse = { device_code: string; user_code: string; expires_in: number; interval: number }
@@ -236,9 +237,13 @@ async function pollUntilDone(
         )
       }
       out(`已登录 ${email ?? userId}。`)
-      const { restartServerAfterLogin } = await import('./server-service')
-      try { restartServerAfterLogin(out) }
-      catch (error) { out(`Signed in, but the server could not be started: ${String(error)}. Run gugu-server start.`) }
+      // @@@controller-starts-server - A controller runs `service install` right after login. A process started
+      // here would hold the lock unsupervised with no heartbeat yet, and install must refuse to replace it.
+      if (!controllerOwnsUpdates(serverHome())) {
+        const { restartServerAfterLogin } = await import('./server-service')
+        try { restartServerAfterLogin(out) }
+        catch (error) { out(`Signed in, but the server could not be started: ${String(error)}. Run gugu-server start.`) }
+      }
       out('上线后会出现在咕咕的设备列表里。')
       return 0
     }
