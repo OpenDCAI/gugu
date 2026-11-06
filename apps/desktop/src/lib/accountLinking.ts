@@ -11,16 +11,17 @@ export class AccountLinkingError extends Error {
   }
 }
 
-export function loginMethods(user: User): { email: string; google: UserIdentity | null; googleEmail: string } {
+export function loginMethods(user: User): { email: string; emailIdentity: UserIdentity | null; google: UserIdentity | null; googleEmail: string } {
   const identities = user.identities?.filter(identity => identity.provider === 'google') ?? []
   if (identities.length > 1) throw new AccountLinkingError('unsupportedIdentities')
   const google = identities[0] ?? null
-  return { email: user.email ?? '', google, googleEmail: typeof google?.identity_data?.email === 'string' ? google.identity_data.email : '' }
+  return { email: user.email ?? '', emailIdentity: user.identities?.find(identity => identity.provider === 'email') ?? null,
+    google, googleEmail: typeof google?.identity_data?.email === 'string' ? google.identity_data.email : '' }
 }
 
 function fingerprint(user: User): string {
-  const { email, google } = loginMethods(user)
-  return JSON.stringify([user.id, email.toLowerCase(), google?.id ?? null, google?.identity_id ?? null])
+  const { email, emailIdentity, google } = loginMethods(user)
+  return JSON.stringify([user.id, email.toLowerCase(), emailIdentity?.identity_id ?? null, google?.id ?? null, google?.identity_id ?? null])
 }
 
 export function loginMethodNotice(user: User): LoginMethodNotice | null {
@@ -41,6 +42,7 @@ export interface AccountLinkingDeps {
   changeEmail(email: string): Promise<User>
   confirmEmail(email: string, token: string): Promise<User | null>
   unlinkGoogle(identity: UserIdentity): Promise<void>
+  pendingUnlink(): boolean
   recordChange(kind: LoginMethodChange): Promise<boolean>
   signOutAll(): Promise<void>
   now?(): number
@@ -50,7 +52,6 @@ export interface AccountLinkingDeps {
 export class AccountLinking {
   private proof: { fingerprint: string; at: number } | null = null
   private disposed = false
-  private unlinked = false
   private readonly now: () => number
   constructor(private readonly userId: string, private readonly deps: AccountLinkingDeps) { this.now = deps.now ?? Date.now }
   dispose(): void { this.disposed = true; this.proof = null }
@@ -66,13 +67,15 @@ export class AccountLinking {
     return user
   }
   async requestVerification(): Promise<void> {
-    const { email } = loginMethods(await this.read())
+    const { email, emailIdentity } = loginMethods(await this.read())
+    if (!emailIdentity) throw new AccountLinkingError('verifyRequired')
     if (!email) throw new AccountLinkingError('invalidEmail')
     await this.deps.requestEmailOtp(email)
     this.assertOwner()
   }
   async verifyEmail(token: string): Promise<void> {
     const before = await this.read()
+    if (!loginMethods(before).emailIdentity) throw new AccountLinkingError('verifyRequired')
     const verified = await this.deps.verifyEmailOtp(loginMethods(before).email, token)
     this.assertOwner(verified)
     const after = await this.read()
@@ -126,20 +129,20 @@ export class AccountLinking {
     return { complete: true, noticeSaved: await this.deps.recordChange('email-changed') }
   }
   async unlinkGoogle(): Promise<void> {
-    const { email, google, googleEmail } = loginMethods(await this.verified())
+    const { email, emailIdentity, google, googleEmail } = loginMethods(await this.verified())
     if (!google) throw new AccountLinkingError('missingGoogle')
     if (!googleEmail) throw new AccountLinkingError('googleEmailUnavailable')
-    if (!email || email.toLowerCase() === googleEmail.toLowerCase()) throw new AccountLinkingError('sameEmail')
+    if (!emailIdentity || !email || email.toLowerCase() === googleEmail.toLowerCase()) throw new AccountLinkingError('sameEmail')
     await this.deps.unlinkGoogle(google)
-    this.assertOwner()
-    this.unlinked = true
+    // The mutation has committed. Closing settings or selecting another account must
+    // never cancel cleanup of the account whose Google identity was removed.
     this.proof = null
     // Failure to save an informational notice must not prevent session revocation.
     try { await this.deps.recordChange('google-unlinked') } finally { await this.finishUnlink() }
   }
   async finishUnlink(): Promise<void> {
-    this.assertOwner()
-    if (!this.unlinked) throw new AccountLinkingError('missingGoogle')
+    if (!this.hasPendingUnlink()) throw new AccountLinkingError('missingGoogle')
     await this.deps.signOutAll()
   }
+  hasPendingUnlink(): boolean { return this.deps.pendingUnlink() }
 }

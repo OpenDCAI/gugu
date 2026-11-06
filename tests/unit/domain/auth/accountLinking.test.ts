@@ -4,21 +4,23 @@ import { AccountLinking, ACCOUNT_REVERIFICATION_MS, loginMethodNotice, loginMeth
 import { googleIdentityLinkUrl } from '../../../../apps/desktop/shared/google-authorization-url'
 
 const google: UserIdentity = { id: 'google-subject', identity_id: 'identity-id', provider: 'google', user_id: 'alice', created_at: '', updated_at: '', identity_data: { email: 'google@example.test' } }
+const emailIdentity: UserIdentity = { ...google, id: 'alice', identity_id: 'email-identity-id', provider: 'email', identity_data: { email: 'alice@example.test' } }
 function user(patch: Partial<User> = {}): User {
-  return { id: 'alice', email: 'alice@example.test', app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '', identities: [], ...patch }
+  return { id: 'alice', email: 'alice@example.test', app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '', identities: [emailIdentity], ...patch }
 }
 function harness(initial = user()) {
-  let current = initial, currentOwner: string | null = initial.id, now = 1_000
+  let current = initial, currentOwner: string | null = initial.id, now = 1_000, pendingUnlink = false
   const deps: AccountLinkingDeps = {
     currentUserId: () => currentOwner,
     getUser: vi.fn(async () => current),
     requestEmailOtp: vi.fn(async () => {}),
     verifyEmailOtp: vi.fn(async () => current),
     reverifyGoogle: vi.fn(async () => current),
-    linkGoogle: vi.fn(async () => { current = { ...current, identities: [google] }; return current }),
+    linkGoogle: vi.fn(async () => { current = { ...current, identities: [emailIdentity, google] }; return current }),
     changeEmail: vi.fn(async () => current),
     confirmEmail: vi.fn(async () => null),
-    unlinkGoogle: vi.fn(async () => { current = { ...current, identities: [] } }),
+    unlinkGoogle: vi.fn(async () => { current = { ...current, identities: [emailIdentity] }; pendingUnlink = true }),
+    pendingUnlink: () => pendingUnlink,
     recordChange: vi.fn(async () => true),
     signOutAll: vi.fn(async () => {}),
     now: () => now,
@@ -27,11 +29,32 @@ function harness(initial = user()) {
 }
 
 describe('account linking workflow', () => {
-  it('reads a Google account email as an OTP login without requiring a password identity', () => {
-    expect(loginMethods(user({ identities: [google] }))).toMatchObject({ email: 'alice@example.test', googleEmail: 'google@example.test' })
+  it('does not offer a Google-only account email OTP verification before an email identity exists', async () => {
+    const h = harness(user({ identities: [google] }))
+    expect(loginMethods(await h.flow.read()).emailIdentity).toBeNull()
+    await expect(h.flow.requestVerification()).rejects.toMatchObject({ code: 'verifyRequired' })
+    await expect(h.flow.verifyEmail('123456')).rejects.toMatchObject({ code: 'verifyRequired' })
+    expect(h.deps.requestEmailOtp).not.toHaveBeenCalled()
+    expect(h.deps.verifyEmailOtp).not.toHaveBeenCalled()
+    await h.flow.verifyGoogle()
+    await expect(h.flow.changeEmail('new@example.test')).resolves.toMatchObject({ complete: false })
+    await expect(h.flow.unlinkGoogle()).rejects.toMatchObject({ code: 'sameEmail' })
+  })
+  it('uses email OTP for an email-only account and refuses Google reauthorization', async () => {
+    const h = harness()
+    await h.flow.requestVerification()
+    expect(h.deps.requestEmailOtp).toHaveBeenCalledExactlyOnceWith('alice@example.test')
+    await h.flow.verifyEmail('123456')
+    await expect(h.flow.verifyGoogle()).rejects.toMatchObject({ code: 'missingGoogle' })
+    expect(h.deps.reverifyGoogle).not.toHaveBeenCalled()
+  })
+  it.each(['email', 'google'] as const)('allows the existing %s identity when both methods are linked', async method => {
+    const h = harness(user({ identities: [emailIdentity, google] }))
+    await (method === 'email' ? h.flow.verifyEmail('123456') : h.flow.verifyGoogle())
+    await expect(h.flow.changeEmail('new@example.test')).resolves.toMatchObject({ complete: false })
   })
   it('rejects linking, email changes and unlinking without fresh verification', async () => {
-    const h = harness(user({ identities: [google] }))
+    const h = harness(user({ identities: [emailIdentity, google] }))
     await expect(h.flow.linkGoogle()).rejects.toMatchObject({ code: 'verifyRequired' })
     await expect(h.flow.changeEmail('new@example.test')).rejects.toMatchObject({ code: 'verifyRequired' })
     await expect(h.flow.unlinkGoogle()).rejects.toMatchObject({ code: 'verifyRequired' })
@@ -57,14 +80,14 @@ describe('account linking workflow', () => {
     await expect(h.flow.linkGoogle()).rejects.toMatchObject({ code: 'verifyRequired' })
   })
   it.each(['email', 'google'] as const)('never accepts a different user returned by %s verification', async method => {
-    const h = harness(user({ identities: [google] }))
+    const h = harness(user({ identities: [emailIdentity, google] }))
     if (method === 'email') vi.mocked(h.deps.verifyEmailOtp).mockResolvedValue(user({ id: 'bob' }))
-    else vi.mocked(h.deps.reverifyGoogle).mockResolvedValue(user({ id: 'bob', identities: [google] }))
+    else vi.mocked(h.deps.reverifyGoogle).mockResolvedValue(user({ id: 'bob', identities: [emailIdentity, google] }))
     await expect(method === 'email' ? h.flow.verifyEmail('123456') : h.flow.verifyGoogle()).rejects.toMatchObject({ code: 'ownerChanged' })
     await expect(h.flow.changeEmail('new@example.test')).rejects.toMatchObject({ code: 'verifyRequired' })
   })
   it('checks the existing Google subject, not only the account ID', async () => {
-    const h = harness(user({ identities: [google] }))
+    const h = harness(user({ identities: [emailIdentity, google] }))
     vi.mocked(h.deps.reverifyGoogle).mockResolvedValue(user({ identities: [{ ...google, id: 'other-google' }] }))
     await expect(h.flow.verifyGoogle()).rejects.toMatchObject({ code: 'ownerChanged' })
   })
@@ -83,7 +106,7 @@ describe('account linking workflow', () => {
     await expect(h.flow.changeEmail('new@example.test')).rejects.toMatchObject({ code: 'verifyRequired' })
   })
   it('rejects a second Google identity before making a linking request', async () => {
-    const h = harness(user({ identities: [google] }))
+    const h = harness(user({ identities: [emailIdentity, google] }))
     await h.flow.verifyGoogle()
     await expect(h.flow.linkGoogle()).rejects.toMatchObject({ code: 'alreadyLinked' })
     expect(h.deps.linkGoogle).not.toHaveBeenCalled()
@@ -99,7 +122,7 @@ describe('account linking workflow', () => {
     expect(h.deps.recordChange).not.toHaveBeenCalled()
   })
   it('requires a different email before unlinking a Google identity, ignoring address case', async () => {
-    const h = harness(user({ email: 'GOOGLE@example.test', identities: [google] }))
+    const h = harness(user({ email: 'GOOGLE@example.test', identities: [emailIdentity, google] }))
     await h.flow.verifyGoogle()
     await expect(h.flow.unlinkGoogle()).rejects.toMatchObject({ code: 'sameEmail' })
     expect(h.deps.unlinkGoogle).not.toHaveBeenCalled()
@@ -117,14 +140,14 @@ describe('account linking workflow', () => {
     expect(h.deps.recordChange).toHaveBeenCalledExactlyOnceWith('email-changed')
   })
   it('revokes all devices after unlinking, even when saving the notice fails', async () => {
-    const h = harness(user({ identities: [google] }))
+    const h = harness(user({ identities: [emailIdentity, google] }))
     await h.flow.verifyGoogle()
     vi.mocked(h.deps.recordChange).mockRejectedValue(new Error('notice storage unavailable'))
     await expect(h.flow.unlinkGoogle()).rejects.toThrow('notice storage unavailable')
     expect(h.deps.signOutAll).toHaveBeenCalledOnce()
   })
   it('supports retrying global sign-out after an unlink that succeeded on the server', async () => {
-    const h = harness(user({ identities: [google] }))
+    const h = harness(user({ identities: [emailIdentity, google] }))
     await h.flow.verifyGoogle()
     vi.mocked(h.deps.signOutAll).mockRejectedValueOnce(new Error('network unavailable'))
     await expect(h.flow.unlinkGoogle()).rejects.toThrow('network unavailable')
@@ -133,11 +156,23 @@ describe('account linking workflow', () => {
     expect(h.deps.signOutAll).toHaveBeenCalledTimes(2)
   })
   it('does not revoke other sessions when unlinking fails', async () => {
-    const h = harness(user({ identities: [google] }))
+    const h = harness(user({ identities: [emailIdentity, google] }))
     await h.flow.verifyGoogle()
     vi.mocked(h.deps.unlinkGoogle).mockRejectedValue(new Error('unlink failed'))
     await expect(h.flow.unlinkGoogle()).rejects.toThrow('unlink failed')
     expect(h.deps.signOutAll).not.toHaveBeenCalled()
+  })
+  it.each(['dispose', 'switch'] as const)('finishes revocation when settings %s happens while unlinking', async change => {
+    const h = harness(user({ identities: [emailIdentity, google] }))
+    await h.flow.verifyGoogle()
+    const original = vi.mocked(h.deps.unlinkGoogle).getMockImplementation()!
+    vi.mocked(h.deps.unlinkGoogle).mockImplementation(async identity => {
+      if (change === 'dispose') h.flow.dispose()
+      else h.setOwner('bob')
+      await original(identity)
+    })
+    await h.flow.unlinkGoogle()
+    expect(h.deps.signOutAll).toHaveBeenCalledOnce()
   })
   it('validates persisted notices before presenting them as account changes', () => {
     const valid = { id: 'change', kind: 'google-unlinked', at: '2026-11-06T12:00:00Z' }

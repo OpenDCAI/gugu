@@ -14,13 +14,17 @@ vi.mock('../../../../apps/desktop/src/lib/authBoundedFetch', () => ({ authBounde
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ supabase: { auth: {
   getUser: async () => ({ data: { user: m.user }, error: null }),
   updateUser: (...args: unknown[]) => m.update(...args),
-  unlinkIdentity: async () => { m.user = { ...m.user!, identities: [] }; return { error: null } },
+  unlinkIdentity: async () => { m.user = { ...m.user!, identities: m.user!.identities?.filter(identity => identity.provider !== 'google') }; return { error: null } },
 } } }))
 vi.mock('../../../../apps/desktop/src/lib/sessionCoordinator', () => ({ sessionCoordinator: {
   getSnapshot: () => ({ session: m.session }), refresh: async () => {}, beginInteractiveLogin: () => 1,
   acceptInteractiveSession: (...args: unknown[]) => m.accept(...args), logout: () => m.logout(),
 } }))
-vi.mock('../../../../apps/desktop/src/lib/authLogout', () => ({ logoutAndRelaunch: () => m.logout() }))
+vi.mock('../../../../apps/desktop/src/lib/authLogout', () => ({ logoutAndRelaunch: async (onSignedOut?: () => void) => {
+  const result = await m.logout()
+  if (result.success) onSignedOut?.()
+  return result
+} }))
 vi.mock('../../../../apps/desktop/src/lib/authCallbacks', () => ({ authCallbacks: {
   ready: async () => {}, redirectTo: async () => 'gugu-dev://auth/callback',
   subscribeAccount: (callback: (url: string) => void) => { m.callback = callback; return () => { m.callback = null } },
@@ -31,7 +35,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { authCallba
 
 function user(id = 'alice', google = false): User {
   return { id, email: `${id}@example.test`, aud: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '',
-    identities: google ? [{ id: 'google-subject', identity_id: 'identity-id', provider: 'google', user_id: id, created_at: '', updated_at: '', identity_data: { email: 'google@example.test' } }] : [] }
+    identities: [...(google ? [{ id: 'google-subject', identity_id: 'identity-id', provider: 'google', user_id: id, created_at: '', updated_at: '', identity_data: { email: 'google@example.test' } }] : []), { id, identity_id: `email-${id}`, provider: 'email', user_id: id, created_at: '', updated_at: '', identity_data: { email: `${id}@example.test` } }] }
 }
 function session(value: User): Session {
   const exp = Math.floor(Date.now() / 1000) + 3600
@@ -45,6 +49,7 @@ function send(callbackUrl: string): void {
 }
 beforeEach(() => {
   vi.resetModules(); vi.clearAllMocks()
+  window.localStorage.clear()
   m.user = user(); m.session = session(m.user); m.returned = null; m.callback = null; m.deferCallback = false
   m.update.mockImplementation(async (attrs: { data?: Record<string, unknown> }) => {
     m.user = { ...m.user!, user_metadata: { ...m.user!.user_metadata, ...attrs.data } }
@@ -60,7 +65,7 @@ beforeEach(() => {
       return Response.json(m.user)
     }
     if (url.pathname.includes('/user/identities/') && init.method === 'DELETE') {
-      m.user = { ...m.user!, identities: [] }
+      m.user = { ...m.user!, identities: m.user!.identities?.filter(identity => identity.provider !== 'google') }
       return Response.json({})
     }
     if (url.pathname.endsWith('/token') || url.pathname.endsWith('/verify')) {
@@ -109,7 +114,7 @@ describe('account linking adapter with the real auth SDK', () => {
     const flow = createAccountLinking('alice')
     await flow.verifyEmail('123456')
     await expect(flow.linkGoogle()).resolves.toBe(true)
-    expect(m.user!.identities?.[0]?.identity_data?.email).toBe('google@example.test')
+    expect(m.user!.identities?.find(identity => identity.provider === 'google')?.identity_data?.email).toBe('google@example.test')
     expect(m.session).toBe(original)
     expect(m.accept).not.toHaveBeenCalled()
     expect(m.openLink).toHaveBeenCalledOnce()
@@ -147,20 +152,67 @@ describe('account linking adapter with the real auth SDK', () => {
     const { createAccountLinking } = await import('../../../../apps/desktop/src/lib/accountLinkingAdapter')
     const flow = createAccountLinking('alice')
     await flow.verifyGoogle()
-    await expect(flow.unlinkGoogle()).rejects.toMatchObject({ code: 'ownerChanged' })
+    await expect(flow.unlinkGoogle()).resolves.toBeUndefined()
     expect(m.logout).not.toHaveBeenCalled()
     expect(m.session.user.id).toBe('bob')
   })
-  it('retries local cleanup without repeating a successful global revocation', async () => {
+  it('restores local cleanup after reopening settings without repeating a successful global revocation', async () => {
     m.user = user('alice', true); m.session = session(m.user)
     m.logout.mockRejectedValueOnce(new Error('local storage unavailable'))
     const { createAccountLinking } = await import('../../../../apps/desktop/src/lib/accountLinkingAdapter')
     const flow = createAccountLinking('alice')
     await flow.verifyGoogle()
     await expect(flow.unlinkGoogle()).rejects.toThrow('local storage unavailable')
-    await flow.finishUnlink()
+    flow.dispose()
+    vi.resetModules()
+    const reopened = (await import('../../../../apps/desktop/src/lib/accountLinkingAdapter')).createAccountLinking('alice')
+    expect(reopened.hasPendingUnlink()).toBe(true)
+    await reopened.finishUnlink()
+    expect(reopened.hasPendingUnlink()).toBe(false)
     expect(m.fetch.mock.calls.filter(([url]) => String(url).endsWith('/logout?scope=global'))).toHaveLength(1)
     expect(m.logout).toHaveBeenCalledTimes(2)
+  })
+  it.each(['dispose', 'switch'] as const)('revokes the original bearer after an unlink response arrives following %s', async change => {
+    m.user = user('alice', true); m.session = session(m.user)
+    const originalToken = m.session.access_token
+    const originalFetch = m.fetch.getMockImplementation()!
+    const flow = (await import('../../../../apps/desktop/src/lib/accountLinkingAdapter')).createAccountLinking('alice')
+    m.fetch.mockImplementation(async (raw: string, init: RequestInit) => {
+      const response = await originalFetch(raw, init)
+      if (raw.includes('/user/identities/') && init.method === 'DELETE') {
+        if (change === 'dispose') flow.dispose()
+        else m.session = session(user('bob'))
+      }
+      return response
+    })
+    await flow.verifyGoogle()
+    await flow.unlinkGoogle()
+    const revoke = m.fetch.mock.calls.find(([raw]) => String(raw).endsWith('/logout?scope=global'))!
+    expect(revoke[1].headers).toMatchObject({ Authorization: `Bearer ${originalToken}` })
+    expect(m.logout).toHaveBeenCalledTimes(change === 'dispose' ? 1 : 0)
+    if (change === 'switch') expect(m.session.user.id).toBe('bob')
+    expect(flow.hasPendingUnlink()).toBe(false)
+  })
+  it('restores a failed global revocation after reopening settings without persisting bearer credentials', async () => {
+    m.user = user('alice', true); m.session = session(m.user)
+    const originalFetch = m.fetch.getMockImplementation()!
+    m.fetch.mockImplementation(async (raw: string, init: RequestInit) => raw.endsWith('/logout?scope=global')
+      ? Response.json({ message: 'Unavailable' }, { status: 503 }) : originalFetch(raw, init))
+    const flow = (await import('../../../../apps/desktop/src/lib/accountLinkingAdapter')).createAccountLinking('alice')
+    await flow.verifyGoogle()
+    await expect(flow.unlinkGoogle()).rejects.toMatchObject({ code: 'signOutFailed' })
+    expect(m.logout).not.toHaveBeenCalled()
+    const saved = window.localStorage.getItem('gugu-account-unlink-recovery:alice')!
+    expect(saved).toBe('"revoke"')
+    expect(saved).not.toContain(m.session.access_token)
+    flow.dispose()
+    vi.resetModules()
+    m.fetch.mockImplementation(originalFetch)
+    const reopened = (await import('../../../../apps/desktop/src/lib/accountLinkingAdapter')).createAccountLinking('alice')
+    expect(reopened.hasPendingUnlink()).toBe(true)
+    await reopened.finishUnlink()
+    expect(m.logout).toHaveBeenCalledOnce()
+    expect(reopened.hasPendingUnlink()).toBe(false)
   })
   it('accepts the first secure-email acknowledgement without adopting its message body as a user', async () => {
     const { createAccountLinking } = await import('../../../../apps/desktop/src/lib/accountLinkingAdapter')

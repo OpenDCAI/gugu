@@ -12,6 +12,7 @@ import { GoogleLoginFlow } from './googleLoginFlow'
 import { sessionCoordinator } from './sessionCoordinator'
 import { supabase } from './supabase'
 import { logoutAndRelaunch } from './authLogout'
+import { accountUnlinkRecovery } from './accountUnlinkRecovery'
 
 // One isolated SDK client per renderer. Its in-memory session and PKCE verifier never reach
 // sb-main, native session storage, or SessionCoordinator without checking the original owner.
@@ -28,6 +29,7 @@ function accountAuth() {
 }
 let active = false
 let cancelGoogle: (() => Promise<void>) | null = null
+const unlinkCleanupFlights = new Map<string, Promise<void>>()
 async function exclusively<T>(work: () => Promise<T>): Promise<T> {
   if (active) throw new Error('An account verification is already in progress')
   active = true
@@ -147,7 +149,7 @@ export const cancelAccountGoogle = async () => { await cancelGoogle?.() }
 export const accountGoogleAvailable = () => Boolean(platform.authCallbacks && platform.oauthBrowser?.openLinkBrowser)
 
 export function createAccountLinking(userId: string): AccountLinking {
-  let globallyRevoked = false
+  let unlinkSession: Session | null = null
   return new AccountLinking(userId, {
     currentUserId: owner,
     getUser: async () => {
@@ -190,27 +192,50 @@ export function createAccountLinking(userId: string): AccountLinking {
       return data.user
     }),
     unlinkGoogle: identity => exclusively(async () => {
-      await seed(userId)
+      unlinkSession = await seed(userId)
       const { error } = await accountAuth().unlinkIdentity(identity)
       if (error) throw error
+      accountUnlinkRecovery.write(userId, 'revoke')
     }),
+    pendingUnlink: () => accountUnlinkRecovery.read(userId) !== null,
     recordChange: (kind: LoginMethodChange) => exclusively(async () => {
-      await seed(userId)
+      if (kind === 'google-unlinked' && unlinkSession) values.set(storageKey, JSON.stringify(unlinkSession))
+      else await seed(userId)
       const notice: LoginMethodNotice = { id: crypto.randomUUID(), kind, at: new Date().toISOString() }
       window.localStorage.setItem(localLoginNoticeKey(userId), JSON.stringify(notice))
       const { error } = await accountAuth().updateUser({ data: { [LOGIN_METHOD_NOTICE_KEY]: notice } })
       return !error
     }),
-    signOutAll: () => exclusively(async () => {
-      if (!globallyRevoked) {
-        const session = await seed(userId)
-        const { error } = await accountAuth().admin.signOut(session.access_token, 'global')
-        if (error) throw new AccountLinkingError('signOutFailed')
-        globallyRevoked = true
-      }
-      sameOwner(userId)
-      const result = await logoutAndRelaunch()
-      if (!result.success) throw new AccountLinkingError('signOutFailed')
-    }),
+    signOutAll: () => {
+      const existing = unlinkCleanupFlights.get(userId)
+      if (existing) return existing
+      // Revocation uses the original request's credentials and does not take the shared
+      // verification lock. A new account's verification must not cancel this cleanup.
+      const work = (async () => {
+        if (accountUnlinkRecovery.read(userId) === 'revoke') {
+          let session = unlinkSession
+          if (!session || (session.expires_at ?? 0) * 1000 <= Date.now()) {
+            sameOwner(userId)
+            session = sessionCoordinator.getSnapshot().session!
+            if ((session.expires_at ?? 0) * 1000 <= Date.now()) {
+              await sessionCoordinator.refresh()
+              sameOwner(userId)
+              session = sessionCoordinator.getSnapshot().session!
+            }
+          }
+          const { error } = await accountAuth().admin.signOut(session.access_token, 'global')
+          if (error) throw new AccountLinkingError('signOutFailed')
+          accountUnlinkRecovery.write(userId, 'local')
+        }
+        // Selecting another account already removed this account locally. Do not sign
+        // out the newly selected account when the old revocation response arrives.
+        if (owner() !== userId) { accountUnlinkRecovery.clear(userId); return }
+        const result = await logoutAndRelaunch(() => accountUnlinkRecovery.clear(userId))
+        if (!result.success) throw new AccountLinkingError('signOutFailed')
+      })()
+      const flight = work.finally(() => { unlinkCleanupFlights.delete(userId) })
+      unlinkCleanupFlights.set(userId, flight)
+      return flight
+    },
   })
 }

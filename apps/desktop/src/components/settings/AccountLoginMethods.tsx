@@ -29,11 +29,13 @@ export function AccountLoginMethods({ userId, onEmailChanged }: { userId: string
   useEffect(() => {
     const controller = createAccountLinking(userId)
     service.current = controller
+    setStage(controller.hasPendingUnlink() ? 'signout' : 'idle')
     let alive = true
     void controller.read().then(value => {
       if (!alive) return
       setUser(value)
-      setMethod(value.app_metadata.provider === 'google' && loginMethods(value).google ? 'google' : 'email')
+      const available = loginMethods(value)
+      setMethod(available.google && (!available.emailIdentity || value.app_metadata.provider === 'google') ? 'google' : 'email')
     }).catch((reason: unknown) => { if (alive) setError(reason instanceof AccountLinkingError ? t(`loginMethods.errors.${reason.code}`) : userVisibleAuthError(reason)) })
     return () => { alive = false; controller.dispose(); service.current = null; void cancelAccountGoogle() }
   }, [userId, t])
@@ -66,8 +68,9 @@ export function AccountLoginMethods({ userId, onEmailChanged }: { userId: string
     else setStage(action === 'email' ? 'email' : 'unlink')
   }
   const methods = user ? loginMethods(user) : null
+  const verificationMethod = methods?.google && (method === 'google' || !methods.emailIdentity) ? 'google' : 'email'
   const sameEmail = methods && methods.googleEmail && methods.email.toLowerCase() === methods.googleEmail.toLowerCase()
-  const cannotUnlink = !methods?.email || !methods.googleEmail || Boolean(sameEmail)
+  const cannotUnlink = !methods?.emailIdentity || !methods.email || !methods.googleEmail || Boolean(sameEmail)
   const notice = user ? loginMethodNotice(user) : null
   const button = (label: string, onClick: () => void, disabled = false) => <Button type="button" variant="ghost" size="sm" disabled={busy || disabled} onClick={onClick}>{label}</Button>
 
@@ -86,10 +89,10 @@ export function AccountLoginMethods({ userId, onEmailChanged }: { userId: string
       {methods.google && sameEmail && <SettingsRow description={t('loginMethods.sameEmailNote')} />}
       {stage === 'verify' && <SettingsRow layout="field" title={t('loginMethods.verifyTitle')} description={t('loginMethods.verifyNote')} control={<div className="flex w-full flex-col gap-2">
         <div className="flex flex-wrap gap-2">
-          {methods.email && button(t('loginMethods.byEmail'), () => { setMethod('email'); setSent(false); setCode('') }, method === 'email')}
-          {methods.google && accountGoogleAvailable() && button(t('loginMethods.byGoogle'), () => { setMethod('google'); setCode('') }, method === 'google')}
+          {methods.emailIdentity && button(t('loginMethods.byEmail'), () => { setMethod('email'); setSent(false); setCode('') }, verificationMethod === 'email')}
+          {methods.google && accountGoogleAvailable() && button(t('loginMethods.byGoogle'), () => { setMethod('google'); setCode('') }, verificationMethod === 'google')}
         </div>
-        {method === 'email' ? <>
+        {verificationMethod === 'email' ? <>
           {button(t(sent ? 'loginMethods.resend' : 'loginMethods.sendCode'), () => { void run(async controller => { await controller.requestVerification(); setSent(true) }) })}
           {sent && <>
             <label htmlFor="account-verify-code">{t('loginMethods.code')}</label>
@@ -127,14 +130,13 @@ export function AccountLoginMethods({ userId, onEmailChanged }: { userId: string
         control={button(t('loginMethods.confirmUnlink'), () => { void run(async controller => {
           try { await controller.unlinkGoogle() }
           catch (reason) {
-            const latest = await controller.read()
-            setStage(loginMethods(latest).google ? 'unlink' : 'signout')
+            setStage(controller.hasPendingUnlink() ? 'signout' : 'unlink')
             throw reason
           }
         }) })} />}
-      {stage === 'signout' && <SettingsRow description={t('loginMethods.unlinkNote')} control={button(t('loginMethods.retrySignOut'), () => { void run(controller => controller.finishUnlink()) })} />}
       {stage !== 'idle' && stage !== 'signout' && <SettingsRow control={button(t('loginMethods.cancel'), () => { setStage('idle'); setCode(''); setError('') })} />}
       {googlePending && <Button type="button" variant="ghost" size="sm" onClick={() => { void cancelAccountGoogle() }}>{t('loginMethods.cancelGoogle')}</Button>}
     </>}
+    {stage === 'signout' && <SettingsRow description={t('loginMethods.unlinkNote')} control={button(t('loginMethods.retrySignOut'), () => { void run(controller => controller.finishUnlink()) })} />}
   </SettingsGroup>
 }
