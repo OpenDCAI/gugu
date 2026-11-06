@@ -103,7 +103,7 @@ describe('#6334「活跃」页', () => {
       expect(cacheCell('claude')?.textContent).toBe('10%')
       expect(cacheCell('codex')?.textContent).toBe('100%')
       expect(cacheCell('opencode')?.textContent).toBe('未统计')
-      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合并缓存命中率 91% · 读占全部输入')
+      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合计：91% 的输入来自缓存')
       expect(document.querySelector('[data-testid="usage-cache-hit-scope"]')?.textContent).toBe('Claude / Codex 已统计日志，含咕咕模型与自带账号。')
     } finally { harness.cleanup() }
   })
@@ -120,6 +120,7 @@ describe('#6334「活跃」页', () => {
       expect(cacheCell('claude')?.textContent).toBe('—')
       expect(cacheCell('codex')?.textContent).toBe('0%')
       expect(cacheCell('gemini')?.textContent).toBe('未统计')
+      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合计：0% 的输入来自缓存')
     } finally { harness.cleanup() }
   })
 })
@@ -134,7 +135,7 @@ describe('small cache hit percentages', () => {
     try {
       expect(document.querySelector('[data-testid="usage-engine-claude"] [data-label="缓存命中率"]')?.textContent).toBe('0.4%')
       expect(document.querySelector('[data-testid="usage-engine-codex"] [data-label="缓存命中率"]')?.textContent).toBe('0%')
-      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合并缓存命中率 0.2% · 读占全部输入')
+      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合计：0.2% 的输入来自缓存')
     } finally { harness.cleanup() }
   })
 })
