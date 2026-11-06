@@ -108,7 +108,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   }, [members, renderSessionMentionIcon])
   const localProvider = useMemo(() => createLocalSessionMentionProvider({ creationToolsByEngine: byEngine }), [byEngine])
   const decorate = useCallback((item: MentionItem): MentionItem => ({ ...item,
-    annotation: isGroupChat && !members.some((member) => `aid:${member.id}` === item.label) ? t('composer.notInGroup') : item.annotation,
+    annotation: isGroupChat && !members.some((member) => member.id === item.id || `aid:${member.id}` === item.label) ? t('composer.notInGroup') : item.annotation,
   }), [isGroupChat, members, t])
   const mentionProvider = useMemo(() => ({
     allowSpaces: true,

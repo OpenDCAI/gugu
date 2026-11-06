@@ -54,6 +54,7 @@ describe('selected Agent status belongs to its mention', () => {
   ] as const)('shows only the expected caption for %s without changing the submitted recipient', async (status, expected) => {
     await render(status, { id: 'agent-a', name: 'Solver' })
     expect(caption()?.textContent ?? null).toBe(expected)
+    expect(editor().querySelector('[data-mention-annotation]')).toBeNull()
     expect(harness.container.querySelector('[data-agent-status-surface="mention-selection"]')).toBeNull()
     expect(readComposer(editor())).toBe('@Solver ')
     expect(toast).not.toHaveBeenCalled()
@@ -102,6 +103,7 @@ describe('selected Agent status belongs to its mention', () => {
       } })
     expect(caption()?.textContent).toBe('不在线')
     expect(editor().querySelectorAll('[data-mention-id="agent-a"]')).toHaveLength(1)
+    expect(editor().querySelector('[data-mention-annotation]')).toBeNull()
     expect(readComposer(editor())).toBe(text)
     expect(toast).not.toHaveBeenCalled()
   })
