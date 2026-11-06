@@ -1,3 +1,4 @@
+import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import { appStateOf } from '@shared/extensions/app-state';
 import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import * as fs from 'node:fs';
@@ -451,7 +452,7 @@ function cloudAppOf(caller: BridgeCaller) {
   return { id: caller.extensionId, origin: extensionsService().origins()[caller.extensionId] };
 }
 
-/** The pages that listed a working copy: they hold its tree's folders (working-copy-files.ts) until they go. */
+/** The pages that listed or read a working copy: they hold its tree's folders and the versions they read (working-copy-files.ts) until they go. */
 const workingCopyPages = new Set<number>();
 
 export function stopPageWatches(pageId: number): void {
@@ -465,7 +466,7 @@ export function stopPageWatches(pageId: number): void {
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
-async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean, folder?: string): Promise<void> {
+async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean, folder?: string, file?: string): Promise<void> {
   let watching = pageWatches.get(caller.pageId);
   const existing = watching?.get(watchId);
   if (!on) {
@@ -483,9 +484,12 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
   if (isWorkspace(place)) {
     // The working copy's change feed, the one the file panel hears, under the folder named: the same native watch.
     const { watchWorkingCopy } = await import('@main/core/extensions/working-copy-files');
-    const stop = await watchWorkingCopy(place, folder, (change) => {
+    const heard = (change: ExtensionFileChangeBatch) => {
       if (extensionsService().hasCapability(caller.extensionId, 'files:read')) caller.hear({ type: 'filesChanged', watchId, place, change });
-    });
+    };
+    const stop = file === undefined
+      ? await watchWorkingCopy(place, folder, heard)
+      : await (await import('@main/core/extensions/app-files')).watchAppFile(caller.filePage({ ref: { ...place, id: file } }), { ...place, id: file }, heard);
     if (pageWatches.get(caller.pageId) !== watching) return stop();
     disk = { stop };
   }
@@ -513,8 +517,8 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
  * app — the extension received `/Users/…/probe.sql` while the protocol said
  * relative, which is a contract the host broke, not the extension.
  *
- * Outside the working copy is dropped rather than passed through: the surface
- * consented to this working copy, and a path it cannot place is worse than none.
+ * A file it cannot place in the working copy stays absolute: outside it, or in a working copy on another machine. It is
+ * still the file the host handed this page (`ctx.file`), and that one file is all an absolute path reaches (`app-files`).
  */
 async function workspaceRelativeFile(place: WorkspacePlace | null, filePath?: string): Promise<string | null> {
   if (!filePath) return null;
@@ -522,9 +526,11 @@ async function workspaceRelativeFile(place: WorkspacePlace | null, filePath?: st
   if (!place) return null;
   const { localRootOf } = await import('@main/core/extensions/app-files');
   const root = await localRootOf(place).then((found) => found.workspaceRoot, () => null);
-  if (!root) return null;
-  const relative = path.relative(root, fs.realpathSync(filePath));
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  if (!root) return filePath;
+  // Gone from the disk: a restored tab still names it, and the page says so when it reads it.
+  const real = await fs.promises.realpath(filePath).catch(() => filePath);
+  const relative = path.relative(root, real);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return filePath;
   return relative.split(path.sep).join('/');
 }
 
@@ -1903,6 +1909,10 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesClose':
     case 'filesList':
     case 'filesRead':
+    case 'filesReadText':
+    case 'filesExists':
+    case 'filesDraft':
+    case 'filesWriteText':
     case 'filesSearch':
     case 'filesRecent':
     case 'filesViewPreferences':
@@ -1915,7 +1925,10 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesRename':
     case 'filesKeep':
     case 'filesMkdir':
-    case 'filesMove': {
+    case 'filesMove':
+    case 'filesWriteChunk':
+    case 'filesReveal':
+    case 'filesDownloadStop': {
       const files = await import('@main/core/extensions/app-files');
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
@@ -1929,13 +1942,17 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         if (read && place?.chat === binding.conversation && Object.keys(place).length === 1 && args.folder === undefined && args.showAppData === undefined) return await read;
       }
       const listsWorkingCopy = method === 'filesList' && Boolean((args.place as { workspace?: unknown } | null)?.workspace);
-      if (listsWorkingCopy) workingCopyPages.add(caller.pageId);
+      if (listsWorkingCopy || method === 'filesReadText' || method === 'filesWriteText') workingCopyPages.add(caller.pageId);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
         filesClose: 'closeAppFile',
         filesList: 'listAppFiles',
         filesRead: 'readAppFile',
+        filesReadText: 'readAppFileText',
+        filesExists: 'appFileExists',
+        filesDraft: 'appFileDraft',
+        filesWriteText: 'writeAppFileText',
         filesSearch: 'searchAppFiles',
         filesRecent: 'recentAppFiles',
         filesCreate: 'createAppFile',
@@ -1945,6 +1962,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesKeep: 'keepAppFile',
         filesMkdir: 'makeAppFolder',
         filesMove: 'moveAppFile',
+        filesWriteChunk: 'writeAppFileChunk',
+        filesReveal: 'revealAppFile',
+        filesDownloadStop: 'stopAppFileDownload',
         filesReplace: 'replaceAppFile',
         filesCanDelete: 'appFilesCanDelete',
         filesVersions: 'appFileVersions',
@@ -1963,7 +1983,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
 
     case 'filesWatch':
       if (typeof args.watchId !== 'string' || !args.watchId) throw Object.assign(new Error('A file watch needs its subscription id'), { code: 'invalid' });
-      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false, folderOf((args.place as { folder?: unknown } | null)?.folder));
+      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false, folderOf((args.place as { folder?: unknown } | null)?.folder), typeof (args.place as { id?: unknown } | null)?.id === 'string' ? (args.place as { id: string }).id : undefined);
       return undefined;
 
     case 'filesUpload': {
@@ -1994,7 +2014,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const page = method === 'showMessage' ? caller.filePage(args) : await caller.resourcePage(args);
       // The window the page is drawn in: dialogs sit on it, and it is the one that shows chats.
       const owner = shown.embedderId === null ? null : (webContents.fromId(shown.embedderId) ?? null);
-      if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner);
+      if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner, (transferId, done, total) => caller.hear({ type: 'downloadProgress', transferId, done, total }));
       // 「转发」: the window that shows chats draws its forward page for them (the chats picked are the person's, not the page's).
       if (method === 'filesForward') return void (await deliver(shown, { kind: 'forwardFiles', detail: await files.forwardTargets(page, args) }));
       if (method === 'filesOpenWith') {

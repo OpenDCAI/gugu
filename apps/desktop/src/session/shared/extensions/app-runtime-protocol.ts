@@ -654,6 +654,22 @@ export function workspaceAppFileChunk(chunk: { size: number; offset: number; dat
   return { size: chunk.size, offset: chunk.offset, data: new Uint8Array(fromBase64(chunk.data)) };
 }
 
+/** `files.readText` reads up to this unless it is told otherwise. */
+export const DEFAULT_TEXT_MAX_BYTES = 20 * 1024 * 1024;
+
+/**
+ * What `files.readText` answers: the text; `binary` when it is not; over the limit, `truncated` with only its size.
+ * `exact: false`: text in another encoding, which writing it back would change: show it read-only.
+ */
+export interface AppFileText {
+  entry: AppFileEntry;
+  content: string;
+  binary?: true;
+  exact?: boolean;
+  truncated: boolean;
+  totalSize: number;
+}
+
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {
   entry: AppFileEntry;

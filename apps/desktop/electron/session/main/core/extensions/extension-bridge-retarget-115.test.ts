@@ -81,12 +81,18 @@ describe('a resident page moved to another file (摩擦单 F115)', () => {
     await expect(captureSessionpageProjectionViewer(PAGE)).rejects.toThrow(/unavailable/);
   });
 
-  it('restores the old task when resolving the target file fails, including the rebind path', async () => {
+  it('a file gone from the disk stays the file the tab names: the page says so when it reads it', async () => {
+    const { extensionSurfaceBindingForTests } = await import('./extension-bridge');
+    await retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', workspace: sessionWorkspace('task-b'), filePath: '/elsewhere/absent-file' });
+    expect(extensionSurfaceBindingForTests(PAGE)).toMatchObject({ workspace: 'session:task-b', filePath: '/elsewhere/absent-file' });
+  });
+
+  it('restores the old task when the rebind path fails', async () => {
     const { extensionSurfaceBindingForTests } = await import('./extension-bridge');
     const binding = extensionSurfaceBindingForTests(PAGE)!; binding.workspace = 'session:task-a';
-    await expect(retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', workspace: sessionWorkspace('task-b'), filePath: '/projection-fixture/absent-file' })).rejects.toThrow(/ENOENT/);
-    expect(binding.workspace).toBe('session:task-a');
-    await expect(bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabKind: 'workspace.main', tabId: 'slot-2', workspace: sessionWorkspace('task-b'), filePath: '/projection-fixture/absent-file' })).rejects.toThrow(/ENOENT/);
+    binding.operator = { kind: 'agent', id: 'user:0a000000-0000-4000-8000-000000000001' };
+    resourceChat.mockRejectedValueOnce(new Error('Membership lookup failed'));
+    await expect(bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabKind: 'workspace.main', tabId: 'slot-2', workspace: sessionWorkspace('task-b'), conversation: CHAT, operator: binding.operator })).rejects.toThrow('Membership lookup failed');
     expect(extensionSurfaceBindingForTests(PAGE)?.workspace).toBe('session:task-a');
   });
 

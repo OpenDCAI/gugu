@@ -120,8 +120,12 @@ export async function listWorkingCopy(place: WorkspacePlace, folder: string | un
   }
 }
 
-/** A page gone: its subscriptions to the tree go with it. */
+/** The version each page last read of each file: its save is checked against it, here, not by the page. */
+export const readVersions = new Map<number, Map<string, string>>();
+
+/** A page gone: its subscriptions to the tree and the versions it read go with it. */
 export function releaseWorkingCopies(pageId: number): void {
+  readVersions.delete(pageId);
   for (const [key, view] of views) {
     if (!key.startsWith(`${pageId}/`)) continue;
     views.delete(key);
@@ -208,17 +212,30 @@ export async function watchWorkingCopy(place: WorkspacePlace, folder: string | u
   const session = workspaceSession(place);
   const { sessionMachine } = await import('./app-programs-elsewhere');
   if (session && await sessionMachine(session).catch(() => null)) return () => {};
-  const [{ localRootOf }, { runtimeManager }] = await Promise.all([import('./app-files'), import('@main/core/runtime/runtime-manager')]);
+  const { localRootOf } = await import('./app-files');
   const { workspaceRoot: root } = await localRootOf(place);
   await requireAgentFileTreeAccess(root);
   const named = folderPath(root, folder) ?? root;
   const below = relOf(root, named);
+  return watchFeed(root, named, (rel) => !below || rel === below || rel.startsWith(`${below}/`), (rel) => rel, hear);
+}
+
+/** One file, as a call names it, on the machine it is on: from the feed of the working copy it is in, or of its own folder. */
+export async function watchWorkingCopyFile(place: WorkspacePlace, file: string, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
+  const found = await fileRootOf(place, file);
+  return watchFeed(found.root, path.dirname(path.resolve(found.root, found.path)), (rel) => rel === found.path.split(path.sep).join('/'), () => file, hear);
+}
+
+/** What the file panel hears: the change feed under `root`, with `named` watched (`@@@tree-by-directories`). */
+async function watchFeed(root: string, named: string, wanted: (rel: string) => boolean, nameOf: (rel: string) => string, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
+  const { runtimeManager } = await import('@main/core/runtime/runtime-manager');
   const cannotWatch = () => new AppFileError('not-found', 'This folder cannot be watched on its computer');
   const lease = await runtimeManager.acquire();
   const feed = lease.value.files.watchChanges(root, (update) => {
     if (update.kind === 'resync') return hear({ kind: 'resync' });
-    const changes = update.changes.map((change) => ({ kind: change.kind, path: relOf(root, change.path) }))
-      .filter(({ path: rel }) => rel && !rel.startsWith('..') && (!below || rel === below || rel.startsWith(`${below}/`)));
+    const changes = update.changes.map((change) => ({ kind: change.kind, rel: relOf(root, change.path) }))
+      .filter(({ rel }) => rel && !rel.startsWith('..') && wanted(rel))
+      .map(({ kind, rel }) => ({ kind, path: nameOf(rel) }));
     if (changes.length > 0) hear({ kind: 'changes', changes });
   }, { ignore: ['**/{.git,node_modules}/**'] });
   if (!feed.success) {
