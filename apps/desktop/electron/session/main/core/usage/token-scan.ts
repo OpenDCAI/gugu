@@ -152,7 +152,10 @@ export async function collectTokenEntries(options: {
       }
     });
     const normalized = reader.provider === 'codex'
-      ? memory.normalizeCodex([...updates.values()].map(({ path, parsed }) => ({ path, parsed }))) : undefined;
+      ? memory.normalizeCodex(files.flatMap(({ path }) => {
+        const update = updates.get(path);
+        return update ? [{ path, parsed: update.parsed }] : [];
+      })) : undefined;
     // 1914 precedence is locate order, never asynchronous read completion order.
     for (const { path, sessionIds } of files) {
       const update = updates.get(path);
