@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { VIRTUOSO_START_INDEX } from './MessageList'
 import type { HistoryWindow } from '../../store/chatHistoryWindow'
 import { useHistoryPageAnchor } from './useHistoryPageAnchor'
+import { afterPaint } from '../../lib/afterPaint'
 
 export function useChatHistoryPagination({ resetKey, messages, enabled, scroller, atBottom, loadOlder, loadNewer, window, onError }: {
   resetKey: string
@@ -47,15 +48,18 @@ export function useChatHistoryPagination({ resetKey, messages, enabled, scroller
       void request().catch((error: unknown) => { cancel(); if (onError) onError(error); else throw error })
     }
   }, [enabled, scroller, atBeginning, loadOlder, loadNewer, window?.hasNewer, window?.loading, onError, capture, cancel, isRestoring])
+  // The edge check waits for the paint; a re-render in between must not cancel it (see useConversationScrollMemory).
+  const requestAtEdgeRef = useRef(requestAtEdge)
+  requestAtEdgeRef.current = requestAtEdge
   useEffect(() => {
     if (!enabled || !scroller) return
     // startReached follows the overscanned render range and deduplicates its head.
     // Observe scrolling so an early rejected event cannot consume the physical top.
     // Do not invoke on mount: the initial tail jump has not completed at that point.
-    const onScroll = () => requestAtEdge('both')
-    scroller.addEventListener('scroll', onScroll, { passive: true })
-    return () => scroller.removeEventListener('scroll', onScroll)
-  }, [enabled, scroller, requestAtEdge])
+    const scrolled = afterPaint(() => requestAtEdgeRef.current('both'))
+    scroller.addEventListener('scroll', scrolled.schedule, { passive: true })
+    return () => { scroller.removeEventListener('scroll', scrolled.schedule); scrolled.cancel() }
+  }, [enabled, scroller])
   // @@@6352 The bottom edge is a level, not only a scroll event: a fast scroll often stops outside the
   // threshold and reaches the bottom when the tail rows are measured and the list shrinks — no scroll
   // event follows. Without this the newer page is never requested and the window keeps treating a reader
