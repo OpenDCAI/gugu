@@ -26,6 +26,7 @@ const JWT_EXPIRED = { data: null, error: { message: 'JWT expired' } }
 function tokenClient(db: MemoryDeviceCommandClient, valid: () => boolean): DeviceCommandTableClient {
   const rejected = {
     eq: () => rejected,
+    gt: () => rejected,
     select: () => Promise.resolve(JWT_EXPIRED),
     then: (resolve: (value: unknown) => unknown) => Promise.resolve(JWT_EXPIRED).then(resolve),
   }
