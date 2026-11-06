@@ -13,7 +13,7 @@ type Choices = NonNullable<Awaited<ReturnType<UnreadBindingApi['unreadBindingCho
 /** The common permission surface owns selection. No App page can invoke this editor. */
 export function AppUnreadBindingSection(props: { extensionId: string; name: string; api: UnreadBindingApi; translate: SessionTranslate; disabled: boolean }) {
   const ownerId = useSyncExternalStore(subscribeAccount, accountId, () => null);
-  return ownerId ? <UnreadBindingChooser key={ownerId} {...props} ownerId={ownerId} /> : null;
+  return ownerId ? <UnreadBindingChooser key={`${ownerId}/${props.extensionId}/${props.name}`} {...props} ownerId={ownerId} /> : null;
 }
 
 function UnreadBindingChooser({ extensionId, name, api, translate, disabled, ownerId }: {
