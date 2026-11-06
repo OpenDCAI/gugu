@@ -3504,6 +3504,11 @@ const narrowPane = window.matchMedia?.('(max-width: 640px)') ?? null
 const touchPane = window.matchMedia?.('(hover: none) and (pointer: coarse)') ?? null
 
 function setMode(mode) {
+  // These are read in the host's file preview: their tab is there, one page of the same file.
+  if (mode === 'preview' && state.current && /\.(html?|csv|svg)$/i.test(state.current.entry.name)) {
+    void gugu.files.openWith(state.current.entry).catch((error) => showBanner(error?.message ?? String(error), 'error', true))
+    return
+  }
   state.mode = mode
   applyMode()
 }

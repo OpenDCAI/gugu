@@ -1,3 +1,6 @@
+import { followMovedFiles } from '@renderer/features/sessions/file-view/follow-moved-files';
+import { findSessionAnywhere } from '@renderer/features/sessions/stores/session-selectors';
+import { workspaceSession } from '@shared/extensions/app-runtime-protocol';
 import { useEffect } from 'react';
 import { openRequestedGroupParticipant } from '@renderer/features/chats/open-group-participant-session';
 import { readSessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
@@ -44,6 +47,7 @@ import {
   sessionManageTabsChannel,
   sessionManageTabsResultChannel,
   sessionOpenFileInPaneChannel,
+  workingCopyMovedChannel,
   sessionOpenFileInPaneResultChannel,
   sessionOpenBrowserInPaneChannel,
   sessionCancelBrowserAcquireChannel,
@@ -124,6 +128,17 @@ export function AppMenuEvents() {
       disposers.clear();
     };
   }, [navigate]);
+
+  useEffect(
+    () =>
+      events.on(workingCopyMovedChannel, ({ workspace, from, to }) => {
+        const sessionId = workspaceSession({ workspace });
+        const found = sessionId ? findSessionAnywhere(sessionId) : undefined;
+        if (!found) return;
+        followMovedFiles(found.viewModel.paneLayout, found.viewModel.workspace?.path, from, to);
+      }),
+    []
+  );
 
   useEffect(() => {
     const disposers = new Set<() => void>();
