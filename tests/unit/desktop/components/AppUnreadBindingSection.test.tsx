@@ -7,6 +7,8 @@ import { AppUnreadBindingSection, type UnreadBindingApi } from '../../../../apps
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('@renderer/utils/logger', () => ({ log: { error: vi.fn() } }));
+// Avatar artwork is outside the authorization/selection behavior exercised here.
+vi.mock('@/components/Avatar', () => ({ Avatar: () => null }));
 const OWNER = '11000000-0000-4000-8000-000000000001';
 const OTHER = '22000000-0000-4000-8000-000000000002';
 const CHAT = '33000000-0000-4000-8000-000000000003';
