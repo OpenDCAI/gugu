@@ -79,11 +79,12 @@ describe('incremental scan versus the 1914 full fold oracle', () => {
       const reference = foldTokenEntries(memory.files.get(path)!.parsed.entries.map((entry) => ({ ...entry, provider: 'claude', providerSessionId: 's' })));
       expect(sort(result.rows)).toEqual(sort(reference)); return result;
     };
-    expect((await run()).rows[0].output).toBe(21);
-    appendFileSync(path, line('new', cutoff, 30, true)); expect((await run()).rows[0].output).toBe(31);
+    // The boundary straddles two dates in UTC; validate totals across every local-day row.
+    expect((await run()).rows.reduce((total, row) => total + row.output, 0)).toBe(21);
+    appendFileSync(path, line('new', cutoff, 30, true)); expect((await run()).rows.reduce((total, row) => total + row.output, 0)).toBe(31);
     expect((await run()).processed).toBe(0);
     memory = createParsedFileMemory(); hydrateParsedFileMemory(memory, [...saved.values()]); fold = createIncrementalTokenFold();
-    expect((await run()).rows[0].output).toBe(31); expect((await run()).processed).toBe(0);
+    expect((await run()).rows.reduce((total, row) => total + row.output, 0)).toBe(31); expect((await run()).processed).toBe(0);
   });
 
   it('fork cache invalidates only connected components, preserving ambiguous same-scope histories', async () => {
