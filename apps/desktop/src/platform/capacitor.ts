@@ -188,7 +188,7 @@ let notificationSeq = Math.floor(Date.now() / 1000) % 1_000_000_000
 
 export const capacitorPlatform: AppPlatform = {
   ...base,
-  oauthBrowser: {
+  accountOAuthBrowser: {
     openBrowser,
     openLinkBrowser: async (url) => openBrowser(googleIdentityLinkUrl(url, getSupabaseUrl())),
     subscribeBrowserFinished,

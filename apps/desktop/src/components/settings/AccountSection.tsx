@@ -171,6 +171,7 @@ export function AccountSection({ user, updateUser, logout, mobile = false }: Acc
         <SettingsRow
           stack
           layout="field"
+          className="col-start-1"
           title={<label htmlFor="settings-account-bio">{t('account.bio')}</label>}
           control={(
             <input

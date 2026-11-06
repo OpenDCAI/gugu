@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   user: null as User | null, session: null as Session | null, returned: null as User | null,
   callback: null as ((url: string) => void) | null,
   deferCallback: false,
+  accountOnly: false,
   fetch: vi.fn(), open: vi.fn(), openLink: vi.fn(), accept: vi.fn(), logout: vi.fn(), update: vi.fn(),
 }))
 vi.mock('@gugu/core/cloud/config', () => ({ getSupabaseUrl: () => 'https://auth.example.test', getSupabaseAnonKey: () => 'public-anon-key' }))
@@ -29,9 +30,11 @@ vi.mock('../../../../apps/desktop/src/lib/authCallbacks', () => ({ authCallbacks
   ready: async () => {}, redirectTo: async () => 'gugu-dev://auth/callback',
   subscribeAccount: (callback: (url: string) => void) => { m.callback = callback; return () => { m.callback = null } },
 } }))
-vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { authCallbacks: {}, oauthBrowser: {
-  openBrowser: (...args: unknown[]) => m.open(...args), openLinkBrowser: (...args: unknown[]) => m.openLink(...args),
-} } }))
+vi.mock('../../../../apps/desktop/src/platform', () => {
+  const browser = { openBrowser: (...args: unknown[]) => m.open(...args), openLinkBrowser: (...args: unknown[]) => m.openLink(...args) }
+  return { platform: { authCallbacks: {}, get oauthBrowser() { return m.accountOnly ? undefined : browser },
+    get accountOAuthBrowser() { return m.accountOnly ? browser : undefined } } }
+})
 
 function user(id = 'alice', google = false): User {
   return { id, email: `${id}@example.test`, aud: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '',
@@ -50,7 +53,7 @@ function send(callbackUrl: string): void {
 beforeEach(() => {
   vi.resetModules(); vi.clearAllMocks()
   window.localStorage.clear()
-  m.user = user(); m.session = session(m.user); m.returned = null; m.callback = null; m.deferCallback = false
+  m.user = user(); m.session = session(m.user); m.returned = null; m.callback = null; m.deferCallback = false; m.accountOnly = false
   m.update.mockImplementation(async (attrs: { data?: Record<string, unknown> }) => {
     m.user = { ...m.user!, user_metadata: { ...m.user!.user_metadata, ...attrs.data } }
     return { data: { user: m.user }, error: null }
@@ -108,7 +111,8 @@ describe('account linking adapter with the real auth SDK', () => {
     expect(m.fetch.mock.calls.some(([url]) => String(url).endsWith('/logout?scope=local'))).toBe(true)
     expect(m.callback).toBeNull()
   })
-  it('links a different Google address using the original bearer token without adopting an OAuth login', async () => {
+  it.each([false, true])('links a different Google address with the original bearer, account-only browser: %s', async accountOnly => {
+    m.accountOnly = accountOnly
     const original = m.session
     const { createAccountLinking } = await import('../../../../apps/desktop/src/lib/accountLinkingAdapter')
     const flow = createAccountLinking('alice')

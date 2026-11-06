@@ -72,7 +72,7 @@ function sessionId(session: Session): string | null {
 
 async function googleAccountFlow(userId: string, link: boolean): Promise<User> {
   return exclusively(async () => {
-    const browser = platform.oauthBrowser
+    const browser = platform.accountOAuthBrowser ?? platform.oauthBrowser
     if (!browser || (link && !browser.openLinkBrowser)) throw new Error('Native identity linking is unavailable')
     values.clear()
     const original = link ? await seed(userId) : null
@@ -146,7 +146,7 @@ async function googleAccountFlow(userId: string, link: boolean): Promise<User> {
 
 export const localLoginNoticeKey = (userId: string) => `gugu-login-method-notice:${userId}`
 export const cancelAccountGoogle = async () => { await cancelGoogle?.() }
-export const accountGoogleAvailable = () => Boolean(platform.authCallbacks && platform.oauthBrowser?.openLinkBrowser)
+export const accountGoogleAvailable = () => Boolean(platform.authCallbacks && (platform.accountOAuthBrowser ?? platform.oauthBrowser)?.openLinkBrowser)
 
 export function createAccountLinking(userId: string): AccountLinking {
   let unlinkSession: Session | null = null
