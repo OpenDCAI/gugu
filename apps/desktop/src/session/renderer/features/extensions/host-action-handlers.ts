@@ -11,7 +11,6 @@ import type { BrowserWebviewElement } from '@renderer/features/browser/browser-w
 
 import { runInAction } from 'mobx';
 import type { RendererRpcHandlers } from '@/rpc-renderer/rendererRpc';
-import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import type { WorkspaceViewModel } from '@renderer/features/sessions/stores/workspace-view-model';
 import {
   EXTENSION_HOST_ACTION_METHOD,

@@ -1,15 +1,14 @@
 import { messageForUser } from '@/lib/userFacingError';
 // #6264 别的机器上的文件:下载 / 上传「做完之后说什么」(toast)。动作本身的判断在 remote-transfers.ts 与那台机器上;
 // 界面是本机同一棵文件树(editor-file-tree.tsx),它经工作区后端的 tree 那一格走到这里。
-import { REMOTE_WORKSPACE_MAX_FILE_BYTES, type SessionpageWorkspaceEntry } from '@gugu/session-core/session-record/contract';
+import { type SessionpageWorkspaceEntry } from '@gugu/session-core/session-record/contract';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
-import { formatBytes } from '@renderer/utils/formatBytes';
 import { log } from '@renderer/utils/logger';
 import { detectPlatform } from '@tanstack/react-hotkeys';
 import { remoteErrorCode } from '../remote-failure-copy';
-import { REMOTE_DOWNLOAD_MAX_FILES, type RemoteTransfer, type RemoteTransfers, type UploadItem } from './remote-transfers';
+import { REMOTE_DOWNLOAD_MAX_FILES, type RemoteTransfer, type RemoteTransfers } from './remote-transfers';
 
 const PLATFORM = detectPlatform();
 /** 「在访达中显示」按平台换词(与本机文件树同一组文案)。 */

@@ -1,7 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import { getChunks } from '@codemirror/merge';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createDiffController } from '@renderer/lib/codemirror/diff-controller';
 import { bindModel } from '@renderer/lib/codemirror/model-binding';
 import { TextModel } from '@renderer/lib/text-model/text-model';

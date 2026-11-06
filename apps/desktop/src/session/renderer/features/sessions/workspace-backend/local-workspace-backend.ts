@@ -14,9 +14,7 @@ export function bindLocalTerminals(get: (sessionId: string) => WorkspaceTerminal
   localTerminals = get;
 }
 
-type ResultLikeError = { message?: string; type?: string; paths?: readonly string[] };
 
-/** message / type 都是底层原始诊断,原样返回;两者皆无时才落到本地化兜底。 */
 export const localWorkspaceBackend: WorkspaceBackend = {
   machine: { kind: 'local' },
   rpc: rpc.workspace,
