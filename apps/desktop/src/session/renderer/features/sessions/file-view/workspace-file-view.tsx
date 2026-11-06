@@ -11,12 +11,24 @@ import { workspaceBackend, workspaceEvents, workspaceRpc } from '../workspace-ba
 import { openPathWithFailureToast } from '../stores/open-file-in-file-editor';
 import { fileBaseName } from '../stores/workspace-path';
 import { getSessionView } from '../stores/session-selectors';
+import { EDITOR_CONFIRM_FILE_BYTES } from '@renderer/lib/editor/file-size-limits';
 import { getFileKind } from '@renderer/lib/editor/fileKind';
 import { FOLDER_APP_FILE_TAB } from './file-view-kinds';
 import { OpenWithSystemButton } from './open-with-system-button';
 
-async function readBytes(projectId: string, workspaceId: string, path: string): Promise<Blob> {
-  const result = await workspaceRpc(projectId).files.readInlineBinary(projectId, workspaceId, path);
+const isTextRead = (path: string) => ['text', 'markdown', 'html', 'csv'].includes(getFileKind(path));
+
+/** Text comes as text and the rest as bytes: the inline read only takes image and document formats. */
+async function readBytes(projectId: string, workspaceId: string, path: string, inWorkspace: boolean): Promise<Blob> {
+  const files = workspaceRpc(projectId).files;
+  if (isTextRead(path)) {
+    const read = inWorkspace ? files.readFile : files.readExternalFile;
+    const result = await read(projectId, workspaceId, path, EDITOR_CONFIRM_FILE_BYTES);
+    if (!result.success) throw new Error('message' in result.error ? result.error.message : String(result.error));
+    if (result.data.truncated) throw new Error(`File too large: ${result.data.totalSize} bytes`);
+    return new Blob([result.data.content], { type: 'text/plain' });
+  }
+  const result = await files.readInlineBinary(projectId, workspaceId, path);
   if (!result.success) throw new Error('message' in result.error ? result.error.message : String(result.error));
   if (!result.data.success) throw new Error(result.data.error);
   return (await fetch(result.data.dataUrl)).blob();
@@ -54,7 +66,7 @@ export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, abs
     const editable = !!sessionId && (kind === 'html' || kind === 'csv' || kind === 'svg');
     const download = () => {
       if (tree.download && inWorkspace) void tree.download({ projectId, workspaceId }, { path, name: fileName, kind: 'file' });
-      else void readBytes(projectId, workspaceId, path).then((blob) => downloadBlob(blob, fileName));
+      else void readBytes(projectId, workspaceId, path, inWorkspace).then((blob) => downloadBlob(blob, fileName));
     };
     return {
       kind: 'file',
@@ -64,7 +76,7 @@ export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, abs
       source: {
         kind: 'hosted',
         key: `${workspaceId}:${path}@${revision}`,
-        read: () => readBytes(projectId, workspaceId, path),
+        read: () => readBytes(projectId, workspaceId, path, inWorkspace),
         registerHtml: (documentHtml) => registerHtmlPreview(documentHtml, (content) => workspaceRpc(projectId).files.createPreview(projectId, workspaceId, absolutePath, content)),
         quote: (selection) => sessionId ? quoteWorkspaceFile(projectId, sessionId, path, selection) : Promise.resolve(),
         // On another machine this computer's programs cannot reach it: it is downloaded instead.
