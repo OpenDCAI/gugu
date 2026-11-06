@@ -182,7 +182,7 @@ jobs:
           restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shards-6-${{ matrix.shard }}-
       - if: needs.changes.outputs.tests == 'true'
         run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/6 --reporter=default --reporter=./scripts/test-infra/vitest-worker-attribution-reporter.ts --reporter=json --outputFile.json=.ci-cache/test-results/unit-${{ matrix.shard }}.json
-      - if: always() && needs.changes.outputs.tests == 'true'
+      - if: ${{ always() && needs.changes.outputs.tests == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: unit-cases-${{ matrix.shard }}-${{ github.run_attempt }}

@@ -8,6 +8,7 @@ export function caseInventory(reports, root) {
   let healthy = true
   for (const report of reports) {
     if (!Array.isArray(report.testResults)) throw new Error('Not a Vitest JSON report')
+    if (report.testResults.length === 0 || !(report.numTotalTests > 0)) throw new Error('Empty shard report cannot prove test coverage')
     healthy &&= report.success === true && report.numFailedTests === 0 && report.numFailedTestSuites === 0
     let count = 0
     for (const module of report.testResults) {
@@ -40,9 +41,19 @@ export function compareCaseInventories(baseline, candidate) {
       return before === after ? [] : [{ id: JSON.parse(id), status, baseline: before, candidate: after }]
     })
   const sameFiles = JSON.stringify(baseline.files) === JSON.stringify(candidate.files)
+  const identities = inventory => {
+    const counts = new Map()
+    for (const [key, count] of inventory.cases) {
+      const [id] = JSON.parse(key)
+      counts.set(id, (counts.get(id) ?? 0) + count)
+    }
+    return JSON.stringify([...counts].sort(([a], [b]) => a.localeCompare(b)))
+  }
+  const sameCases = identities(baseline) === identities(candidate)
+  const sameSkips = !changes.some(change => ['skipped', 'todo'].includes(change.status))
   const summary = inventory => ({ reports: inventory.reports, files: inventory.files.length, statuses: inventory.statuses, healthy: inventory.healthy })
   return { equal: sameFiles && changes.length === 0, healthy: baseline.healthy && candidate.healthy,
-    sameFiles, baseline: summary(baseline), candidate: summary(candidate), changes }
+    sameFiles, sameCases, sameSkips, baseline: summary(baseline), candidate: summary(candidate), changes }
 }
 
 function readReports(directory) {
