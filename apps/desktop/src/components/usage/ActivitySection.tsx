@@ -29,8 +29,9 @@ import {
 } from '../../lib/usage/derive'
 import { useUsageData, type Loadable } from './useUsageData'
 import { HeatLegend, UsageHeatmap } from './UsageHeatmap'
-import { compact, duration, heightPx, plain } from './format'
+import { cacheHitPercent, compact, duration, heightPx, plain } from './format'
 import { tokenAmounts } from '../../lib/usage/charts'
+import { combinedCacheHitRate, inputCacheHitRate, isInputCacheTracked } from '../../lib/usage/cacheHitRate'
 import { Layers, Zap } from '@/lib/icons'
 import { ModelBadge, SegSwitch, StatStrip } from './UsageParts'
 import { ModelAnalysisCard, RhythmCard } from './UsageChartCards'
@@ -86,6 +87,7 @@ export function ActivitySection({ preset }: { preset: RangePreset }) {
 
       <section className="gg-usage-section" aria-labelledby="usage-engines">
         <SectionLabel id="usage-engines">{t('usage.engines')}</SectionLabel>
+        <span className="gg-usage-caption" data-testid="usage-cache-hit-scope">{t('usage.cacheHitRate.scope')}</span>
         <Guarded state={data.usage} height={120}>
           {usage && <Engines usage={usage} range={current} />}
         </Guarded>
@@ -236,7 +238,8 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
           <thead>
             <tr>
               <th>{t('usage.na.colEngine')}</th><th>{t('usage.na.colSessions')}</th>
-              <th>{t('usage.na.colGuguTokens')}</th><th>{t('usage.na.colByokTokens')}</th><th>{t('usage.na.colRuntime')}</th>
+              <th>{t('usage.na.colGuguTokens')}</th><th>{t('usage.na.colByokTokens')}</th>
+              <th title={t('usage.cacheHitRate.meaning')}>{t('usage.cacheHitRate.label')}</th><th>{t('usage.na.colRuntime')}</th>
             </tr>
           </thead>
           <tbody>
@@ -251,12 +254,18 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
                 </td>
                 <td data-label={t('usage.na.colGuguTokens')}><span className="na-mono-xs">{row.guguTokens > 0 ? compact(row.guguTokens) : '—'}</span></td>
                 <td data-label={t('usage.na.colByokTokens')}><span className="na-mono-xs">{row.byokTokens > 0 ? compact(row.byokTokens) : '—'}</span></td>
+                <td data-label={t('usage.cacheHitRate.label')} title={t('usage.cacheHitRate.meaning')}>
+                  <span className="na-mono-xs">{isInputCacheTracked(row.engine) ? cacheHitPercent(inputCacheHitRate(row)) : t('usage.cacheHitRate.untracked')}</span>
+                </td>
                 <td data-label={t('usage.na.colRuntime')}>{row.runSeconds > 0 ? <span className="na-cost">{duration(row.runSeconds, t)}</span> : <span className="gg-usage-muted">—</span>}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <span className="gg-usage-caption" data-testid="usage-cache-hit-combined">
+        {t('usage.cacheHitRate.combined', { value: cacheHitPercent(combinedCacheHitRate(rows)) })}
+      </span>
       <StatStrip testId="usage-parallel" items={[
         { key: 'peak', title: t('usage.na.parallelPeak'), value: t('usage.peakValue', { count: totals.peakConcurrency, value: plain(totals.peakConcurrency) }), icon: <Layers />, tone: 'chart-2', description: t('usage.peakHint') },
         { key: 'time', title: t('usage.na.parallelTime'), value: duration(totals.parallelSeconds, t), icon: <Zap />, tone: 'warning', description: t('usage.parallelHint') },

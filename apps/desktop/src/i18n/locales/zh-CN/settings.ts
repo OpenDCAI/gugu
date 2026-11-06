@@ -1014,6 +1014,13 @@ export default {
     },
     "busiest_one": "最忙的一天：{{date}}，开了 {{count}} 个会话",
     "busiest_other": "最忙的一天：{{date}}，开了 {{count}} 个会话",
+    "cacheHitRate": {
+      "combined": "合计：{{value}} 的输入来自缓存",
+      "label": "缓存命中率",
+      "meaning": "读占全部输入",
+      "scope": "Claude / Codex 已统计日志，含咕咕模型与自带账号。",
+      "untracked": "未统计"
+    },
     "changeDown": "↓ {{percent}}% 比上一段",
     "changeUp": "↑ {{percent}}% 比上一段",
     "compareUnavailable": "对照段暂时取不到",
