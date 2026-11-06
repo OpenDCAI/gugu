@@ -15,6 +15,9 @@ import { i18n } from '@/i18n'
 import '@/i18n/registerMainCatalog'
 import '@/i18n/registerAssistantCatalog'
 import '@/styles/tokens.css'
+import '@/session/renderer/features/assistant/assistant-today.css'
+import '@/mobile/assistant/assistant-phone.css'
+import '@/mobile/phone-look.css'
 
 let harness: ReturnType<typeof createReactHarness>
 let scope = 0
@@ -51,6 +54,8 @@ async function render(
   owner = 'catalog-owner',
   connectionRead: 'ready' | 'pending' | 'failed' = 'ready'
 ) {
+  harness.container.toggleAttribute('data-phone-shell', mobile)
+  harness.container.classList.toggle('ta-phone', mobile)
   harness.container.style.cssText = `width:${mobile ? 390 : 640}px;height:760px;overflow:auto;background:var(--bg);`
   await renderWithAppProviders(
     harness,
@@ -130,6 +135,9 @@ it.each([false, true])(
       harness.container.querySelectorAll('[data-testid^="assistant-connectors-category-"]')
     ).toHaveLength(7)
     expect(harness.container.scrollWidth).toBe(harness.container.clientWidth)
+    const search = harness.container.querySelector<HTMLElement>('.connected-app-search')!
+    expect(getComputedStyle(search).boxShadow).toBe('none')
+    expect(getComputedStyle(search).borderTopWidth).toBe('0px')
     await act(async () => {
       await page.getByRole('button', { name: '查看应用 · 飞书', exact: true }).click()
     })

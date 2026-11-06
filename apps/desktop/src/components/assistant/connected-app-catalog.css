@@ -142,7 +142,13 @@ div.connected-app-empty { display: flex; flex-direction: column; align-items: fl
 .connected-app-empty p { margin: 0; color: var(--muted-fg); font-size: var(--font-body); line-height: var(--lh-body); }
 button.connected-app-browse { min-height: var(--control-h-xl); color: var(--muted-fg); font-weight: var(--font-weight-regular); }
 div.connected-app-category-back { margin-block: calc(-1 * var(--spacing-lg)); }
-.connected-app-catalog[data-mobile] .connected-app-search { height: var(--control-h-touch); }
+.connected-app-catalog[data-mobile] div.connected-app-search {
+  height: var(--control-h-touch);
+  padding-inline: var(--spacing-lg);
+  border: 0;
+  background: var(--muted);
+  box-shadow: none;
+}
 .connected-app-catalog[data-mobile] .gg-segtab { min-height: var(--control-h-lg); }
 .connected-app-catalog[data-mobile] .connected-app-featured-grid { gap: var(--spacing-md); }
 .connected-app-catalog[data-mobile] .connected-app-featured-card { padding: var(--spacing-lg); min-height: calc(var(--control-h-xl) * 5); }
