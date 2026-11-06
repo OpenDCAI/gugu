@@ -630,7 +630,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
       onClose={topicSurface.closeSplit}
       embedded={Boolean(blockHost)}
       currentUserId={user?.id ?? null}
-      mobile={mobile} inTab={mobile}
+      mobile={mobile}
       onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
         .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
       onForward={handleForward} visible={surfaceVisible && topicSurface.splitTopic !== null}
@@ -670,7 +670,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         leading={mobile && onBack ? (
           <IconButton
             size="lg"
-            aria-label={t('chatArea.backToList')}
+            aria-label={topicSurface.splitTopic ? t('common.back') : t('chatArea.backToList')}
             title={t('common.back')}
             onClick={onBack}
           >
@@ -706,7 +706,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           </div>
         )}
         actions={headerActions}
-      />}{isGroupChat ? <PinnedTopicTabs chatId={activeChat.id} topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} mobile={mobile} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : mobile && !chrome && !blockHost ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null}
+      />}{isGroupChat && !mobile ? <PinnedTopicTabs chatId={activeChat.id} topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : mobile && !chrome && !blockHost ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null}
       <SearchTrailBar chatId={activeChatId} surface={surfaceElement} enabled={surfaceVisible} />
 
       <div

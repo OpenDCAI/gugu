@@ -37,7 +37,7 @@ import { ChatAreaPanel } from '../components/ChatAreaPanel'
 import type { MemberProfileChatTarget } from '../components/MemberProfileCard'
 import { ContactsPanel } from '../components/ContactsPanel'
 import { SettingsPanel } from '../components/SettingsPanel'
-import { isSheetOpen, NATIVE_BACK_EVENT, useBackLayer } from '../components/ui/sheetStack'
+import { isSheetOpen, NATIVE_BACK_EVENT, pressBack, useBackLayer } from '../components/ui/sheetStack'
 import { EmdashSessionFrame, prewarmEmdashAssets } from '../components/sessionpage/EmdashSessionFrame'
 import { useSessionpageAgentInstallNavigation } from '../components/sessionpage/sessionpageAgentInstallNavigation'
 import { useOpenNewSessionOnDeviceHost } from '../components/sessionpage/openNewSessionOnDeviceHost'
@@ -1088,7 +1088,7 @@ function InnerLayout({
                         hidden={showCreateSurface || onScreenChatId !== activeChatId}
                         mobile={mobile}
                         openNonce={chatOpenNonce}
-                        onBack={mobile ? backFromPhoneChat : undefined}
+                        onBack={mobile ? pressBack : undefined}
                         onOpenUserChat={handleOpenProfileChat}
                         onOpenSessionpageAgentFile={!mobile && sessionHostAvailable ? handleOpenSessionpageAgentFile : undefined}
                       />

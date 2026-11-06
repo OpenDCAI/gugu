@@ -52,7 +52,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const folderName = useChatFolderName(activeChatId)
   const narrow = useHeaderNarrow(moreButtonRef, Boolean(mobile))
   const groupId = isGroupChat ? activeChatId : null
-  const topics = useChatTopicPins(groupId)
+  const topics = useChatTopicPins(mobile ? null : groupId)
   const invite = groupInviteAccess(activeChatId ?? '', isGroupChat ? 'group' : 'topic', room?.settings ?? null)
   const appsButton = useRef<HTMLButtonElement>(null)
   const [popup, setPopup] = useState<{ chatId: string | null; kind: 'apps' | 'invite' | null }>({ chatId: activeChatId, kind: null })
@@ -70,13 +70,13 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
       {wideGroup && <span aria-hidden className="mx-1 h-4 border-s border-[var(--border)]" />}
     </> : null}
     {groupId && <>
-      <DropdownMenu.Root key={groupId} modal={false} onOpenChange={(open) => { if (open) { onCloseHeaderMenu(); closePopup() } }}>
+      {!mobile && <DropdownMenu.Root key={groupId} modal={false} onOpenChange={(open) => { if (open) { onCloseHeaderMenu(); closePopup() } }}>
         <DropdownMenu.Trigger data-testid={AUTOMATION_TEST_IDS.groupMenuTopics} aria-label={t('history.tabs.topics')}
           render={<Button variant="ghost" size="md" title={narrow ? t('history.tabs.topics') : undefined}><MessageSquare />{!narrow && t('history.tabs.topics')}<TopicUnreadChip count={topicUnreadTotal(topics.topics)} /></Button>} />
         <DropdownMenu.Content data-testid={AUTOMATION_TEST_IDS.groupTopicsPopup} style={{ width: 320, maxWidth: 'min(320px, var(--available-width))', maxHeight: 'min(360px, var(--available-height))', overflowY: 'auto', overscrollBehavior: 'contain' }} align="end">
           <GroupTopicsRows chatId={groupId} />
         </DropdownMenu.Content>
-      </DropdownMenu.Root>
+      </DropdownMenu.Root>}
       {wideGroup && <>
         {invite.showInvite && <Button variant="ghost" size="md" data-testid={AUTOMATION_TEST_IDS.chatHeaderInviteButton} aria-label={t('header.invite')} onClick={() => openPopup('invite')}><UserPlus />{t('header.invite')}</Button>}
         <Popover.Trigger ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} onClick={onCloseHeaderMenu}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
-import { ChevronLeft, X } from '@/lib/icons'
+import { X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
@@ -16,7 +16,6 @@ import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
-import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
 import { ChatMessageComposer } from './ChatMessageComposer'
 import { RunningBarSlot, RunningTokenBar, type RunningToken } from '../RunningTokenBar'
@@ -163,7 +162,6 @@ const TOPIC_SPLIT_PANE_STYLE: React.CSSProperties = {
   borderLeft: '1px solid var(--border-subtle)',
 }
 // 手机上放不下两栏 ⇒ 整页盖住来源线(同 ChatSettingsPanel 的手机页)。来源线在下面不被挤窄,返回后停在原处。
-const TOPIC_PAGE_MOBILE_STYLE: React.CSSProperties = { position: 'fixed', inset: 'env(safe-area-inset-top) 0 0 0', zIndex: 'var(--z-modal)', background: 'var(--bg-primary)' }
 const TOPIC_PAGE_PANE_MOBILE_STYLE: React.CSSProperties = { ...TOPIC_SPLIT_PANE_STYLE, borderLeft: 'none', background: 'transparent' }
 const TOPIC_TAB_STYLE: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: 1, background: 'transparent' }
 const TOPIC_SPLIT_HEADER_STYLE: React.CSSProperties = {
@@ -220,7 +218,6 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   onForward, visible,
   onDelete,
   embedded = false,
-  inTab = false,
 }: TopicSplitPaneProps) {
   const { t } = useTranslation('messaging')
   // #6004: the projection owns membership and chat_members_changed refreshes. Read this topic's
@@ -326,17 +323,18 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     flashMessageId,
   }), [showMessage, rows, messages, mobile, memberReadSeqs, deliveryWaits, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, onQuote, flashMessageId, history, visible])
 
-  useBackLayer(onClose, mobile && !inTab)
+  // 手机上话题是来源页的一枚页签:在前面时,返回先回到来源那一枚。
+  useBackLayer(onClose, mobile && visible !== false)
   const headerTitle = <TopicBreadcrumb topicName={topic.name} sourceMessagePreview={sourceMessagePreview} />
   const page = (
     // @@@2234 同 history/workspace/群 thread 面板:进场保留、**退场不保留占位**。
     // ⇒ ❌ 不要给它套 AnimatePresence / 加 exit。
     <motion.div
       key={`topic-split-${topic.chatId}`}
-      initial={inTab ? false : mobile ? { x: '100%' } : { x: 340, opacity: 0 }}
+      initial={mobile ? false : { x: 340, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={tween(DUR_SLOW_MS, EASE_SPRING)}
-      style={inTab ? TOPIC_TAB_STYLE : mobile ? TOPIC_PAGE_MOBILE_STYLE : TOPIC_SPLIT_SHELL_STYLE}
+      style={mobile ? TOPIC_TAB_STYLE : TOPIC_SPLIT_SHELL_STYLE}
     >
       <div
         ref={paneRef}
@@ -348,11 +346,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         {/* 这一条**常驻**:面板开着时它也在。曾经开面板就把它收起来,代价是
             ①「收起分栏」与另一颗切换键一起消失,②这一栏里再没有一个字说明你在哪条话题上
             (找茬第十轮)。嵌进来的那两个面板自带的头由 tokens.css 收掉,所以不会两条头叠着摆。 */}
-        {inTab ? <TopicTabSource preview={sourceMessagePreview} /> : mobile ? (
-          <PaneHeader mobile divider title={headerTitle} leading={(
-            <IconButton size="lg" data-testid="topic-split-back" aria-label={t('common.back')} title={t('common.back')} onClick={onClose}><ChevronLeft /></IconButton>
-          )} />
-        ) : (
+        {mobile ? <TopicTabSource preview={sourceMessagePreview} /> : (
         <div style={TOPIC_SPLIT_HEADER_STYLE}>
           {headerTitle}
           <div style={TOPIC_SPLIT_HEADER_ACTIONS_STYLE}>

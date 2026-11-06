@@ -15,6 +15,11 @@ export function isSheetOpen(): boolean {
   return sheetStack.length > 0
 }
 
+/** 手机页面上的左上返回:和安卓返回键、边缘手势走同一条路,栈顶那一层先接,没有层才退页面。 */
+export function pressBack(): void {
+  window.dispatchEvent(new CustomEvent(NATIVE_BACK_EVENT))
+}
+
 /**
  * 在 `active` 期间进栈,栈顶时安卓返回键调 `onBack` 并告诉原生「已处理」。返回「此刻是不是栈顶」,
  * 给同一层的 Escape 用。`onBack` 取最新的那个,❌ 因为它换了引用就出栈再入栈(那会把它挪到栈顶)。

@@ -4,13 +4,12 @@ import { PhoneChatTabs } from '@/mobile/chat/PhoneChatTabs'
 import { useChatPinSettings } from './useChatPinSettings'
 import { TopicPinsError } from './GroupTopicsRows'
 
-/** One account preference feeds the existing topic strip on both phone and desktop. */
-export function PinnedTopicTabs({ chatId, topics, messages, current, mobile, onPick }: {
+/** Desktop's strip of the topics this account pinned; the phone's strip holds every topic (PhoneChatTabs). */
+export function PinnedTopicTabs({ chatId, topics, messages, current, onPick }: {
   chatId: string
   topics: readonly TopicSummary[]
   messages: readonly MessageItem[]
   current: string | null
-  mobile: boolean
   onPick: (topic: TopicSummary | null) => void
 }) {
   const pins = useChatPinSettings(chatId, topics.length > 0)
@@ -19,5 +18,5 @@ export function PinnedTopicTabs({ chatId, topics, messages, current, mobile, onP
     return pins.topicIds.flatMap((id) => byId.get(id) ?? [])
   }, [topics, pins.topicIds])
   if (topics.length === 0) return null
-  return <><TopicPinsError pins={pins} /><PhoneChatTabs topics={pinned} messages={messages} current={current} onPick={onPick} dense={!mobile} labelMax={mobile ? 9 : 16} /></>
+  return <><TopicPinsError pins={pins} /><PhoneChatTabs topics={pinned} messages={messages} current={current} onPick={onPick} dense labelMax={16} /></>
 }
