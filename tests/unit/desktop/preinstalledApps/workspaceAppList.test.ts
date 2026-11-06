@@ -218,7 +218,7 @@ describe('a long time section', () => {
     gugu.files.list.mockImplementation(async () => [...ENTRIES, ...many].map((e) => ({ ...e })))
     changed({ kind: 'entries', entries: many, gone: [] })
     await until('the new files drawn', () => ids().includes('today-0'))
-    const today = () => ids().filter((id) => id.startsWith('today-') || id === 'spec' || id === 'clip' || id === 'late')
+    const today = () => ids().filter((id) => id !== undefined && (id.startsWith('today-') || id === 'spec' || id === 'clip' || id === 'late'))
     const inToday = 25 + ENTRIES.filter((e) => Date.parse(e.updatedAt) > now - 12 * 3600_000).length + (ids().includes('late') ? 1 : 0)
     expect(toggle('今天').querySelector('.section-count')!.textContent).toBe(String(inToday))
     expect(today()).toHaveLength(20)
