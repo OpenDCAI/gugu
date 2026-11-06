@@ -47,7 +47,7 @@ it.each([undefined, 1])('retries a late IM render target independently of native
   expect(openItem).toHaveBeenCalledTimes(1)
   await act(async () => { await vi.advanceTimersByTimeAsync(2500) })
   expect(openItem).toHaveBeenCalledTimes(2)
-  expect(openItem).toHaveBeenLastCalledWith('tool:sent:im-first')
+  expect(openItem).toHaveBeenLastCalledWith('tool:sent:im-first', { preserveActivity: true })
   await harness.render(<Fixture shown={false} />)
   await act(async () => { await vi.advanceTimersByTimeAsync(2500) })
   expect(openItem).toHaveBeenCalledTimes(2)
@@ -64,7 +64,7 @@ it('waits for a late IM alias on an old host without consuming the entry', async
   expect(openItem).not.toHaveBeenCalled()
   scope.aliases = new Map([['tool:sent:im-first', ['im-first']]])
   await act(async () => { await vi.advanceTimersByTimeAsync(500) })
-  expect(openItem).toHaveBeenCalledExactlyOnceWith('tool:sent:im-first')
+  expect(openItem).toHaveBeenCalledExactlyOnceWith('tool:sent:im-first', { preserveActivity: true })
 })
 
 it('keeps native confirmation disabled on an old host even when a reply becomes visible', async () => {
