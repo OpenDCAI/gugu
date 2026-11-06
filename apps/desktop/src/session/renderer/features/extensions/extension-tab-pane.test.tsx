@@ -43,8 +43,10 @@ afterEach(() => {
 it('moves the loaded page to the file of the tab it now draws', async () => {
   act(() => root.render(pane('tab-a', '/w/a.md')));
   await settle();
-  const webview = host.querySelector('webview') as HTMLElement & { getWebContentsId: () => number };
+  const webview = host.querySelector('webview') as HTMLElement & { getWebContentsId: () => number; setZoomFactor: (factor: number) => void };
   webview.getWebContentsId = () => 7;
+  // The host zooms an App's page (#1816): the page gets its zoom on dom-ready.
+  webview.setZoomFactor = vi.fn();
   await act(async () => { webview.dispatchEvent(new Event('dom-ready')); });
   await settle();
   expect(h.bindSurface).toHaveBeenCalledWith(expect.objectContaining({ webContentsId: 7, tabId: 'tab-a', filePath: '/w/a.md' }));
@@ -54,4 +56,6 @@ it('moves the loaded page to the file of the tab it now draws', async () => {
 
   expect(host.querySelector('webview')).toBe(webview);
   expect(h.retargetSurface).toHaveBeenCalledWith(expect.objectContaining({ webContentsId: 7, tabId: 'tab-b', filePath: '/w/b.md' }));
+  // Retargeting keeps the live page and its zoom binding: zoom was applied once, by the one dom-ready.
+  expect(webview.setZoomFactor).toHaveBeenCalledTimes(1);
 });
