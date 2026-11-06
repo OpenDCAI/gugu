@@ -1,3 +1,4 @@
+import { notifyCopied } from '@/lib/copyFeedback'
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { MESSAGE_BUBBLE_LAYOUT as layout } from '@gugu/core/shared/ui/messageBubbleLayout'
@@ -33,7 +34,6 @@ import { MsgMoreMenu } from './MsgMoreMenu'; import { PhoneTextSelection } from 
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { BubbleSender, BubbleTime, ReadReceiptRing } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
-
 // Sending/failed state and its retry/discard menu live in MessageSendStatus.
 
 function VoiceAttachmentBubble({
@@ -185,7 +185,7 @@ export const MessageBubble = memo(function MessageBubble({
   const handleCopyText = async (content = copyText) => {
     try {
       await platform.writeClipboardText(content)
-      toast(t('message.copied'), 'success')
+      notifyCopied(t('message.copied'))
     } catch (error) {
       toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     }

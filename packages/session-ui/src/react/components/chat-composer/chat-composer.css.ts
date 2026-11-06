@@ -219,6 +219,21 @@ export const attachmentStrip = style({
   paddingLeft: '0.75rem',
   paddingRight: '0.75rem',
   paddingTop: '0.75rem',
+  selectors: {
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: {
+      flexWrap: 'nowrap',
+      alignItems: 'center',
+      height: '4rem',
+      minHeight: '4rem',
+      maxHeight: '4rem',
+      boxSizing: 'border-box',
+      paddingTop: '0.5rem',
+      paddingBottom: '0.25rem',
+      minWidth: 0,
+      overflowX: 'auto',
+      overflowY: 'hidden',
+    },
+  },
 });
 
 // 整块 chip 是预览的触发器(#5269)——`data-viewable` 决定它长得像不像可点的东西。上游 runtime
@@ -243,6 +258,8 @@ export const attachmentChip = style({
   paddingRight: '0.625rem',
   backgroundColor: vars.surfaceBaseSelected,
   selectors: {
+    // The inline retry's line box needs 40px plus the chip's 12px vertical padding.
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: { height: '3.25rem', boxSizing: 'border-box' },
     '&[data-viewable]': {
       cursor: 'pointer',
       outline: 'none',
@@ -308,6 +325,9 @@ export const attachmentMeta = recipe({
     lineHeight: 1.5,
     whiteSpace: 'nowrap',
     color: vars.foregroundPassive,
+    selectors: {
+      [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: { whiteSpace: 'nowrap', maxWidth: 'none' },
+    },
   },
   variants: {
     error: {

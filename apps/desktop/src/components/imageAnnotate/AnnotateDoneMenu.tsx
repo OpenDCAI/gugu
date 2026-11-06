@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown } from '@/lib/icons'
+import { Check, ChevronDown } from '@/lib/icons'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 import { Menu, MenuItem } from '../ui/Menu'
@@ -21,7 +21,8 @@ export function AnnotateDoneMenu({ actions, mobile }: { actions: Actions; mobile
     </div>
     {open && mobile ? <Sheet onClose={() => setOpen(false)} mobileFitContent ariaLabel={t('export')} zIndex="var(--z-overlay)">
       <div className="ia-completion-sheet">
-        <Button disabled={actions.busy} onClick={() => void actions.copy()}>{t('copy')}</Button>
+        <Button disabled={actions.busy} onClick={() => void actions.copy()} aria-label={actions.copied ? t('copied') : undefined}>{actions.copied ? <Check size={16} /> : t('copy')}</Button>
+        <output aria-live="polite" className="sr-only">{actions.copied ? t('copied') : ''}</output>
         <Button disabled={actions.busy} onClick={() => void actions.save()}>{t('save')}</Button>
         {actions.canCompose ? <Button disabled={actions.busy} onClick={() => void actions.saveToFolder()}>{t('saveFolder')}</Button> : null}
       </div>

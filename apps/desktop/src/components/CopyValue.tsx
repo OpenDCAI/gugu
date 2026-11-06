@@ -1,7 +1,10 @@
 import { platform } from '@/platform'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Copy } from '@/lib/icons'
+import { Check, Copy } from '@/lib/icons'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { COPY_CONFIRMATION_MS } from '@/lib/copyFeedback'
+import { useCopyConfirmation } from '@/hooks/useCopyConfirmation'
 import { rendererLogger } from '@/lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useToast } from './toastContext'
@@ -32,19 +35,23 @@ export function CopyValue({
 }: CopyValueProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
+  const mobile = useMobileShell()
+  const { copied: buttonCopied, confirm } = useCopyConfirmation(value)
   const [copied, setCopied] = useState<string | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
   const flash = useCallback((state: string) => {
     setCopied(state)
     if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => setCopied(null), 1600)
+    timer.current = setTimeout(() => setCopied(null), COPY_CONFIRMATION_MS)
   }, [])
   const visible = short && value.length > 14 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value
 
   const handleCopy = useCallback(async () => {
     try {
       await platform.writeClipboardText(value)
-      if (feedback === 'inline') flash(message)
+      if (mobile) { setCopied(null); confirm() }
+      else if (feedback === 'inline') flash(message)
       else toast(message, 'success')
     } catch (error) {
       const reason = String((error as Error)?.message ?? error)
@@ -52,7 +59,7 @@ export function CopyValue({
       if (feedback === 'inline') flash(safeFailureLine(reason))
       else toast(t('actions.copyFailed'), 'error', safeFailureLine(reason))
     }
-  }, [value, message, toast, feedback, flash, t])
+  }, [value, message, toast, feedback, flash, t, mobile, confirm])
 
   return (
     <span
@@ -89,7 +96,8 @@ export function CopyValue({
         // 现在框保持 22px,伪元素向四周各伸 11px 补足点按区。
         className="gg-pressable relative before:absolute before:-inset-[11px] before:content-['']"
         title={t('actions.copy')}
-        aria-label={t('actions.copy')}
+        aria-label={mobile && buttonCopied ? message : t('actions.copy')}
+        data-copied={mobile && buttonCopied || undefined}
         onClick={handleCopy}
         style={{
           width: 22,
@@ -105,9 +113,10 @@ export function CopyValue({
           flexShrink: 0
         }}
       >
-        <Copy size={12} />
+        {mobile && buttonCopied ? <Check size={12} /> : <Copy size={12} />}
       </button>
-      {feedback === 'inline' && copied ? (
+      {mobile && buttonCopied && <output aria-live="polite" className="sr-only">{message}</output>}
+      {feedback === 'inline' && copied && (!mobile || copied !== message) ? (
         <span
           aria-live="polite"
           style={{
