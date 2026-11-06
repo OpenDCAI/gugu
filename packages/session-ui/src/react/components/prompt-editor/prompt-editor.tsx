@@ -45,6 +45,7 @@ import { buildPromptHistoryKeymap } from './extensions/prompt-history-keymap';
 import { compactMentionPath } from './mention-pill-helpers';
 import { isEmptyPromptDocument, mentionInsertContent, plainTextDoc, serializeDoc, serializeNode } from './serialize';
 import { MentionDisplayContext } from './mention-display-context';
+import { mentionRestorationRanges } from './mention-restoration';
 import type {
   CommandItem,
   MentionItem,
@@ -493,6 +494,16 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       }
       editor?.chain().focus().insertContent(mentionInsertContent(item)).run();
       onMentionInsertRef.current?.(item);
+    },
+    restoreMentions(references) {
+      if (!editor) return;
+      const ranges = mentionRestorationRanges(editor.state.doc, references);
+      if (!ranges.length) return;
+      const tr = editor.state.tr;
+      for (const range of ranges) {
+        tr.replaceWith(range.from, range.to, editor.schema.nodes.mention.create(mentionInsertContent(range.item)[0].attrs));
+      }
+      editor.view.dispatch(tr.setMeta('addToHistory', false));
     },
     prependMention(item) {
       if (!editor || item.insertText !== undefined) return;

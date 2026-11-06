@@ -41,6 +41,8 @@ export interface MentionItem {
   optionLabel?: ReactNode;
   /** Display-only annotation, e.g. a reference to someone outside this group. */
   annotation?: string;
+  /** Live host-owned status beside the selected mention; never serialized or stored in node attrs. */
+  inlineStatus?: ReactNode;
   /** When provided, selecting this item inserts raw text instead of a mention node. */
   insertText?: string;
   /** Host-controlled resolving state for mention pills. Not included in plain-text serialization. */
@@ -70,8 +72,8 @@ export interface ContextMentionProvider {
   allowSpaces?: boolean;
   emptyLabel?: string;
   isQueryActive?(query: string): boolean;
-  /** Restore a serialized reference without treating arbitrary text as a mention. */
-  resolve?(target: string, label: string): MentionItem | null;
+  /** Restore a serialized reference; node views also supply their stable id for live presentation. */
+  resolve?(target: string, label: string, id?: string): MentionItem | null;
   /**
    * Return suggestions matching the given partial query string. `requery`:编辑器在 `onResultsChanged` 之后按同一个查询
    * 再查一次(不是用户的新输入)。
@@ -141,6 +143,8 @@ export interface PromptEditorRef {
   insertText(text: string, position: 'start' | 'end'): void;
   /** Imperatively insert a mention node at the current cursor position. */
   insertMention(item: MentionItem): void;
+  /** Restore known selected targets over literal text, preserving the document and caret. */
+  restoreMentions(references: Array<{ start: number; end: number; item: MentionItem }>): void;
   /** Ensure a mention node exists at the start of the editor, replacing duplicates. */
   prependMention(item: MentionItem): void;
   /** Remove all mention nodes with the given id. */

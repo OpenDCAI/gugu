@@ -14,6 +14,8 @@ export default {
     },
     "offlineWarning": "当前不在线，可能无法及时回复",
     "archivedWarning": "对方已归档",
+    "offlineMentionHint": "消息会保留在群里；不会送达它，上线后也不补投。",
+    "archivedMentionHint": "消息会保留在群里；不会唤醒它，恢复后也不补投。",
     "wakeRefused": "{{name}}现在上不了线：",
     "dm": {
       "resolving": "正在打开会话…",

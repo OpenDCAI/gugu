@@ -34,6 +34,8 @@ import { useComposerVerbTakeover } from './useComposerVerbTakeover'
 import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ChatComposerContextBands } from './ChatComposerContextBands'
 import { AgentMentionOptionLabel, AgentMentionSelectionNotice } from './AgentMentionStatusNotice'
+import { AgentMentionInlineStatus } from './AgentMentionInlineStatus'
+import { useRestoreSelectedAgentMentions } from './useRestoreSelectedAgentMentions'
 import { mentionOptionStatusProps } from './agentMentionStatusModels'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
@@ -122,19 +124,20 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
         optionLabel: <span {...mentionOptionStatusProps(member, agentStatuses)}><AgentMentionOptionLabel member={member} status={agentStatuses[member.id]} /></span>,
       }))
     },
-    resolve(target: string, label: string): MentionItem | null {
+    resolve(target: string, label: string, id?: string): MentionItem | null {
       const file = parseGroupFileLink(target)
       if (file) return { id: target, label: target, name: label, kind: 'file',
         description: file.version === undefined ? label : `${label} · ${t('filePill.picked', { version: file.version })}` }
-      if (!target.startsWith('aid:')) return null
-      const member = members.find(candidate => `aid:${candidate.id}` === target)
-      return decorate({ id: target, label: target, name: member?.rawName ?? member?.name ?? label, role: member?.type === 'human' ? 'human' : 'agent', kind: 'custom', annotation: member?.rawName ? member.name.slice(member.rawName.length).trim() : undefined })
+      const member = members.find(candidate => `aid:${candidate.id}` === target || !mobile && candidate.id === id)
+      if (!target.startsWith('aid:') && !member) return null
+      return decorate({ id: id ?? target, label: target, name: member?.rawName ?? member?.name ?? label, role: member?.type === 'human' ? 'human' : 'agent', kind: 'custom', annotation: member?.rawName ? member.name.slice(member.rawName.length).trim() : undefined,
+        inlineStatus: !mobile && member?.type === 'agent' ? <AgentMentionInlineStatus member={member} status={agentStatuses[member.id]} /> : undefined })
     },
     async resolveSession(id: string) {
       const item = await localProvider.resolveSession(id)
       return item ? decorate(item) : null
     },
-  }), [isGroupChat, whisperTarget, members, agentStatuses, decorate, localProvider, t, chatId, currentUserId, messages, participantIds, projectMemberIds, quoteContent?.messageId])
+  }), [isGroupChat, whisperTarget, members, agentStatuses, decorate, localProvider, t, chatId, currentUserId, messages, participantIds, projectMemberIds, quoteContent?.messageId, mobile])
   const { dataDropTypes, onDataDropped, invitation } = useChatTaskDrop({ chatId, isGroupChat: isGroupChat && !mobile, groupMembers, provider: mentionProvider, editorApiRef, enabled: !hidden && !disabled })
   const receiveInput = useCallback((element: HTMLElement | null) => { inputRef.current = element }, [])
   const enqueueFiles = useCallback((files: File[]) => {
@@ -152,6 +155,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     return () => input.removeEventListener('focus', close)
   }, [attachOpen])
   useLayoutEffect(() => registerDraftEditor(chatId ?? null, () => editorApiRef.current), [chatId, registerDraftEditor])
+  useRestoreSelectedAgentMentions(editorApiRef, text, activeTargets, members, !mobile)
   useEffect(() => {
     if (!mentionToInsert) return
     const member = members.find(candidate => candidate.id === mentionToInsert.id)
@@ -199,7 +203,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
           <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.choose(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
         </>}
         <ChatComposerContextBands {...deliveryProps} />
-        <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
+        {mobile && <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />}
         {invitation}
         {phoneTask.overlay}
         {phoneTask.band}

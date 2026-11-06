@@ -33,7 +33,7 @@ export function MentionPill({
   const rawName = (node.attrs.name as string | null) ?? null;
   const kind = ((node.attrs.kind as string | null) ?? 'custom') as MentionKind;
   const resolve = useContext(MentionDisplayContext);
-  const live = kind === 'custom' ? resolve?.(label, rawName ?? label) : null;
+  const live = kind === 'custom' ? resolve?.(label, rawName ?? label, node.attrs.id as string) : null;
   const name = live?.name ?? rawName ?? label;
   const annotation = live ? live.annotation : node.attrs.annotation;
   const role = (node.attrs.role as MentionRole | null) ?? null;
@@ -94,6 +94,7 @@ export function MentionPill({
         {/* Display name */}
         <span className={styles.pillName}>{isParticipant || kind === 'custom' ? '@' : ''}{name}</span>
         {annotation && <small data-mention-annotation="" className={styles.pillAnnotation}>{String(annotation)}</small>}
+        {live?.inlineStatus}
       </span>
     </NodeViewWrapper>
   );

@@ -14,6 +14,8 @@ export default {
     },
     "offlineWarning": "Currently offline and may not respond promptly",
     "archivedWarning": "Recipient is archived.",
+    "offlineMentionHint": "The message stays in the group but is not delivered to this agent or replayed when it comes online.",
+    "archivedMentionHint": "The message stays in the group without waking this agent or replaying it after restoration.",
     "wakeRefused": "{{name}} can't come online right now: ",
     "dm": {
       "resolving": "Opening the conversation…",
