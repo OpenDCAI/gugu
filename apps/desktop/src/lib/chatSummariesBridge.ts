@@ -28,12 +28,21 @@ const EVENT = 'gugu:chat-summaries'
 const NAMES_EVENT = 'gugu:chat-names'
 
 type Summaries = ReadonlyMap<string, ChatSummary>
+type SummarySource = {
+  peer_user_id?: string | null; unread_locator?: { message_id: string | null } | null; id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; public_id?: number | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
+}
+const rowSummaries = new WeakMap<object, { name: string | null | undefined; summary: ChatSummary }>()
+const sameSummary = (left: ChatSummary, right: ChatSummary) => left.alias === right.alias && left.publicId === right.publicId
+  && (Object.keys(right) as (keyof ChatSummary)[]).every(key => left[key] === right[key])
 
 /** 壳:聊天列表那一份(整份替换;没变不通知)。 */
-export function publishChatSummaries(chats: readonly {
-  peer_user_id?: string | null; unread_locator?: { message_id: string | null } | null; id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; public_id?: number | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
-}[]): void {
-  const next: Summaries = new Map(chats.map((chat) => [chat.id, {
+export function publishChatSummaries<T extends SummarySource>(chats: readonly T[], nameOf?: (chat: T) => string | null | undefined): void {
+  const current = read()
+  const next: Summaries = new Map(chats.map((chat) => {
+    const name = nameOf?.(chat) ?? chat.name
+    const cached = rowSummaries.get(chat)
+    if (cached && cached.name === name) return [chat.id, cached.summary] as const
+    const candidate: ChatSummary = {
     ...(chat.alias ? { alias: chat.alias } : {}),
     ...(typeof chat.public_id === 'number' && Number.isSafeInteger(chat.public_id) && chat.public_id > 0 ? { publicId: chat.public_id } : {}),
     peerUserId: chat.peer_user_id ?? null,
@@ -41,18 +50,20 @@ export function publishChatSummaries(chats: readonly {
     unreadCount: chat.unread_count,
     isMarkedUnread: chat.is_marked_unread === true,
     hasMessages: Boolean(chat.last_message_at),
-    name: chat.name || null,
+    name: name || null,
     kind: chat.kind,
     lastMessagePreview: chat.last_message_preview || null,
     sourceChatId: chat.source_chat_id || null,
-  }]))
-  const current = read()
-  if (current && current.size === next.size && [...next].every(([id, summary]) => {
-    const was = current.get(id)
-    return was !== undefined && was.alias === summary.alias && was.publicId === summary.publicId && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
-  })) return
+    }
+    const was = current?.get(chat.id)
+    const summary = was && sameSummary(was, candidate) ? was : candidate
+    rowSummaries.set(chat, { name, summary })
+    return [chat.id, summary] as const
+  }))
+  if (current && current.size === next.size && [...next].every(([id, summary]) => current.get(id) === summary)) return
   const namesChanged = !current || current.size !== next.size || [...next].some(([id, summary]) => {
     const was = current.get(id)
+    if (was === summary) return false
     return !was || was.name !== summary.name || was.alias !== summary.alias || was.publicId !== summary.publicId || was.kind !== summary.kind || was.peerUserId !== summary.peerUserId
   })
   ;(window as unknown as Record<string, unknown>)[KEY] = next

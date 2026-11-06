@@ -11,7 +11,8 @@ export function ChatSummariesHost() {
   const chats = useNativeAgentChats(imChats)
   const { contacts } = useContactsStore()
   useEffect(() => {
-    if (chatsRead) publishChatSummaries(chats.map(chat => ({ ...chat, name: chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name) })))
+    if (!chatsRead) return
+    publishChatSummaries(chats, chat => chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name))
   }, [chats, chatsRead, identitiesById])
   useEffect(() => () => { publishChatSummaries([]); publishContactSummaries([]) }, [])
   useEffect(() => { publishContactSummaries(contacts.map(contact => ({ id: contact.id, name: contact.alias || contact.display_name || contact.id }))) }, [contacts])
