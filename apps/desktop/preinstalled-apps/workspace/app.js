@@ -13,7 +13,7 @@
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
 import { INSERT_BLOCKS, isFrontmatter, listInsertion, moveBlock, previewBlock, sourceBlocks, turnBlockChanges } from './blocks.js'
-import { bufferAnchors, sourceFile } from './source-file.js'
+import { bufferAnchors, firstBytes, sourceFile } from './source-file.js'
 import { KINDS, SORTS, compareNames, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
@@ -72,6 +72,7 @@ const STRINGS = {
     gone: '这个文件不在了：被删掉了，或者你已经不在这个对话里。',
     readOnly: '只读',
     notUtf8ReadOnly: '这个文件不是 UTF-8 编码，在这里只能看，不能改。',
+    previewCut: '全文较大，预览只显示前 {size}，请在源码里看全文。',
     deletedHere: '这个文件已经被删除了。',
     edit: '编辑',
     split: '对照',
@@ -265,6 +266,7 @@ const STRINGS = {
     gone: 'This file is gone: it was deleted, or you are no longer in this chat.',
     readOnly: 'Read-only',
     notUtf8ReadOnly: 'This file is not UTF-8: you can read it here, not change it.',
+    previewCut: 'This file is large: the preview shows its first {size}. Read the whole file in its source.',
     deletedHere: 'This file has been deleted.',
     edit: 'Edit',
     split: 'Side by side',
@@ -646,6 +648,7 @@ function renderChrome() {
   }
   $('block-handle').setAttribute('aria-label', t.blockActions)
   $('doc-empty-title').textContent = t.emptyTitle
+  $('preview-cut').textContent = fmt(t.previewCut, { size: sizeOf(LONG_TEXT) })
   $('doc-empty-hint').textContent = t.emptyHint
   $('empty-write-label').textContent = t.emptyWrite
   $('empty-draft-label').textContent = t.emptyDraft
@@ -1988,7 +1991,7 @@ function closeCurrent() {
   $('editor').replaceChildren()
   $('preview').replaceChildren()
   $('peers').replaceChildren()
-  $('doc-empty').hidden = true
+  $('doc-empty').hidden = $('preview-cut').hidden = true
   document.body.classList.remove('empty-doc')
   hideBlockHandle()
   showSelection([], null)
@@ -2043,7 +2046,7 @@ async function openHanded() {
 }
 
 const isMarkdownName = (name) => /\.(md|markdown)$/i.test(name)
-const LONG_TEXT = 1024 * 1024
+const LONG_TEXT = 256 * 1024
 
 /**
  * A stored text file as this page edits it: what `mountText` and the source view read of a file — `text`, `onChange`,
@@ -2169,9 +2172,13 @@ async function mountText(current, preview) {
   document.body.dataset.kind = 'text'
   // Others' words (`chat`): raw HTML stays text, nothing loads; a relative link opens the file beside this one. Each
   // block says its lines (`sourceLines`): a selection there is cited by them, a pill's lines are found there.
+  // A file this long (its bytes, as every door measures a file) takes the page many seconds to draw and more memory than a
+  // phone has: it opens in its source, and its preview, drawn when asked for, is of its start.
+  const longFile = () => current.entry.size > LONG_TEXT
   const render = () => {
     if (state.current !== current) return
-    md.render($('preview'), file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
+    md.render($('preview'), longFile() ? firstBytes(file.text, LONG_TEXT) : file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
+    $('preview-cut').hidden = !longFile()
     current.previewPending = false
     syncBlockControls()
     previewMarks()
@@ -2182,12 +2189,11 @@ async function mountText(current, preview) {
     $('doc-empty').hidden = !empty
     $('empty-write').hidden = $('empty-draft').hidden = !!file.readOnly
   }
-  // A text this long takes the page many seconds to draw: it opens in its source, and its preview is drawn when asked for.
-  const noPreviewYet = () => document.body.dataset.mode === 'edit' && file.text.length > LONG_TEXT
+  const noPreviewYet = () => document.body.dataset.mode === 'edit' && longFile()
   const changed = debounce(() => { if (!noPreviewYet()) render() }, 120)
   current.offs.push(file.onChange((event) => { if (!event.entry) { current.previewPending = true; hideBlockHandle(); changed() } }))
   current.drawPreview = render
-  if (file.text.length > LONG_TEXT) setMode('edit')
+  if (longFile()) setMode('edit')
   if (noPreviewYet()) current.previewPending = true
   else render()
   // Reading does not wait for the source editor's module and construction.

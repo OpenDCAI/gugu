@@ -306,6 +306,8 @@ body.empty-doc .preview, body[data-mode='edit'] .doc-empty, body[data-kind='json
 body:not([data-state='doc']) .block-controls, body[data-mode='preview'] .block-controls { display: none; }
 body[data-mode='edit'] .panes, body[data-mode='preview'] .panes, body[data-kind='json'] .panes { grid-template-columns: 1fr; }
 body[data-mode='edit'] .preview, body[data-mode='preview'] .editor { display: none; }
+.preview-cut { flex: none; margin: 0; padding: var(--em-spacing-xs) 18px; color: var(--em-foreground-muted); }
+body[data-mode='edit'] .preview-cut, .preview-cut[hidden] { display: none; }
 body[data-kind='json'] .modes, body[data-kind='json'] .preview { display: none; }
 body[data-kind='json'] .editor { display: block; }
 body.json-dirty .json-actions { display: flex; }
