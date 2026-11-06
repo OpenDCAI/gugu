@@ -16,12 +16,21 @@ function sameRequest(a: TokenEntry, b: TokenEntry): boolean {
 
 /** No parent transcript, ambiguous lineage or diverged history means no inferred deduplication. */
 export function canonicalizeCodexForks(files: readonly File[]): Map<string, readonly TokenEntry[]> {
-  const byScope = new Map<string, File>();
+  const byScope = new Map<string, File | null>();
   for (const file of files) {
     const id = identity(file);
-    if (id && (!byScope.has(id.scope) || byScope.get(id.scope)!.parsed.entries.length < file.parsed.entries.length)) {
+    if (!id) continue;
+    if (!byScope.has(id.scope)) {
       byScope.set(id.scope, file);
+      continue;
     }
+    const previous = byScope.get(id.scope);
+    if (!previous) continue;
+    const overlap = Math.min(previous.parsed.entries.length, file.parsed.entries.length);
+    const compatible = identity(previous)?.parent === id.parent
+      && previous.parsed.entries.slice(0, overlap).every((entry, i) => sameRequest(entry, file.parsed.entries[i]));
+    if (!compatible) byScope.set(id.scope, null);
+    else if (previous.parsed.entries.length < file.parsed.entries.length) byScope.set(id.scope, file);
   }
   const resolved = new Map<File, readonly TokenEntry[]>();
   const resolve = (file: File, ancestors: ReadonlySet<string>): readonly TokenEntry[] | null => {
