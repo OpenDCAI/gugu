@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cdp } from 'vitest/browser';
 import { until } from '../../../../tests/support/awaitCondition';
 import { ShimmerText } from '../components/primitives/ShimmerText';
-import { textShimmerBaseSweep, textShimmerClip, textShimmerInk } from '../styles/effects.css';
+import { textShimmerClip, textShimmerInk, textShimmerSweep } from '../styles/effects.css';
 import { measureSpill } from './contract';
 
 let dispose: (() => void) | undefined;
@@ -33,6 +33,8 @@ function mount(label = '正在工作 · Running a long command') {
   return { host, setActive, setText };
 }
 
+const viewportPaused = (host: HTMLElement) => host.style.getPropertyValue('--gugu-animation-viewport-paused') === 'paused';
+
 function watchSweepEvent(sweep: HTMLElement, type: 'animationstart' | 'animationend') {
   let seen = false;
   const listener = (event: AnimationEvent) => {
@@ -46,10 +48,14 @@ function watchSweepEvent(sweep: HTMLElement, type: 'animationstart' | 'animation
 
 it('keeps one semantic label, its geometry and live text while animating only transforms', async () => {
   const { host, setText, setActive } = mount();
-  await until('the shimmer enters the viewport', () => host.dataset.shimmerVisible === 'true');
+  await until('the shimmer enters the viewport', () => !viewportPaused(host));
   const box = host.getBoundingClientRect().toJSON();
   const animations = host.getAnimations({ subtree: true });
-  expect(animations).toHaveLength(4);
+  expect(animations).toHaveLength(2);
+  // One masked, moving layer over still base glyphs: every masked layer is composited each frame.
+  const layers = [...host.querySelectorAll<HTMLElement>(`.${textShimmerClip} *`)].map((el) => getComputedStyle(el));
+  expect(layers.filter((style) => style.maskImage !== 'none')).toHaveLength(1);
+  expect(layers.every((style) => style.mixBlendMode === 'normal')).toBe(true);
   for (const animation of animations) {
     for (const frame of (animation.effect as KeyframeEffect).getKeyframes()) {
       expect(Object.keys(frame).filter((key) => !['offset', 'computedOffset', 'easing', 'composite'].includes(key))).toEqual(['transform']);
@@ -77,15 +83,15 @@ it('keeps one semantic label, its geometry and live text while animating only tr
 
 it('pauses outside the viewport, on retained surfaces, and when the host window hides', async () => {
   const { host } = mount();
-  await until('the shimmer starts', () => host.dataset.shimmerVisible === 'true');
+  await until('the shimmer starts', () => !viewportPaused(host));
   const animations = host.getAnimations({ subtree: true });
-  expect(animations).toHaveLength(4);
+  expect(animations).toHaveLength(2);
   window.dispatchEvent(new CustomEvent('__window_seen', { detail: false }));
-  expect(host.dataset.shimmerVisible).toBeUndefined();
+  expect(viewportPaused(host)).toBe(true);
   expect(host.getAnimations({ subtree: true })).toEqual(animations);
   expect(host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'paused')).toBe(true);
   window.dispatchEvent(new CustomEvent('__window_seen', { detail: true }));
-  expect(host.dataset.shimmerVisible).toBe('true');
+  expect(viewportPaused(host)).toBe(false);
   surface!.style.visibility = 'hidden';
   surface!.inert = true;
   await until('the retained surface pauses', () => host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'paused'));
@@ -93,9 +99,9 @@ it('pauses outside the viewport, on retained surfaces, and when the host window 
   surface!.inert = false;
   await until('the retained surface resumes', () => host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'running'));
   surface!.style.top = '-200px';
-  await until('the offscreen shimmer pauses', () => host.dataset.shimmerVisible === undefined);
+  await until('the offscreen shimmer pauses', () => viewportPaused(host));
   surface!.style.top = '20px';
-  await until('the shimmer returns', () => host.dataset.shimmerVisible === 'true');
+  await until('the shimmer returns', () => !viewportPaused(host));
 });
 
 it('keeps reduced-motion labels flat and readable with no running sweep', async () => {
@@ -119,11 +125,11 @@ it('keeps replaying when the row data is rebuilt during the hold while it stays 
     const [item, setItem] = createSignal({ status: 'running' });
     dispose = render(() => <ShimmerText active={item().status === 'running'}>Worked for 19s</ShimmerText>, surface);
     const host = surface.firstElementChild as HTMLElement;
-    const ended = watchSweepEvent(host.querySelector<HTMLElement>(`.${textShimmerBaseSweep}`)!, 'animationend');
+    const ended = watchSweepEvent(host.querySelector<HTMLElement>(`.${textShimmerSweep}`)!, 'animationend');
     await until('the shimmer animations are ready', () => ({
-      visible: host.dataset.shimmerVisible,
+      visible: !viewportPaused(host),
       animations: host.getAnimations({ subtree: true }).length,
-    }), (state) => state.visible === 'true' && state.animations === 4);
+    }), (state) => state.visible && state.animations === 2);
     const animations = host.getAnimations({ subtree: true });
     for (const animation of animations) animation.finish();
     await ended('the finished sweep emits animationend');
@@ -141,15 +147,15 @@ it('finishes each sweep, holds without running animations, and rewinds without o
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   try {
     const { host, setActive } = mount();
-    const sweep = host.querySelector<HTMLElement>(`.${textShimmerBaseSweep}`)!;
+    const sweep = host.querySelector<HTMLElement>(`.${textShimmerSweep}`)!;
     const ended = watchSweepEvent(sweep, 'animationend');
     await until('the shimmer animations are ready after motion emulation resets', () => ({
-      visible: host.dataset.shimmerVisible,
+      visible: !viewportPaused(host),
       reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
       animations: host.getAnimations({ subtree: true }).map((animation) => animation.playState),
-    }), (state) => state.visible === 'true' && !state.reducedMotion && state.animations.length === 4);
+    }), (state) => state.visible && !state.reducedMotion && state.animations.length === 2);
     const animations = host.getAnimations({ subtree: true });
-    expect(animations).toHaveLength(4);
+    expect(animations).toHaveLength(2);
     for (const animation of animations) {
       expect(animation.effect!.getTiming()).toMatchObject({ duration: 1000, iterations: 1, fill: 'forwards' });
     }

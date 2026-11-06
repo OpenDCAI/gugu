@@ -78,3 +78,14 @@ export function observeAnimationViewport(element: HTMLElement, changed: (visible
     viewport.observer?.unobserve(element)
   }
 }
+
+/** Pauses CSS motion inside `element` while it is off screen (animation-visibility.css also pauses hidden windows
+ *  and retained surfaces). It starts paused, so motion that never reaches the viewport never runs. */
+export function pauseAnimationsOffscreen(element: HTMLElement, rootMargin?: string): () => void {
+  const paused = (pause: boolean) => pause
+    ? element.style.setProperty('--gugu-animation-viewport-paused', 'paused')
+    : element.style.removeProperty('--gugu-animation-viewport-paused')
+  paused(true)
+  const stop = observeAnimationViewport(element, (visible) => paused(!visible), rootMargin)
+  return () => { stop(); paused(false) }
+}
