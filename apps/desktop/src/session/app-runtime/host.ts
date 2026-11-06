@@ -1,3 +1,4 @@
+import type { WorkingCopyPart } from '@shared/extensions/working-copy-upload';
 import type { TabOpenIntent } from '@shared/view-state';
 import { fileRefOf, type AppFileChunk, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef,
   type AppFileText, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
@@ -59,6 +60,10 @@ export interface GuguHost extends ProjectionHost {
     move(args: { ref: AppFileRef; folder?: string; name?: string }): Promise<AppFileEntry>;
     remove(args: { ref: AppFileRef }): Promise<void>;
     rename(args: { ref: AppFileRef; name: string }): Promise<AppFileEntry>;
+    /** One part of a file going into a working copy: `files.upload` with bytes. */
+    writeChunk(args: WorkingCopyPart): Promise<{ received: number; entry?: AppFileEntry }>;
+    /** A working copy's file or folder in this computer's file manager: a page's. */
+    reveal?(args: { ref: AppFileRef }): Promise<void>;
     /** 「设为临时 / 一直保留」: the cloud copy of a chat file this person uploaded, cleared after their temporary period or kept. */
     keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
     watch(args: { watchId: string; place: AppPlace & { folder?: string }; on: boolean }): Promise<void>;
@@ -74,7 +79,7 @@ export interface GuguHost extends ProjectionHost {
     /** The gesture halves: a page's only (`VerbFacts.only`) — a background page and a program have none. */
     openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> }): Promise<void>;
     /** One file (`true` saved), or several (API 20: how many were saved; `0` when the person cancelled). */
-    download?(args: { ref: AppFileRef } | { refs: AppFileRef[] }): Promise<boolean | number>;
+    download?(args: { ref: AppFileRef; folder?: boolean } | { refs: AppFileRef[] }): Promise<boolean | number>;
     forward?(args: { refs: AppFileRef[] }): Promise<void>;
   };
   readonly clipboard?: {
