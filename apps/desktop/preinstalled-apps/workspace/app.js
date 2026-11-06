@@ -641,12 +641,10 @@ function renderChrome() {
   $('open-with').textContent = t.openWith
   $('more').setAttribute('aria-label', t.more)
   $('more').title = t.more
-  // A mode is its words, and when the head is narrow its icon (style.css): the words stay its name and tooltip.
+  // The mode toggle is an icon; its words are its name and tooltip.
   for (const mode of ['edit', 'split', 'preview']) {
-    const button = $(`mode-${mode}`)
-    button.querySelector('.mode-label').textContent = t[mode]
-    button.title = t[mode]
-    button.setAttribute('aria-label', t[mode])
+    $(`mode-${mode}`).title = t[mode]
+    $(`mode-${mode}`).setAttribute('aria-label', t[mode])
   }
   for (const fmt of ['bold', 'italic', 'code', 'link']) {
     $(`fmt-${fmt}`).setAttribute('aria-label', t[fmt])
@@ -3039,7 +3037,10 @@ function setMode(mode) {
 function applyMode() {
   const mode = narrowPane?.matches && state.mode === 'split' ? 'preview' : state.mode
   document.body.dataset.mode = mode
-  for (const m of ['edit', 'split', 'preview']) $(`mode-${m}`).setAttribute('aria-selected', String(m === mode))
+  // One toggle: it shows where a press goes — to editing while reading, to reading otherwise; 对照 is a ⋯ item.
+  $('mode-edit').hidden = mode !== 'preview'
+  $('mode-preview').hidden = mode === 'preview'
+  $('mode-split').hidden = true
   if (mode !== 'edit' && state.current?.previewDeferred) state.current.drawPreview()
   syncBlockControls(true)
 }
@@ -3470,7 +3471,10 @@ function start() {
   }
   $('more').onclick = () => {
     const entry = state.shown
-    if (entry) showFileMenu($('more'), entry, (yes) => fileActions($('doc-title'), entry, yes))
+    // 对照 (side by side) is the open text's third way to show itself: a checked item here, where the pane has room.
+    const split = state.current?.file.type === 'text' && document.body.dataset.kind !== 'json' && !narrowPane?.matches
+      ? [{ text: state.t.split, checked: state.mode === 'split', run: () => setMode(state.mode === 'split' ? 'preview' : 'split') }, { separator: true }] : []
+    if (entry) showFileMenu($('more'), entry, (yes) => [...split, ...fileActions($('doc-title'), entry, yes)])
   }
   document.addEventListener('pointerdown', (event) => {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()

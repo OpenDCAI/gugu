@@ -43,7 +43,8 @@ it('uses the shared file toolbar for an unclaimed group file with read-only edit
   const toolbar = host.querySelector('[data-file-toolbar]');
   expect(toolbar).not.toBeNull();
   const labels = [...toolbar!.querySelectorAll('button')].map((button) => button.getAttribute('aria-label'));
-  expect(labels).toEqual(['tabs.back', 'tabs.forward', 'tabs.read', 'tabs.edit', 'tabs.more']);
+  // One mode toggle (owner 11-06): reading, it is ✎ (edit) — disabled for a read-only file.
+  expect(labels).toEqual(['tabs.back', 'tabs.forward', 'tabs.edit', 'tabs.more']);
   expect(toolbar!.querySelector<HTMLButtonElement>('[aria-label="tabs.edit"]')!.disabled).toBe(true);
   await act(async () => toolbar!.querySelector<HTMLButtonElement>('[aria-label="tabs.back"]')!.click());
   expect(pane.navigationOf(pane.resolvedActiveTabId!)?.index).toBe(0);
