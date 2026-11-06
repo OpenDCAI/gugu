@@ -108,7 +108,7 @@ it('preserves a hanging space when the count wraps before its unit', async () =>
  expect(reading.spill).toBe(0);
 });
 
-it.each([342, 350, 358, 366, 390])('keeps native Chinese punctuation inside a %ipx conversation', async width => {
+it.each(Array.from({ length: 49 }, (_, index) => index + 342))('keeps native Chinese punctuation inside a %ipx conversation', async width => {
  const actorNames = ['账号与用户主管（Claude，d22）', '手机线协调（Codex）', '第三位协作者'];
  const context = createChatContext({ locale: () => 'zh-CN', layout: { preset: 'double', agentConversation: true, userGutter: 0 },
   actor: id => ({ id, type: 'agent', name: actorNames[Number(id.slice(-1))] }), translator: chinese });

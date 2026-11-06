@@ -35,7 +35,11 @@ export function activityLines(parts: ActivityLabelPart[], ctx: MeasureCtx, stopA
   const config = ctx.theme.config;
   const font = buildChatTheme({ ...config, roles: { ...config.roles, body: { ...config.roles.body, size: 12, lineHeight: metrics.lineHeight, weight: 400 } } }, ctx.theme.layout).fonts.body.font;
   const text = parts.map(textOf).join(''), lines: ActivityLabelLine[] = [];
-  const fragmentWidth = (part: ActivityLabelPart) => measureNaturalWidth(prepareWithSegments(textOf(part), font, { whiteSpace: 'pre-wrap' }));
+  const fragmentWidth = (part: ActivityLabelPart) => {
+    const advance = measureNaturalWidth(prepareWithSegments(textOf(part), font, { whiteSpace: 'pre-wrap' }));
+    // Each flex item receives its own 1/64 CSS-pixel layout-unit rounding before summation.
+    return Math.ceil(advance * 64) / 64;
+  };
   let offset = 0, maxWidth = 0;
   while (offset < text.length && lines.length < stopAfter) {
     let available = budget, end: number, line: ActivityLabelLine, width: number;
@@ -43,7 +47,7 @@ export function activityLines(parts: ActivityLabelPart[], ctx: MeasureCtx, stopA
       const first = readableLabel(text.slice(offset), ctx, available, 12, metrics.lineHeight, 400).text.split('\n')[0]!;
       end = offset + first.length;
       line = projectLine(parts, offset, end);
-      // Round summed advances once; DOM flex items are not shaped as one sentence.
+      // Keep both independent shaping and each fragment's layout-unit advance.
       width = Math.ceil(line.parts.reduce((sum, part) => sum + fragmentWidth(part), 0));
       if (width <= budget || available === 1) break;
       available = Math.max(1, available - (width - budget));
