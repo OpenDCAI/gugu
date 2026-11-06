@@ -497,9 +497,11 @@ export async function draftHere(ref: WorkspaceFileRef & { id: string }, text: un
   const workspace = workspaceId ?? ref.workspace;
   const inRoot = path.relative(workspaceRoot, ref.id);
   const filePath = path.isAbsolute(ref.id) && !inRoot.startsWith('..') && !path.isAbsolute(inRoot) ? inRoot.split(path.sep).join('/') : ref.id;
-  if (text === undefined) return (await editorBufferService.listBuffers(projectId, workspace)).find((buffer) => buffer.filePath === filePath)?.content ?? null;
-  if (text === null) return editorBufferService.clearBuffer(projectId, workspace, filePath);
-  return editorBufferService.saveBuffer(projectId, workspace, filePath, String(text));
+  // Kept under either spelling of the path: the built-in editor this replaced also wrote absolute ones.
+  const buffers = (await editorBufferService.listBuffers(projectId, workspace)).filter((buffer) => path.resolve(workspaceRoot, buffer.filePath) === path.resolve(workspaceRoot, filePath));
+  if (text === undefined) return buffers[0]?.content ?? null;
+  await Promise.all(buffers.map((buffer) => editorBufferService.clearBuffer(projectId, workspace, buffer.filePath)));
+  if (text !== null) await editorBufferService.saveBuffer(projectId, workspace, filePath, String(text));
 }
 
 /**
