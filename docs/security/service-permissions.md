@@ -1,0 +1,57 @@
+# Gugu-provided MCP service permissions
+
+This backend foundation adds one user/Agent decision model on the authenticated Gugu MCP path. Production starts in **observation mode**: existing tools execute and return exactly as before; the new decision is only a private comparison record. Observation is not a security boundary or a claim that all existing paths filter secrets.
+
+Enforcement is off by default. There is no new UI, MCP administration tool, approval card, or credential vault in this change. Only a trusted host entry acting for the owning person may change the per-account, per-host rollout switch, read/clear the private records, or write account rules. Agent actors and other accounts are rejected. The interface must supply the person identity from authenticated host state, never deserialize it from tool arguments. Wiring that entry and enabling enforcement require the separately reviewed UI work.
+
+## Decision contract
+
+The account settings key `service_permissions` contains versioned user rules and Agent overrides. It uses the existing identity settings RLS and optimistic concurrency mechanism. There is no separate permission-sync protocol. A stale write fails instead of replacing newer permissions. A missing setting means `ask_some` and no standing grants; a malformed setting or unavailable current authority never becomes an allow.
+
+1. Existing identity, group-role, App scope, device and OS checks remain mandatory in their existing dispatchers. The new layer cannot grant access through a failing existing boundary.
+2. Matching locked user denials apply to every Agent.
+3. Use matching rules for the actual executing Agent when present; otherwise use matching ordinary user rules. Another Agent, including a delegated child, does not inherit the caller's exceptions.
+4. Within that one layer, deny wins over ask, and ask over allow, independent of rule order or selector specificity.
+5. Credentials, sending as the person, expanding social access and permission changes require person confirmation every time. An allow cannot remove this requirement.
+6. `always_ask` raises other allows to ask, except discovery that does not read private content. Otherwise only reviewed discovery defaults to allow; private reads, sends, execution and changes default to ask.
+
+Decisions contain a stable reason, source, matched rule IDs and overridden ordinary rule IDs. Selectors match exact resource values and explicit namespaces; no substring or implicit path-prefix permission is inferred. The executing owner, subject, session and tool scope come from the authenticated grant, independently of who requested work in a group. Request metadata, chat assertions and `confirmed` arguments confer no permission.
+
+## Execution and the shared App boundary
+
+`GuguMcpHost` connects its SDK server through `permissionTransport`. Pre-call evaluation happens after bearer authentication and before handing a `tools/call` to the SDK. Post-call evaluation happens before its response is sent to the harness. This includes the core registrar and the custom App/connected-service handlers that do not use `registerTool`.
+
+| Input | Operation evaluated |
+| --- | --- |
+| Direct core tool | Exact registered tool and selected resource fields |
+| `catalog_call` | Recursively unpacked actual tool and its arguments |
+| `device_call` | Actual device action, device and resource arguments |
+| Native App gateway | Host-bound App/program namespace and actual tool |
+| App through catalog | Dynamic App tool; a wrapper's allow is insufficient |
+| Connected service | Host-bound integration namespace and actual tool |
+
+The same host-stamped owner/Agent/task identity, App scope and cancellation used by the App runtime remain authoritative. This change adds no executor, page lease, native driver, projection stack, or second task lifecycle. It can therefore coexist with the App migration tracked in #1607. Each destination keeps enforcing its existing resource boundaries. The new rollout gate is local to the executing Gugu host; this change does not advertise remote policy enforcement on another host that has not enabled it.
+
+A standing allow for a non-discovery operation also requires `resolveResource`, supplied by its trusted host dispatcher. It must provide the actual canonical object, including public IDs, reply-derived recipients, relative paths and other aliases. Raw selectors alone are insufficient. Until those resource adapters are integrated, the default host retains observation and enforced non-discovery allows are raised to `resource_verification_required`. This prevents a raw alias from sidestepping an object-specific locked denial. The reviewed UI/approval entry and canonical resource adapters must both be ready before enabling enforcement; this foundation does not advertise a complete fine-grained resource sandbox.
+
+Observation uses a nonblocking account-policy snapshot refreshed at most once every five seconds; an initial or failed snapshot is recorded as `policy_unavailable`. It never waits on a cloud query in the existing tool path. Enforcement reads current account rules before and after each call, without reusing an observed allow; reads have cancellation and a five-second network deadline. Unknown authority fails closed. Discovery does not acquire an App page or run a device action.
+
+Enforced ask results return `owner_confirmation_required` and execute zero effects while the trusted person approval entry is absent. No reusable approval or confirmation ticket is manufactured. The operation digest helper fingerprints owner, executing Agent/session, tool and all arguments (including recipient, body and attachment references) for the future reviewed approval integration. It does not approve anything or bind the bytes of mutable files; real approval integration must bind resolved versions/content before use.
+
+The transport follows request/grant cancellation and does not replay an uncertain operation. If post-call authority changes or post-call verification fails, enforcement withholds the result and reports that effects may have occurred, with no automatic retry. This is not rollback.
+
+## Tool inventory
+
+`permissions/inventory.ts` is the reviewed table of all **85 core tools and 117 device actions** on this implementation baseline. Each name has a risk and effect class. The inventory test constructs the real core registrars in both provision roles and the real device families, including generated Computer Use actions and mixed-case names. An addition or removal without a corresponding reviewed classification fails the test.
+
+Installed Apps and connected services are dynamic, so a static market-wide list cannot be complete. Each actual dynamic call receives a high-risk, unclassified operation; MCP read-only hints and similar names cannot downgrade it. Explicit denials still apply; an allow does not suppress its enforced confirmation requirement. New core tools fail closed as unclassified. Browser/Computer actions with opaque business effects are not treated as safe reads because their names resemble clicks or navigation.
+
+## Post-call and private record limits
+
+In enforced mode the final response filters exact known tokens, common credential fields, bearer strings and selected recognizable token formats. Raw failure details are withheld. This happens before delivery into the harness's result/history path. Observation deliberately leaves both successful and failing tool responses unchanged.
+
+Text filtering is best effort. It cannot guarantee removal of unknown secrets, images, screenshots, DOM-derived semantics, attachment bytes or arbitrary encodings. The App or resource owner must protect those observations at their own source. Gugu does not claim that post-call processing retracts a message, email, file upload, native action, HTTP request, or any other side effect already executed. Outgoing content must be authorized before that effect. Terminal-capable Agents and ordinary native programs can bypass this MCP path; this is not a computer sandbox or a defense against a compromised OS account.
+
+Records live in an account-separated private host directory, with directory mode 0700 and file mode 0600 on Unix. No MCP reader, group message, task timeline, assistant resource index or upload is registered for them. The person-only API reads/clears only its own account. Agent/session identifiers, tool decisions, rule provenance and outcomes are retained; selected targets are keyed pseudonyms. Bodies, full arguments, file contents, credentials and raw errors are never record fields. Records are pruned after 90 days and daily storage is bounded. They are not tamper-proof against the local OS account. Enforcement stops before dispatch if its required private record cannot be written; observation reports a payload-free local diagnostic without changing the tool result.
+
+Validation exercises the authenticated HTTP MCP path, including denial/ask with zero handler calls, direct/catalog/device aliases, custom App/integration handlers, same-layer conflicts, locked denials, subject spoofing, cancellation, revoked authority after execution, result/error canaries and person-only administration. Independent review of these negative cases is required before merge.
