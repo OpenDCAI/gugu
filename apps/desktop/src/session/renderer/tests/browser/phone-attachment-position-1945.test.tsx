@@ -9,6 +9,7 @@ import { DevicesContext, useDevicesStore } from '@/store/devicesContext'
 import { publishRendererSession } from '@/lib/sessionPublication'
 import { chatService } from '@/lib/chat'
 import { i18n } from '@/i18n'
+import '@/i18n/registerMessagingCatalog'
 import { createReactHarness, device, renderWithAppProviders } from '../../../../../../../tests/support/testHarness'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import '@gugu/session-ui/styles/global'
@@ -75,6 +76,7 @@ beforeEach(async () => {
   vi.spyOn(chatService, 'getOrCreateDM').mockResolvedValue('fixture-dm')
   harness = createReactHarness()
   harness.container.setAttribute('data-phone-shell', '')
+  harness.container.setAttribute('data-ta-scope', '')
   document.body.style.margin = '0'
   harness.container.style.cssText = 'width:390px;height:760px;background:var(--bg);color:var(--text-primary);display:flex;flex-direction:column'
 })
