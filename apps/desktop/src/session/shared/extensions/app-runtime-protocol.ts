@@ -401,6 +401,12 @@ export interface AppFileEntry {
   type: 'text' | 'json' | 'binary' | 'folder';
   /** The folder it is in (a `folder` entry's id); `null` at the top of the chat's folder, and for a working copy's file. */
   parentId: string | null;
+  /** A working copy's: its absolute path on the machine it is on. */
+  absolutePath?: string;
+  /** A working copy's: the workspace id a host's own drags of it name. */
+  workspaceId?: string;
+  /** A working copy's: what git says of it, when it has changed. */
+  gitStatus?: string;
   /** Where it is from the top of the chat's folder (`合同/2026/甲方.pdf`); a working copy's file: its path there (its id). */
   path: string;
   /**

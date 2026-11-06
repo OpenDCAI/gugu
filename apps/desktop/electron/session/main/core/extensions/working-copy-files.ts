@@ -1,14 +1,16 @@
 import { requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
-import { isExpandableFileNode, type FileNode } from '@gugu/session-core/files';
 import { REMOTE_WORKSPACE_CHUNK_BYTES, WORKSPACE_CONFLICT_CODE } from '@gugu/session-core/session-record/contract';
 import { AppFileError } from '@shared/extensions/app-files-core';
 import { placeKey, workspaceSession, type AppFileEntry, type WorkspacePlace } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
+import type { IGitWorktree } from '@gugu/session-core/git';
+import type { RuntimeManager } from '@main/core/runtime/types';
+import { log } from '@main/lib/logger';
 import type { FileTreeProjector } from '@main/core/files/file-tree/projector';
 import { createWorkspaceUploads, inWorkspace, WorkspaceTransferError, type WorkspaceWriteChunk } from '@main/core/files/workspace-transfer';
-import { workingCopyEntry } from './local-files';
+import { workingCopyEntry, workingCopyFolder } from './local-files';
 
 /**
  * A working copy's files as an App reads them, on the machine it is on — the file panel's own chain: the file tree
@@ -21,12 +23,25 @@ import { workingCopyEntry } from './local-files';
  */
 
 /** A subscription to the working copy's tree: a page keeps one while it is open, so the folders it listed stay loaded. */
-interface View { place: WorkspacePlace; root: string; projector: FileTreeProjector; subscriptionId: string; close: () => Promise<void> }
+interface View { place: WorkspacePlace; root: string; projector: FileTreeProjector; subscriptionId: string; workspaceId: string | null; git: IGitWorktree | undefined; close: () => Promise<void> }
+
+async function openGit(manager: Pick<RuntimeManager, 'acquire'>, root: string): Promise<{ value: IGitWorktree; release: () => Promise<void> } | null> {
+  const lease = await manager.acquire();
+  try {
+    const worktree = await lease.value.git.openWorktree(root);
+    return { value: worktree.value, release: async () => { await worktree.release(); await lease.release(); } };
+  } catch (error) {
+    // A folder that is no repository has no git to say anything: the list is the same without it.
+    log.info('[working-copy] no git for this folder', { root, error: String(error) });
+    await lease.release();
+    return null;
+  }
+}
 
 async function openView(place: WorkspacePlace): Promise<View> {
   // Imported when used: a page let go of (`releaseWorkingCopies`) must not load the workspace stack to do it.
   const { localRootOf } = await import('./app-files');
-  const { workspaceRoot: root } = await localRootOf(place);
+  const { workspaceRoot: root, workspaceId } = await localRootOf(place);
   await requireAgentFileTreeAccess(root);
   const [{ acquireWorkspaceRuntime }, { runtimeManager }, { FileTreeProjector: Projector }] = await Promise.all([
     import('@main/core/workspaces/workspace-runtime'),
@@ -36,10 +51,12 @@ async function openView(place: WorkspacePlace): Promise<View> {
   const unreadable = () => new AppFileError('not-found', 'This folder cannot be read on its computer');
   const runtime = await acquireWorkspaceRuntime({ manager: runtimeManager }, root, true).catch(() => { throw unreadable(); });
   const projector = new Projector(runtime.fileTree, () => undefined);
-  const close = async () => { projector.dispose(); await runtime.release(); };
+  // The tree opens without git (a folder need not be a repository); what git says of its files, where it is one, is read beside it.
+  const git = await openGit(runtimeManager, root);
+  const close = async () => { projector.dispose(); await git?.release(); await runtime.release(); };
   const opened = await projector.openProjection();
   if (!opened.success) { await close(); throw unreadable(); }
-  return { place, root, projector, subscriptionId: opened.data.subscriptionId, close };
+  return { place, root, projector, subscriptionId: opened.data.subscriptionId, workspaceId, git: git?.value, close };
 }
 
 const views = new Map<string, Promise<View>>();
@@ -52,16 +69,33 @@ function folderPath(root: string, folder: string | undefined): string | null {
   return rel ? abs : null;
 }
 
+/** What a chunked write is still gathering beside its file: not a file of the working copy yet. */
+const UPLOADING_SUFFIX = '.gugu-tmp';
+
 const relOf = (root: string, abs: string) => path.relative(root, abs).split(path.sep).join('/');
 
-/** One folder's tree nodes as entries: subfolders as `folder` entries, a file's size and dates read now. */
-async function entriesOf(view: View, nodes: readonly FileNode[]): Promise<AppFileEntry[]> {
-  const entries = await Promise.all(nodes.map(async (node): Promise<AppFileEntry | null> => {
+/** One folder as entries: subfolders as `folder` entries, a file's size and dates read now. */
+async function entriesOf(view: View, dir: string): Promise<AppFileEntry[]> {
+  const status = await view.git?.getStatus().catch((error: unknown) => {
+    log.warn('[working-copy] git status failed', { root: view.root, error: String(error) });
+    return null;
+  });
+  if (status && status.kind !== 'ok') log.warn('[working-copy] git status said no', { root: view.root, kind: status.kind });
+  const gitStatus = new Map(status?.kind === 'ok' ? [...status.staged, ...status.unstaged].map((change) => [path.resolve(view.root, change.path), change.status]) : []);
+  // @@@list-from-disk - what is in the folder now, read from it: the tree hears a change a moment later (a write just made
+  // here, a link that points nowhere), and a list read in that moment must not lose the file.
+  const names = await fsp.readdir(dir);
+  const entries = await Promise.all(names.map(async (name): Promise<AppFileEntry | null> => {
+    const node = { path: path.join(dir, name) };
     const rel = relOf(view.root, node.path);
+    if (rel.endsWith(UPLOADING_SUFFIX)) return null;
     const parentId = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
-    if (isExpandableFileNode(node)) return { ...workingCopyEntry(view.place, rel, null, 'inode/directory'), type: 'folder', suffix: '', parentId };
+    const facts = { parentId, absolutePath: node.path, ...(view.workspaceId ? { workspaceId: view.workspaceId } : {}), ...(gitStatus.has(node.path) ? { gitStatus: gitStatus.get(node.path) } : {}) };
     const stat = await fsp.stat(node.path).catch(() => null);
-    return stat?.isFile() ? { ...workingCopyEntry(view.place, rel, stat), parentId } : null;
+    if (stat?.isDirectory()) return { ...workingCopyFolder(view.place, rel), ...facts };
+    // A link that points nowhere still stands in the folder: to be seen, and deleted.
+    if (!stat) return await fsp.lstat(node.path).then((link) => ({ ...workingCopyEntry(view.place, rel, link), ...facts }), () => null);
+    return stat.isFile() ? { ...workingCopyEntry(view.place, rel, stat), ...facts } : null;
   }));
   return entries.filter((entry): entry is AppFileEntry => entry !== null);
 }
@@ -80,7 +114,7 @@ export async function listWorkingCopy(place: WorkspacePlace, folder: string | un
     await requireAgentFileTreeAccess(view.root);
     const listed = await view.projector.listDir(view.subscriptionId, folderPath(view.root, folder));
     if (!listed.success) throw new AppFileError('not-found', `No folder ${JSON.stringify(folder ?? '')} in this working copy`);
-    return await entriesOf(view, listed.data);
+    return await entriesOf(view, folderPath(view.root, folder) ?? view.root);
   } finally {
     if (pageId === null) await view.close();
   }
