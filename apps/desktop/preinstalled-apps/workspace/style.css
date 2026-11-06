@@ -341,7 +341,17 @@ body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 .doc-head { container: doc-head / inline-size; height: 41px; box-sizing: border-box; flex-wrap: nowrap; padding: 2px 8px; gap: 6px; }
 .doc-actions { flex: 0 1 auto; min-width: auto; flex-wrap: nowrap; gap: 4px; }
 .doc-actions > :not(.doc-info, .status, .peers) { flex: none; }
-.doc-title { font-size: var(--em-font-caption); font-weight: 400; flex: 1 1 0; min-width: 4em; }
+.doc-title { font-size: var(--em-font-caption); font-weight: 400; flex: 1 1 0; min-width: 6em; }
+/* The same order and giving way as the host's file toolbar (viewer-unify): back, forward, name, mode, ⋯; narrowing, the
+   mode's words give way to their icons, then forward goes; the name is cut last, and 只读 and the save controls stay. */
+.modes gugu-icon { display: none; width: 14px; height: 14px; }
+@container doc-head (max-width: 460px) {
+  .modes gugu-icon { display: block; }
+  .modes .mode-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+@container doc-head (max-width: 340px) {
+  #page-forward { display: none; }
+}
 .host-opened .doc-title:not(:has(.rename-input)) { display: block; }
 .page-navigation { display: flex; align-items: center; flex: none; gap: 2px; }
 .page-navigation button { min-height: 28px; padding: 2px 4px; }
@@ -358,6 +368,7 @@ body[data-mode='edit'] .editor .cm-content { padding-top: 4px; }
 /* Pane widths, including a desktop half-pane: optional metadata yields before navigation, modes or More. */
 @media (max-width: 640px) {
   .doc-actions { flex: none; }
-  .doc-actions .doc-info, .doc-actions .status, .doc-actions .peers { display: none; }
+  /* 只读 (#doc-status) and the save controls stay: a narrow head drops only what it can do without. */
+  .doc-actions .doc-info, .doc-actions .peers { display: none; }
   #page-back-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }

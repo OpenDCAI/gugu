@@ -639,7 +639,13 @@ function renderChrome() {
   $('open-with').textContent = t.openWith
   $('more').setAttribute('aria-label', t.more)
   $('more').title = t.more
-  for (const mode of ['edit', 'split', 'preview']) $(`mode-${mode}`).textContent = t[mode]
+  // A mode is its words, and when the head is narrow its icon (style.css): the words stay its name and tooltip.
+  for (const mode of ['edit', 'split', 'preview']) {
+    const button = $(`mode-${mode}`)
+    button.querySelector('.mode-label').textContent = t[mode]
+    button.title = t[mode]
+    button.setAttribute('aria-label', t[mode])
+  }
   for (const fmt of ['bold', 'italic', 'code', 'link']) {
     $(`fmt-${fmt}`).setAttribute('aria-label', t[fmt])
     $(`fmt-${fmt}`).title = t[fmt]
