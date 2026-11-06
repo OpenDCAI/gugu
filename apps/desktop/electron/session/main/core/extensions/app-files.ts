@@ -47,7 +47,7 @@ import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } from '@main/core/extensions/account-token';
 import { fileServiceUrl, fileSync, localFileService } from '@main/core/extensions/file-sync';
 import { createLocalAppFiles, workingCopyEntry, type LocalSurface } from '@main/core/extensions/local-files';
-import { REMOTE_WORKSPACE_CHUNK_BYTES, REMOTE_WORKSPACE_MAX_FILE_BYTES } from '@gugu/session-core/session-record/contract';
+import { REMOTE_WORKSPACE_MAX_FILE_BYTES } from '@gugu/session-core/session-record/contract';
 import { workspaceFileText } from '@gugu/core/shared/workspaceUpload.mjs';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
 import { fileIconKey } from '@shared/extensions/app-icon';
@@ -59,7 +59,7 @@ import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { events } from '@main/lib/events';
 import { appFileHeardElsewhereChannel, appFileWatchElsewhereChannel, workingCopyMovedChannel } from '@shared/events/appEvents';
 import type { ExtensionFileChangeBatch, PlaceVerb } from '@shared/extensions/bridge-protocol';
-import { uploadInParts } from '@shared/extensions/working-copy-upload';
+import { nextPartBytes, SMALLEST_PART_BYTES, uploadInParts } from '@shared/extensions/working-copy-upload';
 import { log } from '@main/lib/logger';
 
 /**
@@ -384,7 +384,9 @@ export async function readAppFileText(page: DesktopFilePage, args: { ref?: unkno
   for (let attempt = 0; ; attempt++) {
     const pieces: Uint8Array[] = [];
     let at = 0;
-    let first = await workingCopyPiece(page, ref, 0, REMOTE_WORKSPACE_CHUNK_BYTES);
+    let part = SMALLEST_PART_BYTES;
+    let started = Date.now();
+    let first = await workingCopyPiece(page, ref, 0, part);
     const { size, etag } = first;
     if (size > maxBytes) return { entry: { ...entry, size }, content: '', truncated: true, totalSize: size };
     let moved = false;
@@ -393,7 +395,9 @@ export async function readAppFileText(page: DesktopFilePage, args: { ref?: unkno
       pieces.push(bytes);
       at += bytes.byteLength;
       if (at >= size || bytes.byteLength === 0) break;
-      first = await workingCopyPiece(page, ref, at, REMOTE_WORKSPACE_CHUNK_BYTES);
+      part = nextPartBytes(part, Date.now() - started);
+      started = Date.now();
+      first = await workingCopyPiece(page, ref, at, part);
       if (first.etag !== etag) { moved = true; break; }
     }
     // Changed while it was read: pieces of two versions are neither. Once more; still moving, say so.
@@ -800,9 +804,11 @@ const stopped = () => new AppFileError('invalid', 'The download was stopped');
 async function savePieces(page: DesktopFilePage, ref: AppFileRef, filePath: string, saving: Saving = {}): Promise<void> {
   const out = await fs.open(filePath, 'w');
   try {
-    for (let offset = 0, size = Infinity; offset < size;) {
+    for (let offset = 0, size = Infinity, part = SMALLEST_PART_BYTES; offset < size;) {
       if (saving.signal?.aborted) throw stopped();
-      const chunk = await readAppFile(page, { ref, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
+      const started = Date.now();
+      const chunk = await readAppFile(page, { ref, offset, length: part });
+      part = nextPartBytes(part, Date.now() - started);
       size = chunk.size;
       if (chunk.data.byteLength === 0) break;
       await out.write(chunk.data);
