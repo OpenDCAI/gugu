@@ -8,6 +8,7 @@ const blocksOf = (content) => typeof content === 'string' ? [{ type: 'text', tex
 export function createPhonePiObserver({ jobId, sessionManager, emit }) {
   let count = 0
   let current = null
+  let currentAt = null
   const messages = new WeakMap()
   const live = (event) => emit({ type: 'pi_live', ...event })
   const committed = (message, id) => queueMicrotask(() => {
@@ -20,8 +21,10 @@ export function createPhonePiObserver({ jobId, sessionManager, emit }) {
     if (event.type === 'agent_start') live({ kind: 'phase', phase: 'model' })
     if (event.type === 'message_start' && event.message.role === 'assistant') {
       current = `phone-live:${jobId}:${++count}`
-      messages.set(event.message, current)
-      live({ kind: 'message', id: current, at: event.message.timestamp ?? Date.now() })
+      const at = event.message.timestamp ?? Date.now()
+      currentAt = at
+      messages.set(event.message, { id: current, at })
+      live({ kind: 'message', id: current, at })
     }
     if (event.type === 'message_update' && current) {
       const delta = event.assistantMessageEvent
@@ -29,9 +32,10 @@ export function createPhonePiObserver({ jobId, sessionManager, emit }) {
     }
     if (event.type === 'message_end' && event.message.role === 'user') committed(event.message, `phone-input:${jobId}`)
     if (event.type === 'message_end' && event.message.role === 'assistant') {
-      const id = messages.get(event.message) ?? current
-      if (id) { live({ kind: 'complete', id, at: event.message.timestamp, content: event.message.content }); committed(event.message, id) }
-      current = null
+      const observed = messages.get(event.message)
+      const id = observed?.id ?? current
+      if (id) { live({ kind: 'complete', id, at: observed?.at ?? currentAt, content: event.message.content }); committed(event.message, id) }
+      current = null; currentAt = null
     }
     if (event.type === 'message_end' && event.message.role === 'toolResult') {
       const id = `phone-result:${jobId}:${event.message.toolCallId}`
