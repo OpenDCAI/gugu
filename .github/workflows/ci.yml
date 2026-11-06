@@ -309,7 +309,7 @@ jobs:
             node --test node/*.node-test.mjs
           done
   session-browser:
-    name: Session browser project
+    name: Session browser project (${{ matrix.shard }}/2)
     needs: changes
     if: needs.changes.outputs.tests == 'true'
     # On GitHub-hosted macOS (macos-14 and macos-15 alike) a full session-browser run turns animation,
@@ -317,13 +317,17 @@ jobs:
     # until that host difference is understood this project runs on Linux (87/87 green there).
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-community
       - uses: ./.github/actions/setup-playwright
         with:
           container-image: ${{ env.PLAYWRIGHT_IMAGE }}
-      - run: node scripts/test-infra/vitest-browser-shards.mjs --project session-browser
+      - run: node scripts/test-infra/vitest-browser-shards.mjs --project session-browser --shard-group=${{ matrix.shard }}/2 --shards-per-group=4
         shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
   web-smoke:
     name: Web E2E (${{ matrix.id }})

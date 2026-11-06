@@ -4,11 +4,12 @@ import YAML from 'yaml'
 
 const read = (file: string) => YAML.parse(readFileSync(file, 'utf8'))
 type Step = { uses?: string; if?: string; with?: Record<string, string>; run?: string }
-function runs(step: Step, event: string, ref: string, save = 'true') {
+function runs(step: Step, event: string, ref: string, save = 'true', local = false) {
   const expression = (step.if ?? 'true').replace(/^\$\{\{\s*|\s*\}\}$/g, '')
     .replaceAll('github.event_name', JSON.stringify(event)).replaceAll('github.ref', JSON.stringify(ref))
     .replaceAll('inputs.save-cache', JSON.stringify(save)).replaceAll('inputs.container-image', "''")
     .replace(/steps\.[\w-]+\.outputs\.cache-hit/g, "'false'")
+    .replace(/steps\.[\w-]+\.outputs\.local-cache/g, JSON.stringify(String(local)))
   return Function(`return (${expression})`)() as boolean
 }
 
@@ -23,6 +24,7 @@ describe('CI cache sharing from dev (#1840)', () => {
       expect(runs(step, 'push', 'refs/heads/main')).toBe(false)
       expect(runs(step, 'push', 'refs/heads/dev')).toBe(true)
       expect(runs(step, 'push', 'refs/heads/dev', 'false')).toBe(false)
+      expect(runs(step, 'push', 'refs/heads/dev', 'true', true)).toBe(false)
     }
     const restorers = steps.filter(step => step.uses === 'actions/cache/restore@v4')
     expect(restorers.length).toBeGreaterThan(0)

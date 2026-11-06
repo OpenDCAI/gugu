@@ -887,7 +887,7 @@ if (args[0] === 'pr') {
         [ANDROID]: { decider: DECIDER, output: 'android' },
         ...Object.fromEntries([
           'Session database, chat UI browser and tooling / Session database, chat UI browser and tooling',
-          'Session browser project', 'Projection native media',
+          'Session browser project (1/2)', 'Session browser project (2/2)', 'Projection native media',
           'Client and community database contracts',
         ].map(name => [name, { decider: DECIDER, output: 'tests' }]))
       })
