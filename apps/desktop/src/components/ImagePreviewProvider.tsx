@@ -6,7 +6,8 @@ import type PhotoSwipe from 'photoswipe'
 import type { Bounds, PhotoSwipeOptions, SlideData } from 'photoswipe'
 import 'photoswipe/style.css'
 import './imagePreview.css'
-import { X, Download, Copy, ChevronLeft, ChevronRight, Pencil } from '@/lib/icons'
+import { X, Download, Copy, Check, ChevronLeft, ChevronRight, Pencil } from '@/lib/icons'
+import { useCopyConfirmation } from '@/hooks/useCopyConfirmation'
 import { DUR_SLOW_MS, EASE } from '@/styles/motion'
 import { useToast } from './toastContext'
 import { useBackLayer } from './ui/sheetStack'
@@ -315,6 +316,7 @@ function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mob
   const [copying, setCopying] = useState(false)
   const { pswp, items, index } = viewer
   const current = items[index]
+  const { copied, confirm } = useCopyConfirmation(current)
 
   const handleDownload = useCallback(async () => {
     try {
@@ -336,13 +338,14 @@ function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mob
     try {
       // blob-first(#1892):先 await 拿到 Blob 再写剪贴板
       await writeImageBlobToClipboard(await fetchImageAsPngBlob(current.full ? await current.full() : current.url))
-      toast(t('shell.imagePreview.copied'), 'success')
+      if (mobile) confirm()
+      else toast(t('shell.imagePreview.copied'), 'success')
     } catch (error) {
       toast(t('shell.imagePreview.copyFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     } finally {
       setCopying(false)
     }
-  }, [copying, current, t, toast])
+  }, [copying, current, t, toast, mobile, confirm])
 
   // 手机的出口是左上返回箭头,桌面是右上 ✕;手机上滑动切图,不画箭头
   const close = (
@@ -357,7 +360,7 @@ function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mob
         <div className="gg-image-viewer__spacer" />
         <ViewerButton label={t('imageAnnotate.edit')} testId="image-preview-edit" onClick={onEdit}><Pencil /></ViewerButton>
         <ViewerButton label={t('shell.imagePreview.copy')} testId={AUTOMATION_TEST_IDS.imagePreviewCopy} onClick={() => void handleCopy()}>
-          <Copy />
+          {mobile && copied ? <Check /> : <Copy />}
         </ViewerButton>
         <ViewerButton label={t('shell.imagePreview.download')} testId={AUTOMATION_TEST_IDS.imagePreviewDownload} onClick={() => void handleDownload()}>
           <Download />

@@ -36,6 +36,8 @@ export interface Notice {
   icon?: ReactNode
   /** 带一次性动作(撤销)的提示要留够点它的时间;不给就是档位的停留。 */
   duration?: number
+  /** Brief copy confirmation; still rendered by the single NoticeHost. */
+  presentation?: 'compact'
   /**
    * 用户亲手关掉了这一条(关闭钮 / 滑走)。`dismissNotice` 收的、同 key 换内容的都**不**算 ——
    * sonner 对程序收的那条也会回调,而且晚一帧:那时同 key 可能已经是新的一条,调用方按 key 记的状态分不出是哪一条。
@@ -64,7 +66,7 @@ const SONNER_BY_TIER = {
   info: sonner.info,
 } as const
 
-export function notify({ key, title, description, tier, variant, ongoing, waiting, action, icon, duration, onDismiss, onAutoClose }: Notice): string | number {
+export function notify({ key, title, description, tier, variant, ongoing, waiting, action, icon, duration, presentation, onDismiss, onAutoClose }: Notice): string | number {
   // 转瞬的确认(成功 / 提示、没有动作、不常驻)点击穿透,别挡住下面的按钮一个停留周期。
   const passthrough = !ongoing && !action && (tier === 'success' || tier === 'info')
   // 每个字段都显式给(没有就是 undefined):sonner 更新同 id 的提示时是 `{...旧的, ...新的}`,省略的字段会沿用上一次 ——
@@ -91,7 +93,8 @@ export function notify({ key, title, description, tier, variant, ongoing, waitin
       retire()
       onAutoClose?.()
     },
-    className: passthrough ? 'gugu-notice-passthrough' : undefined,
+    className: [passthrough && 'gugu-notice-passthrough', presentation === 'compact' && 'gugu-notice-compact'].filter(Boolean).join(' ') || undefined,
+    position: presentation === 'compact' ? 'top-center' as const : undefined,
     duration: ongoing ? Infinity : duration,
     closeButton: ongoing ? true : undefined,
   }

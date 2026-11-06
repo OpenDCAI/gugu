@@ -7,6 +7,7 @@ import { RESOURCE_ACTIONS, type ResourceContext } from '@/session/shared/resourc
 import { composeChatDraft, composeTaskDraft } from './composeDraft'
 import { pickDispatchTarget } from '@/components/chat/dispatchAsk'
 import { notify } from './notices'
+import { notifyCopied } from './copyFeedback'
 
 /** One URL producer and one draft picker for every resource host; nothing is sent here. */
 export function resourceMenuItems(resource: ResourceContext) {
@@ -20,7 +21,7 @@ export async function runResourceAction(id: (typeof RESOURCE_ACTIONS)[number]['i
         : guguLink(resource.target, (await import('@/components/appSlot/phoneAppHost')).phoneLinkScheme())
     await platform.writeClipboardText(url)
     if (id === 'copy-resource-url') {
-      notify({ tier: 'success', title: i18n.t('message.copied', { ns: 'messaging' }) })
+      notifyCopied(i18n.t('message.copied', { ns: 'messaging' }))
       return
     }
     const rows = platform.kind === 'electron'

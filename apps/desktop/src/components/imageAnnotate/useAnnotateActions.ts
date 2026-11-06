@@ -10,11 +10,15 @@ import { downloadBlob } from '@/lib/download'
 import { writeImageBlobToClipboard } from '@/lib/imageClipboard'
 import { messageForUser } from '@/lib/userFacingError'
 import { useToast } from '../toastContext'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { useCopyConfirmation } from '@/hooks/useCopyConfirmation'
 import { annotateCaption, type AnnotateDocument } from './annotateModel'
 
 export function useAnnotateActions(item: ImageViewerItem, doc: AnnotateDocument, output: () => Promise<Blob>, onDone: () => void) {
   const { t } = useTranslation('main', { keyPrefix: 'imageAnnotate' })
   const { toast } = useToast()
+  const mobile = useMobileShell()
+  const { copied, confirm } = useCopyConfirmation(doc)
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
   const running = useRef(false)
   const source = item.source
@@ -40,7 +44,7 @@ export function useAnnotateActions(item: ImageViewerItem, doc: AnnotateDocument,
     composeChatDraft({ ...detail, ...(quote ? { quote } : {}) })
     onDone()
   })
-  const copy = () => run(async () => { await writeImageBlobToClipboard(await output()); toast(t('copied'), 'success') })
+  const copy = () => run(async () => { await writeImageBlobToClipboard(await output()); if (mobile) confirm(); else toast(t('copied'), 'success') })
   const save = () => run(async () => { if ((await downloadBlob(await output(), filename)).saved) toast(t('saved'), 'success') })
   const saveToFolder = () => run(async () => {
     if (!source) throw new Error(t('noSource'))
@@ -49,5 +53,5 @@ export function useAnnotateActions(item: ImageViewerItem, doc: AnnotateDocument,
     await saveFilesToChatFolder(source.chatId, [{ name: filename, bytes: await blob.arrayBuffer(), contentType: 'image/png' }], source.messageId ? [source.messageId] : undefined)
     toast(t('savedToFolder'), 'success')
   })
-  return { busy, error, putInComposer, copy, save, saveToFolder, canCompose: !!source?.chatId }
+  return { busy, error, putInComposer, copy, copied: mobile && copied, save, saveToFolder, canCompose: !!source?.chatId }
 }

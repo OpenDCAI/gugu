@@ -21,3 +21,17 @@
 .gugu-notices [data-sonner-toast].gugu-notice-passthrough {
   pointer-events: none;
 }
+
+/* Copy confirmation stays above the conversation, away from the input/keyboard. */
+.gugu-notices[data-sonner-toaster][data-y-position='top'] {
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+}
+.gugu-notices [data-sonner-toast][data-styled='true'].gugu-notice-compact {
+  width: fit-content;
+  max-width: calc(100vw - 32px);
+  min-height: 0;
+  margin-inline: auto;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  font-size: var(--font-caption);
+}
