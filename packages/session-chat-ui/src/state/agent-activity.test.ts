@@ -103,7 +103,11 @@ describe('agent activity identity and grouping', () => {
     const actors = [a, 'user:33333333-3333-4333-8333-333333333333', 'session:505adac7-1905-473b-8d2f-d574b6892518']
       .map((id, index) => ({ id, name: `Agent ${index}`, target: { kind: 'session' as const, sessionId: id } }));
     const events = actors.map((actor, index) => ({ id: String(index), direction: 'received' as const, actors: [actor], count: 1, live: false }));
-    expect(activitySummaryText(activitySummary({ id: 'x', events }, translate))).toBe('Received 3 messages from Agent 0, Agent 1 and others');
+    expect(activitySummaryText(activitySummary({ id: 'x', events }, translate))).toBe('Received 3 messages from Agent 0, Agent 1 and others (3 sources)');
+    const single = { ...events[0], count: 3 };
+    expect(activitySummaryText(activitySummary({ id: 'x', events: [single] }, translate, 1))).toBe('Received 3 messages from Agent 0');
+    expect(activitySummaryText(activitySummary({ id: 'x', events: [events[0], events[0]] }, translate, 1)))
+      .toBe('Received 2 messages from Agent 0');
   });
   it('does not reset reading when the same owner input changes its native/live projection identity', () => {
     const original = { ...message('optimistic'), role: 'user' as const, _meta: { guguClientMessageId: 'client-input' } };

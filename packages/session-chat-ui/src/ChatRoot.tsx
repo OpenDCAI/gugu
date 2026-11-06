@@ -117,6 +117,7 @@ import {
 } from './chat-root.css';
 import './chat-fonts.css';
 import { vars } from './styles/theme.css';
+import { syncContentColumnGeometry } from './lib/content-column-geometry';
 
 // Centered content column. The scroll container stays full width (so the
 // scrollbar sits at the viewport edge) while rows are measured and laid out
@@ -416,12 +417,7 @@ export function ChatRoot(props: ChatRootProps) {
   const [viewHeight, setViewHeight] = createSignal(600);
   const [containerWidth, setContainerWidth] = createSignal(0);
 
-  const updateContentColumnGeometry = () => {
-    if (!widthProbeEl) return;
-    const probeRect = widthProbeEl.getBoundingClientRect();
-    if (probeRect.width <= 0) return;
-    setContainerWidth(probeRect.width);
-  };
+  const updateContentColumnGeometry = () => syncContentColumnGeometry(widthProbeEl, scrollEl, outerEl, setContainerWidth);
 
   const updateSlotPadBottom = () => {
     if (props.composer !== 'slot' || effectiveComposerPlacement() === 'center') {
@@ -2017,6 +2013,7 @@ export function ChatRoot(props: ChatRootProps) {
     if (widthProbeEl) {
       const roWidth = new ResizeObserver(() => updateContentColumnGeometry());
       roWidth.observe(widthProbeEl);
+      roWidth.observe(el);
       updateContentColumnGeometry();
       onCleanup(() => roWidth.disconnect());
     }

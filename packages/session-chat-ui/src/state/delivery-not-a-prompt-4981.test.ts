@@ -13,8 +13,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { collectUserTurnUnits, isDeliveredFromAgent, makeUnitsView } from './flatten';
-import type { ChatItem } from '../model';
+import type { ChatItem, ChatMessage } from '../model';
 import type { TranscriptTurn } from '../model';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 const DELIVERY = [
   '<gugu_delivery route="chat" from="小雨" from_id="u_42" msg="m1" at="2026-09-06T08:00:00Z">',
@@ -68,6 +69,14 @@ describe('#4981 投递进来的不是人打的字', () => {
     // 引用了信封原文的一条人类消息:开头不是信封,不该被认成投递。
     expect(isDeliveredFromAgent(message('e', 'user', `我贴一下原文:\n${DELIVERY}`))).toBe(false);
     expect(isDeliveredFromAgent(message('f', 'assistant', DELIVERY))).toBe(false);
+  });
+
+  it('keeps normalized and explicitly non-owner inputs out of owner pinning', () => {
+    const normalized = { ...message('scheduled', 'user', 'Original scheduled prompt'),
+      guguDelivery: readDeliveryEnvelope('<gugu_delivery route="scheduled" from="System" from_id="system:gugu"><![CDATA[Original scheduled prompt]]></gugu_delivery>')! };
+    expect(isDeliveredFromAgent(normalized as ChatMessage)).toBe(true);
+    expect(isDeliveredFromAgent({ ...message('steer', 'user', 'Delivered during an owner turn'), _meta: { guguOwnerInput: false } })).toBe(true);
+    expect(isDeliveredFromAgent({ ...message('owner', 'user', 'Actually typed'), _meta: { guguOwnerInput: true } })).toBe(false);
   });
 
   it('投递卡不进「钉到顶端」的名单', () => {

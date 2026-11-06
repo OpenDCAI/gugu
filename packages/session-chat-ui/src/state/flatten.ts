@@ -91,7 +91,10 @@ export type { TurnFoldPlan, TurnFoldSegment } from '@session-chat/state/turn-fol
  */
 export function isDeliveredFromAgent(item: ChatItem): boolean {
   if (item.kind !== 'message' || (item as ChatMessage).role !== 'user') return false;
-  return isDeliveryEnvelope((item as ChatMessage).text);
+  const message = item as ChatMessage;
+  // The message presenter replaces the envelope with its body. Pinning also
+  // reads those normalized units, where the authenticated source remains here.
+  return !!message.guguDelivery || message._meta?.guguOwnerInput === false || isDeliveryEnvelope(message.text);
 }
 
 /**
