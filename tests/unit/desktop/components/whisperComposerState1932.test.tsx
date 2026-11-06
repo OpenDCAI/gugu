@@ -141,6 +141,22 @@ describe('whisper composer privacy state (#1932)', () => {
     expect(context).toEqual({ chatId: 'group-b', peer: null })
   })
 
+  it('preserves the existing pending-send guard for ordinary public messages across chat switches', async () => {
+    let finish!: () => void
+    const onSend = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+    await setup(onSend)
+    await act(async () => { choose({ chatId: 'group-a', peer: null }) })
+    let pending!: Promise<void>
+    await act(async () => { pending = result.handleSend('ordinary public message') })
+    await act(async () => { choose({ chatId: 'group-b', peer: null }) })
+    expect(result.sending).toBe(true)
+    await act(async () => { await result.handleSend('must not duplicate') })
+    expect(onSend).toHaveBeenCalledTimes(1)
+    await act(async () => { finish(); await pending })
+    expect(result.sending).toBe(false)
+    expect(result.returnedToPublic).toBe(false)
+  })
+
   it('does not clear a different private recipient selected while a send is pending', async () => {
     let finish!: () => void
     await setup(vi.fn(() => new Promise<void>(resolve => { finish = resolve })))
