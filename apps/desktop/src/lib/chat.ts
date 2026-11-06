@@ -78,7 +78,7 @@ import { readGroupMemberIdentities } from './chatGroupIdentity'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { addGroupAgent, type GroupAgentJoinOutcome, groupJoinError, listMyAgentJoinRequests } from './groupAgentJoinService'
 import { currentGroupAdmin } from './groupAdmin'
-import { deleteListedConversation } from './deleteListedConversation'
+import { hideListedConversation } from './hideListedConversation'
 export type {
   MessageOverlay,
   MessageMutationPatch,
@@ -870,10 +870,9 @@ export const chatService = {
     return createGroupWithInvitations(chatDb, name, creatorId, await getCurrentAuthUserId(), identities, groupPrompt)
   },
 
-  /** Delete this owner's DM list entry, or archive a group using its management authority. */
-  async archiveChat(chatId: string) {
-    return deleteListedConversation(chatId)
-  },
+  hideConversation: hideListedConversation,
+  /** Archive the group globally; personal list removal uses hideConversation. */
+  async archiveChat(chatId: string) { await (await currentGroupAdmin()).archive(chatId) },
 
   /**
    * Find or create a DM chat between the current user and a target user.

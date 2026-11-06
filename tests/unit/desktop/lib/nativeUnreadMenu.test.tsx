@@ -22,7 +22,7 @@ beforeEach(() => {
 })
 afterEach(() => { harness.cleanup(); removeDeviceSessions('host'); publishDirectoryDevices([]) })
 const action = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!
-const render = () => harness.render(<ChatRowContextMenu chat={scope.chats[0]} x={40} y={40} onClose={vi.fn()} onPin={vi.fn()} onSetNotificationLevel={vi.fn()} onDelete={vi.fn()} />)
+const render = () => harness.render(<ChatRowContextMenu chat={scope.chats[0]} x={40} y={40} onClose={vi.fn()} onPin={vi.fn()} onSetNotificationLevel={vi.fn()} onHide={vi.fn()} />)
 
 it('enables the existing mark-all action for native-only unread and disables it after the host projection clears', async () => {
   await render()

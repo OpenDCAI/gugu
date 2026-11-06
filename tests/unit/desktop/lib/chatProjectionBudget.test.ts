@@ -9,7 +9,7 @@ function request(key: string, args?: unknown): unknown {
   const chain: unknown = new Proxy({}, { get: (_, prop) => prop === 'then'
     ? (resolve: (value: unknown) => unknown) => {
       calls.push({ key, args })
-      return Promise.resolve(errors.has(key) ? { data: null, error: { message: 'read failed' } } : { data: rows.get(key) ?? [], error: null }).then(resolve)
+      return Promise.resolve(errors.has(key) ? { data: null, error: { message: 'read failed' } } : { data: rows.get(key === 'list_conversation_memberships' ? 'active_members' : key) ?? [], error: null }).then(resolve)
     } : () => chain })
   return chain
 }
