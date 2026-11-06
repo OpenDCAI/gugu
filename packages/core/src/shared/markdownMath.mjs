@@ -154,6 +154,12 @@ function previousLineStart(markdown, lineStart) {
   return lineStart <= 1 ? 0 : markdown.lastIndexOf('\n', lineStart - 2) + 1
 }
 
+function startsOutsideContainers(markdown, lineStart, lineEnd) {
+  const first = markdown[lineStart]
+  if (first === ' ' || first === '\t' || first === '>') return false
+  return markdown.slice(lineStart, lineEnd).trim().length > 0
+}
+
 function inheritedMarkdownContainerAt(markdown, index, options, memo) {
   const currentLineStart = markdown.lastIndexOf('\n', index - 1) + 1
   let candidateLineStart = currentLineStart === 0
@@ -193,7 +199,10 @@ function inheritedMarkdownContainerAt(markdown, index, options, memo) {
       }
     }
 
-    if (candidateLineStart === 0) break
+    // @@@container-walk-stop - a line with text at its first column, neither indented nor quoted, is inside no earlier
+    // line's container: `containerContentOffset` refuses it for any first step. Walking on past it made every fence cost
+    // all the lines above it, O(n^2) in the document.
+    if (candidateLineStart === 0 || startsOutsideContainers(markdown, candidateLineStart, candidateLineEnd)) break
     candidateLineStart = previousLineStart(markdown, candidateLineStart)
   }
   return deepest
