@@ -93,14 +93,13 @@ export function withSubagentSources(
     ...(root.getLineage ? { getLineage: () => root.getLineage!() } : {}),
     async resumePoint(budget) {
       if (replacement) return replacement.resumePoint!(budget);
-      if (budget && children.size + 1 > budget.remainingSources) return null;
       // The host starts archiving and immediately stops the source. Start every
       // cursor read before yielding, while the child sources still own their readers.
       const [point, childPoints] = await Promise.all([
         root.resumePoint!(budget),
         Promise.all([...children].map(async ([id, child]) => [id, await child.resumePoint?.(budget)] as const)),
       ]);
-      if (!point || (budget && (budget.remainingBytes < 0 || budget.remainingSources < 0
+      if (!point || (budget && (budget.remainingBytes < 0
         || childPoints.some(([, child]) => !child)))) return null;
       const savedChildren = Object.fromEntries(childPoints.filter((point): point is readonly [string, SessionRecordResume] => Boolean(point[1])));
       return { data: { nativeChildren: 2, root: point, children: savedChildren }, fingerprint: [point.fingerprint, ...Object.entries(savedChildren).sort(([a], [b]) => a.localeCompare(b)).map(([id, value]) => `${id}:${value.fingerprint}`)].join('|') };

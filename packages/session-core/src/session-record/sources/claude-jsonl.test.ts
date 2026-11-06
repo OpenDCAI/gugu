@@ -331,9 +331,14 @@ describe('claude jsonl 记录源', () => {
     const later = new Date(Date.now() + 60_000);
     await utimes(forkPath, later, later);
 
-    const entries = await start(
-      createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
-    );
+    const forkSource = createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] });
+    const entries = await start(forkSource);
+    await forkSource.catchUp!();
+    const consumed = (await stat(file)).size + (await stat(forkPath)).size;
+    const budget = { remainingBytes: consumed };
+    expect(await forkSource.resumePoint!(budget)).not.toBeNull();
+    expect(budget.remainingBytes).toBe(0);
+    expect(await forkSource.resumePoint!({ remainingBytes: consumed - 1 })).toBeNull();
     const texts = entries
       .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'assistant'))
       .map((entry) => (entry.event as { text: string }).text);

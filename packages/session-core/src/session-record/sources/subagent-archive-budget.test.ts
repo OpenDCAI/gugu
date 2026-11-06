@@ -4,7 +4,7 @@ import { withSubagentSources } from './subagent-sources';
 
 function source(id: string, bytes: number, entries: RecordEntry[] = []) {
   const resumePoint = vi.fn<NonNullable<SessionRecordSource['resumePoint']>>(async (budget) => {
-    if (budget && (--budget.remainingSources < 0 || (budget.remainingBytes -= bytes) < 0)) return null;
+    if (budget && (budget.remainingBytes -= bytes) < 0) return null;
     return { data: null, fingerprint: id };
   });
   const value: SessionRecordSource = {
@@ -27,7 +27,7 @@ describe('native child archive budget', () => {
     const combined = withSubagentSources(root.value, () => child.value, () => root.value);
     await combined.start({ onEntries: () => {}, onReset: () => {} });
     try {
-      const budget = { remainingBytes: 90, remainingSources: 16 };
+      const budget = { remainingBytes: 90 };
       expect(await combined.resumePoint!(budget)).toBeNull();
       expect(root.resumePoint).toHaveBeenCalledWith(budget);
       expect(child.resumePoint).toHaveBeenCalledWith(budget);
@@ -35,15 +35,16 @@ describe('native child archive budget', () => {
     } finally { combined.stop(); }
   });
 
-  it('rejects excessive child fan-out before requesting any cursor copies', async () => {
-    const root = source('root', 1, Array.from({ length: 16 }, (_, i) => launch(`child-${i}`)));
+  it('admits more than 16 native sources when their total bytes fit', async () => {
+    const root = source('root', 1, Array.from({ length: 32 }, (_, i) => launch(`child-${i}`)));
     const child = source('child', 1);
     const combined = withSubagentSources(root.value, () => child.value, () => root.value);
     await combined.start({ onEntries: () => {}, onReset: () => {} });
     try {
-      expect(await combined.resumePoint!({ remainingBytes: 64 * 1024, remainingSources: 16 })).toBeNull();
-      expect(root.resumePoint).not.toHaveBeenCalled();
-      expect(child.resumePoint).not.toHaveBeenCalled();
+      const budget = { remainingBytes: 33 };
+      expect(await combined.resumePoint!(budget)).not.toBeNull();
+      expect(budget.remainingBytes).toBe(0);
+      expect(child.resumePoint).toHaveBeenCalledTimes(32);
     } finally { combined.stop(); }
   });
 
@@ -54,7 +55,7 @@ describe('native child archive budget', () => {
     const combined = withSubagentSources(root.value, () => child.value, () => root.value);
     await combined.start({ onEntries: () => {}, onReset: () => {} });
     try {
-      expect(await combined.resumePoint!({ remainingBytes: 64 * 1024, remainingSources: 16 })).toBeNull();
+      expect(await combined.resumePoint!({ remainingBytes: 64 * 1024 })).toBeNull();
     } finally { combined.stop(); }
   });
 });

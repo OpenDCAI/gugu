@@ -66,16 +66,31 @@ describe('codex rollout 记录源', () => {
       { pollIntervalMs: 100_000 },
     );
     await startAll(source);
+    const metadata = vi.spyOn(TailReader.prototype, 'consumedBytes', 'get').mockReturnValue(600 * 1024 * 1024);
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    try {
+      expect(await source.resumePoint!({ remainingBytes: 8 * 1024 * 1024 })).toBeNull();
+      expect(clone).not.toHaveBeenCalled();
+    } finally { source.stop(); clone.mockRestore(); metadata.mockRestore(); }
+  });
+
+  it('charges consumed offsets rather than a larger file size not yet read', async () => {
+    const staged = await stage();
+    const source = createCodexJsonlSource(
+      { harness: 'codex', providerSessionId: THREAD_ID, roots: [staged.root] },
+      { pollIntervalMs: 100_000 },
+    );
+    await startAll(source);
     const point = TailReader.prototype.resumePoint;
     const metadata = vi.spyOn(TailReader.prototype, 'resumePoint').mockImplementation(async function (this: TailReader) {
       const tail = await point.call(this);
-      return tail ? { ...tail, size: 596_177_689 } : null;
+      return tail ? { ...tail, size: 600 * 1024 * 1024 } : null;
     });
-    const clone = vi.spyOn(globalThis, 'structuredClone');
     try {
-      expect(await source.resumePoint!({ remainingBytes: 64 * 1024, remainingSources: 16 })).toBeNull();
-      expect(clone).not.toHaveBeenCalled();
-    } finally { source.stop(); clone.mockRestore(); metadata.mockRestore(); }
+      const budget = { remainingBytes: 7 * 1024 * 1024 };
+      expect(await source.resumePoint!(budget)).not.toBeNull();
+      expect(budget.remainingBytes).toBe(7 * 1024 * 1024 - Buffer.byteLength(await readFile(staged.file)));
+    } finally { source.stop(); metadata.mockRestore(); }
   });
 
   it('reads archived zstd through the same decoder only in snapshot mode', async () => {

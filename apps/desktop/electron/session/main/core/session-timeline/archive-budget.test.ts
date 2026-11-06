@@ -16,7 +16,7 @@ vi.mock('node:fs/promises', async (original) => {
 
 import { loadTimelineArchive, saveTimelineArchive } from './archive-store';
 
-const archive = (extra: Record<string, unknown> = {}) => ({ epoch: 'epoch', ...extra }) as unknown as TimelineArchive;
+const archive = (extra: Record<string, unknown> = {}) => ({ epoch: 'epoch', sourceBytes: 0, ...extra }) as unknown as TimelineArchive;
 const file = (id: string) => join(state.root, 'session-timeline-archive', `${id}.json`);
 
 beforeEach(async () => {
@@ -48,14 +48,19 @@ describe('timeline archive disk budget', () => {
     expect(parse).not.toHaveBeenCalled();
   });
 
-  it('does not stringify a single huge string or a huge entry array', async () => {
+  it('does not stringify when consumed source bytes exceed the cap', async () => {
     const huge = 'x'.repeat(128 * 1024 * 1024);
     const encode = vi.spyOn(JSON, 'stringify');
-    await saveTimelineArchive('large-text', archive({ text: huge }));
-    await saveTimelineArchive('many', archive({ seenKeys: new Array(1_000_000) }));
+    await saveTimelineArchive('large-text', archive({ sourceBytes: 600 * 1024 * 1024, text: huge }));
+    await saveTimelineArchive('many', archive({ sourceBytes: 8 * 1024 * 1024 + 1, seenKeys: new Array(1_000_000) }));
     expect(encode).not.toHaveBeenCalled();
     await expect(stat(file('large-text'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(stat(file('many'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('keeps the 64 MiB read ceiling for legacy caches without source byte metadata', async () => {
+    await writeFile(file('legacy'), JSON.stringify({ epoch: 'legacy', text: 'x'.repeat(128 * 1024) }));
+    expect((await loadTimelineArchive('legacy'))?.epoch).toBe('legacy');
   });
 
   it('treats a missing or corrupt cache as a cache miss', async () => {

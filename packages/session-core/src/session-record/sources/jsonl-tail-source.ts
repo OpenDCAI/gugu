@@ -94,10 +94,12 @@ export function createJsonlTailSource<S>(
     readImage: readRecordImage,
     async resumePoint(budget) {
       if (!reader || !path || options?.readMode === 'snapshot') return null;
-      if (budget && --budget.remainingSources < 0) return null;
+      // Debit before yielding/cloning; native children share this counter.
+      const consumedBytes = reader.consumedBytes;
+      if (budget && (budget.remainingBytes -= consumedBytes) < 0) return null;
       const tail = await reader.resumePoint();
       if (!tail) return null;
-      if (budget && (budget.remainingBytes -= Math.max(tail.size, tail.lineOffset)) < 0) return null;
+      if (budget && (budget.remainingBytes -= Math.max(0, tail.lineOffset - consumedBytes)) < 0) return null;
       const data: ResumeData<S> = { version: format.resumeVersion, path, tail, state: structuredClone(state) };
       return { data, fingerprint: `${format.name}:${path}:${tail.ino}:${tail.size}:${tail.mtimeMs}` } satisfies SessionRecordResume;
     },

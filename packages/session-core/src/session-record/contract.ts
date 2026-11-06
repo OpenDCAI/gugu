@@ -201,7 +201,7 @@ export type SessionRecordResume = {
 };
 
 /** Shared across native descendants; checked before copying opaque source state. */
-export type RecordArchiveBudget = { remainingBytes: number; remainingSources: number };
+export type RecordArchiveBudget = { remainingBytes: number };
 
 /** Native primary-file lineage, used only to prove a fork's inherited prefix; never persisted. */
 export type RecordLineageNode = { uuid: string; parentUuid: string | null };
