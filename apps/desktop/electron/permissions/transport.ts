@@ -54,7 +54,7 @@ export function permissionTransport(inner: Transport, runtime: ServicePermission
       await inner.start()
     },
     async send(message, options) {
-      if ('id' in message && !('method' in message)) {
+      if ('id' in message && message.id !== undefined && !('method' in message)) {
         const call = calls.get(message.id)
         if (call?.attempt) {
           calls.delete(message.id)
