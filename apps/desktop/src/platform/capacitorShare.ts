@@ -5,7 +5,7 @@ import type { IncomingShare, IncomingShareFailure, ShareToAppsPayload } from './
 import { rendererLogger } from '../lib/log'
 import { stageFileHandle, stageFileSource, FILE_CHUNK_BYTES, type FileHandle, type FileStageCommand } from '@gugu/core/shared/fileResolver'
 import { fileSha256 } from '@gugu/core/shared/fileCipher'
-import { bytesToBase64 } from '../session/renderer/lib/base64'
+import { bytesToBase64 } from '../session/shared/lib/base64'
 
 const log = rendererLogger('mobile/share-with-apps')
 const FAILURE_CODES: readonly IncomingShareFailure[] = ['tooLarge', 'refused', 'unreadable']
