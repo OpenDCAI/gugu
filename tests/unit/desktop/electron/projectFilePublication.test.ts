@@ -30,14 +30,15 @@ beforeEach(async () => {
 describe('an image sent into a project chat is also kept by the machine', () => {
   const image = { item_id: 'item', version: 1, chat_id: 'group', file_name: 'file.bin', content_type: 'image/png', sha256: createHash('sha256').update(data).digest('hex'), size_bytes: 3 }
   const publisher = (pending: unknown[], rpc = vi.fn()) => {
-    rpc.mockImplementation(async (name: string) => name === 'file_device_adopt_pending' ? pending : name === 'workspace_get_as' ? row : true)
+    rpc.mockImplementation(async (name: string, args: { p_skip?: string[] }) => name === 'file_device_adopt_pending'
+      ? (pending as { item_id: string }[]).filter(({ item_id }) => !args.p_skip?.includes(item_id)).slice(0, 50) : name === 'workspace_get_as' ? row : true)
     return { rpc, publish: createProjectFilePublisher({ identity: async () => ({ accountId: 'owner', deviceId: 'device' }), root: async id => id === 'project' ? root : store,
       rpc, env, storage: async () => DEFAULT_FILE_STORAGE, projectChat: async () => true }) }
   }
   const copy = async () => { const path = join(home, 'cloud-copy'); await writeFile(path, data); return { path, dispose: vi.fn(async () => undefined) } }
   it('keeps it in the project this device binds to the chat, indexed before the database hears of it', async () => {
     const { rpc, publish } = publisher([image])
-    expect(await publish.keepSent(copy)).toBe(1)
+    await publish.keepSent(copy)
     const adopt = rpc.mock.calls.find(call => call[0] === 'file_device_adopt')![1]
     expect(adopt).toMatchObject({ p_item: 'item', p_device: 'device', p_project: 'project', p_sha: image.sha256, p_size: 3 })
     expect(await readFile(join(root, adopt.p_path))).toEqual(Buffer.from(data))
@@ -47,6 +48,15 @@ describe('an image sent into a project chat is also kept by the machine', () => 
     const { rpc, publish } = publisher([{ ...image, chat_id: 'another' }])
     await publish.keepSent(copy).catch(() => undefined)
     expect(rpc.mock.calls.find(call => call[0] === 'file_device_adopt')?.[1]).toMatchObject({ p_project: 'device-store' })
+  })
+  it('reaches images behind a full page that keeps failing, and tries each once per drain', async () => {
+    const images = Array.from({ length: 120 }, (_, i) => ({ ...image, item_id: `item-${i}` }))
+    const { rpc, publish } = publisher(images)
+    const tried: string[] = []
+    await expect(publish.keepSent(async (one) => { tried.push(one.item_id); if (Number(one.item_id.slice(5)) < 60) throw new Error('gone from the cloud'); return copy() })).rejects.toThrow(/item-0: .*gone from the cloud/)
+    expect(tried).toHaveLength(120)
+    expect(new Set(tried).size).toBe(120)
+    expect(rpc.mock.calls.filter(call => call[0] === 'file_device_adopt').map(call => call[1].p_item)).toEqual(images.slice(60).map(({ item_id }) => item_id))
   })
   it('names what failed and leaves the rest of the batch going', async () => {
     const { rpc, publish } = publisher([{ ...image, item_id: 'broken' }, image])

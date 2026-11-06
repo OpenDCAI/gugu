@@ -111,7 +111,7 @@ export function createDesktopFileAccess(deps: {
         while (keepAgain) {
           keepAgain = false
           const { accountId } = await identity()
-          const kept = await publish.keepSent(async image => {
+          await publish.keepSent(async image => {
             const file = await resolve({ item_id: image.item_id, version: image.version }, { accountId, actorId: accountId })
             if (file.status !== 'ready') throw new Error('The image is no longer available')
             await mkdir(deps.tempRoot, { recursive: true, mode: 0o700 })
@@ -119,12 +119,11 @@ export function createDesktopFileAccess(deps: {
             const saved = await saveFileHandle(file, directory, image.file_name)
             return { path: saved.file_path, dispose: () => rm(directory, { recursive: true, force: true }) }
           })
-          if (kept >= 50) keepAgain = true
         }
       } finally { keeping = undefined }
     })()
   }
-  return { providers, resolve, resolveAccount, read, drain: () => Promise.all([drain(), keepSent()]).then(() => undefined), publish,
+  return { providers, resolve, resolveAccount, read, drain, keepSent, publish,
     handlers: (transport: 'ssh' | 'realtime'): DeviceRpcHandlers => transport === 'ssh' ? sshHandlers : {},
     async download(ref: FileRef, name: string, actorId: string) {
       const step = <T>(stage: string, action: () => Promise<T>) => attachmentStage({ actorId, ref }, stage, action)

@@ -122,29 +122,32 @@ export function createProjectFilePublisher(deps: {
    */
   const keepSent = async (fetchCopy: (row: KeepableImage) => Promise<{ path: string; dispose(): Promise<void> }>) => {
     const identity = await deps.identity()
-    const rows = await deps.rpc('file_device_adopt_pending', { p_device: identity.deviceId }) as KeepableImage[]
     const groups = await listProjectGroupIds(identity.accountId, deps.env)
-    const failed: string[] = []
-    for (const image of rows) {
-      let copy: Awaited<ReturnType<typeof fetchCopy>> | undefined
-      try {
-        const projectId = groups.find(group => group.chatId === image.chat_id)?.projectId ?? DEVICE_STORE
-        const root = await deps.root(projectId)
-        if (!root) throw new Error('Project root is unavailable')
-        copy = await fetchCopy(image)
-        const kept = await importProjectFile(root, { path: copy.path, name: image.file_name, size: image.size_bytes }, async sha => {
-          const found = await findProjectFileCopy(projectId, sha, identity.accountId, identity.deviceId, deps.env)
-          return found?.relative_path?.startsWith('.gugu/attachments/') ? found : null
-        })
-        const path = relative(root, kept).split(sep).join('/')
-        const { size, sha256 } = await digestInRoot(root, path)
-        // The index first: a revision the database knows of must be one this machine can serve.
-        await rememberProjectFile(localRevision(await readItem(image.item_id, identity.accountId), size, sha256, identity, projectId, path), identity.accountId, deps.env)
-        await deps.rpc('file_device_adopt', { p_item: image.item_id, p_device: identity.deviceId, p_project: projectId, p_path: path, p_sha: sha256, p_size: size })
-      } catch (error) { failed.push(`${image.item_id}: ${String(error)}`) } finally { await copy?.dispose().catch(() => undefined) }
+    // Each image once per drain: one that keeps failing must not stand in front of the rest, and it is tried again next drain.
+    const seen = new Set<string>(), failed: string[] = []
+    for (let rows: KeepableImage[]; (rows = await deps.rpc('file_device_adopt_pending', { p_device: identity.deviceId, p_skip: [...seen] }) as KeepableImage[]).length > 0;) {
+      for (const image of rows) {
+        seen.add(image.item_id)
+        let copy: Awaited<ReturnType<typeof fetchCopy>> | undefined
+        try {
+          const projectId = groups.find(group => group.chatId === image.chat_id)?.projectId ?? DEVICE_STORE
+          const root = await deps.root(projectId)
+          if (!root) throw new Error('Project root is unavailable')
+          copy = await fetchCopy(image)
+          // Only a copy under .gugu/attachments: the backend accepts no other path for a kept image, and an agent's editable file there would not stay the same bytes.
+          const kept = await importProjectFile(root, { path: copy.path, name: image.file_name, size: image.size_bytes }, async sha => {
+            const found = await findProjectFileCopy(projectId, sha, identity.accountId, identity.deviceId, deps.env)
+            return found?.relative_path?.startsWith('.gugu/attachments/') ? found : null
+          })
+          const path = relative(root, kept).split(sep).join('/')
+          const { size, sha256 } = await digestInRoot(root, path)
+          // The index first: a revision the database knows of must be one this machine can serve.
+          await rememberProjectFile(localRevision(await readItem(image.item_id, identity.accountId), size, sha256, identity, projectId, path), identity.accountId, deps.env)
+          await deps.rpc('file_device_adopt', { p_item: image.item_id, p_device: identity.deviceId, p_project: projectId, p_path: path, p_sha: sha256, p_size: size })
+        } catch (error) { failed.push(`${image.item_id}: ${String(error)}`) } finally { await copy?.dispose().catch(() => undefined) }
+      }
     }
     if (failed.length) throw new Error(`Sent images not kept on this machine, they stay pending: ${failed.join('; ')}`)
-    return rows.length
   }
   return Object.assign(publish, { keepSent, async local(chatId: string) { const here = await place(chatId); return !!here && !here.storage?.proactive_upload } })
 }
