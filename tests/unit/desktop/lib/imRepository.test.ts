@@ -18,6 +18,7 @@ import {
 import { message as messageFixture } from '../../../support/testHarness'
 import type { DisplayIdentity } from '../../../../apps/desktop/src/lib/displayIdentity'
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
+import { readCompleteCachedChats } from '../../../../apps/desktop/src/lib/chatSnapshotPublication'
 function identity(id: string, over: Partial<DisplayIdentity> = {}): DisplayIdentity {
   return {
     id, type: 'human', display_name: id, nameSerial: null, avatar: null, gugu_number: null, bio: null,
@@ -449,6 +450,30 @@ describe('account-scoped normalized IM repository', () => {
     expect(readChatRows(reopened)).toEqual([chat('b')])
     expect(imSelectors.identitiesById(reopened.snapshot())['identity-1']).toEqual(updated)
     expect(seen).toHaveLength(2)
+  })
+  it('hands the local rows to the first frame before the account initialization settles', async () => {
+    const seed = await openImRepository('account-a', { adapter, storage: window.localStorage })
+    await replaceChatRows(seed, [chat('chat-1')])
+    seed.close()
+    let release!: () => void
+    const initialized = new Promise<void>((resolve) => { release = resolve })
+    let painted!: (ids: string[]) => void
+    const paintedIds = new Promise<string[]>((resolve) => { painted = resolve })
+    let opened = false
+    const opening = openImRepository('account-a', { adapter, initialize: () => initialized,
+      loaded: (local) => painted(readChatRows(local).map((row) => row.id)) }).then((repository) => { opened = true; return repository })
+    expect(await paintedIds).toEqual(['chat-1'])
+    expect(opened).toBe(false)
+    release()
+    expect(readChatRows(await opening).map((row) => row.id)).toEqual(['chat-1'])
+  })
+  it('leaves only a chat whose person is missing locally out of the first frame', async () => {
+    const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
+    await repository.putIdentities([identity('human-1')])
+    await replaceChatRows(repository, [{ ...chat('dm-known'), kind: 'dm', peer_user_id: 'human-1' }, { ...chat('dm-unknown'), kind: 'dm', peer_user_id: 'human-2' }])
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(readCompleteCachedChats(repository).map((row) => row.id)).toEqual(['dm-known'])
+    quiet.mockRestore()
   })
 })
 describe('legacy chat-list migration', () => {

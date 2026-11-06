@@ -411,49 +411,50 @@ test('a synchronous DataCloneError aborts earlier requests in the same real IDB 
   expect(Object.values(result.counts)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0])
 })
 
-for (const store of ['identity', 'chat', 'membership', 'message', 'stream', 'presence', 'outbox', 'view', 'sync_state'] as const) {
-  test(`malformed current v4 ${store} row fails at repository open`, async ({ page }) => {
-    await seedMalformedCurrentVersion(page, store)
-    const result = await page.evaluate(async () => {
-      const moduleUrl = '/src/lib/imRepository.ts'
-      const repositoryModule = await import(/* @vite-ignore */ moduleUrl)
-      let error = ''
-      let loaded = -1
-      try {
-        const repository = await repositoryModule.openImRepository('account-a')
-        loaded = Object.values(repository.snapshot()).reduce((sum: number, rows) => sum + (rows as unknown[]).length, 0)
-        repository.close()
-      } catch (caught) {
-        error = caught instanceof Error ? caught.message : String(caught)
-      }
-      return { error, loaded }
-    })
+// Unsent messages exist nowhere else, so the outbox is the one store that stays strict.
+test('malformed current v4 outbox row fails at repository open', async ({ page }) => {
+  await seedMalformedCurrentVersion(page, 'outbox')
+  const result = await page.evaluate(async () => {
+    const moduleUrl = '/src/lib/imRepository.ts'
+    const repositoryModule = await import(/* @vite-ignore */ moduleUrl)
+    let error = ''
+    let loaded = -1
+    try {
+      const repository = await repositoryModule.openImRepository('account-a')
+      loaded = Object.values(repository.snapshot()).reduce((sum: number, rows) => sum + (rows as unknown[]).length, 0)
+      repository.close()
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught)
+    }
+    return { error, loaded }
+  })
 
-    expect(result.error).toContain(`invalid current ${store} row`)
-    expect(result.loaded).toBe(-1)
+  expect(result.error).toContain('invalid current outbox row')
+  expect(result.loaded).toBe(-1)
+})
+
+for (const store of ['identity', 'chat', 'membership', 'message', 'stream', 'presence', 'view', 'sync_state'] as const) {
+  test(`malformed current v4 ${store} row drops alone and the account snapshot rebuilds it`, async ({ page }) => {
+    await seedMalformedCurrentVersion(page, store)
+    await expectDroppedAloneThenRebuilt(page, { store, reason: `invalid current ${store} row` })
   })
 }
 
-for (const relation of ['missing-message-field', 'message-stream-id', 'missing-message-stream', 'stream-shape', 'message-window-bounds'] as const) {
-  test(`relationally malformed current v4 ${relation} fails at repository open`, async ({ page }) => {
-    await seedRelationallyMalformedCurrentVersion(page, relation)
-    const result = await page.evaluate(async () => {
-      const moduleUrl = '/src/lib/imRepository.ts'
-      const repositoryModule = await import(/* @vite-ignore */ moduleUrl)
-      let error = ''
-      let loaded = -1
-      try {
-        const repository = await repositoryModule.openImRepository('account-a')
-        loaded = Object.values(repository.snapshot()).reduce((sum: number, rows) => sum + (rows as unknown[]).length, 0)
-        repository.close()
-      } catch (caught) {
-        error = caught instanceof Error ? caught.message : String(caught)
-      }
-      return { error, loaded }
-    })
+const RELATIONAL_DROPS = {
+  'missing-message-field': { store: 'message', reason: 'invalid current message row', kept: { stream: ['main:chat-1'] } },
+  'message-stream-id': { store: 'message', reason: 'invalid current message row', kept: { stream: ['main:chat-2'] } },
+  'missing-message-stream': { store: 'message', reason: 'stream main:chat-1 is missing', kept: {} },
+  'stream-shape': { store: 'stream', reason: 'invalid current stream row', kept: {} },
+  'message-window-bounds': {
+    store: 'view', reason: 'message window does not cover stored messages 1..2',
+    kept: { message: ['message-1', 'message-2'], stream: ['main:chat-1'] },
+  },
+} as const
 
-    expect(result.error).toContain('invalid current')
-    expect(result.loaded).toBe(-1)
+for (const [relation, drop] of Object.entries(RELATIONAL_DROPS)) {
+  test(`relationally malformed current v4 ${relation} drops alone and the account snapshot rebuilds it`, async ({ page }) => {
+    await seedRelationallyMalformedCurrentVersion(page, relation as CurrentVersionRelationShape)
+    await expectDroppedAloneThenRebuilt(page, drop)
   })
 }
 
@@ -692,11 +693,132 @@ async function dumpLegacyDatabase(page: Page): Promise<Record<string, unknown[]>
   }, DB_NAME)
 }
 
+function healthyRows() {
+  const at = '2026-08-09T00:00:00.000Z'
+  const accountId = 'account-a'
+  return {
+    identity: [{ accountId, id: 'identity-ok', value: {
+      id: 'identity-ok', type: 'human', display_name: 'Healthy', avatar: null, gugu_number: null, bio: null, owner_user_id: null,
+      agent_public: null, desired_status: null, device_id: null, category: null, is_official: null, local_path: null, created_at: null, updated_at: at,
+    } }],
+    chat: [{ accountId, id: 'chat-ok', order: 0, value: { id: 'chat-ok', kind: 'group', name: 'Healthy', created_at: at } }],
+    membership: [{ accountId, chatId: 'chat-ok', identityId: 'identity-ok', value: { role: 'member' } }],
+    message: [{
+      accountId, id: 'message-ok', chatId: 'chat-ok', streamId: 'main:chat-ok', seq: 1,
+      value: messageValue({ id: 'message-ok', chat_id: 'chat-ok' }),
+    }],
+    stream: [{ accountId, id: 'main:chat-ok', chatId: 'chat-ok', kind: 'main', rootMessageId: null }],
+    presence: [{ accountId, identityId: 'identity-ok', value: { state: 'online' } }],
+    outbox: [{ accountId, id: 'outbox-ok', value: {
+      clientMessageId: 'outbox-ok', chatId: 'chat-ok', senderUserId: accountId,
+      payload: { content: 'keep', contentType: 'text', toUserIds: null, replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
+      state: 'pending', attempts: 0, lastError: null, enqueuedAt: at, updatedAt: at,
+    } }],
+    view: [
+      { accountId, key: 'list-scroll', value: { top: 0 } },
+      { accountId, key: 'message-window:chat-ok', value: { oldestSeq: 1, maxSeq: 1, hasMoreOlder: false } },
+    ],
+    sync_state: [
+      { accountId, key: 'account-revision-cursor', value: { revision: '9' } },
+      { accountId, key: 'other', value: 1 },
+    ],
+  }
+}
+
+// The shape the server's sync_snapshot returns; chat-1 and identity-1 are the ids the malformed seeds use.
+function accountSnapshot() {
+  const at = '2026-10-23T00:00:00Z'
+  const identity = (id: string) => ({
+    id, type: 'human', display_name: id, avatar: null, gugu_number: null, bio: null, owner_user_id: null, agent_public: null,
+    desired_status: null, device_id: null, category: null, is_official: null, local_path: null, created_at: null, updated_at: null,
+  })
+  return {
+    account_id: 'account-a', revision: '422010',
+    chats: [{
+      id: 'chat-1', public_id: null, kind: 'group', status: 'active', name: 'Rebuilt', avatar_url: null, created_at: at,
+      next_message_seq: 2, pinned_message_id: null, source_chat_id: null, source_message_id: null,
+    }],
+    memberships: ['account-a', 'identity-1'].map((user_id) => ({
+      chat_id: 'chat-1', user_id, last_read_seq: 0, is_marked_unread: false, version: 1, notification_level: 'all',
+      is_pinned: false, updated_at: at, joined_at: at, inbox_published_at: at, role: user_id === 'account-a' ? 'owner' : 'member',
+    })),
+    identities: [identity('account-a'), identity('identity-1')],
+    previews: [{
+      chat_id: 'chat-1', id: 'message-rebuilt', created_at: at, preview: 'Rebuilt', seq: 1, content_type: 'text',
+      sender_user_id: 'identity-1', client_message_id: null,
+    }],
+    unread: [], overrides: [], presence: {},
+  }
+}
+
+async function expectDroppedAloneThenRebuilt(
+  page: Page,
+  drop: { store: string; reason: string; kept?: Record<string, readonly string[]> },
+): Promise<void> {
+  await page.route('**/rest/v1/rpc/sync_snapshot', (route) => route.fulfill({
+    json: accountSnapshot(), headers: { 'access-control-allow-origin': '*' },
+  }))
+  const result = await page.evaluate(async () => {
+    const repositoryUrl = '/src/lib/imRepository.ts'
+    const snapshotUrl = '/src/lib/accountSyncSnapshot.ts'
+    const repositoryModule = await import(/* @vite-ignore */ repositoryUrl)
+    const { initializeAccountSync } = await import(/* @vite-ignore */ snapshotUrl)
+    // The page has no signed-in session, so the app already aborted the auth boundary this request runs under.
+    const authBoundaryUrl = '/src/lib/authSessionLoss.ts'
+    const { resetAuthSessionBoundary } = await import(/* @vite-ignore */ authBoundaryUrl)
+    resetAuthSessionBoundary()
+    const rowKeys = (repository: { snapshot(): Record<string, Array<Record<string, unknown>>> }) => Object.fromEntries(
+      Object.entries(repository.snapshot()).map(([store, rows]) => [store, rows.map((row) => String(
+        store === 'membership' ? `${row.chatId}/${row.identityId}` : row.id ?? row.key ?? row.identityId,
+      )).sort()]),
+    )
+    const dropped: Array<{ store: string; reason: string }> = []
+    const consoleError = console.error
+    console.error = (message: unknown, fields: { dropped?: Array<{ store: string; reason: string }> }) => {
+      if (String(message).startsWith('[im/local-cache]')) dropped.push(...fields.dropped!)
+    }
+    try {
+      let firstFrame: Record<string, string[]> = {}
+      const repository = await repositoryModule.openImRepository('account-a', {
+        loaded: (loaded: Parameters<typeof rowKeys>[0]) => { firstFrame = rowKeys(loaded) },
+        initialize: initializeAccountSync,
+      })
+      const droppedAtFirstOpen = [...dropped]
+      const rebuilt = rowKeys(repository)
+      repository.close()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      dropped.length = 0
+      const reopened = await repositoryModule.openImRepository('account-a')
+      const afterRebuild = rowKeys(reopened)
+      reopened.close()
+      return { firstFrame, droppedAtFirstOpen, rebuilt, afterRebuild, droppedAfterRebuild: dropped }
+    } finally {
+      console.error = consoleError
+    }
+  })
+
+  const healthy = {
+    identity: ['identity-ok'], chat: ['chat-ok'], membership: ['chat-ok/identity-ok'], message: ['message-ok'], stream: ['main:chat-ok'],
+    presence: ['identity-ok'], outbox: ['outbox-ok'], view: ['list-scroll', 'message-window:chat-ok'],
+    // The revision cursor is forgotten on any drop: that is what sends this start through the full snapshot.
+    sync_state: ['other'],
+  } as Record<string, string[]>
+  for (const [store, keys] of Object.entries(drop.kept ?? {})) healthy[store] = [...healthy[store]!, ...keys].sort()
+  expect(result.firstFrame).toEqual(healthy)
+  expect(result.droppedAtFirstOpen).toEqual([expect.objectContaining({ store: drop.store, reason: expect.stringContaining(drop.reason) })])
+  expect(result.rebuilt).toMatchObject({
+    identity: ['account-a', 'identity-1'], chat: ['chat-1'], membership: ['chat-1/account-a', 'chat-1/identity-1'],
+    outbox: ['outbox-ok'], sync_state: ['account-revision-cursor'],
+  })
+  expect(result.afterRebuild).toEqual(result.rebuilt)
+  expect(result.droppedAfterRebuild).toEqual([])
+}
+
 async function seedMalformedCurrentVersion(
   page: Page,
   malformedStore: 'identity' | 'chat' | 'membership' | 'message' | 'stream' | 'presence' | 'outbox' | 'view' | 'sync_state',
 ): Promise<void> {
-  await page.evaluate(async ({ name, malformedStore, malformedMessage }) => {
+  await page.evaluate(async ({ name, malformedStore, malformedMessage, healthy }) => {
     const keyPaths: Record<string, string[]> = {
       identity: ['accountId', 'id'], chat: ['accountId', 'id'], membership: ['accountId', 'chatId', 'identityId'],
       message: ['accountId', 'id'], stream: ['accountId', 'id'], presence: ['accountId', 'identityId'],
@@ -718,7 +840,10 @@ async function seedMalformedCurrentVersion(
       }
       request.onsuccess = () => {
         const database = request.result
-        const transaction = database.transaction(malformedStore, 'readwrite')
+        const transaction = database.transaction(Object.keys(keyPaths), 'readwrite')
+        for (const [storeName, rows] of Object.entries(healthy)) {
+          for (const row of rows) transaction.objectStore(storeName).put(row)
+        }
         const rows = {
           identity: { accountId: 'account-a', id: 'identity-1', value: null },
           chat: { accountId: 'account-a', id: 'chat-1', order: 'first', value: { id: 42 } },
@@ -735,7 +860,7 @@ async function seedMalformedCurrentVersion(
         transaction.onerror = () => reject(transaction.error)
       }
     })
-  }, { name: DB_NAME, malformedStore, malformedMessage: messageValue({ seq: -1 }) })
+  }, { name: DB_NAME, malformedStore, malformedMessage: messageValue({ seq: -1 }), healthy: healthyRows() })
 }
 
 type CurrentVersionRelationShape =
@@ -748,7 +873,7 @@ type CurrentVersionRelationShape =
 async function seedRelationallyMalformedCurrentVersion(page: Page, shape: CurrentVersionRelationShape): Promise<void> {
   const first = messageValue()
   const second = messageValue({ id: 'message-2', seq: 2, content: 'second' })
-  await page.evaluate(async ({ name, shape, first, second }) => {
+  await page.evaluate(async ({ name, shape, first, second, healthy }) => {
     const keyPaths: Record<string, string[]> = {
       identity: ['accountId', 'id'], chat: ['accountId', 'id'], membership: ['accountId', 'chatId', 'identityId'],
       message: ['accountId', 'id'], stream: ['accountId', 'id'], presence: ['accountId', 'identityId'],
@@ -770,7 +895,10 @@ async function seedRelationallyMalformedCurrentVersion(page: Page, shape: Curren
       }
       request.onsuccess = () => resolve(request.result)
     })
-    const transaction = database.transaction(['message', 'stream', 'view'], 'readwrite')
+    const transaction = database.transaction(Object.keys(keyPaths), 'readwrite')
+    for (const [storeName, rows] of Object.entries(healthy)) {
+      for (const row of rows) transaction.objectStore(storeName).put(row)
+    }
     const messageStore = transaction.objectStore('message')
     const streamStore = transaction.objectStore('stream')
     if (shape === 'missing-message-field') {
@@ -798,5 +926,5 @@ async function seedRelationallyMalformedCurrentVersion(page: Page, shape: Curren
       transaction.onerror = () => reject(transaction.error)
     })
     database.close()
-  }, { name: DB_NAME, shape, first, second })
+  }, { name: DB_NAME, shape, first, second, healthy: healthyRows() })
 }

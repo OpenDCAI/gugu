@@ -4,7 +4,7 @@ import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import type { ChatItem, ChatUnreadLocator } from '@gugu/core/shared/types/chat'
 import { chatAttention, mergeFetchedChatsPreservingActiveLocal } from '@gugu/core/shared/ui/chatModels'
 import { mergeUnreadRows } from '../../../../apps/desktop/src/lib/chatProjection'
-import { LocalImCacheError, openLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
+import { openLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { sidebarChatSignals } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { phoneChatUnread } from '../../../../apps/desktop/src/mobile/chat/phoneChatUnread'
 import { advanceReadWatermark } from '../../../../apps/desktop/src/store/chatRealtimeMutations'
@@ -108,13 +108,21 @@ describe('addressed_count is a required column of list_unread_locators', () => {
     expect(() => mergeUnreadRows([row('main:topic', 4)])).toThrow(/addressed_count/)
   })
 
-  it('a cached chat row written before the column existed invalidates the local cache, so it is rebuilt from a snapshot', async () => {
+  it('a cached chat row written before the column existed is dropped alone, and the cursor with it so a snapshot rebuilds it', async () => {
     vi.stubGlobal('IDBKeyRange', IDBKeyRange)
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
     const adapter = await openLocalSyncDb(new IDBFactory())
     const { addressed_count: _dropped, ...stale } = locator(5, 1)
-    await adapter.commit([{ type: 'put', store: 'chat', value: { accountId: 'a', id: 'topic-project', order: 0, value: { ...topic(5, 1), unread_locator: stale } } }])
-    await expect(adapter.loadAccount('a')).rejects.toBeInstanceOf(LocalImCacheError)
+    await adapter.commit([
+      { type: 'put', store: 'chat', value: { accountId: 'a', id: 'topic-project', order: 0, value: { ...topic(5, 1), unread_locator: stale } } },
+      { type: 'put', store: 'chat', value: { accountId: 'a', id: 'topic-fresh', order: 1, value: { ...topic(5, 1), id: 'topic-fresh' } } },
+      { type: 'put', store: 'sync_state', value: { accountId: 'a', key: 'account-revision-cursor', value: { revision: '7' } } },
+    ])
+    const rows = await adapter.loadAccount('a')
+    expect(rows.chat.map((row) => row.id)).toEqual(['topic-fresh'])
+    expect(rows.sync_state).toEqual([])
     adapter.close()
+    quiet.mockRestore()
     vi.unstubAllGlobals()
   })
 })
