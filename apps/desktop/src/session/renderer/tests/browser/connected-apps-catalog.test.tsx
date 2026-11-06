@@ -86,14 +86,33 @@ afterEach(() => {
 })
 
 it.each(['light', 'dark'])(
-  'keeps category row surfaces distinct from the page in %s',
+  'keeps row surfaces distinct and warning text legible in %s',
   async (theme) => {
     document.documentElement.dataset.theme = theme
-    await render()
+    await render(withConnections)
     const rows = harness.container.querySelector<HTMLElement>('.connected-app-rows')!
     expect(getComputedStyle(rows).backgroundColor).not.toBe(
       getComputedStyle(harness.container).backgroundColor
     )
+    const status = harness.container.querySelector<HTMLElement>('.connected-app-status')!
+    const context = document.createElement('canvas').getContext('2d')!
+    function luminance(color: string) {
+      context.clearRect(0, 0, 1, 1)
+      context.fillStyle = getComputedStyle(harness.container).backgroundColor
+      context.fillRect(0, 0, 1, 1)
+      context.fillStyle = color
+      context.fillRect(0, 0, 1, 1)
+      const channels = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map((value) => {
+        const channel = value / 255
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+      })
+      return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+    }
+    const foreground = luminance(getComputedStyle(status).color)
+    const background = luminance(getComputedStyle(rows).backgroundColor)
+    expect(
+      (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+    ).toBeGreaterThanOrEqual(4.5)
   }
 )
 

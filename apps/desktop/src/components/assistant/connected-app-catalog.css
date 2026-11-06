@@ -137,7 +137,7 @@ div.connected-app-rows { overflow: hidden; border-radius: var(--radius-surface);
 .connected-app-status { font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--muted-fg); white-space: nowrap; }
 .connected-app-status[data-state='needsReauth'],
 .connected-app-status[data-state='checkFailed'],
-.connected-app-status[data-state='paused'] { color: var(--warn); }
+.connected-app-status[data-state='paused'] { color: var(--warn-fg); }
 div.connected-app-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-lg); }
 .connected-app-empty p { margin: 0; color: var(--muted-fg); font-size: var(--font-body); line-height: var(--lh-body); }
 button.connected-app-browse { min-height: var(--control-h-xl); color: var(--muted-fg); font-weight: var(--font-weight-regular); }
