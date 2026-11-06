@@ -413,6 +413,8 @@ describe('approved A2A activity', () => {
     expect(style.opacity).toBe('1');
     expect(style.backgroundColor).toBe(background === '#ffffff' ? 'rgb(255, 255, 255)' : 'rgb(33, 33, 33)');
     const own = t.host.querySelector('[data-agent-conversation-message]')!.getBoundingClientRect();
+    const ownPaint = t.host.querySelector('[data-agent-conversation-message]')!.closest('[data-index]')!.querySelector<HTMLElement>('[data-chat-pin-backdrop]')!.getBoundingClientRect();
+    expect(ownPaint.top, 'the reserved top gap above the owner pin must not expose an older body line').toBeLessThanOrEqual(viewport.top);
     expect(Math.abs(paint.top - own.bottom), 'the two page-colored pins meet without exposing half a body line in their seam').toBeLessThan(1);
     expect(Math.abs(paint.bottom - row.bottom), 'no opaque band below the semantic row').toBeLessThan(1);
     expect(paint.left).toBeLessThanOrEqual(viewport.left);
@@ -424,6 +426,23 @@ describe('approved A2A activity', () => {
     expect(style.borderBottomWidth).toBe('1px');
     const fadeSelector = pinFade.split(/\s+/).map(name => `.${name}`).join('');
     expect(t.host.querySelectorAll(fadeSelector), 'neither pin may paint a fade across the preceding message').toHaveLength(0);
+  });
+  it.each(['#ffffff', '#212121'])('covers the reserved viewport gap above a standalone opened activity (%s)', async background => {
+    const t = await mount(390, [turn('incoming', Array.from({ length: 16 }, (_, i) => delivery(`standalone${i}`, `Underlying old message ${i}. `.repeat(45)))),
+      turn('after', [ordinary('Following conclusion. '.repeat(40))])]);
+    if (background === '#212121') t.host.classList.add('emdark');
+    t.host.style.setProperty('--chat-bg', background);
+    t.button().click();
+    await untilStable('standalone activity expanded', () => t.scroll().scrollHeight);
+    t.scroll().scrollTop = 650;
+    await untilStable('standalone activity stuck', () => t.head()?.getBoundingClientRect().top);
+    const mask = t.head()!.closest('[data-index]')!.querySelector<HTMLElement>('[data-chat-pin-backdrop]')!;
+    expect(getComputedStyle(mask).opacity).toBe('1');
+    expect(getComputedStyle(mask).backgroundColor).toBe(background === '#ffffff' ? 'rgb(255, 255, 255)' : 'rgb(33, 33, 33)');
+    expect(mask.getBoundingClientRect().top, 'the unpaired activity must cover its reserved top gap').toBeLessThanOrEqual(t.scroll().getBoundingClientRect().top);
+    t.button().click();
+    await untilStable('standalone activity closed', () => t.scroll().scrollHeight);
+    expect(t.head()!.closest('[data-index]')!.querySelector('[data-chat-pin-backdrop]')).toBeNull();
   });
   it('snaps the pinned exit and manual collapse when reduced motion is enabled', async () => {
     await cdp().send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });

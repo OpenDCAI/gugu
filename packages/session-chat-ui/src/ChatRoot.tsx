@@ -2258,7 +2258,7 @@ export function ChatRoot(props: ChatRootProps) {
                               >
                               <Show when={isPinAnchor()}><div class={pinBackdrop}
                                 classList={{ [activityPinBackdrop]: activityLaneByIndex().has(unitIndex) }}
-                                style={activityLaneByIndex().has(unitIndex) && activityPinOffset(unitIndex) > 0 ? { top: `${-userTopGap}px` } : undefined}
+                                style={{ top: `${-userTopGap}px` }}
                                 data-chat-pin-backdrop="" aria-hidden="true" /></Show>
                               <UnitRow
                                 unit={u()!}
