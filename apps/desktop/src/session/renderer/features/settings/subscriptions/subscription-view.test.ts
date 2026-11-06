@@ -13,12 +13,12 @@ const translate = (key: string, values?: Record<string, unknown>) => {
 const t = translate as Parameters<typeof payerLine>[1];
 
 describe('「订阅」页一行里的字', () => {
-  it('谁在付钱 + 套餐;档位读不出就明说', () => {
+  it('谁在付钱 + 套餐;档位读取失败就明说', () => {
     expect(payerLine({ payer: 'subscription', plan: 'Claude Max 20x' }, t, true)).toBe('你的订阅 · Claude Max 20x');
     expect(payerLine({ payer: 'subscription', plan: 'Google AI Ultra', tierUnknown: true }, t, false)).toBe(
-      '你的订阅 · Google AI Ultra(档位读不出)'
+      '你的订阅 · Google AI Ultra(档位读取失败)'
     );
-    expect(payerLine({ payer: 'api-key', plan: 'MiMo 按量付费' }, t, false)).toBe('你自己的 API key · MiMo 按量付费');
+    expect(payerLine({ payer: 'api-key', plan: 'MiMo 按量付费' }, t, false)).toBe('本地配置 Key · MiMo 按量付费');
     expect(payerLine({ payer: 'custom-endpoint', endpoint: '198.51.100.37:9000' }, t, false)).toBe(
       '自定义服务 198.51.100.37:9000'
     );
@@ -27,23 +27,23 @@ describe('「订阅」页一行里的字', () => {
   it('没登自己的账号:这家能走咕咕积分时补一句', () => {
     expect(payerLine({ payer: 'not-signed-in' }, t, true)).toBe('未登录（使用咕咕积分）');
     expect(payerLine({ payer: 'not-signed-in' }, t, false)).toBe('未登录');
-    expect(payerLine({ payer: 'unknown', message: 'CODEX_HOME 指到了别处' }, t, true)).toBe('读不出:CODEX_HOME 指到了别处');
+    expect(payerLine({ payer: 'unknown', message: 'CODEX_HOME 指到了别处' }, t, true)).toBe('读取失败:CODEX_HOME 指到了别处');
   });
 
   it('附注:接的是哪几家、套餐多旧、Claude 订阅登 Pi 扣额外用量', () => {
     expect(
       planNotes({ payer: 'subscription', via: ['Claude', 'ChatGPT'], planAsOf: 1, extraUsage: true }, t, () => '10-10 23:51')
-    ).toEqual(['接的是 Claude · ChatGPT', '套餐信息记于 10-10 23:51', '扣的是 Claude 额外用量(另外计费),不占套餐额度']);
+    ).toEqual(['接入：Claude · ChatGPT', '套餐信息记于 10-10 23:51', '扣的是 Claude 额外用量(另外计费),不占套餐额度']);
   });
 
   it('没登自己的账号:附注指去哪里登', () => {
-    expect(planNotes({ payer: 'not-signed-in' }, t, () => '')).toEqual(['在资源库 → 智能体里登录。']);
+    expect(planNotes({ payer: 'not-signed-in' }, t, () => '')).toEqual(['去「资源库 → 智能体」里登录']);
     expect(planNotes({ payer: 'api-key' }, t, () => '')).toEqual([]);
   });
 
   it('资源库「账号」那一行带的套餐名:只在是订阅且读得出名字时', () => {
     expect(planLabel({ payer: 'subscription', plan: 'Claude Max 20x' }, t)).toBe('Claude Max 20x');
-    expect(planLabel({ payer: 'subscription', plan: 'Google AI Ultra', tierUnknown: true }, t)).toBe('Google AI Ultra(档位读不出)');
+    expect(planLabel({ payer: 'subscription', plan: 'Google AI Ultra', tierUnknown: true }, t)).toBe('Google AI Ultra(档位读取失败)');
     expect(planLabel({ payer: 'subscription' }, t)).toBeNull();
     expect(planLabel({ payer: 'api-key', plan: 'MiMo 按量付费' }, t)).toBeNull();
     expect(planLabel(undefined, t)).toBeNull();
@@ -69,7 +69,7 @@ describe('「订阅」页一行里的字', () => {
       '还没查过。厂商限制了查询次数，点「现在查」才去问。'
     );
     expect(unavailableText({ kind: 'unavailable', reason: 'not-signed-in', readAt: 0 }, t)).toBeNull();
-    expect(unavailableText({ kind: 'unavailable', reason: 'error', message: '超时', readAt: 0 }, t)).toBe('读不到:超时');
+    expect(unavailableText({ kind: 'unavailable', reason: 'error', message: '超时', readAt: 0 }, t)).toBe('读取失败：超时');
     expect(unavailableText({ kind: 'windows', windows: [{ usedPercent: 1 }], readAt: 0 }, t)).toBeNull();
   });
 });
