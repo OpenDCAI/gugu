@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act, createElement, Fragment } from 'react'
-import { notifyManager } from '@tanstack/react-query'
+import { focusManager, notifyManager, onlineManager } from '@tanstack/react-query'
 import { toast, type Action } from 'sonner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { FileStorageNotice } from '../../../../apps/desktop/src/components/chat/FileStorageNotice'
-import { attachmentQueryClient } from '../../../../apps/desktop/src/lib/attachmentQueryClient'
+import { fileStorageUsageClient } from '../../../../apps/desktop/src/components/chat/fileStorageUsage'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 
 const rpc = vi.hoisted(() => vi.fn())
@@ -27,7 +27,7 @@ describe('group manager storage notice', () => {
     vi.useFakeTimers()
     chatId = `storage-group-${++sequence}`
     harness = createReactHarness()
-    attachmentQueryClient.clear()
+    fileStorageUsageClient.clear()
     vi.clearAllMocks()
     rpc.mockReset().mockResolvedValue({ data: healthy, error: null })
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -37,7 +37,9 @@ describe('group manager storage notice', () => {
   })
   afterEach(() => {
     harness.cleanup()
-    attachmentQueryClient.clear()
+    fileStorageUsageClient.clear()
+    focusManager.setFocused(undefined)
+    onlineManager.setOnline(true)
     notifyManager.setNotifyFunction(callback => { callback() })
     notifyManager.setScheduler(callback => { setTimeout(callback, 0) })
     vi.useRealTimers()
@@ -90,7 +92,7 @@ describe('group manager storage notice', () => {
     expect(toast.warning).not.toHaveBeenCalled()
     expect(toast.error).not.toHaveBeenCalled()
     expect(harness.container.textContent).toBe('')
-    expect(attachmentQueryClient.getQueryData(['file-storage-usage', 'user-1', chatId])).toBeUndefined()
+    expect(fileStorageUsageClient.getQueryData(['file-storage-usage', 'user-1', chatId])).toBeUndefined()
   })
   it('retains verified warning through a failed attachment refresh and clears only after a healthy read', async () => {
     rpc.mockResolvedValueOnce({ data: warning, error: null }).mockResolvedValue(unavailable)
@@ -98,7 +100,7 @@ describe('group manager storage notice', () => {
     const firstId = lastWarning()[1]?.id
     await render('admin', [attachment('file')])
     expect(rpc).toHaveBeenCalledTimes(2)
-    expect(attachmentQueryClient.getQueryData(['file-storage-usage', 'user-1', chatId])).toEqual(warning)
+    expect(fileStorageUsageClient.getQueryData(['file-storage-usage', 'user-1', chatId])).toEqual(warning)
     expect(lastWarning()[1]?.id).toBe(firstId)
     expect(toast.dismiss).not.toHaveBeenCalledWith(firstId)
     rpc.mockResolvedValue({ data: healthy, error: null })
@@ -128,6 +130,24 @@ describe('group manager storage notice', () => {
     await render('member')
     await tick(120_000)
     expect(rpc).toHaveBeenCalledTimes(1)
+  })
+  it.each(['focus', 'online'] as const)('resumes a paused retry when %s returns', async event => {
+    rpc.mockResolvedValue(unavailable)
+    await render()
+    await act(async () => {
+      if (event === 'focus') focusManager.setFocused(false)
+      else onlineManager.setOnline(false)
+    })
+    await tick(1000)
+    expect(rpc).toHaveBeenCalledTimes(1)
+    rpc.mockResolvedValue({ data: healthy, error: null })
+    await act(async () => {
+      if (event === 'focus') focusManager.setFocused(true)
+      else onlineManager.setOnline(true)
+    })
+    await tick()
+    expect(rpc).toHaveBeenCalledTimes(2)
+    expect(fileStorageUsageClient.getQueryData(['file-storage-usage', 'user-1', chatId])).toEqual(healthy)
   })
   it('honors dismissal across refreshes and remounts until verified recovery starts a new incident', async () => {
     rpc.mockResolvedValue({ data: warning, error: null })
