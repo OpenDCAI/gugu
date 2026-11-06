@@ -35,6 +35,7 @@ export type CredentialUseLease = Readonly<{
   claimSubmission(): void;
 }>;
 
+/** Both results retain the observation pause. Cleanup never authorizes observation to resume. */
 export type CredentialUseCleanup =
   | Readonly<{ status: 'cleaned' }>
   | Readonly<{ status: 'paused_cleanup_unconfirmed' }>;
@@ -46,7 +47,12 @@ export interface CredentialUseAuthority {
   claimCredentialSink(capability: VaultUseCapability, binding: CredentialUseBinding): CredentialUseLease;
   /** Revoke synchronously before waiting for cleanup. Unlock never revives an old use. */
   invalidate(accountId: string, reason: CredentialUseInvalidation, credentialId?: string): void;
-  /** Resolves only after cleanup, or returns a durable paused state; a timeout cannot release it. */
+  /**
+   * Clears and proves inputs, feature-owned plaintext and artifacts; NEVER resumes observation.
+   * Only the coordinator may later release its private observation lease, after reliable
+   * post-use audit and a non-uncertain outcome. Audit failure permanently holds that use.
+   * A caller, timeout, retry or cleaned result cannot authorize release.
+   */
   cleanup(useId: string): Promise<CredentialUseCleanup>;
 }
 
