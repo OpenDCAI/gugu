@@ -1,3 +1,5 @@
+import { notify } from '@/lib/notices';
+import { messageForUser } from '@/lib/userFacingError';
 import { useAttachmentFileSelection } from '@/hooks/useAttachmentFileSelection';
 import { UserMessageAttachments } from "./attachment.aui";
 import { MAX_ATTACHMENT_BYTES } from "@gugu/session-core/session-record/contract";
@@ -406,7 +408,10 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
   });
   const addFiles = (files: File[]) => {
     for (const picked of fileSelection.select(files)) {
-      void composer.addAttachment(picked.file).catch(() => fileSelection.release([picked]));
+      void composer.addAttachment(picked.file).catch(error => {
+        fileSelection.release([picked]);
+        notify({ title: translateSessionMessage('composer.attachmentUploadFailed'), description: messageForUser(error), tier: 'error' });
+      });
     }
   };
   return (
