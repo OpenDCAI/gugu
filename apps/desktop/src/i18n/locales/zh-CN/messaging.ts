@@ -265,6 +265,14 @@ export default {
     }
   },
   "chatList": {
+    "hideFailed": "无法从列表删除这条对话",
+    "removeFromList": "从列表删除",
+    "hideAgentDescription": "这条对话会从你的列表移除，有新消息时会重新出现。",
+    "alsoRemoveAgent": "同时删除这个 Agent",
+    "hiddenAgentDeleteFailed": "已从列表删除，但 Agent 删除失败",
+    "retryAgentDelete": "重试删除 Agent",
+    "agentDeleted": "Agent 已删除",
+    "hiddenRefreshFailed": "已从列表删除，但列表刷新失败，请重试",
     "addContact": "添加联系人",
     "clearSearch": "清除搜索",
     "create": "新建",

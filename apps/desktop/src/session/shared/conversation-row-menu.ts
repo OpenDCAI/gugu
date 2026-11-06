@@ -4,7 +4,11 @@ export type ConversationRowAction = 'mark-read' | 'pin' | 'notifications' | 'mar
 export function conversationCanDelete(kind: string | null, authority?: { can_dissolve?: boolean; can_archive_topic?: boolean } | null, ownedAgentDm?: { session_archived_at?: string | null; removed_at?: string | null }): boolean {
   return (kind === 'dm' && !!ownedAgentDm && (ownedAgentDm.session_archived_at != null || ownedAgentDm.removed_at != null)) || (kind === 'group' && authority?.can_dissolve === true) || (kind === 'topic' && authority?.can_archive_topic === true)
 }
-export type ConversationRowMenuState = ({ kind: 'chat'; canDelete: boolean } | { kind: 'project' } | { kind: 'topic' }) & {
+/** Personal list maintenance requires membership, never group administration. */
+export function conversationCanHide(kind: string | null): boolean {
+  return kind === 'dm' || kind === 'ai' || kind === 'group' || kind === 'topic'
+}
+export type ConversationRowMenuState = ({ kind: 'chat'; canDelete: boolean; personalHiding?: boolean } | { kind: 'project' } | { kind: 'topic' }) & {
   hasUnread: boolean
   hasAnyUnread?: boolean
   pinned?: boolean
@@ -28,7 +32,7 @@ export function conversationRowMenu(state: ConversationRowMenuState): RowMenuIte
         { id: 'pin', label: state.pinned ? 'unpin' : 'pin', icon: 'pin' },
         { id: 'notifications', label: state.notificationsMuted ? 'enableNotifications' : 'disableNotifications', icon: 'notifications' },
         { id: 'mark-all-read', label: 'markAllRead', icon: 'read', disabled: !state.hasAnyUnread },
-        ...(state.canDelete ? [{ id: 'delete-chat', label: 'delete', icon: 'trash', danger: true } as const] : []),
+        ...(state.canDelete ? [{ id: 'delete-chat', label: state.personalHiding ? 'removeFromList' : 'delete', icon: 'trash', danger: true } as const] : []),
       ]
 }
 
