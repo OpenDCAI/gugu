@@ -13,7 +13,7 @@ const sessionCtx = {
 };
 const snapshot: TabGroupsSnapshot = {
   groups: [{ groupId: 'g', tabManager: {
-    tabs: [{ kind: 'file', tabId: 'f', path: 'notes.md', history: { pages: [{ kind: 'file', state: { path: 'notes.md' } }], index: 0 } }],
+    tabs: [{ kind: 'file-view', tabId: 'f', path: 'notes.md', history: { pages: [{ kind: 'file-view', state: { path: 'notes.md' } }], index: 0 } }],
     activeTabId: 'f',
   } }],
   activeGroupId: 'g', paneSizes: [100],

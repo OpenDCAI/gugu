@@ -60,36 +60,3 @@ export async function downloadEntry(
 }
 
 /** 上传到那台机器上的 `dir`;结束时说一句,超过单件上限被跳过的如实列出。返回有没有真的传了东西。 */
-export async function uploadItems(
-  transfers: RemoteTransfers,
-  dir: string,
-  items: UploadItem[],
-  device: string,
-  describe: (error: unknown) => string
-): Promise<boolean> {
-  if (items.length === 0) return false;
-  const tops = [...new Set(items.map((item) => item.segments[0]!))];
-  const label = tops.length === 1 ? tops[0]! : translateSessionMessage('remoteFiles.itemCount', { count: tops.length });
-  let transfer: RemoteTransfer | null;
-  try {
-    transfer = await transfers.upload(dir, items, label);
-  } catch (caught) {
-    toast({ title: translateSessionMessage('remoteFiles.uploadFailed', { name: label, device }), description: describe(caught), tier: 'error' });
-    return false;
-  }
-  if (!transfer) return false;
-  transfers.dismiss(transfer);
-  const skipped = transfer.skipped.length
-    ? translateSessionMessage('remoteFiles.skipped', { limit: formatBytes(REMOTE_WORKSPACE_MAX_FILE_BYTES), names: transfer.skipped.join(', ') })
-    : undefined;
-  if (transfer.status === 'done') {
-    toast({ title: translateSessionMessage('remoteFiles.uploaded', { name: label, device }), description: skipped, tier: skipped ? 'warning' : 'success' });
-  } else if (transfer.status === 'failed') {
-    toast({
-      title: translateSessionMessage('remoteFiles.uploadFailed', { name: label, device }),
-      description: transferFailure(transfer) || skipped,
-      tier: 'error',
-    });
-  }
-  return transfer.status === 'done';
-}

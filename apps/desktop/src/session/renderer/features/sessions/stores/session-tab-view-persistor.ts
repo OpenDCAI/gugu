@@ -7,7 +7,7 @@ import {
   type SessionViewSnapshot,
   type TabPageSnapshot,
 } from '@shared/view-state';
-import { hostViewerKind } from '../file-view/file-view-kinds';
+import { fileTabTarget } from '../file-view/file-view-kinds';
 import { resolveWorkspacePath } from './workspace-path';
 
 /** Task-only normalization and migration; persistence itself is shared by all tab hosts. */
@@ -39,6 +39,11 @@ function normalizeTabDescriptor(
   workspacePath: string | undefined
 ): TabDescriptor {
   const persistedKind = (tab as { kind: string }).kind;
+  // A layout saved before the old file tab went: the tab stays, with the same id, in the tab its file opens in now.
+  if (persistedKind === 'file') {
+    const old = tab as unknown as { path: string; isExternal?: boolean };
+    return migratedFileTab(tab, old.isExternal ? old.path : resolveWorkspacePath(workspacePath, old.path), old.isExternal);
+  }
   if (persistedKind !== 'extension' && !isBuiltInTabKind(persistedKind)) {
     const { kind: extensionKind, tabId, history, openerTabId, companionPaneId: _companionPaneId, isPreview: _isPreview, returnTo: _returnTo, ...state } = tab as unknown as TabDescriptor & {
       kind: string;
@@ -48,10 +53,8 @@ function normalizeTabDescriptor(
     };
     return { kind: 'extension', extensionKind, tabId, state, ...(history ? { history } : {}), ...(openerTabId ? { openerTabId } : {}) };
   }
-  if (tab.kind === 'file' || tab.kind === 'file-view') {
-    const path = tab.isExternal ? tab.path : resolveWorkspacePath(workspacePath, tab.path);
-    // A layout saved before non-text files moved to the file preview: the tab stays, in the tab that kind opens in now.
-    return { ...tab, kind: hostViewerKind(path), path, ...(tab.history ? { history: { ...tab.history, pages: tab.history.pages.map(migratedPage) } } : {}) };
+  if (tab.kind === 'file-view' && !tab.isExternal) {
+    return { ...tab, path: resolveWorkspacePath(workspacePath, tab.path) };
   }
   if (tab.kind === 'diff' && tab.diffGroup !== 'pr') {
     return { ...tab, path: resolveWorkspacePath(workspacePath, tab.path) };
@@ -60,8 +63,19 @@ function normalizeTabDescriptor(
 }
 
 function migratedPage(page: TabPageSnapshot): TabPageSnapshot {
-  const path = (page.state as { path?: unknown } | undefined)?.path;
-  return page.kind === 'file' && typeof path === 'string' ? { ...page, kind: hostViewerKind(path) } : page;
+  const { path, isExternal } = (page.state ?? {}) as { path?: unknown; isExternal?: boolean };
+  if (page.kind !== 'file' || typeof path !== 'string') return page;
+  const target = fileTabTarget(path, isExternal);
+  return { ...page, kind: target.kind, state: target.kind === 'file-view' ? { path, ...(isExternal ? { isExternal } : {}) } : target.args };
+}
+
+function migratedFileTab(tab: TabDescriptor, path: string, isExternal?: boolean): TabDescriptor {
+  const { tabId, history, openerTabId } = tab;
+  const kept = { ...(history ? { history: { ...history, pages: history.pages.map(migratedPage) } } : {}), ...(openerTabId ? { openerTabId } : {}) };
+  const target = fileTabTarget(path, isExternal);
+  return target.kind === 'file-view'
+    ? { kind: 'file-view', tabId, path, ...(isExternal ? { isExternal } : {}), ...kept }
+    : { kind: 'extension', extensionKind: target.kind, tabId, state: target.args, ...kept };
 }
 
 /**

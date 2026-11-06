@@ -21,7 +21,6 @@ export const TabContent = observer(function FileViewTabContent({ host, ctx }: Ta
             path={t.resource.path}
             absolutePath={resolveWorkspacePath(workspacePath, t.resource.path)}
             inWorkspace={!t.resource.isExternal}
-            rootPath={workspacePath ?? ''}
             onClose={() => void host.closeTab(t.tabId)}
           />
         </RetainedTabContent>

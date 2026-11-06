@@ -6,7 +6,6 @@
 // ❌ 组件里再判「是不是远端」—— 两套界面就是这么长出来的。
 import type { GitRepositoryStore } from '@renderer/features/projects/stores/git-repository-store';
 import type { DiffViewStore } from '../diff-view/stores/diff-view-store';
-import type { EditorViewStore } from '../editor/stores/editor-view-store';
 import type { GitWorktreeStore } from '../stores/git-worktree-store';
 import type { PrStore } from '../stores/pr-store';
 import type { sessionTabView } from '../session-tab-registry';
@@ -29,7 +28,6 @@ export interface WorkspaceSurface {
   readonly workspace: WorkspaceSurfaceWorkspace | null;
   readonly paneLayout: WorkspacePaneLayout;
   readonly activePane: WorkspacePaneLayout['focusedPane'];
-  readonly editorView: EditorViewStore;
   readonly diffView: DiffViewStore | null;
   readonly prStore: PrStore | null;
   readonly focusedRegion: 'main' | 'bottom';

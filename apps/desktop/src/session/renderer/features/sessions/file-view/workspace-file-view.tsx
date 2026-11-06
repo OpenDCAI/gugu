@@ -10,6 +10,9 @@ import { fileChangesChannel } from '@shared/core/fs/fsEvents';
 import { workspaceBackend, workspaceEvents, workspaceRpc } from '../workspace-backend/workspace-backend';
 import { openPathWithFailureToast } from '../stores/open-file-in-file-editor';
 import { fileBaseName } from '../stores/workspace-path';
+import { getSessionView } from '../stores/session-selectors';
+import { getFileKind } from '@renderer/lib/editor/fileKind';
+import { FOLDER_APP_FILE_TAB } from './file-view-kinds';
 import { OpenWithSystemButton } from './open-with-system-button';
 
 async function readBytes(projectId: string, workspaceId: string, path: string): Promise<Blob> {
@@ -23,7 +26,7 @@ async function readBytes(projectId: string, workspaceId: string, path: string): 
  * A file of a workspace in the preview a chat's file opens in: its bytes through that workspace (whichever machine it is
  * on), read again when the file changes there. A session's file tab and an App's peek both draw this.
  */
-export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, rootPath, onClose }: {
+export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, onClose }: {
   projectId: string;
   workspaceId: string;
   /** Quoting a selection goes to this session's draft; none (a project's folder): nothing to quote into. */
@@ -32,7 +35,6 @@ export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, abs
   absolutePath: string;
   /** Inside the workspace, main also lets the system open it outside home. */
   inWorkspace: boolean;
-  rootPath: string;
   onClose: () => void;
 }) {
   const { translate } = useSessionMessages();
@@ -48,8 +50,10 @@ export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, abs
   const file = useMemo<HostedPreviewFile>(() => {
     const fileName = fileBaseName(path);
     const tree = workspaceBackend(projectId).tree;
+    const kind = getFileKind(path);
+    const editable = !!sessionId && (kind === 'html' || kind === 'csv' || kind === 'svg');
     const download = () => {
-      if (tree.download && inWorkspace) void tree.download({ projectId, workspaceId, rootPath, files: null }, { path, name: fileName, kind: 'file' });
+      if (tree.download && inWorkspace) void tree.download({ projectId, workspaceId }, { path, name: fileName, kind: 'file' });
       else void readBytes(projectId, workspaceId, path).then((blob) => downloadBlob(blob, fileName));
     };
     return {
@@ -69,9 +73,10 @@ export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, abs
         unreadableAction: tree.download
           ? <Button size="sm" variant="outline" className="mt-4" onClick={download}>{translate('file.downloadInstead')}</Button>
           : <OpenWithSystemButton absolutePath={absolutePath} {...(inWorkspace ? { workspace: { projectId, workspaceId } } : {})} />,
+        ...(editable ? { edit: () => getSessionView(projectId, sessionId!)?.paneLayout.open(FOLDER_APP_FILE_TAB, { filePath: absolutePath }, { from: null, intent: 'navigate' }) } : {}),
         download,
       },
     };
-  }, [projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, rootPath, revision, translate]);
+  }, [projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, revision, translate]);
   return <MessageFilePreview fill tabbed readOnly={!sessionId} file={file} onClose={onClose} />;
 }

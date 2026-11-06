@@ -21,7 +21,7 @@ import {
   type WorkspaceRpc,
 } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { setWorkspaceReachResolver } from '@renderer/features/sessions/workspace-backend/workspace-surface';
-import type { WorkspaceTreeBackend, WorkspaceTreeScope } from '@renderer/features/sessions/workspace-backend/workspace-tree-backend';
+import type { WorkspaceTreeBackend } from '@renderer/features/sessions/workspace-backend/workspace-tree-backend';
 import { events, onMachineEvent, rpc, rpcOn } from '@renderer/lib/ipc';
 import type { EventDefinition } from '@shared/lib/ipc/events';
 import { fileChangesChannel, fileTreeProjectionChannel } from '@shared/core/fs/fsEvents';
@@ -34,8 +34,7 @@ import type { SshPrompt } from '@shared/ssh-prompt';
 import { remoteErrorCode } from '../remote-failure-copy';
 import { hostStatusLabel, machineNoticeLabel } from '../connection-status';
 import { remoteHostsStore } from '../remote-hosts-store';
-import { downloadEntry, uploadItems } from './remote-file-actions';
-import { dropUploadItems, fileUploadItem } from './remote-drop-items';
+import { downloadEntry } from './remote-file-actions';
 import { remoteForLocalPort, watchRemoteForwards } from './remote-forward-cache';
 import { remotePageFailureCopy, remotePortFailureText } from './remote-page-copy';
 import { RemotePageSession } from './remote-page-session';
@@ -111,32 +110,13 @@ function machineRpc(deviceId: string): WorkspaceRpc {
 // ── 文件树:增删改名与本机同一套;拖进来 / 上传 / 下载要把字节搬过线 ──────────────────
 
 function machineTree(deviceId: string): WorkspaceTreeBackend {
-  const describe = (error: unknown) => remoteWorkspaceFailure(error, deviceLabel(deviceId), translateSessionMessage);
-  const transfers = (scope: WorkspaceTreeScope) => transfersFor(deviceId, scope.projectId, scope.workspaceId);
-  const upload = async (scope: WorkspaceTreeScope, dir: string, items: Parameters<typeof uploadItems>[2]) => {
-    const done = await uploadItems(transfers(scope), dir, items, deviceLabel(deviceId), describe);
-    // 树里马上看得见(文件监视也会推,但这里不等它)。
-    if (done) await scope.files?.registerDir(dir, true);
-  };
   return {
-    ...localWorkspaceBackend.tree,
-    // 「在访达中显示」对别的机器上的文件没有意义 —— 换成「下载…」。
-    canReveal: false,
-    importDropped(scope, dir, dataTransfer) {
-      // 必须在这一拍里把拖进来的东西取出来(浏览器在事件结束后就收回 dataTransfer)。
-      const pending = dropUploadItems(dataTransfer);
-      return pending.then((items) => upload(scope, dir, items));
-    },
-    uploadFiles(scope, dir, files) {
-      return upload(scope, dir, files.map((file) => fileUploadItem(file)));
-    },
     download(scope, entry) {
       return downloadEntry(
-        transfers(scope),
+        transfersFor(deviceId, scope.projectId, scope.workspaceId),
         { name: entry.name, path: entry.path, isDirectory: entry.kind === 'directory', size: entry.size ?? 0 }
       );
     },
-    transfers: (scope) => transfers(scope).active,
   };
 }
 

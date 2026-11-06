@@ -4,7 +4,7 @@ import {
   GenericTabDragPreview,
   GenericTabItem,
 } from '@renderer/features/tabs/tab-bar/generic-tab-item';
-import { fileTabLabels } from '@renderer/features/sessions/editor/file-tab-label';
+import { fileTabLabels } from '@renderer/features/tabs/file-tab-label';
 import { fileBaseName } from '@renderer/features/sessions/stores/workspace-path';
 import { FileIcon } from '@renderer/lib/editor/file-icon';
 import { GitChangeStatusIcon } from './changes-panel/components/changes-list-item';

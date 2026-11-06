@@ -26,8 +26,7 @@ import { installedExtensionsStore } from './installed-extensions-store';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { placeOnScreen } from '@renderer/app/screen-layout-actions';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
-import { openFileInBuiltInEditor } from '@renderer/features/sessions/stores/open-file-in-file-editor';
-import { fileTabLabels } from '@renderer/features/sessions/editor/file-tab-label';
+import { fileTabLabels } from '@renderer/features/tabs/file-tab-label';
 import { fileBaseName, filePathKey } from '@renderer/features/sessions/stores/workspace-path';
 import { showModal } from '@renderer/lib/modal/modal-provider';
 import { rpc } from '@renderer/lib/ipc';
@@ -254,18 +253,6 @@ export function createExtensionTabProvider(
           // all: without it, installing an extension could make a file type
           // unopenable — an ability no install may have. Host-provided and first,
           // so it cannot be hidden behind an extension's own entries.
-          ...(claimedFile && place?.kind === 'session'
-            ? [
-                {
-                  id: `${kind}:open-in-builtin-editor`,
-                  label: translateSessionMessage('extensions.openInBuiltInEditor'),
-                  group: 'extension',
-                  run: () => {
-                    openFileInBuiltInEditor(place.projectId, place.sessionId, claimedFile);
-                  },
-                },
-              ]
-            : []),
           ...declaredMenuCommands(kind).map((command) => ({
             id: `${kind}:${command.id}`,
             label: command.title,

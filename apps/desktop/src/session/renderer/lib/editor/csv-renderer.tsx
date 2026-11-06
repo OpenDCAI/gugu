@@ -1,36 +1,5 @@
-import { observer } from 'mobx-react-lite';
 import { useMemo } from 'react';
-import type { FileTabResource } from '@renderer/features/sessions/editor/stores/file-tab-resource';
 import { MAX_PREVIEW_COLUMNS, MAX_PREVIEW_ROWS, parseCsv } from '@renderer/lib/editor/csv-parser';
-import { ModelStatusOverlay } from '@renderer/lib/text-model/model-status-overlay';
-import { modelRegistry } from '@renderer/lib/text-model/model-registry';
-import { useModelStatus } from '@renderer/lib/text-model/use-model';
-
-interface CsvRendererProps {
-  tab: FileTabResource;
-}
-
-/**
- * Renders a CSV file as a table preview.
- * The source/preview toggle lives in the FileContent container above this component.
- */
-export const CsvRenderer = observer(function CsvRenderer({ tab }: CsvRendererProps) {
-  const uri = tab.bufferUri;
-  const status = useModelStatus(uri);
-
-  // Touch bufferVersions so this observer re-renders when the model is first
-  // populated or updated externally before reading the non-observable model text.
-  void modelRegistry.bufferVersions.get(uri);
-  const content = status === 'ready' ? (modelRegistry.getText(uri) ?? '') : '';
-
-  return status !== 'ready' ? (
-    <div className="h-full w-full overflow-hidden bg-background-secondary-1">
-      <ModelStatusOverlay status={status} />
-    </div>
-  ) : (
-    <CsvTable content={content} />
-  );
-});
 
 /**
  * 一段 CSV 正文画成表(本机文件页签与别的机器上的文件页签共用;#6264 远端 CSV 预览照本机这一张)。

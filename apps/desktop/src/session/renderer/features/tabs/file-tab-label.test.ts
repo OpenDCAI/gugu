@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { fileBaseName, filePathKey } from '../stores/workspace-path';
+import { fileBaseName, filePathKey } from '@renderer/features/sessions/stores/workspace-path';
 import { fileTabLabels, htmlTitle } from './file-tab-label';
 
 const tab = (path: string, title: string | null = null) => ({ path, title });

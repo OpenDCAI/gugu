@@ -48,7 +48,6 @@ export function PeekLocalFile({ target, tabId }: { target: LocalPeek; tabId: str
       path={target.path}
       absolutePath={target.absolutePath}
       inWorkspace
-      rootPath=""
       onClose={() => undefined}
     />
   );
