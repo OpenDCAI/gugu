@@ -5,6 +5,9 @@ const world = vi.hoisted(() => ({ owner: 'owner', online: false, wake: vi.fn(), 
 vi.mock('../../apps/desktop/src/lib/cloudComputerStore', () => ({ wakeCloudComputer: world.wake }))
 vi.mock('../../apps/desktop/src/store/devicesCache', () => ({ readCachedDevices: () => world.online ? [{ device_id: 'home', is_online: true }] : [] }))
 vi.mock('../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: world.owner } }) }))
+vi.mock('@/lib/connectionBridge',() => ({ connectionBridge: () => ({ routing: {
+  read: async () => ({ mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true }),assert: async () => {},
+} }) }))
 vi.mock('../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ machineRpc: () => ({ integrations: { authorize: world.authorize,checkConfiguredConnections: world.ready }, github: {} }) }))
 import { phoneAssistantAuthorization } from '../../apps/desktop/src/mobile/assistant/phoneAssistantAuthorization'
 afterEach(() => { vi.useRealTimers(); world.owner = 'owner'; world.online = false; world.wake.mockReset(); world.authorize.mockReset(); world.ready.mockReset() })

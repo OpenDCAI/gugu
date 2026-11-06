@@ -182,7 +182,7 @@ const localGithub: LibraryGithubRpc = {
   importCliAccounts: () => rpc.github.importCliAccounts(),
   setDefaultAccount: (id) => rpc.github.setDefaultAccount(id),
   removeAccount: (id) => rpc.github.removeAccount(id),
-  auth: () => rpc.github.auth(),
+  auth: (...args) => rpc.github.auth(...args),
   authCancel: () => rpc.github.authCancel(),
   onEvent: (event, listener) => events.on(event as never, listener as never),
 };
@@ -274,7 +274,7 @@ export function createRemoteLibraryHost(
       importCliAccounts: () => there.github.importCliAccounts(),
       setDefaultAccount: (id) => there.github.setDefaultAccount(id),
       removeAccount: (id) => there.github.removeAccount(id),
-      auth: () => there.github.auth(),
+      auth: (...args) => there.github.auth(...args),
       authCancel: () => there.github.authCancel(),
       onEvent: (event, listener) => onMachineEvent(deviceId, event, listener),
     },

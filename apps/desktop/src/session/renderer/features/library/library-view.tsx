@@ -15,6 +15,9 @@ import { useParams } from '@renderer/lib/layout/navigation-provider';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { createRemoteLibraryHost, LOCAL_LIBRARY_HOST, LibraryHostProvider, type LibraryHost } from './library-host';
 import { PromptLibraryView } from './prompts/prompt-library-view';
+import { ConnectionRouteBoundary } from '@/components/connections/ConnectionRouteBoundary';
+import { OwnerConnectorsSettings } from '@/components/connections/OwnerConnectorsSettings';
+import { useDevicesStore } from '@/store/devicesContext';
 
 /**
  * 资源库 = 给 agent 用的东西;咕咕这个 app 自己怎么表现归设置(owner 2026-09-15,#5688)。
@@ -116,6 +119,12 @@ function IntegrationsLibraryPage() {
   );
 }
 
+const RoutedIntegrationsLibraryPage = observer(function RoutedIntegrationsLibraryPage({ legacy,host }: { legacy: ReactNode; host: LibraryHost }) {
+  const devices = useDevicesStore();
+  const deviceId = host.remote?.deviceId ?? devices.devices.find(row => row.is_current_device)?.device_id ?? null;
+  return <ConnectionRouteBoundary owner={route => <OwnerConnectorsSettings route={route} deviceId={deviceId} />} legacy={legacy} />;
+});
+
 export const LibraryMainPanel = observer(function LibraryMainPanel() {
   const { tab, onTabChange } = useLibraryTab();
   const { params, setParams } = useParams('library');
@@ -141,13 +150,13 @@ export const LibraryMainPanel = observer(function LibraryMainPanel() {
       />
     ),
     // 集成的数据放在一个 Provider 里(应用根上那份是本机的,聊天里的 @issue 用它);这里按所选机器另挂一份。
-    integrations: host.remote ? (
+    integrations: <RoutedIntegrationsLibraryPage host={host} legacy={host.remote ? (
       <IntegrationsProvider>
         <IntegrationsLibraryPage />
       </IntegrationsProvider>
     ) : (
       <IntegrationsLibraryPage />
-    ),
+    )} />,
     mcp: <McpLibraryView />,
   };
 

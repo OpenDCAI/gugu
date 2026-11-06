@@ -20,6 +20,10 @@ import { assistantPanelLibraryHost } from '@/components/assistant/assistant-pane
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate } from './assistant-ui';
 import { wakeAndWaitOnline } from '@/lib/cloudComputerStore';
 import { listDevicesOnceIdentified } from '@/lib/listDevicesOnceIdentified';
+import { useConnectionAuthority } from '@/lib/connectionBridge';
+import { useOwnerLibraryHost } from '@/components/connections/useOwnerLibraryHost';
+import { useDevicesStore } from '@/store/devicesContext';
+import { createLegacyConnectionGuard,legacyConnectionMetadata } from '@/components/connections/legacy-connection-routing';
 
 /**
  * 「有账号的服务」(飞书、GitHub…)读写的那一份集成:存在它的家里(资源库「集成」同一份逻辑,机器钉死在它家那台),
@@ -48,11 +52,15 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
   );
   const shell = useAssistantShell();
   const owner = useAssistantPanelAccountId();
-  const identity = useQuery({ queryKey: ['assistant-panel-identity',owner],enabled: !!owner && !shell?.assistant?.id,
+  const authority = useConnectionAuthority(),legacy = authority.route?.mode === 'legacy';
+  const ownerDevice = useDevicesStore().devices.find(row => row.device_id === deviceId) ?? null;
+  const ownerHost = useOwnerLibraryHost(ownerDevice,authority.route);
+  const guard = useMemo(() => createLegacyConnectionGuard(),[owner,authority.route?.mode,authority.route?.epoch,deviceId]);
+  const identity = useQuery({ queryKey: ['assistant-panel-identity',owner],enabled: legacy && !!owner && !shell?.assistant?.id,
     queryFn: () => requireAssistantPanelBridge().personalAssistant(owner!),staleTime: Infinity,retry: retryAssistantPanelRead });
-  const assistantId = shell?.assistant?.id ?? identity.data ?? null;
+  const assistantId = legacy ? shell?.assistant?.id ?? identity.data ?? null : null;
   const folder = useQuery({
-    queryKey: ['assistant-panel-folder',owner,assistantId],enabled: !!owner && !!assistantId && !shell?.chatId,
+    queryKey: ['assistant-panel-folder',owner,assistantId],enabled: legacy && !!owner && !!assistantId && !shell?.chatId,
     queryFn: async () => {
       return requireAssistantPanelBridge().privateChat(owner!,assistantId!);
     },staleTime: Infinity,retry: retryAssistantPanelRead,
@@ -60,6 +68,7 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
   const machine = useCloudAssistantFiles(assistantId,shell?.chatId ?? folder.data ?? null,home.deviceId);
   const prepare = useCallback(async (signal?: AbortSignal) => {
     signal?.throwIfAborted();
+    await guard(true);
     if (local) return;
     remoteHostsStore.start();
     if (home.kind === 'cloud') try {
@@ -79,8 +88,11 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
     remoteHostsStore.reconnect(deviceId);
     // The following control read owns readiness and preserves a protocol refusal.
     // Waiting only for `connected` here hides an already known `outdated` state.
-  },[local,home.kind,deviceId,t]);
-  return useMemo(() => assistantPanelLibraryHost(base,machine?.panel,prepare,folder.error ?? identity.error),[base,machine,prepare,folder.error,identity.error]);
+  },[local,home.kind,deviceId,t,guard]);
+  const legacyHost = useMemo(() => assistantPanelLibraryHost(base,legacy && machine?.panel
+    ? { ...legacyConnectionMetadata(machine.panel,guard),authorityEpoch: authority.route?.epoch } : undefined,prepare,authority.error ?? folder.error ?? identity.error),
+  [base,legacy,machine,guard,prepare,authority.route?.epoch,authority.error,folder.error,identity.error]);
+  return authority.route?.mode === 'owner' ? ownerHost : legacyHost;
 }
 
 /** 点一家直接弹它的连接框(引导里那一步:不往下钻详情页)。要在 HomeIntegrations 里头用。 */
@@ -111,6 +123,7 @@ export function accountNote(context: AssistantContext, t: (key: string, values?:
 /** 它家那台的集成(资源库「集成」同一套 provider)。机器还没读到时由 MachineGate 说明白。 */
 export const HomeIntegrations = observer(function HomeIntegrations({ context, children }: { context: AssistantContext; children: ReactNode }) {
   const host = useHomeLibraryHost(context.home);
+  if (host.connectionMetadataExpected) return <LibraryHostProvider value={host} key={host.key}><IntegrationsProvider>{children}</IntegrationsProvider></LibraryHostProvider>;
   return (
     <MachineGate readiness={context.readiness} loading={context.machineLoading} error={context.machineError} onRetry={context.retryMachine}>
       <LibraryHostProvider value={host} key={host.key}>

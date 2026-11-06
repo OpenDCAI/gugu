@@ -2151,7 +2151,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
     // 续上租约 = 这一轮认出了设备 id、写上了心跳:开机时没起成的远程隧道(那时还没有设备 id)在这里起。
-    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().tick(); ensureServerTunnelEndpoint(); void assistantPanelRuntime?.connections.prepare().catch(error => createLogger('connections').warn({ error: String(error) },'Connection operations remain pending')) },
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().tick(); ensureServerTunnelEndpoint() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,

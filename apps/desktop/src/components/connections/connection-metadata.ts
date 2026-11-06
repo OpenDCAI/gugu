@@ -10,6 +10,7 @@ export type ConnectionMetadataSnapshot = Omit<AssistantPanelSnapshot, 'items'> &
 export interface ConnectionMetadataStore {
   ownerId: string
   deviceId?: string
+  authorityEpoch?: string
   /** Legacy readers keep their own cache namespace while they still exist. */
   assistantId?: string
   snapshot(): Promise<ConnectionMetadataSnapshot>
@@ -24,7 +25,8 @@ export interface ConnectionMetadataStore {
 }
 
 export const connectionMetadataKey = (store: ConnectionMetadataStore) =>
-  JSON.stringify([store.ownerId, store.assistantId ?? 'owner-connections', store.deviceId ?? null])
+  JSON.stringify(store.assistantId ? [store.ownerId,store.assistantId,store.deviceId ?? null,...(store.authorityEpoch ? [store.authorityEpoch] : [])]
+    : [store.ownerId,'owner-connections',store.authorityEpoch ?? null,store.deviceId ?? null])
 
 export function connectionMetadataCollection(snapshot: ConnectionMetadataSnapshot, deviceId?: string) {
   return snapshot.items.filter(row => row.domain === 'integrations' && !row.deleted_at

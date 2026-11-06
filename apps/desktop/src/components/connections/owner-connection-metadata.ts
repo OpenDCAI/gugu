@@ -20,6 +20,10 @@ export function ownerConnectionMetadataView(snapshot: ConnectionMetadataSnapshot
   const rows = connectionMetadataCollection(snapshot)
   const published = parseAssistantPanelIntegrations(rows,snapshot,locale).items
   const items = new Map(builtinConnectionCatalog(locale).map(item => [item.id,item]))
-  for (const item of published) if (!items.has(item.id)) items.set(item.id,item)
+  for (const item of published) {
+    const builtin = items.get(item.id)
+    if (!builtin) items.set(item.id,item)
+    else if (item.catalog) items.set(item.id,{ ...builtin,catalog: item.catalog })
+  }
   return connectionMetadataView([...items.values()],rows,snapshot)
 }

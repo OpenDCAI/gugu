@@ -26,6 +26,7 @@ import { IconButton } from './ui/IconButton'
 import { useBackLayer } from './ui/sheetStack'
 import { platform } from '../platform'
 import { UI_EVENTS } from '../lib/uiEvents'
+import { connectionBridge,useConnectionAuthority } from '@/lib/connectionBridge'
 import { appState } from '../session/renderer/lib/stores/app-state'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import {
@@ -54,7 +55,7 @@ const sectionsFor = (mobile: boolean): ActiveSection[] =>
   )
 const MOBILE_SECTIONS_FOR_PLATFORM = sectionsFor(true)
 const DESKTOP_SECTIONS_FOR_PLATFORM = sectionsFor(false)
-const ASSISTANT_SECTIONS: readonly ActiveSection[] = ['assistant', 'connectors']
+const ASSISTANT_SECTIONS: readonly ActiveSection[] = ['assistant']
 /** 内页自己没有一句话说明的几页:由这里补在最上面(其余各页自己有,❌ 重复)。 */
 const MobileAppsSection = lazy(() => import('./settings/MobileAppsSection').then((module) => ({ default: module.MobileAppsSection })))
 
@@ -90,7 +91,9 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   const assistantName = useMyAssistantContact(contacts, cloudComputer?.snapshot?.deviceId).contact?.display_name ?? null
   const platformSections = mobile ? MOBILE_SECTIONS_FOR_PLATFORM : DESKTOP_SECTIONS_FOR_PLATFORM
   const assistantAvailable = cloudAvailable || !!assistantName || platform.capabilities.agentRuntime
-  const sections = assistantAvailable ? platformSections : platformSections.filter((s) => !ASSISTANT_SECTIONS.includes(s))
+  const { route: connectionAuthority } = useConnectionAuthority()
+  const sections = assistantAvailable ? platformSections : platformSections.filter((s) => !ASSISTANT_SECTIONS.includes(s)
+    && (s !== 'connectors' || connectionAuthority?.mode !== 'legacy'))
 
   // @@@1507 初始 section 可由调用方指定(如侧栏「额度」直接开到 quota);缺省 account。
   const [internalSection, setInternalSection] = useState<ActiveSection>(initialSection)
@@ -147,10 +150,10 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       }
     : undefined
 
-  const selectSection = (section: ActiveSection) => {
+  const selectSection = async (section: ActiveSection) => {
     if (mobile && section === 'connectors') {
-      window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors))
-      return
+      const route = await connectionBridge().routing.read().catch(() => null)
+      if (route?.mode === 'legacy') { window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors)); return }
     }
     if (mobile) setParentSection(mobilePane === 'detail' ? activeSection : null)
     setActiveSection(section)

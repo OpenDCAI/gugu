@@ -10,6 +10,9 @@ export type ConnectionItem = {
   staleAt: string | null; observedAt: string | null; updatedAt: string
 }
 export type ConnectionApplication = Omit<ConnectionChange, 'payload'>
+export type ConnectionAuthority = {
+  version: 1; mode: 'legacy' | 'owner'; epoch: string; phase: 'stable' | 'quiescing'; acceptingNewOperations: boolean
+}
 
 export type ConnectionSnapshot = { version: 1; revision: string } & (
   { state: 'ready'; items: ConnectionItem[]; application: ConnectionApplication[] }
@@ -30,10 +33,10 @@ export type ConnectionCommit = {
   runtimeInstanceId?: string | null; recreationId?: string | null
 }
 export type NativeConnectionAuthorization = Pick<ConnectionCommit,'operationId' | 'scopeKey' | 'resourceKey' | 'expectedRevision'> & {
-  recreationId: string; providerId: string; accountId: string
+  authorityEpoch: string; recreationId: string; providerId: string; accountId: string
 }
 export type NativeConnectionAuthorizationBatch = {
-  operationId: string; recreationId: string; providerId: string; operations: { operationId: string; accountId: string }[]
+  authorityEpoch: string; operationId: string; recreationId: string; providerId: string; operations: { operationId: string; accountId: string }[]
 }
 export type ConnectionBatchReceipt = { operationId: string; revision: string; receipts: ConnectionReceipt[] }
 export type ConnectionRecreation = {
@@ -77,7 +80,7 @@ function publicData(value: unknown, fields: Set<string>): value is Record<string
 }
 function parseItem(value: unknown): ConnectionItem {
   if (!object(value) || !scope(value.scopeKey) || typeof value.resourceKey !== 'string' || !value.resourceKey || !revision(value.revision)
-    || !nullableString(value.deviceId) || value.scopeKey !== 'platform' && value.scopeKey !== `device:${value.deviceId}`
+    || !nullableString(value.deviceId) || (value.scopeKey === 'platform' ? value.deviceId !== null : value.scopeKey !== `device:${value.deviceId}`)
     || !publicData(value.data, dataFields) || value.publicMetadata !== null && !publicData(value.publicMetadata, publicFields)
     || !nullableString(value.document) || value.bodySha256 !== null && !digest(value.bodySha256)
     || value.document !== null && value.bodySha256 === null || !nullableString(value.deletedAt) || !nullableString(value.staleAt)
@@ -85,10 +88,11 @@ function parseItem(value: unknown): ConnectionItem {
   return value as ConnectionItem
 }
 function parseApplication(value: unknown): ConnectionApplication {
-  if (!object(value) || !uuid(value.operationId) || !scope(value.scopeKey) || typeof value.resourceKey !== 'string'
+  if (!object(value) || !uuid(value.operationId) || !scope(value.scopeKey) || typeof value.resourceKey !== 'string' || !value.resourceKey
     || !revision(value.revision) || !['pending','started','failed'].includes(String(value.status))
     || !digest(value.requestHash) || !revision(value.expectedItemRevision) || !operations.includes(String(value.operation))
-    || !nullableString(value.deviceId) || !nullableString(value.startedAt) || value.admissionId !== null && !uuid(value.admissionId)
+    || !nullableString(value.deviceId) || (value.scopeKey === 'platform' ? value.deviceId !== null : value.scopeKey !== `device:${value.deviceId}`)
+    || !nullableString(value.startedAt) || value.admissionId !== null && !uuid(value.admissionId)
     || value.status === 'started' && (value.admissionId === null || value.startedAt === null)
     || !nullableString(value.errorCode) || typeof value.terminal !== 'boolean') return invalid()
   return value as ConnectionApplication
@@ -134,6 +138,12 @@ export function createConnectionClient(transport: ConnectionTransport, accountId
     return result
   }
   return {
+    authority: () => request('connection_authority',{},value => {
+      if (!object(value) || value.version !== 1 || !['legacy','owner'].includes(String(value.mode)) || !revision(value.epoch)
+        || !['stable','quiescing'].includes(String(value.phase)) || typeof value.acceptingNewOperations !== 'boolean'
+        || value.phase === 'quiescing' && value.acceptingNewOperations) return invalid()
+      return value as ConnectionAuthority
+    }),
     snapshot: (deviceId: string | null = null) => request('connection_snapshot',{ p_device_id: deviceId },parseConnectionSnapshot),
     resource: (scopeKey: string, resourceKey: string) => request('connection_resource',{ p_scope_key: scopeKey,p_resource_key: resourceKey },async value => {
       if (!object(value) || value.version !== 1 || !['not-ready','ready'].includes(String(value.state)) || !revision(value.revision) || !('item' in value)) return invalid()

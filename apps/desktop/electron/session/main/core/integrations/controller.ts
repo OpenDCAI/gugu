@@ -40,10 +40,10 @@ export const integrationsController = createRPCController({
       host: row.meta?.host,login: row.meta?.login,avatarUrl: row.meta?.avatarUrl,credentialSource: row.meta?.credentialSource,displayName: row.meta?.displayName },
     }));
   },
-  ownerAuthorizationBegin: async (providerId: string,operationId: string) => {
-    if (!integrationPluginRegistry.get(providerId) || !/^[0-9a-f-]{36}$/i.test(operationId)) throw new Error('CONNECTION_AUTHORIZATION_INVALID');
-    await ownerConnectionControl().prepare();
-    await ownerConnectionControl().hold(providerId,operationId);
+  ownerAuthorizationBegin: async (providerId: string,operationId: string,authorityEpoch: string) => {
+    if (!integrationPluginRegistry.get(providerId) || !/^[0-9a-f-]{36}$/i.test(operationId) || typeof authorityEpoch !== 'string' || !/^\d+$/.test(authorityEpoch)) throw new Error('CONNECTION_AUTHORIZATION_INVALID');
+    await ownerConnectionControl().prepare(authorityEpoch);
+    await ownerConnectionControl().hold(providerId,operationId,authorityEpoch);
   },
   ownerAuthorizationComplete: async (providerId: string,operationId: string) => ownerConnectionControl().release(providerId,operationId),
   ownerAuthorizationCommit: async (input: NativeConnectionAuthorization) => ownerConnectionControl().commitAuthorization(input),

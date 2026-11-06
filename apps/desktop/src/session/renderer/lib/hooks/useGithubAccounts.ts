@@ -22,11 +22,11 @@ function invalidateGitHubAccountState(queryClient: ReturnType<typeof useQueryCli
 export function useGitHubAccounts() {
   const host = useLibraryHost();
   return useQuery({
-    queryKey: host.remote || host.assistantPanelExpected ? [...GITHUB_ACCOUNTS_QUERY_KEY, host.key] : GITHUB_ACCOUNTS_QUERY_KEY,
+    queryKey: host.remote || host.assistantPanelExpected || host.connectionMetadataExpected ? [...GITHUB_ACCOUNTS_QUERY_KEY, host.key] : GITHUB_ACCOUNTS_QUERY_KEY,
     queryFn: () => host.github.listAccounts(),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
-    enabled: host.assistantPanelExpected ? !!host.assistantPanel : host.remote?.online !== false,
+    enabled: host.connectionMetadataExpected ? !!host.connectionMetadata : host.assistantPanelExpected ? !!host.assistantPanel : host.remote?.online !== false,
     ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead } : host.remote ? { retry: false } : {}),
   });
 }
@@ -38,7 +38,7 @@ export function useImportGitHubCliAccounts() {
     mutationFn: async () => {
       const ownerId = cachedDevicesAccount();
       const result = await host.github.importCliAccounts();
-      if (result.success && result.importedAccountIds.length) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
+      if (result.success && result.importedAccountIds.length && !host.connectionMetadataExpected) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
         { resource: 'integrations', operation: 'saved', section: 'accounts', id: 'github', deviceId: host.remote?.deviceId }, ownerId);
       return result;
     },
@@ -53,7 +53,7 @@ export function useGitHubDeviceFlowAuth() {
     mutationFn: async () => {
       const ownerId = cachedDevicesAccount();
       const result = await host.github.auth();
-      if (result.success) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
+      if (result.success && !host.connectionMetadataExpected) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
         { resource: 'integrations', operation: 'saved', section: 'accounts', id: 'github', deviceId: host.remote?.deviceId }, ownerId);
       return result;
     },
@@ -68,7 +68,7 @@ export function useSetDefaultGitHubAccount() {
     mutationFn: async (accountId: string) => {
       const ownerId = cachedDevicesAccount();
       const result = await host.github.setDefaultAccount(accountId);
-      if (result.success) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
+      if (result.success && !host.connectionMetadataExpected) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
         { resource: 'integrations', operation: 'edited', section: 'accounts', id: `github:${accountId}`, deviceId: host.remote?.deviceId,
           after: { isDefault: true } }, ownerId);
       return result;
@@ -84,7 +84,7 @@ export function useRemoveGitHubAccount() {
     mutationFn: async (accountId: string) => {
       const ownerId = cachedDevicesAccount();
       const result = await host.github.removeAccount(accountId);
-      if (result.success) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
+      if (result.success && !host.connectionMetadataExpected) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
         { resource: 'integrations', operation: 'removed', section: 'accounts', id: `github:${accountId}`, deviceId: host.remote?.deviceId }, ownerId);
       return result;
     },

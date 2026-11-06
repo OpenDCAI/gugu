@@ -16,6 +16,14 @@ function setup(value: unknown) {
 }
 
 describe('owner connection RPC wire contract', () => {
+  it('reads explicit authority without owner/assistant arguments and rejects inferred or inconsistent modes', async () => {
+    const value = { version: 1,mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true }
+    const { client,transport } = setup(value)
+    expect(await client.authority()).toEqual(value)
+    expect(transport).toHaveBeenCalledExactlyOnceWith('connection_authority',{})
+    for (const invalid of [{ ...value,epoch: 0 },{ ...value,mode: undefined },{ ...value,phase: 'quiescing' }])
+      await expect(setup(invalid).client.authority()).rejects.toMatchObject({ code: 'invalid-response' })
+  })
   it('reads all owner scopes with no assistant/home/owner argument', async () => {
     const { client, transport } = setup(snapshot())
     expect((await client.snapshot()).items).toEqual([item()])

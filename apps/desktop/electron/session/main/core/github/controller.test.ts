@@ -116,6 +116,15 @@ describe('githubController auth', () => {
       message: 'Failed to register GitHub account',
     });
   });
+  it('defers owner-connection success to its metadata adapter without changing the legacy event path', async () => {
+    const user = { id: 42,login: 'person',name: 'Person',email: '',avatar_url: '' };
+    const account = { accountId: 'github.com:42',host: 'github.com',login: 'person',avatarUrl: '',credentialSource: 'device_flow',isDefault: true };
+    mocks.startDeviceFlow.mockResolvedValue({ success: true,user,account: { id: account.accountId } });
+    mocks.listAccounts.mockResolvedValue([account]);
+    const { githubController } = await import('./controller');
+    await expect(githubController.auth(true)).resolves.toEqual({ success: true,account,user });
+    expect(mocks.emit).not.toHaveBeenCalledWith(githubAuthSuccessChannel,expect.anything());
+  });
 
   it('reports account registration failure when registration throws after device flow succeeds', async () => {
     mocks.startDeviceFlow.mockResolvedValue({

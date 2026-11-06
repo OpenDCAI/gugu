@@ -1,7 +1,7 @@
 import type { ConnectionReceipt,ConnectionBatchReceipt,NativeConnectionAuthorization,NativeConnectionAuthorizationBatch } from '@gugu/core/cloud/connections'
 export type OwnerConnectionControl = {
-  prepare(): Promise<void>
-  hold(providerId: string,operationId: string): Promise<void>
+  prepare(expectedEpoch?: string): Promise<void>
+  hold(providerId: string,operationId: string,expectedEpoch?: string): Promise<void>
   release(providerId: string,operationId: string): Promise<void>
   commitAuthorization(input: NativeConnectionAuthorization): Promise<ConnectionReceipt>
   commitAuthorizationBatch(input: NativeConnectionAuthorizationBatch): Promise<ConnectionBatchReceipt>

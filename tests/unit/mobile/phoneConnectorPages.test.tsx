@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+vi.mock('@/lib/connectionBridge',() => ({ connectionBridge: () => ({ routing: {
+  read: async () => ({ mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true }),assert: async () => {},
+} }) }))
 import { act } from 'react'
 import { I18nextProvider } from 'react-i18next'
 import { expectExit, frame, holdDialogExit } from '../../support/dialogExit'

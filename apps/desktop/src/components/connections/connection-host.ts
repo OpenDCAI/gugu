@@ -8,6 +8,7 @@ import { createOwnerConnectionStore, isOwnerConnectionMetadataCache } from './ow
 import type { ConnectionMetadataSnapshot, ConnectionMetadataStore } from './connection-metadata'
 import { CONNECTIONS_CHANGED } from './owner-connection-metadata'
 import { rendererPlatformIntegrationsClient } from '@/lib/platformIntegrations'
+import { createConnectionRouting,connectionClientForRoute,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 
 const accountId = () => getRendererSession()?.user.id ?? null
 export const ownerConnectionClient = createConnectionClient(async (name,args) => {
@@ -15,9 +16,12 @@ export const ownerConnectionClient = createConnectionClient(async (name,args) =>
   return { data,error,status }
 },accountId)
 const stores = new Map<string,ConnectionMetadataStore>()
-async function executePlatformOperation(operationId: string) {
+const routing = createConnectionRouting({ accountId,read: () => ownerConnectionClient.authority(),
+  changed: ownerId => window.dispatchEvent(new CustomEvent(CONNECTIONS_CHANGED,{ detail: { ownerId } })) })
+async function executePlatformOperation(operationId: string,route: ConnectionRoute) {
+  await routing.assert(route,true)
   const owner = accountId()
-  const snapshot = await ownerConnectionClient.snapshot()
+  const snapshot = await connectionClientForRoute(ownerConnectionClient,routing,route).snapshot()
   if (snapshot.state !== 'ready') throw new ConnectionError('not-ready','CONNECTION_NOT_READY')
   const operation = snapshot.application.find(change => change.operationId === operationId)
   // The refreshed head no longer has an outstanding operation: its receipt is settled.
@@ -26,8 +30,10 @@ async function executePlatformOperation(operationId: string) {
     throw new ConnectionError('operation-refused','CONNECTION_OPERATION_UNSUPPORTED')
   const item = snapshot.items.find(row => row.scopeKey === 'platform' && row.resourceKey === operation.resourceKey)
   if (typeof item?.data.providerId !== 'string') throw new ConnectionError('invalid-resource','CONNECTION_RESOURCE_INVALID')
+  await routing.assert(route,true)
   const result = await rendererPlatformIntegrationsClient().disconnectOperation!(item.data.providerId,operationId,snapshot.revision)
   if (accountId() !== owner) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
+  await routing.assert(route)
   if (result.resourceKey !== operation.resourceKey) throw new ConnectionError('invalid-response','CONNECTION_OPERATION_MISMATCH')
   if (result.status === 'failed') throw new ConnectionError(result.errorCode ?? 'platform-unavailable','CONNECTION_PLATFORM_REVOKE_FAILED')
 }
@@ -35,30 +41,40 @@ const bridge: ConnectionBridge = {
   accountId,
   subscribeAccount: listener => observeRendererSession(() => listener()),
   client: ownerConnectionClient,
-  metadata(ownerId,deviceId = null) {
+  routing,
+  metadata(ownerId,deviceId = null,route = routing.peek()) {
     if (accountId() !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
-    const key = JSON.stringify([ownerId,deviceId])
+    if (route?.mode !== 'owner') throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+    const key = JSON.stringify([ownerId,route.mode,route.epoch,deviceId])
     let store = stores.get(key)
     if (!store) {
-      const cache = assistantPanelCacheStore().accountState<ConnectionMetadataSnapshot>(ownerId,`owner-connections.v1:${deviceId ?? 'all'}`,
+      const cache = assistantPanelCacheStore().accountState<ConnectionMetadataSnapshot>(ownerId,`owner-connections.v1:${route.epoch}:${deviceId ?? 'all'}`,
         (value): value is ConnectionMetadataSnapshot => isOwnerConnectionMetadataCache(value,ownerId))
-      store = createOwnerConnectionStore({ ownerId,deviceId,accountId,client: ownerConnectionClient,cache,
-        executePlatformOperation,
+      store = createOwnerConnectionStore({ ownerId,deviceId,accountId,client: connectionClientForRoute(ownerConnectionClient,routing,route),cache,
+        executePlatformOperation: id => executePlatformOperation(id,route),
         changed: () => window.dispatchEvent(new CustomEvent(CONNECTIONS_CHANGED,{ detail: { ownerId } })),
       })
+      store = { ...store,authorityEpoch: route.epoch,assertCurrent: async () => {
+        if (accountId() !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
+        await routing.assert(route)
+      } }
       stores.set(key,store)
     }
     return store
   },
   async retryOperation(operationId) {
-    try { await executePlatformOperation(operationId) }
+    const route = await routing.capture()
+    if (route.mode !== 'owner') throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+    try { await executePlatformOperation(operationId,route) }
     finally { window.dispatchEvent(new CustomEvent(CONNECTIONS_CHANGED,{ detail: { ownerId: accountId() } })) }
   },
   subscribeChanges(ownerId,listener) {
     if (accountId() !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
     // Best-effort owner hint. Reconnect and explicit refresh repair lost hints.
     const handle = subscribePrivateUserEventBus(ownerId,'connection_changed',listener,{ onSubscribed: listener })
-    return () => unsubscribePrivateUserEventBus(handle)
+    const changed = (event: Event) => { if ((event as CustomEvent).detail?.ownerId === ownerId) listener() }
+    window.addEventListener(CONNECTIONS_CHANGED,changed)
+    return () => { window.removeEventListener(CONNECTIONS_CHANGED,changed); unsubscribePrivateUserEventBus(handle) }
   },
 }
 

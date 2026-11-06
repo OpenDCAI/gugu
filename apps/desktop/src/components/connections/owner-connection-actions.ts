@@ -4,48 +4,89 @@ import { connectionBridge } from '@/lib/connectionBridge'
 import { rendererPlatformIntegrationsClient } from '@/lib/platformIntegrations'
 import { openAuthorizationLink } from '@/lib/openAuthorizationLink'
 import { rendererLogger } from '@/lib/log'
+import { i18n } from '@/i18n'
+import { githubAuthSuccessChannel,githubAuthErrorChannel } from '@/session/shared/events/githubEvents'
+import type { LibraryGithubRpc } from '@/session/renderer/features/library/library-host'
 import type { LibraryHost } from '@/session/renderer/features/library/library-host'
 import { builtinConnectionCatalog } from './builtin-connection-catalog'
 import { createConnectionAuthorization, type ConnectionAuthorizationIntent } from './connection-authorization'
+import { connectionFailure } from './connection-copy'
+import { connectionClientForRoute,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 
 /** Existing credential services perform the authorization. Only their public
  * result is committed through the separately acquired owner intent. */
-export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,deviceId: string | null): LibraryHost {
+export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,deviceId: string | null,route: ConnectionRoute): LibraryHost {
   const bridge = connectionBridge(),store = host.connectionMetadata!
-  const intents = createConnectionAuthorization({ client: { ...bridge.client,
+  const client = connectionClientForRoute(bridge.client,bridge.routing,route)
+  const assertRoute = () => bridge.routing.assert(route,true)
+  const intents = createConnectionAuthorization({ client: { ...client,
     commit: change => {
-      if (change.scopeKey === 'platform') return bridge.client.commit(change)
+      if (change.scopeKey === 'platform') return client.commit(change)
       if (!base.integrations.ownerAuthorizationCommit || !change.recreationId || typeof change.data?.providerId !== 'string' || typeof change.data.accountId !== 'string')
         throw new ConnectionError('unsupported-device','CONNECTION_DEVICE_UNSUPPORTED')
-      return base.integrations.ownerAuthorizationCommit({ operationId: change.operationId,scopeKey: change.scopeKey,resourceKey: change.resourceKey,
-        expectedRevision: change.expectedRevision,recreationId: change.recreationId,providerId: change.data.providerId,accountId: change.data.accountId })
+      return assertRoute().then(() => base.integrations.ownerAuthorizationCommit!({ authorityEpoch: route.epoch,operationId: change.operationId,scopeKey: change.scopeKey,resourceKey: change.resourceKey,
+        expectedRevision: change.expectedRevision,recreationId: change.recreationId!,providerId: String(change.data?.providerId),accountId: String(change.data?.accountId) })
+      ).then(async receipt => { await assertRoute(); return receipt })
     },
     commitBatch: change => {
       if (!base.integrations.ownerAuthorizationCommitBatch) throw new ConnectionError('unsupported-device','CONNECTION_DEVICE_UNSUPPORTED')
-      return base.integrations.ownerAuthorizationCommitBatch({ operationId: change.operationId,recreationId: change.recreationId,
+      return assertRoute().then(() => base.integrations.ownerAuthorizationCommitBatch!({ authorityEpoch: route.epoch,operationId: change.operationId,recreationId: change.recreationId,
         providerId: String(change.operations[0]?.data.providerId),operations: change.operations.map(row => ({ operationId: row.operationId,accountId: String(row.data.accountId) })) })
+      ).then(async receipt => { await assertRoute(); return receipt })
     },
   },accountId: bridge.accountId,changed: () => store.invalidate() })
   const cli = new Map<string,ConnectionAuthorizationIntent>()
   const browsers = new Map<string,AbortController>()
+  const generations = new Map<string,number>(),intentGenerations = new WeakMap<ConnectionAuthorizationIntent,number>()
+  const githubListeners = new Map<string,Set<(value: unknown) => void>>()
+  const emitGithub = (name: string,value: unknown) => { for (const listener of githubListeners.get(name) ?? []) listener(value) }
+  const onEvent: LibraryGithubRpc['onEvent'] = (event,listener) => {
+    if (event.name !== githubAuthSuccessChannel.name && event.name !== githubAuthErrorChannel.name) return host.github.onEvent(event,listener)
+    const receive = (value: unknown) => listener(value as never)
+    const listeners = githubListeners.get(event.name) ?? new Set<(value: unknown) => void>()
+    listeners.add(receive); githubListeners.set(event.name,listeners)
+    const stop = event.name === githubAuthErrorChannel.name ? host.github.onEvent(event,listener) : undefined
+    return () => { listeners.delete(receive); stop?.() }
+  }
+  const message = (error: unknown) => connectionFailure(error,key => i18n.t(`connections:${key}`))
+  function safe<Args extends unknown[],Result>(action: (...args: Args) => Promise<Result>) {
+    return async (...args: Args) => {
+      try { await assertRoute(); const result = await action(...args); await assertRoute(); return result }
+      catch (error) { throw Object.assign(new Error(message(error),{ cause: error }),{ code: (error as { code?: string } | null)?.code }) }
+    }
+  }
+  const cancel = (provider: string) => { generations.set(provider,(generations.get(provider) ?? 0)+1) }
+  function assertIntent(intent: ConnectionAuthorizationIntent) {
+    if (generations.get(intent.providerId) !== intentGenerations.get(intent)) throw new ConnectionError('intent-changed','CONNECTION_AUTHORIZATION_CANCELLED')
+  }
   const keptOnPlatform = (provider: string) => builtinConnectionCatalog('en-US').find(row => row.id === provider)?.auth.methods
     .some(method => (method.kind === 'form' || method.kind === 'mcp-oauth') && method.custody === 'platform') ?? false
   async function beginNative(provider: string,accountId: string | null = null) {
     if (!deviceId) throw new ConnectionError('device-required','CONNECTION_DEVICE_REQUIRED')
+    cancel(provider)
+    const generation = generations.get(provider)
     await host.prepareAssistantAction?.()
     if (!base.integrations.ownerAuthorizationBegin || !base.integrations.ownerAccounts || !base.integrations.ownerAuthorizationComplete)
       throw new ConnectionError('unsupported-device','CONNECTION_DEVICE_UNSUPPORTED')
     const operationId = crypto.randomUUID()
-    await base.integrations.ownerAuthorizationBegin(provider,operationId)
-    return intents.begin(provider,`device:${deviceId}`,deviceId,accountId,operationId)
+    await base.integrations.ownerAuthorizationBegin(provider,operationId,route.epoch)
+    await assertRoute()
+    if (generations.get(provider) !== generation) throw new ConnectionError('intent-changed','CONNECTION_AUTHORIZATION_CANCELLED')
+    const intent = await intents.begin(provider,`device:${deviceId}`,deviceId,accountId,operationId)
+    intentGenerations.set(intent,generation!)
+    assertIntent(intent)
+    return intent
   }
   async function completeNative(intent: ConnectionAuthorizationIntent,accountId: string | undefined) {
+    assertIntent(intent)
     if (!accountId) throw new ConnectionError('invalid-response','CONNECTION_AUTHORIZATION_ACCOUNT_MISSING')
     const rows = await base.integrations.ownerAccounts!(intent.providerId)
     const row = rows.find(row => row.accountId === accountId)
     if (!row) throw new ConnectionError('invalid-response','CONNECTION_AUTHORIZATION_ACCOUNT_MISSING')
     const { publicMetadata,...data } = row
+    assertIntent(intent)
     await intents.complete(intent,data,publicMetadata)
+    assertIntent(intent)
     await base.integrations.ownerAuthorizationComplete!(intent.providerId,intent.operationId)
   }
   async function completePlatform(intent: ConnectionAuthorizationIntent) {
@@ -61,11 +102,13 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
     if (keptOnPlatform(provider)) {
       const intent = await intents.begin(provider,'platform',null,editAccountId ?? null)
       const fields = Object.fromEntries(Object.entries(credentials).filter((entry): entry is [string,string] => typeof entry[1] === 'string'))
+      await assertRoute()
       await rendererPlatformIntegrationsClient().saveCredential(provider,fields,{ connect: 'manual' })
       await completePlatform(intent)
       return { success: true as const }
     }
     const intent = await beginNative(provider,editAccountId ?? null)
+    await assertRoute()
     const result = await base.integrations.connect(provider,credentials,editAccountId,true)
     if (result.success) await completeNative(intent,result.accountId)
     return result
@@ -73,6 +116,7 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
   async function authorize(provider: string) {
     if (!keptOnPlatform(provider)) {
       const intent = await beginNative(provider)
+      await assertRoute()
       const result = await base.integrations.authorize(provider,true)
       if (result.success) await completeNative(intent,result.accountId)
       return result
@@ -82,11 +126,14 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
     browsers.set(provider,controller)
     const client = rendererPlatformIntegrationsClient()
     const intent = await intents.begin(provider,'platform',null)
+    signal.throwIfAborted()
+    await assertRoute()
     const attempt = await client.beginOAuth!(provider,signal)
     try {
       await openAuthorizationLink(attempt.authorizationUrl)
       while (Date.now() < attempt.expiresAt) {
         signal.throwIfAborted()
+        await assertRoute()
         const status = await client.oauthStatus!(provider,attempt.attemptId,signal)
         if (status.state === 'connected') { await completePlatform(intent); return { success: true as const } }
         if (status.state === 'failed') throw new ConnectionError('authorization-failed','CONNECTION_AUTHORIZATION_FAILED')
@@ -103,25 +150,29 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
       await client.cancelOAuth!(provider,attempt.attemptId).catch(() => rendererLogger('connections').warn({ provider },'Authorization cleanup did not reach the platform'))
     }
   }
-  return { ...host,integrations: { ...host.integrations,connect,authorize,
-    async cliLoginStart(provider) {
+  return { ...host,integrations: { ...host.integrations,connect: safe(connect),authorize: safe(authorize),
+    cliLoginStart: safe(async (provider: string) => {
       const intent = await beginNative(provider)
       cli.set(provider,intent)
+      await assertRoute()
       const result = await base.integrations.cliLoginStart(provider,true)
       if (result.success && 'connected' in result) { await completeNative(intent,result.accountId); cli.delete(provider) }
       return result
-    },
-    async cliLoginWait(provider) {
+    }),
+    cliLoginWait: safe(async (provider: string) => {
       const intent = cli.get(provider)
       if (!intent) throw new ConnectionError('intent-missing','CONNECTION_AUTHORIZATION_EXPIRED')
       const result = await host.integrations.cliLoginWait(provider)
       if (result.status === 'connected') { await completeNative(intent,result.accountId); cli.delete(provider) }
       return result
-    },
-    async cancelAuthorization(provider) { cli.delete(provider); browsers.get(provider)?.abort(); await host.integrations.cancelAuthorization(provider) },
-  },github: { ...host.github,
-    async importCliAccounts() {
+    }),
+    async cancelAuthorization(provider) { cancel(provider); cli.delete(provider); browsers.get(provider)?.abort(); await host.integrations.cancelAuthorization(provider) },
+  },github: { ...host.github,onEvent,
+    setDefaultAccount: safe(host.github.setDefaultAccount),removeAccount: safe(host.github.removeAccount),
+    authCancel: async () => { cancel('github'); return host.github.authCancel() },
+    importCliAccounts: safe(async () => {
       const intent = await beginNative('github')
+      await assertRoute()
       const result = await base.github.importCliAccounts()
       if (result.success && result.importedAccountIds.length) {
         const rows = await base.integrations.ownerAccounts!('github')
@@ -131,16 +182,27 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
           const { publicMetadata,...data } = row
           return { data,publicMetadata }
         })
+        assertIntent(intent)
         await intents.completeBatch(intent,accounts)
+        assertIntent(intent)
         await base.integrations.ownerAuthorizationComplete!('github',intent.operationId)
       }
       return result
-    },
-    async auth() {
-      const intent = await beginNative('github')
-      const result = await base.github.auth()
-      if (result.success) await completeNative(intent,result.account.accountId)
-      return result
-    },
+    }),
+    auth: safe(async () => {
+      try {
+        const intent = await beginNative('github')
+        await assertRoute()
+        const result = await base.github.auth(true)
+        if (result.success) {
+          await completeNative(intent,result.account.accountId)
+          if (result.user) emitGithub(githubAuthSuccessChannel.name,{ user: result.user })
+        }
+        return result
+      } catch (error) {
+        emitGithub(githubAuthErrorChannel.name,{ error: 'connection_commit_failed',message: message(error) })
+        throw error
+      }
+    }),
   } }
 }

@@ -32,7 +32,12 @@ import { DeviceScopeProvider } from '@renderer/features/remote-hosts/device-scop
 import { settingsDeviceStore } from '@renderer/features/remote-hosts/device-scope-store';
 import { DeviceSettingsScope } from './DeviceSettingsScope';
 import { SubscriptionsSettingsPage } from '../subscriptions/SubscriptionsSettingsPage';
-import { CloudConnectorsSettings, HomeConnectorsSettings } from '../../assistant/assistant-connectors-settings';
+import { OwnerConnectorsSettings } from '@/components/connections/OwnerConnectorsSettings';
+import { platform } from '@/platform';
+import { ModalRenderer } from '@renderer/lib/modal/modal-renderer';
+import { HomeConnectorsSettings,CloudConnectorsSettings } from '../../assistant/assistant-connectors-settings';
+import { ConnectionRouteBoundary } from '@/components/connections/ConnectionRouteBoundary';
+import type { ConnectionRoute } from '@gugu/core/cloud/connectionRouting';
 
 // ---------------------------------------------------------------------------
 // Tab page components
@@ -113,7 +118,17 @@ export type SessionSettingsContext = {
   home?: AssistantHomePlace | null;
   assistantName?: string;
   panelNavigation?: boolean;
+  connectionRoute?: ConnectionRoute;
+  initialConnectorId?: string;
 };
+
+function RoutedConnectors(context: SessionSettingsContext) {
+  const owner = (route: ConnectionRoute) => <OwnerConnectorsSettings route={route} panelNavigation={context.panelNavigation} initialConnectorId={context.initialConnectorId} />;
+  if (context.connectionRoute) return owner(context.connectionRoute);
+  return <ConnectionRouteBoundary owner={owner} legacy={context.home
+    ? <HomeConnectorsSettings home={context.home} assistantName={context.assistantName ?? ''} panelNavigation={context.panelNavigation} />
+    : context.cloudDeviceId ? <CloudConnectorsSettings cloudDeviceId={context.cloudDeviceId} assistantName={context.assistantName ?? ''} /> : null} />;
+}
 
 const SECTION_CONTENT: Record<SessionSettingsSection, (context: SessionSettingsContext) => ReactNode> = {
   sessions: () => <GeneralSettingsPage />,
@@ -122,13 +137,7 @@ const SECTION_CONTENT: Record<SessionSettingsSection, (context: SessionSettingsC
   browser: () => <BrowserSettingsPage />,
   // 订阅与任务里的机器组共用一份机器选择。
   subscriptions: () => <DeviceScopeProvider store={settingsDeviceStore}><SubscriptionsSettingsPage /></DeviceScopeProvider>,
-  // 咕咕那一组的「连接应用 · 云端」:资源库「集成」的同一份数据,机器钉死在它住的那台(助理 App 的资料页读的也是它)。
-  connectors: ({ cloudDeviceId, home, assistantName, panelNavigation }) =>
-    home ? (
-      <HomeConnectorsSettings home={home} assistantName={assistantName ?? ''} panelNavigation={panelNavigation} />
-    ) : cloudDeviceId ? (
-      <CloudConnectorsSettings cloudDeviceId={cloudDeviceId} assistantName={assistantName ?? ''} />
-    ) : null,
+  connectors: context => <RoutedConnectors {...context} />,
 };
 
 /**
@@ -156,6 +165,7 @@ export function SessionSettingsContent({
       <SessionLocalizationProvider>
         <UiPortalContainerProvider value={portalContainer}>
           <InSettingsPanelProvider>{SECTION_CONTENT[section](context)}</InSettingsPanelProvider>
+          {!platform.capabilities.sessionHost ? <ModalRenderer /> : null}
         </UiPortalContainerProvider>
       </SessionLocalizationProvider>
     </QueryClientProvider>

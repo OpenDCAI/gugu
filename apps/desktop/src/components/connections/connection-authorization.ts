@@ -32,7 +32,9 @@ export function createConnectionAuthorization(input: { client: ConnectionClient;
       try {
         const result = await input.client.commitBatch({ operationId: intent.operationId,recreationId: intent.recreationId,operations: request.operations })
         current(intent.ownerId)
-        if (result.receipts.some(row => row.scopeKey !== intent.scopeKey || row.status === 'failed' || row.status === 'superseded'))
+        const ids = new Set(request.operations.map(row => row.operationId))
+        if (result.operationId !== intent.operationId || result.receipts.length !== ids.size
+          || result.receipts.some(row => !ids.delete(row.operationId) || row.scopeKey !== intent.scopeKey || !row.resourceKey || row.status === 'failed' || row.status === 'superseded'))
           throw new ConnectionError('intent-changed','CONNECTION_AUTHORIZATION_CHANGED')
         return result
       } finally { input.changed() }
@@ -70,7 +72,9 @@ export function createConnectionAuthorization(input: { client: ConnectionClient;
       try {
         const receipt = await input.client.commit(change)
         current(intent.ownerId)
-        if (receipt.status === 'failed' || receipt.status === 'superseded') throw new ConnectionError('intent-changed','CONNECTION_AUTHORIZATION_CHANGED')
+        if (receipt.operationId !== intent.operationId || receipt.scopeKey !== intent.scopeKey || !receipt.resourceKey
+          || intent.resourceKey !== null && receipt.resourceKey !== intent.resourceKey || receipt.status === 'failed' || receipt.status === 'superseded')
+          throw new ConnectionError('intent-changed','CONNECTION_AUTHORIZATION_CHANGED')
         return receipt
       } finally { input.changed() }
     },

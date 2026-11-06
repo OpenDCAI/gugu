@@ -7,6 +7,7 @@ import { createConnectionOperationLedger } from './connection-operation-ledger'
 import { createConnectionObservationHolds } from './connection-observation-holds'
 import { publishConnectionObservations, type ConnectionObservation } from './connection-publication'
 import { createConnectionAuthorizationRequests } from './connection-authorization-requests'
+import { createConnectionRouting,connectionClientForRoute,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 
 type Auth = { accessToken: string; userId: string }
 
@@ -35,13 +36,26 @@ export function createConnectionRuntime(input: {
       if (disposed || value?.userId !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
       return value
     }
-    const cloud = createConnectionClient(async (name,args) => {
+    const rawCloud = createConnectionClient(async (name,args) => {
       const value = await auth()
       const result = await createGuguSupabaseClient({ schema: 'identity',headers: { Authorization: `Bearer ${value.accessToken}` } })
         .rpc(name,args).abortSignal(AbortSignal.timeout(10_000))
       await auth()
       return result
     },() => disposed ? null : ownerId)
+    const routing = createConnectionRouting({ accountId: () => disposed ? null : ownerId,read: () => rawCloud.authority(),changed: () => {} })
+    let route: ConnectionRoute | undefined,cloud = rawCloud
+    async function selectOwner(expectedEpoch?: string) {
+      const current = await routing.read()
+      if (current.mode !== 'owner') {
+        if (expectedEpoch !== undefined) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+        return false
+      }
+      if (expectedEpoch !== undefined && current.epoch !== expectedEpoch) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+      if (current.phase !== 'stable' || !current.acceptingNewOperations) throw new ConnectionError('quiescing','CONNECTION_CUTOVER_IN_PROGRESS')
+      route = current; cloud = connectionClientForRoute(rawCloud,routing,current)
+      return true
+    }
     const ledger = createConnectionOperationLedger({ guguHome: input.guguHome,ownerId,deviceId,assertCurrent: async () => { await auth() } })
     const holds = createConnectionObservationHolds({ guguHome: input.guguHome,ownerId,deviceId,assertCurrent: async () => { await auth() } })
     const authorizationRequest = createConnectionAuthorizationRequests({ guguHome: input.guguHome,ownerId,deviceId,assertCurrent: async () => { await auth() } })
@@ -52,6 +66,7 @@ export function createConnectionRuntime(input: {
     }
     let expectedHead = '0'
     const application = createConnectionOperationApplication({ deviceId,
+      authorityEpoch: () => route?.epoch,
       assertCurrent: async () => { await auth() },load: ledger.load,save: ledger.save,
       admit: async effect => {
         const result = await cloud.admit(instance(),expectedHead,effect.operationId)
@@ -62,6 +77,8 @@ export function createConnectionRuntime(input: {
         return result.admissionId
       },
       apply: async effect => {
+        if (!route) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+        await routing.assert(route,true)
         if (effect.validationError) throw new ConnectionEffectRefused(effect.validationError)
         try { await input.local.applyConnection({ operation: effect.operation,data: effect.data }) }
         catch (error) {
@@ -85,7 +102,8 @@ export function createConnectionRuntime(input: {
         ...(change.admissionId ? { admissionId: change.admissionId } : {}),
       }
     }
-    async function prepare() {
+    async function prepare(expectedEpoch?: string) {
+      if (!await selectOwner(expectedEpoch)) return
       const snapshot = await cloud.snapshot(deviceId)
       // Unactivated candidates do not interrupt the original credential path or
       // become a second writable source. Activation itself is backend-owned.
@@ -117,7 +135,7 @@ export function createConnectionRuntime(input: {
       for (const row of input.local.integrationCatalog?.() ?? []) {
         if (held[row.id]) continue
         observations.push({ scopeKey: `device:${deviceId}`,resourceKey: `catalog:${row.id}`,deviceId,
-          data: { providerId: row.id,configured: false,displayName: row.en.name },document: JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh }) })
+          data: { providerId: row.id,configured: false,displayName: row.en.name,...(row.en.catalog ? { catalog: row.en.catalog } : {}) },document: JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh }) })
       }
       for (const { publicMetadata,...data } of await input.local.integrations(ownerId,schedule)) {
         if (held[data.providerId]) continue
@@ -135,6 +153,8 @@ export function createConnectionRuntime(input: {
       return { data,document: JSON.stringify(publicMetadata) }
     }
     async function commitAuthorization(intent: NativeConnectionAuthorization) {
+      if (typeof intent.authorityEpoch !== 'string') throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+      await selectOwner(intent.authorityEpoch)
       if (intent.scopeKey !== `device:${deviceId}`) throw new ConnectionError('42501','CONNECTION_DEVICE_MISMATCH')
       const change = await authorizationRequest(intent.operationId,intent,async () => ({ operationId: intent.operationId,scopeKey: intent.scopeKey,
         resourceKey: intent.resourceKey,expectedRevision: intent.expectedRevision,operation: 'save' as const,
@@ -142,12 +162,17 @@ export function createConnectionRuntime(input: {
       return cloud.commit({ ...change,runtimeInstanceId: instance() })
     }
     async function commitAuthorizationBatch(intent: NativeConnectionAuthorizationBatch) {
+      if (typeof intent.authorityEpoch !== 'string') throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+      await selectOwner(intent.authorityEpoch)
       const change = await authorizationRequest(intent.operationId,intent,async () => ({ operationId: intent.operationId,recreationId: intent.recreationId,
         operations: await Promise.all(intent.operations.map(async operation => ({ operationId: operation.operationId,
           ...await authorizedAccount(intent.providerId,operation.accountId) }))) }))
       return cloud.commitBatch({ ...change,runtimeInstanceId: instance() })
     }
-    return { prepare,hold: holds.begin,release: holds.release,commitAuthorization,commitAuthorizationBatch }
+    return { authority: routing.read,prepare,async hold(provider: string,id: string,expectedEpoch?: string) {
+      if (!await selectOwner(expectedEpoch)) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+      return holds.begin(provider,id)
+    },release: holds.release,commitAuthorization,commitAuthorizationBatch }
   }
   function serial<T>(action: (worker: NonNullable<typeof active>['worker']) => Promise<T>) {
     const result = tail.catch(() => undefined).then(async () => {
@@ -158,7 +183,7 @@ export function createConnectionRuntime(input: {
     tail = result
     return result
   }
-  const prepare = () => serial(worker => worker.prepare())
+  const prepare = (expectedEpoch?: string) => serial(worker => worker.prepare(expectedEpoch))
   let scheduled: NodeJS.Timeout | undefined
   function schedule() {
     if (disposed) return
@@ -167,11 +192,15 @@ export function createConnectionRuntime(input: {
     scheduled.unref()
   }
   const stop = input.local.onIntegrationsChanged?.(schedule)
-  return { prepare,
-    hold: (provider: string,id: string) => serial(worker => worker.hold(provider,id)),
+  // Reconnect/poll repair does not depend on an assistant or a renderer. Legacy
+  // mode performs only the explicit authority read, never owner application RPCs.
+  const refresh = setInterval(() => { if (input.instanceId()) schedule() },15_000)
+  refresh.unref()
+  return { prepare,authority: () => serial(worker => worker.authority()),
+    hold: (provider: string,id: string,expectedEpoch?: string) => serial(worker => worker.hold(provider,id,expectedEpoch)),
     release: (provider: string,id: string) => serial(worker => worker.release(provider,id)),
     commitAuthorization: (intent: NativeConnectionAuthorization) => serial(worker => worker.commitAuthorization(intent)),
     commitAuthorizationBatch: (intent: NativeConnectionAuthorizationBatch) => serial(worker => worker.commitAuthorizationBatch(intent)),
-    dispose() { disposed = true; active = undefined; clearTimeout(scheduled); stop?.() },
+    dispose() { disposed = true; active = undefined; clearTimeout(scheduled); clearInterval(refresh); stop?.() },
   }
 }

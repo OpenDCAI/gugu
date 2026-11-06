@@ -19,6 +19,8 @@ export function createConnectionOperationLedger(input: { guguHome: string; owner
       if (!uuid.test(operationId) || !object(receipt) || !['started', 'applied', 'refused'].includes(String(receipt.state))
         || typeof receipt.admissionId !== 'string' || !uuid.test(receipt.admissionId)
         || typeof receipt.requestHash !== 'string' || !/^[0-9a-f]{64}$/.test(receipt.requestHash)
+        || receipt.authorityMode !== undefined && receipt.authorityMode !== 'owner'
+        || receipt.authorityEpoch !== undefined && (typeof receipt.authorityEpoch !== 'string' || !/^\d+$/.test(receipt.authorityEpoch))
         || receipt.state === 'refused' && (typeof receipt.errorCode !== 'string' || !/^[A-Z][A-Z0-9_]{0,63}$/.test(receipt.errorCode)))
         throw new Error('CONNECTION_LEDGER_INVALID')
     }

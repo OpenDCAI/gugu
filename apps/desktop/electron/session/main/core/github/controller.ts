@@ -44,7 +44,7 @@ export const githubController = createRPCController({
       return { connected: false, accounts: [], defaultAccountId: null };
     }),
 
-  auth: async (): Promise<GitHubAuthResponse> => {
+  auth: async (ownerConnection = false): Promise<GitHubAuthResponse> => {
     let result: Awaited<ReturnType<typeof githubDeviceFlowService.start>>;
     try {
       result = await githubDeviceFlowService.start();
@@ -69,8 +69,9 @@ export const githubController = createRPCController({
         return { success: false, error: message };
       }
 
-      events.emit(githubAuthSuccessChannel, { user: result.user });
-      return { success: true, account: accountSummary };
+      // Owner metadata must be committed before its dialog reports success.
+      if (!ownerConnection) events.emit(githubAuthSuccessChannel, { user: result.user });
+      return { success: true, account: accountSummary, ...(ownerConnection ? { user: result.user } : {}) };
     } catch (error) {
       log.error('Failed to register GitHub account after device flow:', error);
       const message = 'Failed to register GitHub account';

@@ -11,7 +11,7 @@ export type ConnectionEffect = {
   admissionId?: string
   validationError?: string
 }
-export type ConnectionEffectReceipt = { state: 'started' | 'applied' | 'refused'; requestHash: string; admissionId: string; errorCode?: string }
+export type ConnectionEffectReceipt = { state: 'started' | 'applied' | 'refused'; requestHash: string; admissionId: string; errorCode?: string; authorityMode?: 'owner'; authorityEpoch?: string }
 export type ConnectionEffectLedger = Record<string, ConnectionEffectReceipt>
 
 export class ConnectionEffectRefused extends Error {
@@ -23,6 +23,7 @@ export class ConnectionEffectRefused extends Error {
 export function createConnectionOperationApplication(input: {
   deviceId: string
   assertCurrent(): void | Promise<void>
+  authorityEpoch?(): string | undefined
   load(): Promise<ConnectionEffectLedger>
   save(ledger: ConnectionEffectLedger): Promise<void>
   admit(effect: ConnectionEffect): Promise<string | null>
@@ -47,7 +48,8 @@ export function createConnectionOperationApplication(input: {
     const admissionId = await input.admit(effect)
     if (!admissionId) return
     await input.assertCurrent()
-    ledger[effect.operationId] = { state: 'started', requestHash: effect.requestHash, admissionId }
+    const authorityEpoch = input.authorityEpoch?.(),authority = authorityEpoch === undefined ? {} : { authorityMode: 'owner' as const,authorityEpoch }
+    ledger[effect.operationId] = { state: 'started', requestHash: effect.requestHash, admissionId,...authority }
     await input.save(ledger)
     await input.assertCurrent()
     try {
@@ -60,13 +62,13 @@ export function createConnectionOperationApplication(input: {
         await input.acknowledge(effect, admissionId, 'CONNECTION_OUTCOME_UNKNOWN')
         throw new ConnectionEffectRefused('CONNECTION_OUTCOME_UNKNOWN')
       }
-      ledger[effect.operationId] = { state: 'refused', requestHash: effect.requestHash, admissionId, errorCode: error.code }
+      ledger[effect.operationId] = { state: 'refused', requestHash: effect.requestHash, admissionId, errorCode: error.code,...authority }
       await input.save(ledger)
       await input.assertCurrent()
       await input.acknowledge(effect, admissionId, error.code)
       return
     }
-    ledger[effect.operationId] = { state: 'applied', requestHash: effect.requestHash, admissionId }
+    ledger[effect.operationId] = { state: 'applied', requestHash: effect.requestHash, admissionId,...authority }
     await input.save(ledger)
     await input.assertCurrent()
     await input.acknowledge(effect, admissionId, null)

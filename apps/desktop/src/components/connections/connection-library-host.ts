@@ -53,7 +53,9 @@ export function connectionLibraryHost(base: LibraryHost, panel: ConnectionMetada
       const active = anySignal([signal, controller.signal])
       await prepareAction(active)
       if ((authorizationVersions.get(provider) ?? 0) !== version) throw new Error(translateSessionMessage('integrations.authorizationCancelled'))
-      return await action(active)
+      const result = await action(active)
+      await requirePanel().assertCurrent()
+      return result
     } finally {
       pending.delete(controller)
       if (!pending.size) pendingPreparations.delete(provider)
@@ -153,7 +155,8 @@ export function connectionLibraryHost(base: LibraryHost, panel: ConnectionMetada
       }
     }))
   }
-  return { ...base,key: panel ? ownerMode ? `owner-connections:${panel.ownerId}:${base.key}` : `assistant-panel:${panel.ownerId}:${panel.assistantId}` : ownerMode ? 'connections:loading' : 'assistant-panel:loading',
+  return { ...base,key: panel ? ownerMode ? `owner-connections:${panel.ownerId}:${panel.authorityEpoch ?? ''}:${panel.deviceId ?? 'all'}:${base.key}`
+    : `assistant-panel:${panel.ownerId}:${panel.assistantId}${panel.authorityEpoch ? `:${panel.authorityEpoch}` : ''}` : ownerMode ? 'connections:loading' : 'assistant-panel:loading',
     ...(ownerMode ? { connectionMetadata: panel,connectionMetadataExpected: true,connectionMetadataError: loadError } : {}),
     prepareAssistantAction: prepareAction,integrations,
     github: {
@@ -162,7 +165,7 @@ export function connectionLibraryHost(base: LibraryHost, panel: ConnectionMetada
       async setDefaultAccount(accountId) {
         const row = (await accounts('github')).find(row => row.data.accountId === accountId)
         if (!row) return { success: false,error: 'The account no longer exists' }
-        await requirePanel().save(row,{ ...row.data,isDefault: true })
+        await requirePanel().save(row,ownerMode ? { providerId: 'github',accountId,isDefault: true } : { ...row.data,isDefault: true })
         const account = (await githubAccounts()).find(row => row.accountId === accountId)!
         return { success: true,account }
       },
