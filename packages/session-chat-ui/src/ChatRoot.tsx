@@ -71,7 +71,7 @@ import type { ChatCaches } from './core/caches';
 import type { ThemeVarKey } from './core/config';
 import type { MeasureCtx } from './core/define';
 import { genericEstimate } from './core/layout/generic-estimate';
-import { STICK_THRESHOLD_PX } from './core/stick-to-bottom';
+import { SCROLL_END_EPSILON_PX } from './core/stick-to-bottom';
 import { keepUnchangedUnits, unitContainsItem, unitItemIds, unitReservedHeight } from './core/units';
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
@@ -1452,7 +1452,7 @@ export function ChatRoot(props: ChatRootProps) {
     if (smoothScrolling && target !== undefined) {
       lastUserScrollAt = performance.now();
       expectedScrollTop = st;
-      if (Math.abs(st - target) < 1) smoothScrolling = false;
+      if (Math.abs(st - target) < 1) { smoothScrollTarget = undefined; needsProject = true; }
       schedulePrefetch();
       return;
     }
@@ -1471,7 +1471,7 @@ export function ChatRoot(props: ChatRootProps) {
       // arithmetic clamp in writeScrollTop is never misread as a user scroll.
       lastUserScrollAt = performance.now();
       expectedScrollTop = st;
-      const nowAtBottom = maxScrollTop() - st <= STICK_THRESHOLD_PX;
+      const nowAtBottom = userDelta > 0 && maxScrollTop() - st <= SCROLL_END_EPSILON_PX;
       const prevAnchor = anchor();
       const prevAtBottom = prevAnchor.kind === 'tail';
       if (nowAtBottom) {
@@ -1582,7 +1582,7 @@ export function ChatRoot(props: ChatRootProps) {
     };
     commit(next, nextVisible);
 
-    emitAtBottom(maxScrollTop() - shadowScrollTop <= STICK_THRESHOLD_PX);
+    emitAtBottom(anchor().kind === 'tail' && maxScrollTop() - shadowScrollTop <= SCROLL_END_EPSILON_PX);
     lastTopUnitIndex = virt.findIndex(Math.max(0, shadowScrollTop - pt));
 
     // Emit active-user-message visibility change when the state flips.
@@ -1985,11 +1985,11 @@ export function ChatRoot(props: ChatRootProps) {
       cancelPrefetch();
     });
 
-    // Only the reader's own input ends the absorption of a smooth scroll aborted by a model swap: without it,
-    // a scroll delta is the browser landing the aborted animation, whichever frame it lands on.
+    // Reader input can interrupt a smooth return; without it, a late animation step remains browser movement,
+    // including after landing or a model swap, and must not replace the current reading intent.
     const doc = el.ownerDocument;
     const onReaderInput = () => {
-      if (smoothScrolling && smoothScrollTarget === undefined) smoothScrolling = false;
+      if (smoothScrolling) { abortSmoothScroll(); smoothScrolling = false; }
     };
     const readerInputs = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
     for (const type of readerInputs) doc.addEventListener(type, onReaderInput, { capture: true, passive: true });
