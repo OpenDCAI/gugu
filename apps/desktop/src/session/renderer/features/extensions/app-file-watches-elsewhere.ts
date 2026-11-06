@@ -17,6 +17,8 @@ export type AppFileWatchDeps = {
   /** The session's working copy as this window has it; null: this window does not hold it. */
   locate: (sessionId: string) => WatchedWorkspace | null;
   onFileChanges: (handler: (event: FileChangesEvent) => void) => () => void;
+  /** The session's workspace mounted on its machine: at once when it already is. */
+  mount: (sessionId: string, workspace: WatchedWorkspace) => Promise<void>;
   /** Resolves to letting go of the watch. */
   watchDirectory: (workspace: WatchedWorkspace, directory: string) => Promise<() => void>;
   /** That machine reachable again: what changed meanwhile was told to no one, and what it was watching went with it. */
@@ -25,9 +27,6 @@ export type AppFileWatchDeps = {
 };
 
 const separators = /[\\/]/;
-// @@@folder-watch-retry - A machine just back answers before its workspace is mounted again (`not_found`), and nothing says
-// when it is. A folder's watch is a light ask, so it is asked a few more times, then said; saving is checked by version anyway.
-const FOLDER_WATCH_RETRY_MS = [1000, 2000, 4000, 8000, 16000];
 const isAbsolute = (file: string) => file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file);
 const directoryOf = (file: string) => file.slice(0, Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')));
 
@@ -49,27 +48,20 @@ export function answerAppFileWatches(deps: AppFileWatchDeps): () => void {
     });
     let stopped = false;
     let release: (() => void) | null = null;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    let asking = 0;
-    const watchFolder = (attempt = 0, asked = ++asking) => {
-      if (!inside || !separators.test(absolute.slice(workspace.root.length + 1))) return;
-      void deps.watchDirectory(workspace, directoryOf(absolute)).then(
-        (letGo) => { if (stopped) letGo(); else { release?.(); release = letGo; } },
-        (error: unknown) => {
-          if (stopped || asked !== asking) return;
-          const wait = FOLDER_WATCH_RETRY_MS[attempt];
-          if (wait === undefined) return deps.warn('A file\'s folder could not be watched on its machine', { sessionId, error: String(error) });
-          retry = setTimeout(() => watchFolder(attempt + 1, asked), wait);
-        },
-      );
+    const attach = () => {
+      // A machine just back has not mounted the workspace again, and its feed and folder watches need that: mount it, then ask once.
+      void deps.mount(sessionId, workspace).then(async () => {
+        if (stopped || !inside || !separators.test(absolute.slice(workspace.root.length + 1))) return;
+        const letGo = await deps.watchDirectory(workspace, directoryOf(absolute));
+        if (stopped) letGo(); else { release?.(); release = letGo; }
+      }).catch((error: unknown) => deps.warn('A file could not be watched on its machine', { sessionId, error: String(error) }));
     };
-    watchFolder();
+    attach();
     const offBack = deps.onMachineBack(workspace, () => {
-      clearTimeout(retry);
-      watchFolder();
+      attach();
       deps.reply({ key, change: { kind: 'resync' } });
     });
-    watches.set(key, () => { stopped = true; clearTimeout(retry); unsubscribe(); offBack(); release?.(); });
+    watches.set(key, () => { stopped = true; unsubscribe(); offBack(); release?.(); });
   };
   const stopRequests = deps.onRequest((request) => {
     if (request.on) return start(request);

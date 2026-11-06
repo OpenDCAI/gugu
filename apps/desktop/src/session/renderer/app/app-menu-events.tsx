@@ -159,6 +159,12 @@ export function AppMenuEvents() {
           return null;
         },
         onFileChanges: (handler) => workspaceEvents.on(fileChangesChannel, handler),
+        mount: async (sessionId, { projectId }) => {
+          const opened = await rpc.projects.openProject(projectId);
+          if (!opened.success) throw new Error(JSON.stringify(opened.error));
+          const mounted = await rpc.sessionCreate.provisionWorkspace(sessionId, { deferFirstTurn: true });
+          if (!mounted.success) throw new Error(JSON.stringify(mounted.error));
+        },
         watchDirectory: async ({ projectId, workspaceId }, directory) => {
           const files = workspaceRpc(projectId).files;
           const watched = await files.watchDirectory(projectId, workspaceId, directory);
