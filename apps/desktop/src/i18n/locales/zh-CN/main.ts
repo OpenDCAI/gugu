@@ -406,7 +406,6 @@ export default {
     "otpPlaceholder": "6 位验证码",
     "otpSending": "正在向 {{email}} 发送验证码…",
     "otpNotSent": "验证码没发出去（{{email}}）",
-    "sending": "正在发送…",
     "sendTimeout": "发送验证码超时，请重试",
     "sendServerFailed": "验证码服务暂时不可用，请稍后重试",
     "otpSent": "验证码已发送至 {{email}}，请查收邮件",

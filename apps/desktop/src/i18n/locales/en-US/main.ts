@@ -412,7 +412,6 @@ export default {
     "otpPlaceholder": "6-digit code",
     "otpSending": "Sending a verification code to {{email}}…",
     "otpNotSent": "The code was not sent to {{email}}.",
-    "sending": "Sending…",
     "sendTimeout": "Sending the code timed out. Try again.",
     "sendServerFailed": "The verification service is unavailable. Try again later.",
     "otpSent": "We sent a verification code to {{email}}. Check your inbox.",

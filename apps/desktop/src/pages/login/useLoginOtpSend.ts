@@ -41,7 +41,8 @@ export function useLoginOtpSend() {
     const request = Promise.resolve().then(() => authService.requestLoginOtp(email)).catch((error: unknown) => ({ success: false, error: userVisibleAuthError(error, 'sendOtp'), retryAfterSeconds: undefined })).then(result => {
       const finished = Date.now()
       // Keep the established 60-second successful-send cooldown, also across email edits.
-      const next = result.success ? finished + 60_000 : finished + (result.retryAfterSeconds ?? 0) * 1000
+      const next = result.success ? finished + 60_000
+        : Math.max(cooldowns.current.get(email)?.retryAt ?? 0, finished + (result.retryAfterSeconds ?? 0) * 1000)
       const settled: SendingState = { phase: result.success ? 'sent' : 'failed', email, error: result.error, retryAt: next }
       cooldowns.current.set(email, settled)
       if (id !== attempt.current) return

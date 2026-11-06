@@ -156,3 +156,27 @@ it('keeps Google disabled until a retired OTP operation finishes using its share
   await click('用 Google 登录')
   expect(m.google).toHaveBeenCalledOnce()
 })
+
+
+it('does not add cooldown on ordinary failure and preserves only an existing unexpired wait', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-06T00:00:00Z'))
+  const retired = deferred(), current = deferred()
+  m.request.mockReturnValueOnce(retired.promise).mockReturnValueOnce(current.promise)
+  await send(); await click('换邮箱'); await send()
+  await act(async () => { retired.resolve({ success: true }) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); current.resolve({ success: false, error: '网络连接失败，请检查网络后重试。' }) })
+  expect(button('重新发送 (50s)').disabled).toBe(true)
+  await act(async () => { await vi.advanceTimersByTimeAsync(50_000) })
+  expect(button('重新发送').disabled).toBe(false)
+})
+
+it('shows sending once and keeps the resend action named consistently while disabled', async () => {
+  const request = deferred(); m.request.mockReturnValueOnce(request.promise)
+  await send()
+  expect(button('重新发送').disabled).toBe(true)
+  expect(host.querySelectorAll('[role="status"]')).toHaveLength(1)
+  expect(host.querySelectorAll('.gugu-auth-instructions')).toHaveLength(1)
+  expect(button('重新发送').textContent).toBe('重新发送')
+  await act(async () => { request.resolve({ success: false, error: '发送验证码超时，请重试' }) })
+  expect(button('重新发送').disabled).toBe(false)
+})

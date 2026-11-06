@@ -146,7 +146,7 @@ export function LoginPage() {
             <div className="gugu-auth-actions">
               <Button type="button" variant="ghost" size="md" disabled={loading} onClick={handleChangeEmail}>{t('auth.changeEmail')}</Button>
               <Button type="button" variant="ghost" size="md" disabled={loading || google.busy || otpSend.phase === 'sending' || otpSend.countdown > 0} onClick={handleResendOtp}>
-                {otpSend.phase === 'sending' ? t('auth.sending') : otpSend.countdown > 0 ? t('auth.resendCountdown', { seconds: otpSend.countdown }) : t('auth.resend')}
+                {otpSend.countdown > 0 ? t('auth.resendCountdown', { seconds: otpSend.countdown }) : t('auth.resend')}
               </Button>
             </div>
           </motion.form>}
