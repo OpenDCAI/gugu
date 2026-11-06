@@ -9,9 +9,6 @@ import {
 } from '@renderer/features/sessions/session-view-context';
 import { HtmlPreviewFrame, type HtmlPreviewRegistration } from '@/components/preview/HtmlPreviewFrame';
 import { registerHtmlPreview } from '@/components/preview/html-preview-registration';
-import { ModelStatusOverlay } from '@renderer/lib/text-model/model-status-overlay';
-import { modelRegistry } from '@renderer/lib/text-model/model-registry';
-import { useModelStatus } from '@renderer/lib/text-model/use-model';
 import { toExternalUrl } from '@shared/preview/preview-link-script';
 import { resolveWorkspaceResourcePath } from './workspace-resource-path';
 import { openBrowserUrlExternally } from '@renderer/features/browser/browser-toolbar-actions';

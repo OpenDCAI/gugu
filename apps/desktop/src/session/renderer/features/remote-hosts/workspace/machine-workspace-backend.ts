@@ -44,7 +44,6 @@ import {
   presentForwardedUrl,
   remoteLoopbackPort,
   remoteToolReach,
-  remoteWorkspaceFailure,
   remoteWorkspaceTools,
 } from './remote-workspace-routing';
 
