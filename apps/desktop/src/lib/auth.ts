@@ -33,9 +33,11 @@ function loginOtpFailure(error: unknown, metadata: LoginOtpMetadata): LoginOtpRe
   const status = metadata.status ?? detail?.status
   const limited = status === 429 || detail?.code === 'over_email_send_rate_limit'
   const bodyWait = detail?.message?.match(/(?:after|in)\s+(\d+)\s+seconds?/i)?.[1]
+  const cause = metadata.networkError ?? (status !== undefined && status !== detail?.status
+    ? { status, code: detail?.code, message: detail?.message ?? String(error) } : error)
   return {
     success: false,
-    error: userVisibleAuthError(metadata.networkError ?? error, 'sendOtp'),
+    error: userVisibleAuthError(cause, 'sendOtp'),
     ...(status === undefined ? {} : { status }),
     ...(detail?.code ? { code: detail.code } : {}),
     ...(limited ? { retryAfterSeconds: Math.max(1, metadata.retryAfterSeconds ?? (bodyWait ? Number(bodyWait) : 30)) } : {}),
