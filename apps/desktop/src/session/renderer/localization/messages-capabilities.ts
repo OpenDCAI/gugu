@@ -400,8 +400,8 @@ export const enUSCapabilityMessages = {
   'agentsPage.phaseDownloadingPackage': 'Downloading package',
   'agentsPage.failureNetwork': 'The download connection was interrupted. {operation} did not finish.',
   'agentsPage.failurePermission': 'Cannot write to the installation directory.',
-  'agentsPage.failureDisk': 'There is not enough disk space.',
-  'agentsPage.failureExists': 'The installation location is already in use.',
+  'agentsPage.failureDisk': 'There is not enough disk space. {operation} did not finish.',
+  'agentsPage.failureExists': 'The installation location is already in use. {operation} did not finish.',
   'agentsPage.failureIncomplete': '{operation} did not finish.',
   'agentsPage.failureCancelled': '{operation} cancelled.',
 
