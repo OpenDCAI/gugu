@@ -2001,7 +2001,7 @@ async function startSessionpageAgentSessionClaimed(
     // Its creation turn (the first task / first message) is admitted here once, under the session's stable
     // `<id>:creation:0`: a replayed create of the same bound session finds it queued and admits nothing twice.
     if (session.providerSessionId) sessionLife().start(session.id, 'user-open')
-    else admitCreationTurns({ ...session, initialQueue: input.initialPrompt ? [{ text: input.initialPrompt, origin: 'communication' }] : undefined })
+    else await admitCreationTurns({ ...session, initialQueue: input.initialPrompt ? [{ text: input.initialPrompt, origin: 'communication' }] : undefined })
     mark('life-admitted')
     return { ...provisioned, sessionId: session.id, projectId: project.id }
   } catch (error) {

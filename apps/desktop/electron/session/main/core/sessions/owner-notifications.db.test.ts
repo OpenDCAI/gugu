@@ -5,6 +5,8 @@ import { openFixture } from '@tooling/utils/db';
 import type { AppDb } from '@main/db/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
+import { startNativeConversationPublicationHost } from './native-publication-host';
+import { pendingNativePublications } from './native-publication-journal';
 
 const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined, root: '', sourceTurn: 'runtime-turn' }));
 vi.mock('@main/db/client', () => ({ get db() { if (!mocks.db) throw new Error('Missing fixture'); return mocks.db; } }));
@@ -16,6 +18,7 @@ const { nativeConversationUnread, nativeOwnerNotificationUnread, markNativeConve
 const { ownerNotificationHead, ownerNotificationEpoch } = await import('./owner-notification-state');
 const { getStoredHistory, persistCommittedTurn, truncateStoredHistory } = await import('./session-turn-store');
 let fixture: Awaited<ReturnType<typeof openFixture>>;
+let publicationHost: ReturnType<typeof startNativeConversationPublicationHost> | undefined;
 const context = { sessionId: 's', projectId: 'p', workspaceId: 'w' };
 const input = { request_id: '11111111-1111-4111-8111-111111111111', agent_user_id: 'agent', text: 'The result needs your review' };
 const records = () => (fixture.sqlite.prepare('SELECT data FROM session_turns ORDER BY seq').all() as { data: string }[]).map(row => JSON.parse(row.data) as TranscriptTurn);
@@ -25,7 +28,28 @@ beforeEach(async () => {
   fixture = await openFixture(); mocks.db = fixture.db;
   fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id,workspace_id,runtime) VALUES('s','p','w','acp')");
 });
-afterEach(async () => { fixture.close(); mocks.db = undefined; await rm(mocks.root, { recursive: true, force: true }); });
+afterEach(async () => { publicationHost?.dispose(); publicationHost = undefined; fixture.close(); mocks.db = undefined; await rm(mocks.root, { recursive: true, force: true }); });
+
+it('atomically journals a real explicit owner notification once while offline', async () => {
+  publicationHost = startNativeConversationPublicationHost({
+    context: async () => ({ ownerUserId: 'owner', deviceId: 'device', agentUserId: 'agent' }),
+    address: async () => ({ chatId: 'dm', agentUserId: 'agent' }),
+    publish: async () => { throw Error('offline'); }, failed: () => {},
+  });
+  const receipt = await commitOwnerNotification(context, input, async () => {});
+  expect(await commitOwnerNotification(context, input, async () => {})).toEqual(receipt);
+  expect(pendingNativePublications()).toHaveLength(1);
+  expect(records()[0]!.items[0]).toMatchObject({ _meta: { guguPublicationId: pendingNativePublications()[0]!.id } });
+});
+it.each(['signed-out', 'rebound'] as const)('does not commit a notification after its publication scope becomes %s', async state => {
+  publicationHost = startNativeConversationPublicationHost({
+    context: async () => state === 'signed-out' ? null : ({ ownerUserId: 'another', deviceId: 'another-device', agentUserId: 'new-agent' }),
+    address: async () => { throw Error('must not address'); }, publish: async () => { throw Error('must not publish'); }, failed: () => {},
+  });
+  await expect(commitOwnerNotification(context, input, async () => {})).rejects.toThrow(state === 'signed-out' ? 'not authenticated' : 'identity changed');
+  expect(records()).toEqual([]);
+  expect(pendingNativePublications()).toEqual([]);
+});
 
 it('commits once and keeps a confirmed read across an identical retry', async () => {
   const receipt = await commitOwnerNotification(context, input, async () => {});

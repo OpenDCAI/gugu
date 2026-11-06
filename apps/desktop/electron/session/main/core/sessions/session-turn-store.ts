@@ -15,6 +15,8 @@ import { ownerNotificationEpoch, rewindOwnerNotificationState, publishOwnerNotif
 import { persistWithTurnSettlement } from './turn-settlement';
 import { events } from '@main/lib/events';
 import { sessionTurnSettledChannel, type StoredSettledTurn } from '@shared/core/sessions/sessionEvents';
+import { nativePublicationContext } from './native-publication-host';
+import { recordNativePublicationTurn } from './native-publication-turn';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -31,25 +33,11 @@ import { sessionTurnSettledChannel, type StoredSettledTurn } from '@shared/core/
 export type CommittedTurnSource = 'live' | 'replay' | 'revision' | 'backfill';
 
 /**
- * 落一条已提交的回合。
- *
- * `replay`、`live` 与 `revision` 的处置不同，且**必须**在这里分开：
- *  - `live`：刚发生的，直接写。
- *  - `replay`：`session/load` 推回来的。只在这条会话是**空库**时才补，那是两种情况：
- *    本改动之前就存在的老会话，以及刚从编程模式切过来、从没在通用面跑过的会话
- *    （切换保留同一个 provider 会话 id，所以重放能把编程模式期间那段推回来）。
- *    库里已经有那一段时必须丢弃，否则就是把同一句话再写一遍。
- *
- * ⚠️ 判据是 **`已存行数 === 这一回合在本次会话里的序号`**，❌ 不是「库里现在一行都没有」。
- * 后者只在**第一条**重放回合上成立：补完那一条，库里就有行了，于是同一次重放的第 2、3 条
- * 全被当成重复丢掉 —— 库里留下一个只有开头的残缺历史，而下次重开时上屏逻辑按
- * 「库里那份是完整的」把重放回来的其余部分整段跳过。2026-09-10 隔离实例实撞：一条对照会话
- * 补完之后重开只剩 2 个渲染块，而补之前是 6 个。
- *
- * 是否回填在重放第一条时固定。不能只逐条对齐数量：旧档案非空，重放尾部的编号仍可能追上它的条数。
- *
- * 新回合用 `INSERT OR IGNORE` 保持按到达序幂等；已提交回合的改口(结局或迟到的尾巴)整轮替换其最新投影行。
- * `backfill`(更早那一轮被后台命令的终态补了内容,#6582)落盘与 `revision` 同一条路:按 turn id 找行、整轮替换。
+ * Live turns append in arrival order; runtime sequence numbers may restart. Replay fills only an
+ * empty history, with its admission decision fixed at the first replayed turn. Revision/backfill
+ * replaces the existing runtime turn at its stored sequence, including genuinely late content.
+ * Live personal-message UUIDs/outbox entries commit beside transcript bytes. Revisions retain that
+ * live admission; old history and replay never acquire one merely because they were read again.
  */
 const persistenceTails = new Map<string, Promise<void>>();
 type PersistInput = { sessionId: string; source: CommittedTurnSource; turn: TranscriptTurn };
@@ -66,9 +54,10 @@ export function persistCommittedTurn(input: PersistInput): Promise<void> {
 }
 
 async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
+  const context = input.source === 'live' ? await nativePublicationContext(input.sessionId) : null;
   if (input.source === 'revision' || input.source === 'backfill') {
     const [row] = await db
-      .select({ id: sessionTurns.id, seq: sessionTurns.seq })
+      .select({ id: sessionTurns.id, seq: sessionTurns.seq, data: sessionTurns.data })
       .from(sessionTurns)
       .where(and(
         eq(sessionTurns.sessionId, input.sessionId),
@@ -80,7 +69,9 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
     // 改口的可能是结局(进程退出改写 prompt_failed),也可能是内容(落定后才到的尾巴,#6191)
     // ⇒ 整轮按库里的序号重编号后替换,❌ 只挑某个字段写。
     const publish = db.transaction(tx => {
-      const revised = renumberStoredTurn(input.turn, input.sessionId, row.seq);
+      const previous = JSON.parse(row.data) as TranscriptTurn;
+      const turn = { ...input.turn, referenceId: input.turn.referenceId ?? previous.referenceId };
+      const revised = recordNativePublicationTurn({ ...input, turn: renumberStoredTurn(turn, input.sessionId, row.seq), rowId: row.id, source: input.source as 'revision' | 'backfill', context }, tx);
       tx.update(sessionTurns).set({ data: JSON.stringify(revised) }).where(eq(sessionTurns.id, row.id)).run();
       return noteNativeConversationReplies(input.sessionId, revised, input.turn, tx);
     });
@@ -95,7 +86,7 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
   // 到达序由这里分配。❌ 不复用运行时那份回合序号：重开会话后它从 0 重数，而重放只含压缩边界
   // 之后的一段，直接拿来当键必然与库里已有的行撞号。
   const next = await nextSeq(input.sessionId);
-  const turn = renumberStoredTurn(input.turn, input.sessionId, next);
+  let turn = renumberStoredTurn(input.turn, input.sessionId, next);
   const inserted = db.transaction(tx => {
     const result = tx.insert(sessionTurns)
     .values({
@@ -109,6 +100,10 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
     })
     .onConflictDoNothing()
     .returning({ seq: sessionTurns.seq }).all();
+    if (result.length && input.source === 'live') {
+      turn = recordNativePublicationTurn({ ...input, turn, rowId: `${input.sessionId}:${next}`, source: 'live', context }, tx);
+      tx.update(sessionTurns).set({ data: JSON.stringify(turn) }).where(eq(sessionTurns.id, `${input.sessionId}:${next}`)).run();
+    }
     const publish = !result.length ? undefined : input.source === 'live'
       ? noteNativeConversationReplies(input.sessionId, turn, input.turn, tx)
       : noteNativeConversationHistory(input.sessionId, turn, tx);

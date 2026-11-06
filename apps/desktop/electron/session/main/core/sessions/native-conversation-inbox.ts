@@ -1,6 +1,7 @@
 import { eq, like } from 'drizzle-orm';
 import { db, type AppDb } from '@main/db/client';
 import { kv, sessions } from '@main/db/schema';
+import { startNativeConversationPublicationHost } from './native-publication-host';
 
 type InboxDb = Pick<AppDb, 'select' | 'insert'>;
 type Target = { sessionId: string; projectId: string };
@@ -34,10 +35,12 @@ export function publishNativeConversationInbox(): void { for (const listener of 
 /** Resume only persisted owner-exchange requests, never enumerate agents or derive requests from startup history. */
 export function startNativeConversationInboxHost(deps: {
   open(target: Target): Promise<string>;
+  publication?: Omit<Parameters<typeof startNativeConversationPublicationHost>[0], 'failed'>;
   failed(error: unknown): void;
 }) {
   if (activeHost) throw new Error('Native conversation inbox host is already running');
   const token = {}; activeHost = token;
+  const publication = deps.publication ? startNativeConversationPublicationHost({ ...deps.publication, failed: deps.failed }) : undefined;
   let stopped = false;
   let requested = false;
   let running: Promise<void> | null = null;
@@ -75,5 +78,5 @@ export function startNativeConversationInboxHost(deps: {
   const kick = () => { requested = true; void flush().catch(deps.failed); };
   listeners.add(kick);
   kick();
-  return { flush, dispose: () => { stopped = true; clearTimeout(retry); listeners.delete(kick); if (activeHost === token) activeHost = null; } };
+  return { flush: async () => { await flush(); await publication?.flush(); }, dispose: () => { stopped = true; publication?.dispose(); clearTimeout(retry); listeners.delete(kick); if (activeHost === token) activeHost = null; } };
 }

@@ -5075,7 +5075,7 @@ app.whenReady().then(async () => {
       failed: (error) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'),
     })
     const nativeInbox = emdash.startNativeConversationInboxHost({
-      open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
+      open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId, publication: sessionpageIdentityHost.nativePublication,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
     })
     app.once('will-quit', nativeInbox.dispose)

@@ -36,6 +36,9 @@ import { events } from '@main/lib/events';
 import { sessionLife } from './session-life';
 import { sessionDeliveryFailedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
+import { queueNativeInput, type NativePublicationContext } from './native-publication-journal';
+import { nativePublicationContext } from './native-publication-host';
+import { isLifeSession } from './session-pending';
 
 export interface SendSessionMessageParams {
   projectId: string;
@@ -51,6 +54,8 @@ export interface SendSessionMessageParams {
   delivery?: SessionMessageDelivery;
   /** Local admission lifetime; never persisted or sent to the provider. */
   signal?: AbortSignal;
+  /** Captured by the admission wrapper, never accepted from renderer input. */
+  personalPublication?: NativePublicationContext;
 }
 
 export type SendSessionMessageResult = {
@@ -543,25 +548,16 @@ async function drain(params: {
 }
 
 /**
- * Persist one typed message, then let the declared local transport drain when it is ready.
- *
- * Ordinary `session-direct` is admitted synchronously (a cold target is woken first); a gate rejection leaves one durable
- * recipient outbox row for the common inbox reader. Startup delegation and ordinary messages
- * retain the existing durable outbox behavior.
+ * Personal input and its publication journal share durable admission.
+ * Direct handoffs retain synchronous acceptance; startup delegation retains its outbox.
  */
 const directAdmissions = new Map<string, { signature: string; flight: Promise<SendSessionMessageResult> }>();
-/** session-life owns ACP sessions (②); other runtimes keep this module's outbox until their own PR (③④⑤). */
-function runtimeOf(sessionId: string): string | null {
-  const row = db.select({ runtime: sessions.runtime }).from(sessions).where(eq(sessions.id, sessionId)).get();
-  if (!row) throw new Error('session not found');
-  return row.runtime;
-}
-
 function enqueueIntoLife(params: SendSessionMessageParams): SendSessionMessageResult {
   const receipt = sessionLife().enqueue({
     sessionId: params.sessionId, messageId: params.clientMessageId, text: params.text,
     kind: params.kind === 'session-direct' ? 'session-direct' : 'ordinary',
     ...(params.delivery ? { delivery: params.delivery } : {}),
+    ...(params.personalPublication ? { personalPublication: params.personalPublication } : {}),
   });
   switch (receipt.state) {
     case 'queued': case 'dispatching': return { id: params.clientMessageId, status: 'queued' };
@@ -573,7 +569,10 @@ function enqueueIntoLife(params: SendSessionMessageParams): SendSessionMessageRe
 
 export async function sendMessage(params: SendSessionMessageParams): Promise<SendSessionMessageResult> {
   params.signal?.throwIfAborted();
-  if (runtimeOf(params.sessionId) === 'acp') return enqueueIntoLife(params);
+  const personalPublication = params.kind !== 'session-direct' && (!params.delivery?.origin || params.delivery.origin === 'manual') && !readDeliveryEnvelope(params.text) ? await nativePublicationContext(params.sessionId) : null;
+  params = { ...params, personalPublication: personalPublication ?? undefined };
+  params.signal?.throwIfAborted();
+  if (isLifeSession(params.sessionId)) return enqueueIntoLife(params);
   if (params.kind !== 'session-direct' || params.queuedStartupDelegation) return sendMessageOnce(params);
   const key = params.clientMessageId.trim();
   const signature = JSON.stringify([params.projectId, params.sessionId, sessionDirectMessageIdentity(params.text.trim(),key), params.delivery ?? null]);
@@ -714,6 +713,7 @@ async function sendMessageOnce(
         sender: 'user',
         metadata: messageMetadata(params.kind, 'queued', undefined, params.sourceInput),
       }).run();
+      if (params.personalPublication) queueNativeInput(params.personalPublication, params.sessionId, clientMessageId, new Date().toISOString(), tx);
       tx.update(sessions)
         .set({ config: enqueue.config })
         .where(and(

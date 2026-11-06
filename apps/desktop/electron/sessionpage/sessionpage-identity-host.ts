@@ -40,6 +40,7 @@ import { loadSessionpageCanonicalAgentIdentities } from './sessionpage-agent-ide
 import { archiveIdentity } from '@gugu/core/cloud/agentIdentityRemoval'
 import type { SessionIdentityHost } from '../session/main/core/sessions/session-identity-host'
 import { releaseAgentLocalFootprint } from './agent-local-footprint'
+import { createNativePublicationTransport } from './native-publication-transport'
 
 export type SessionpageIdentityAuthSnapshot = { accessToken: string; refreshToken: string; userId: string }
 
@@ -80,6 +81,7 @@ export interface SessionpageSessionStartFacts {
 
 export interface SessionpageIdentityHost extends SessionIdentityHost {
   readonly provisionDeps: SessionpageProvisionDeps
+  readonly nativePublication: ReturnType<typeof createNativePublicationTransport>
   /** The default name a new task is created with on this host (task-name.ts `TaskNamer`). */
   defaultTaskName(providerId: string, taken: readonly string[]): Promise<string>
   /** Rename a bound session's identity locally first, then publish it (task-name.ts `TaskNamer`). */
@@ -184,6 +186,9 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
 
   return {
     provisionDeps,
+    get nativePublication() {
+      return createNativePublicationTransport({ ...deps, env, ensureAgentAddress: input => this.ensureAgentAddress(input) })
+    },
     async archive(sessionId, confirmedRemoval) {
       const auth = await deps.getAuth()
       if (!auth) {

@@ -561,7 +561,7 @@ async function startSpawnedSession(input: {
   // ACP: the creation turns are the session's first pending rows and session-life starts it. A startup failure is
   // the session's failed state with its stage and cause — the person's session is never archived for it.
   if (input.transport === 'acp') {
-    admitCreationTurns(input.session);
+    await admitCreationTurns(input.session);
     return;
   }
   let transportStarted = false;

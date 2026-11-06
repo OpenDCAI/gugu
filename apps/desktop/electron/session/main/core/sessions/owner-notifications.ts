@@ -14,6 +14,8 @@ import { noteNativeConversationReplies } from './session-conversation-read';
 import { renumberStoredTurn, withStoredTurns } from './session-turn-store';
 import { readCurrentTurnIdentity } from './session-activity-source';
 import { setOwnerNotificationHead } from './owner-notification-state';
+import { nativePublicationContext } from './native-publication-host';
+import { recordNativePublicationTurn } from './native-publication-turn';
 export { ownerNotificationHead } from './owner-notification-state';
 
 export type OwnerNotificationInput = {
@@ -70,6 +72,8 @@ export async function commitOwnerNotification(context: Context, input: OwnerNoti
     const files = input.file ? await snapshotFile(workspace!.path, input) : undefined;
     await beforeCommit();
     signal?.throwIfAborted();
+    const publication = await nativePublicationContext(context.sessionId, true);
+    if (publication && publication.agentUserId !== input.agent_user_id) throw new Error('Owner notification identity changed before publication');
     const at = Date.now();
     let publish: (() => void) | undefined;
     const seq = db.transaction(tx => {
@@ -77,9 +81,9 @@ export async function commitOwnerNotification(context: Context, input: OwnerNoti
       if (!current || current.archivedAt || current.projectId !== context.projectId || current.workspaceId !== context.workspaceId) throw new Error('The sending session changed before the owner notification committed');
       const tail = tx.select({ seq: sessionTurns.seq }).from(sessionTurns).where(eq(sessionTurns.sessionId, context.sessionId)).orderBy(desc(sessionTurns.seq)).limit(1).get();
       const next = (tail?.seq ?? -1) + 1;
-      const turn = renumberStoredTurn({ id: sourceId, seq: next, initiator: 'agent', trigger: { kind: 'agent' }, startedAt: at, endedAt: at,
+      const turn = recordNativePublicationTurn({ sessionId: context.sessionId, rowId: `${context.sessionId}:${next}`, source: 'live', context: publication, turn: renumberStoredTurn({ id: sourceId, seq: next, initiator: 'agent', trigger: { kind: 'agent' }, startedAt: at, endedAt: at,
         outcome: { kind: 'done' }, items: [{ kind: 'message', id: `${sourceId}:message:${input.request_id}`, seq: 0, role: 'assistant',
-          text: input.text || files![0]!.name, at, ownerNotification: { requestId: input.request_id, requestHash, ...(sourceTurnId ? { sourceTurnId } : {}), ...(files ? { files } : {}) } }] }, context.sessionId, next);
+          text: input.text || files![0]!.name, at, ownerNotification: { requestId: input.request_id, requestHash, ...(sourceTurnId ? { sourceTurnId } : {}), ...(files ? { files } : {}) } }] }, context.sessionId, next) }, tx);
       tx.insert(sessionTurns).values({ id: `${context.sessionId}:${next}`, sessionId: context.sessionId, seq: next, turnId: sourceId, data: JSON.stringify(turn) }).run();
       setOwnerNotificationHead(context.sessionId, next, tx);
       publish = noteNativeConversationReplies(context.sessionId, turn, turn, tx);
