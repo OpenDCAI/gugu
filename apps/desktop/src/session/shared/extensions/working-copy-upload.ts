@@ -5,6 +5,22 @@ import type { AppFileEntry, AppPlace } from './app-runtime-protocol';
 /** One part on its way to a working copy: what `filesWriteChunk` takes, `writeWorkspaceChunk`'s fields and the place. */
 export type WorkingCopyPart = { place: AppPlace; path: string; uploadId: string; offset: number; data: string; total: number; final: boolean; expectedEtag: string | null; abort?: boolean };
 
+/** The smallest part: on a slow line one takes about a second or two, and what else the line carries gets through between parts. */
+export const SMALLEST_PART_BYTES = 64 * 1024;
+const PART_TOO_LONG_MS = 1500;
+const PART_QUICK_MS = 500;
+
+/**
+ * How large the next part of a transfer is, from how long the last took: one call holds the line until it is through, and a
+ * machine's link is closed when its heartbeats go unanswered, so a part stays about a second long on whatever line it is.
+ * From the smallest, doubling while parts are quick, up to `REMOTE_WORKSPACE_CHUNK_BYTES`.
+ */
+export function nextPartBytes(bytes: number, tookMs: number): number {
+  if (tookMs > PART_TOO_LONG_MS) return Math.max(SMALLEST_PART_BYTES, Math.floor(bytes / 2));
+  if (tookMs < PART_QUICK_MS) return Math.min(REMOTE_WORKSPACE_CHUNK_BYTES, bytes * 2);
+  return bytes;
+}
+
 /**
  * Every file going into a working copy, from a page's bytes or the person's picker, on this computer or another: part by
  * part, each written down on its machine as it comes — a file of any size, with what one call carries across machines
@@ -23,14 +39,16 @@ export async function uploadInParts(
   for (const { name, blob } of files) {
     const path = folder ? `${folder.replace(/^\/+|\/+$/g, '')}/${name}` : name;
     const uploadId = crypto.randomUUID();
-    for (let offset = 0, final = false; !final;) {
+    for (let offset = 0, final = false, size = SMALLEST_PART_BYTES; !final;) {
       if (options?.signal?.aborted) {
         await write({ place, path, uploadId, offset, data: '', total: blob.size, final: false, expectedEtag: null, abort: true });
         throw Object.assign(new Error('The upload was stopped'), { code: 'invalid' });
       }
-      const bytes = new Uint8Array(await blob.slice(offset, offset + REMOTE_WORKSPACE_CHUNK_BYTES).arrayBuffer());
+      const bytes = new Uint8Array(await blob.slice(offset, offset + size).arrayBuffer());
       final = offset + bytes.length >= blob.size;
+      const started = Date.now();
       const answer = await write({ place, path, uploadId, offset, data: bytesToBase64(bytes), total: blob.size, final, expectedEtag: options?.replace ? WORKSPACE_WRITE_FORCE : null });
+      size = nextPartBytes(size, Date.now() - started);
       offset += bytes.length;
       sent += bytes.length;
       options?.onProgress?.(sent, total);

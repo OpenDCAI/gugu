@@ -58,7 +58,7 @@ import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { events } from '@main/lib/events';
 import { workingCopyMovedChannel } from '@shared/events/appEvents';
 import type { PlaceVerb } from '@shared/extensions/bridge-protocol';
-import { uploadInParts } from '@shared/extensions/working-copy-upload';
+import { nextPartBytes, SMALLEST_PART_BYTES, uploadInParts } from '@shared/extensions/working-copy-upload';
 import { log } from '@main/lib/logger';
 
 /**
@@ -746,9 +746,11 @@ const stopped = () => new AppFileError('invalid', 'The download was stopped');
 async function savePieces(page: DesktopFilePage, ref: AppFileRef, filePath: string, saving: Saving = {}): Promise<void> {
   const out = await fs.open(filePath, 'w');
   try {
-    for (let offset = 0, size = Infinity; offset < size;) {
+    for (let offset = 0, size = Infinity, part = SMALLEST_PART_BYTES; offset < size;) {
       if (saving.signal?.aborted) throw stopped();
-      const chunk = await readAppFile(page, { ref, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
+      const started = Date.now();
+      const chunk = await readAppFile(page, { ref, offset, length: part });
+      part = nextPartBytes(part, Date.now() - started);
       size = chunk.size;
       if (chunk.data.byteLength === 0) break;
       await out.write(chunk.data);
