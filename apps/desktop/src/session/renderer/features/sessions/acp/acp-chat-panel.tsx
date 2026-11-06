@@ -1,3 +1,4 @@
+import { useAttachmentFileSelection } from '@/hooks/useAttachmentFileSelection';
 import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
 import { useConnectionPanel } from '@renderer/features/settings/subscriptions/use-connection-panel';
 import { isTranscriptDelivery } from '@/lib/pendingSessionDeliveries';
@@ -341,6 +342,7 @@ const ComposerForStore = observer(function ComposerForStore({
   }, [verb, store]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachments, setAttachmentState] = useState<ComposerAttachment[]>([]);
+  const fileSelection = useAttachmentFileSelection(attachments, store.sessionId);
   const attachmentsRef = useRef(attachments);
   // 发送等待的是上传 promise;账本必须在它 resolve 前更新,不能等 React 的下一次渲染。
   const setAttachments = useCallback((update: ComposerAttachment[] | ((prev: ComposerAttachment[]) => ComposerAttachment[])) => {
@@ -491,29 +493,32 @@ const ComposerForStore = observer(function ComposerForStore({
 
   /** 拖 / 粘 / 选进来的文件(图片也是):各上一枚 chip,当场开始放进私聊文件夹。 */
   const attachFiles = useCallback(async (files: File[], source?: 'paste' | 'drop') => {
-    for (const file of files) {
-      // 用户读的名字是 `file.name`,❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。
-      const isImage = file.type.toLowerCase().startsWith('image/');
-      const chip: ComposerAttachment = {
-        id: crypto.randomUUID(),
-        name: file.name || 'attachment',
-        kind: isImage ? 'image' : 'file',
-        mimeType: file.type,
-      };
-      if (source === 'paste') registerPastedScreenshot(file);
-      void fileUploads.add(chip, file);
-      if (isImage && !screenshotQuality(file)) {
-        const previewUrl = await readFileAsDataUrl(file);
-        if (previewUrl) setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewUrl } : att));
-      } else if (!isImage) {
-        // 文本类附件的内容在入列时读一份,chip 点开看的就是它(#5269)。
-        const preview = await readAttachmentPreviewText(file);
-        if (preview) {
-          setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewText: preview.text, previewTruncated: preview.truncated } : att));
+    const selected = fileSelection.select(files);
+    try {
+      for (const { id, file } of selected) {
+        // 用户读的名字是 `file.name`,❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。
+        const isImage = file.type.toLowerCase().startsWith('image/');
+        const chip: ComposerAttachment = {
+          id,
+          name: file.name || 'attachment',
+          kind: isImage ? 'image' : 'file',
+          mimeType: file.type,
+        };
+        if (source === 'paste') registerPastedScreenshot(file);
+        void fileUploads.add(chip, file);
+        if (isImage && !screenshotQuality(file)) {
+          const previewUrl = await readFileAsDataUrl(file);
+          if (previewUrl) setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewUrl } : att));
+        } else if (!isImage) {
+          // 文本类附件的内容在入列时读一份,chip 点开看的就是它(#5269)。
+          const preview = await readAttachmentPreviewText(file);
+          if (preview) {
+            setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewText: preview.text, previewTruncated: preview.truncated } : att));
+          }
         }
       }
-    }
-  }, [fileUploads, setAttachments]);
+    } catch (error) { fileSelection.release(selected); throw error; }
+  }, [fileSelection, fileUploads, setAttachments]);
 
   /**
    * 拖进来的文件夹。本机会话:落成正文里一条路径 pill(文件夹就在这台电脑上,agent 就地读)。
