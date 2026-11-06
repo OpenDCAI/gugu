@@ -246,17 +246,28 @@ describe('approved A2A activity', () => {
     await untilStable('collapse starts with two pinned rows', () => t.head()?.getBoundingClientRect().top);
     const own = () => t.host.querySelector('[data-agent-conversation-message="Owner question"]')?.getBoundingClientRect();
     const start = t.scroll().scrollTop;
-    t.button().click();
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-    expect(own()!.bottom, 'own pin is still visible in the first shrinking frame').toBeGreaterThan(0);
-    const first = t.scroll().scrollTop;
+    // Drive the real layout tween with a frame clock. A busy browser can deliver
+    // its next animation frame after the entire 200ms duration has elapsed.
+    let now = performance.now();
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const positions: number[] = [];
+    try {
+      t.button().click();
+      for (let frame = 1; frame <= 16; frame++) {
+        now += 16;
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        positions.push(t.scroll().scrollTop);
+        if (frame === 1) expect(own()!.bottom, 'own pin is still visible in the first shrinking frame').toBeGreaterThan(0);
+      }
+    } finally {
+      clock.mockRestore();
+    }
     await untilStable('collapse and target position settled', () => [t.scroll().scrollTop, t.scroll().scrollHeight]);
     const end = t.scroll().scrollTop;
     expect(Math.abs(start - end), 'the fixture really moves to its collapsed anchor').toBeGreaterThan(100);
-    // Shared runners can deliver the next frame late in the 200ms tween. The
-    // contract is an observable intermediate position, not a wall-clock ratio.
-    expect(Math.abs(first - end), 'the first shrinking frame has not already landed on the conclusion')
+    expect(Math.abs(positions[0] - end), 'the first shrinking frame has not already landed on the conclusion')
       .toBeGreaterThan(1);
+    expect(new Set(positions.map(position => Math.round(position))).size, 'collapse passes through multiple real layout positions').toBeGreaterThan(3);
     await new Promise(resolve => setTimeout(resolve, 100));
     expect(t.scroll().scrollTop).toBe(end);
     if (following) {
