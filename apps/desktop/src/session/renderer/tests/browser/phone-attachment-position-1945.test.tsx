@@ -2,6 +2,7 @@ import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
+import { ChatBottomDock } from '@/components/chat/ChatBottomDock'
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store'
 import { startPhoneNewTask } from '@/mobile/chat/PhoneNewTask'
@@ -47,7 +48,9 @@ type Surface = 'single' | 'group' | 'topic' | 'agent' | 'new-task'
 const surfaces: Surface[] = ['single', 'group', 'topic', 'agent', 'new-task']
 const labels: Record<Surface, string> = { single: '普通单聊', group: '群聊', topic: '话题', agent: 'Agent 会话', 'new-task': '新建任务' }
 const cases = surfaces.flatMap(surface => (['light', 'dark'] as const).flatMap(theme =>
-  [1, 5, 10].map(count => ({ surface, theme, count }))))
+  [1, 5, 10].map(count => ({ surface, theme, count, width: 390 }))))
+cases.push(...(['single', 'agent', 'new-task'] as const).flatMap(surface =>
+  (['light', 'dark'] as const).map(theme => ({ surface, theme, count: 10, width: 320 }))))
 let harness: ReturnType<typeof createReactHarness>
 const screenshotHead = import.meta.env.VITE_QA_SOURCE_HEAD as string | undefined
 
@@ -78,7 +81,7 @@ beforeEach(async () => {
   harness.container.setAttribute('data-phone-shell', '')
   harness.container.setAttribute('data-ta-scope', '')
   document.body.style.margin = '0'
-  harness.container.style.cssText = 'width:390px;height:760px;background:var(--bg);color:var(--text-primary);display:flex;flex-direction:column'
+  harness.container.style.cssText = 'position:relative;width:390px;height:760px;background:var(--bg);color:var(--text-primary);display:flex;flex-direction:column'
 })
 afterEach(() => {
   harness.cleanup()
@@ -94,16 +97,18 @@ async function pick(count: number) {
   await until('all picked files have real tiles', () => harness.container.querySelectorAll('[data-slot="composer-attachment"]').length === count)
 }
 
-it.each(cases)('$surface/$theme/$count: pending files stay above the editor', async ({ surface, theme, count }) => {
+it.each(cases)('$surface/$theme/$count/$width: pending files align above the editor', async ({ surface, theme, count, width }) => {
+  await page.viewport(width, 844)
+  harness.container.style.width = `${width}px`
   fixture.theme = theme
   document.documentElement.dataset.theme = theme
   await renderWithAppProviders(harness, <>
     <header style={{ padding: 12, overflowWrap: 'anywhere', fontSize: 12 }}>
-      390px 模拟截图 · {labels[surface]} · {theme === 'light' ? '浅色' : '深色'} · {count} 个附件
+      {width}px 模拟截图 · {labels[surface]} · {theme === 'light' ? '浅色' : '深色'} · {count} 个附件
       {screenshotHead && <div>源码 {screenshotHead}</div>}
     </header>
     <div style={{ flex: 1, minHeight: 80 }} />
-    <Composer surface={surface} />
+    {surface === 'agent' ? <Composer surface={surface} /> : <ChatBottomDock reserve><Composer surface={surface} /></ChatBottomDock>}
   </>, { contacts: {} })
   await until('normal file picker mounts', () => !!harness.container.querySelector('input[type="file"][multiple]'))
   if (surface === 'new-task') {
@@ -119,11 +124,13 @@ it.each(cases)('$surface/$theme/$count: pending files stay above the editor', as
     input.getBoundingClientRect().bottom <= harness.container.getBoundingClientRect().bottom + 1)
   if (screenshotHead) {
     expect(screenshotHead).toMatch(/^[a-f0-9]{40}$/)
-    await page.screenshot({ element: harness.container, path: `__screenshots__/attachment-position-1945/${surface}-${theme}-${count}-${screenshotHead.slice(0, 8)}.png` })
+    await page.screenshot({ element: harness.container, path: `__screenshots__/attachment-position-1945/${surface}-${theme}-${count}-${width}-${screenshotHead.slice(0, 8)}.png` })
   }
   expect(row.getBoundingClientRect().bottom, 'the entire attachment grid must be above the text editor').toBeLessThanOrEqual(input.getBoundingClientRect().top + 1)
   expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth)
   const chips = [...row.querySelectorAll<HTMLElement>('[data-slot="composer-attachment"]')]
+  const contentLeft = input.getBoundingClientRect().left + parseFloat(getComputedStyle(input).paddingLeft)
+  expect(Math.abs(chips[0]!.getBoundingClientRect().left - contentLeft), 'attachments align with the editor content edge').toBeLessThanOrEqual(1)
   expect(chips[0]!.getBoundingClientRect().top).toBeLessThan(input.getBoundingClientRect().top)
   if (count > 5) expect(chips[5]!.getBoundingClientRect().top).toBeGreaterThan(chips[0]!.getBoundingClientRect().top)
   const permission = harness.container.querySelector<HTMLElement>('[data-slot="composer-permission-mode"]')?.closest('button')
