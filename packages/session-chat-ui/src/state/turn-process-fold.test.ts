@@ -627,7 +627,7 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     const silent = turn('t15', [row('background-command-done-tool-call', 'bd'), bash('x1')], undefined, { startedAt: 5_000 });
     for (const record of [running, silent]) {
       const conversation = flattenTier([record], ctxWith({ foldTurnProcess: true, active: true, agentConversation: true }), SEGMENTERS);
-      const head = conversation.map(unit => unit.kind === 'turn-process' ? unit.data : (unit.data as ChatMessage).conversationProcess).find(Boolean) as TurnProcessItem | undefined;
+      const head = conversation.map(unit => unit.kind === 'turn-process' ? unit.data : (unit.data as ChatMessage).conversationProcess).findLast(Boolean) as TurnProcessItem | undefined;
       expect(head?.live).toBe(true);
       expect(head).not.toHaveProperty('trigger');
     }
@@ -930,7 +930,7 @@ describe('joinsFoldRunAt:追加的那一轮会不会并进前面还没收尾的�
 });
 
 describe('agent conversation segment process', () => {
-  const process = (units: ReturnType<typeof flattenTier>) => units.map(unit => unit.kind === 'turn-process' ? unit.data : (unit.data as ChatMessage).conversationProcess).find(Boolean) as ChatMessage['conversationProcess'];
+  const process = (units: ReturnType<typeof flattenTier>) => units.map(unit => unit.kind === 'turn-process' ? unit.data : (unit.data as ChatMessage).conversationProcess).findLast(Boolean) as ChatMessage['conversationProcess'];
   const completed = () => turn('footer', [user('u'), thinking('think'), tool('call'), reply('answer')],
     { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 25000 });
   const conversation = (record: TranscriptTurn, active = false, open = false) => flattenTier([record], ctxWith({ active, foldTurnProcess: true, agentConversation: true,
@@ -951,18 +951,18 @@ describe('agent conversation segment process', () => {
     const open = conversation(running, true);
     expect(process(open)?.live).toBe(true);
     expect((open.find(unit => unit.itemId === 'answer')?.data as ChatMessage).conversationNarration).toBeUndefined();
-    expect(ids(open).indexOf('search')).toBeLessThan(ids(open).indexOf('answer'));
+    expect(ids(open).indexOf('answer')).toBeLessThan(ids(open).indexOf('running:process@answer'));
     const closed = conversation(running, true, true);
     expect(ids(closed)).toContain('answer');
     expect(ids(closed)).not.toContain('search');
   });
-  it('shows the latest words while running and preserves earlier narration after settling', () => {
+  it('preserves every panel message as a bubble while running and after settling', () => {
     const initial = reply('commentary', '我现在去查一查。');
     const record = turn('weather', [user('u'), initial, tool('search'), reply('result', '北京今天晴')], DONE, { startedAt: 1000, endedAt: 9000 });
     for (const active of [true, false]) {
       const units = conversation(record, active, !active);
-      expect(units.filter(unit => (unit.data as ChatMessage).conversationPart === 'body').map(unit => unit.itemId)).toEqual(['result']);
-      expect(units.filter(unit => (unit.data as ChatMessage).conversationNarration).map(unit => unit.itemId)).toEqual(['commentary']);
+      expect(units.filter(unit => (unit.data as ChatMessage).conversationPart === 'body').map(unit => unit.itemId)).toEqual(['commentary', 'result']);
+      expect(units.filter(unit => (unit.data as ChatMessage).conversationNarration).map(unit => unit.itemId)).toEqual([]);
     }
     expect(initial).not.toHaveProperty('conversationNarration');
   });

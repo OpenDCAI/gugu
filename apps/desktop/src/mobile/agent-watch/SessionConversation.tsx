@@ -163,7 +163,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       return { chatId: await chatService.getOrCreateDM(owner, agentUserId), owner, deviceId: local ? null : deviceId, sessionId }
     } })
   const addFiles = (files: File[]) => {
-    for (const { id, file } of fileSelection.select(files)) {
+    for (const { id, file } of fileSelection.choose(files)) {
       void uploads.add({ id, name: file.name, kind: file.type.startsWith('image/') ? 'image' : 'file', mimeType: file.type }, file)
     }
   }

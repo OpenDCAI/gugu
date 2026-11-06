@@ -114,20 +114,32 @@ export const pinLane = style({
   pointerEvents: 'none',
 });
 
+/** The semantic strip reaches the scroller edges, outside the centered text column. */
+export const activityPinLane = style({ contain: 'layout style' });
+
 /** The user row inside its lane; its backdrop is opaque only while stuck. */
 export const pinSticky = style({
   // `top` is per row (ChatRoot): the card lands on the pin line whatever the row's collapsed top gap.
   position: 'sticky',
   pointerEvents: 'auto',
-  // `scroll-state` is newer than csstype's list; it lets pinFade show only while the row is stuck.
-  containerType: 'scroll-state' as 'normal',
+  '@media': { '(prefers-reduced-motion: reduce)': {
+    selectors: { '[data-pin-leaving="true"] &': { visibility: 'hidden' } },
+  } },
 });
 
 /** A normal bubble has no full-width card behind it. Protect the pinned row once it actually sticks. */
 export const pinBackdrop = style({
   position: 'absolute', inset: 0, zIndex: -1, pointerEvents: 'none',
   background: vars.bg, opacity: 0,
-  '@container': { 'scroll-state(stuck: top)': { opacity: 1 } },
+  // The frame scheduler supplies this state from existing lane geometry. Older
+  // Android WebViews cannot evaluate scroll-state container queries.
+  selectors: { '[data-pin-stuck="true"] &': { opacity: 1 } },
+});
+
+/** Page-colored, square strip, including its seam so body text cannot peek between the two pins. */
+export const activityPinBackdrop = style({
+  left: 'calc(50% - 50vw)', right: 'auto', width: '100vw',
+  borderBottom: `1px solid color-mix(in srgb, ${vars.fgMuted} 16%, transparent)`,
 });
 
 /** 16px fade under the stuck row: signals that rows scroll beneath it. Not drawn at rest. */
@@ -141,7 +153,7 @@ export const pinFade = style([
     height: `${CHAT_PIN_FADE_HEIGHT_PX}px`,
     pointerEvents: 'none',
     opacity: 0,
-    '@container': { 'scroll-state(stuck: top)': { opacity: 1 } },
+    selectors: { '[data-pin-stuck="true"] &': { opacity: 1 } },
   },
 ]);
 

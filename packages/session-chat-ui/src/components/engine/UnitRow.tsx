@@ -131,6 +131,8 @@ export type UnitRowProps = {
    * createHeightTween (legacy path for isolated stories / tests).
    */
   tweenRegistry?: TweenRegistry;
+  /** Keep an A2A height tween alive when virtualization removes its original bubble DOM. */
+  onActivityTweenReleased?: (unit: RenderUnit, target: number) => boolean;
   /** True when the unit's source item is in activeTurn (currently streaming). */
   isActiveTurn?: boolean;
   /** Per-instance cache bundle from ChatRoot. */
@@ -220,7 +222,8 @@ export function UnitRow(props: UnitRowProps) {
     return lastContentH;
   });
 
-  const logicalReserved = createMemo(() => unitReservedHeight(props.unit, contentH()));
+  const activityOpen = () => !props.unit.activityFold || props.viewState.isCollapsed(props.unit.activityFold);
+  const logicalReserved = createMemo(() => activityOpen() ? unitReservedHeight(props.unit, contentH()) : 0);
 
   // ── Height tween ───────────────────────────────────────────────────────────
   //
@@ -234,7 +237,7 @@ export function UnitRow(props: UnitRowProps) {
   // exactly once per target change so lastExpandSig stays in lockstep.
   // Inverted semantics throughout: `isCollapsed(id) === true` means "expanded".
   const rowExpanded = (): boolean =>
-    props.viewState.isCollapsed(props.unit.itemId) || props.expandedId === props.unit.itemId;
+    activityOpen() && (props.unit.activityFold !== undefined || props.viewState.isCollapsed(props.unit.itemId) || props.expandedId === props.unit.itemId);
 
   // A row instance lives per visible index, so a structural change above it
   // (loadOlder prepend, #4874 turn fold / unfold, a transcript rebuild) hands
@@ -293,17 +296,26 @@ export function UnitRow(props: UnitRowProps) {
     // overlay) must re-subscribe to the new entry's signals. A plain `let` would
     // leave them subscribed to the disposed entry, freezing the row's clip.
     const [handle, setHandle] = createSignal<TweenHandle>(
-      reg.set(untrack(tweenKey), getIndex, untrack(logicalReserved), false, owner)
+      reg.set(untrack(tweenKey), getIndex, untrack(logicalReserved), !!props.unit.activityFold, owner)
     );
     let armedKey = untrack(tweenKey);
+    let armedUnit = untrack(() => props.unit);
+    let armedTarget = untrack(logicalReserved);
+    const release = () => {
+      if (!armedUnit.activityFold || !props.onActivityTweenReleased?.(armedUnit, armedTarget)) reg.unregister(armedKey, owner);
+    };
 
     createEffect(() => {
       const key = tweenKey();
       if (key !== armedKey) {
-        reg.unregister(armedKey, owner);
+        release();
         armedKey = key;
       }
       const target = logicalReserved();
+      // Ownership metadata must not resubscribe the tween to every streamed
+      // data object. Off-screen rows keep their previous renderer inputs.
+      armedUnit = untrack(() => props.unit);
+      armedTarget = target;
       // shouldAnimate re-bases itself across a unit swap and reports no toggle,
       // so a swap always snaps.
       const anim = untrack(shouldAnimate);
@@ -311,7 +323,7 @@ export function UnitRow(props: UnitRowProps) {
       setHandle(() => next);
     });
 
-    onCleanup(() => reg.unregister(armedKey, owner));
+    onCleanup(release);
 
     tweenHandle = {
       height: () => handle().height(),
@@ -418,7 +430,7 @@ export function UnitRow(props: UnitRowProps) {
   const renderCtx: RenderCtx = {
     viewState: displayViewState,
     measureCtx: displayMeasureCtx,
-    clipHeight: () => tweenHandle.clipHeight(props.unit.gapBefore),
+    clipHeight: () => tweenHandle.clipHeight(props.unit.activityFold ? Math.min(props.unit.gapBefore, animatedReserved()) : props.unit.gapBefore),
   };
 
   return (
@@ -428,7 +440,7 @@ export function UnitRow(props: UnitRowProps) {
       }}
       style={{ position: 'relative' }}
     >
-      <Show when={renderDef()}>
+      <Show when={(activityOpen() || animating()) && renderDef()}>
         {(d) => {
           // Read `insetX()` inside the style object, not once up here: a row
           // component lives per *index*, and a structural change above it (a
@@ -442,7 +454,7 @@ export function UnitRow(props: UnitRowProps) {
               classList={{ 'msg-src-flash': commands().flashMessageId === props.unit.itemId }}
               data-row-inset={insetX()}
               style={{
-                'padding-top': `${props.unit.gapBefore}px`,
+                'padding-top': `${props.unit.activityFold ? Math.min(props.unit.gapBefore, animatedReserved()) : props.unit.gapBefore}px`,
                 'padding-bottom': '0px',
                 'padding-left': `${insetX()}px`,
                 'padding-right': `${insetX()}px`,
@@ -451,8 +463,9 @@ export function UnitRow(props: UnitRowProps) {
               {/* Clip wrapper — active while animating or during one-frame hold */}
               <div
                 style={{
+                  opacity: props.unit.activityFold ? Math.min(1, animatedReserved() / Math.max(1, unitReservedHeight(props.unit, contentH()))) : undefined,
                   height: !clipReleased()
-                    ? `${animatedReserved() - props.unit.gapBefore}px`
+                    ? `${Math.max(0, animatedReserved() - props.unit.gapBefore)}px`
                     : 'auto',
                   overflow: !clipReleased() ? 'hidden' : 'visible',
                 }}
