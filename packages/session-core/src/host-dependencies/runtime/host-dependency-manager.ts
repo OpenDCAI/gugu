@@ -1117,6 +1117,11 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
         try { await this.probe(dependency.id, { waitForInstallations: true }); }
         catch (probErr) {
           this.logger.warn(`[HostDependencyManager] Failed to probe ${dependency.id}:`, probErr);
+          this.updateState({
+            id: dependency.id, category: dependency.category, status: 'error',
+            version: null, path: null, checkedAt: Date.now(),
+            error: probErr instanceof Error ? probErr.message : String(probErr),
+          });
         }
       }
     }));

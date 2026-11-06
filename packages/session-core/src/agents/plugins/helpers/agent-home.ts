@@ -1,4 +1,5 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { agentHomeSegments, type ResolvedAgentHome } from '../capabilities/config-root';
 import type { AgentInjectionMode, AgentConfigRoot, NativeHome } from '../capabilities/session-bundle';
@@ -204,6 +205,9 @@ export async function ensureAgentHome(home: ResolvedAgentHome): Promise<AgentHom
     copied: 0,
     root: home.userConfigRoot,
     skip: new Set(home.carryExclusions),
+    fs: process.versions.electron
+      ? (createRequire(import.meta.url)('original-fs') as typeof import('node:fs')).promises
+      : fs,
   });
   await writeSeedFiles(home);
   await writeMarker(home, 'copied');
@@ -298,7 +302,7 @@ async function copyTree(
   src: string,
   dest: string,
   depth: number,
-  budget: { copied: number; root: string; skip: ReadonlySet<string> },
+  budget: { copied: number; root: string; skip: ReadonlySet<string>; fs: typeof fs },
   /** 相对配置根的路径(`/` 分隔),根本身是 `''` —— 判 `carryExclusions` 用的就是它。 */
   rel = ''
 ): Promise<void> {
@@ -312,7 +316,8 @@ async function copyTree(
     );
   }
   // `stat`(而非 `lstat`)= 跟着软链走,拿到它指向的真实类型。
-  const stats = await fs.stat(src).catch((error: unknown) => {
+  // Only provider-home copying needs physical files: Electron otherwise traverses external ASARs.
+  const stats = await budget.fs.stat(src).catch((error: unknown) => {
     if (isEnoent(error)) return null; // 断链:没内容可复制,跳过
     throw error;
   });
@@ -320,8 +325,8 @@ async function copyTree(
 
 
   if (stats.isDirectory()) {
-    await fs.mkdir(dest, { recursive: true });
-    const entries = await fs.readdir(src);
+    await budget.fs.mkdir(dest, { recursive: true });
+    const entries = await budget.fs.readdir(src);
     for (const entry of entries) {
       await copyTree(join(src, entry), join(dest, entry), depth + 1, budget, rel ? `${rel}/${entry}` : entry);
     }
@@ -339,7 +344,7 @@ async function copyTree(
   }
   // `COPYFILE_EXCL` = 目标已在就**不动它**(抛 EEXIST,这里咽掉)。
   // 咕咕这份里已经有的东西(引擎初始化的、物化刚写的 config.toml)优先级更高。
-  await fs.copyFile(src, dest, fsConstants.COPYFILE_EXCL).catch((error: unknown) => {
+  await budget.fs.copyFile(src, dest, fsConstants.COPYFILE_EXCL).catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException | null)?.code === 'EEXIST') return;
     throw error;
   });
