@@ -22,7 +22,10 @@ function receipt(operation: VaultPayload['operations'][number], action: 'add' | 
 /** The encrypted operation ledger makes lost responses/restarts safe to retry under the original operation id. */
 export async function saveCredential(runtime: ManagementRuntime, operationId: string, input: { origin: string; account: string; password: string }, previous?: CredentialReference): Promise<CredentialSummary> {
   const { key, epoch, payload } = runtime
-  const digest = createHmac('sha256', key).update(JSON.stringify({ input, previous })).digest('hex')
+  // The durable request binds the credential/version, while runtime.check separately validates
+  // the current unlock epoch. A failed audit must not strand the operation after re-unlock.
+  const base = previous ? { id: previous.id, version: previous.version } : undefined
+  const digest = createHmac('sha256', key).update(JSON.stringify({ input, previous: base })).digest('hex')
   let operation = payload.operations.find(item => item.id === operationId)
   if (operation && (operation.kind !== 'save' || operation.digest !== digest)) throw new VaultError('INVALID_INPUT')
   const action = previous ? 'edit' : 'add'
@@ -46,7 +49,7 @@ export async function saveCredential(runtime: ManagementRuntime, operationId: st
 }
 export async function deleteCredential(runtime: ManagementRuntime, operationId: string, reference: CredentialReference): Promise<void> {
   const { key, payload } = runtime
-  const digest = createHmac('sha256', key).update(JSON.stringify(reference)).digest('hex')
+  const digest = createHmac('sha256', key).update(JSON.stringify({ id: reference.id, version: reference.version })).digest('hex')
   let operation = payload.operations.find(item => item.id === operationId)
   if (operation && (operation.kind !== 'delete' || operation.digest !== digest)) throw new VaultError('INVALID_INPUT')
   if (operation?.status === 'committed') { await runtime.record(receipt(operation, 'delete')); return }

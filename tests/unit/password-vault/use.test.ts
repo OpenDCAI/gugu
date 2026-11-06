@@ -96,11 +96,13 @@ describe('trusted internal browser sink with synthetic authority', () => {
     let writes = 0, submissions = 0
     vi.spyOn(VaultDisk.prototype, 'write').mockImplementation(async function (this: VaultDisk, path, bytes) { if (path.includes('/audit/') && ++writes === 2) throw new Error('synthetic pre-submit failure'); return original.call(this, path, bytes) })
     fill.mockImplementationOnce(async (_bound, _secrets, control) => {
-      expect(() => control.claimSubmission()).toThrow(VaultError)
-      await control.prepareSubmission(); control.claimSubmission(); submissions += 1; return 'submitted_unconfirmed'
+      // Optional only in this regression instrument: the reviewed baseline lacks the new method.
+      await control.prepareSubmission?.(); control.claimSubmission(); submissions += 1; return 'submitted_unconfirmed'
     })
-    expect(await vault.useCredential(issue(), binding)).toEqual({ status: 'uncertain', retry: false, retainIsolatedLogin: true })
+    const outcome = await vault.useCredential(issue(), binding)
+    // Test the observed effect outside the sink: exceptions inside the sink are deliberately sanitized.
     expect(submissions).toBe(0)
+    expect(outcome).toEqual({ status: 'uncertain', retry: false, retainIsolatedLogin: true })
   })
   it('cannot revive a use when a pre-submit audit receipt completes after lock', async () => {
     const { vault, binding, issue, fill } = await scenario(), original = VaultDisk.prototype.write

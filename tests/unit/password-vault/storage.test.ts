@@ -96,6 +96,39 @@ describe('local encrypted vault: storage and lifecycle', () => {
     await vault.lock(); await vault.unlock(person)
     expect((await vault.list(person)).length).toBe(0)
   })
+  it.each([
+    { action: 'edit', restart: false }, { action: 'delete', restart: false },
+    { action: 'edit', restart: true }, { action: 'delete', restart: true },
+  ] as const)('continues a pending $action after pre-audit failure with restart=$restart using the same operation id and a fresh epoch', async ({ action, restart }) => {
+    const fixtureData = await fixture(); let vault = fixtureData.vault; await setup(vault)
+    const originalInput = canaryInput(), replacement = canaryInput(), first = await vault.save(person, randomUUID(), originalInput), operationId = randomUUID()
+    const original = VaultDisk.prototype.write
+    vi.spyOn(VaultDisk.prototype, 'write').mockImplementation(async function (this: VaultDisk, path, bytes) {
+      if (path.includes('/audit/')) throw new VaultError('STORAGE_FAILED')
+      return original.call(this, path, bytes)
+    })
+    const attempt = action === 'edit' ? vault.save(person, operationId, replacement, first.reference) : vault.delete(person, operationId, first.reference)
+    await expect(attempt).rejects.toMatchObject({ code: 'AUDIT_FAILED' })
+    vi.restoreAllMocks()
+    if (restart) { await vault.dispose(); vault = new LocalPasswordVault(fixtureData.dependencies); vaults.push(vault) }
+    await vault.unlock(person)
+    const fresh = (await vault.list(person))[0].reference
+    expect(fresh.epoch === first.reference.epoch).toBe(false)
+    // The original approval/reference stays invalid; only the stable operation plus a fresh reference can continue.
+    const stale = action === 'edit' ? vault.save(person, operationId, replacement, first.reference) : vault.delete(person, operationId, first.reference)
+    await expect(stale).rejects.toMatchObject({ code: 'STALE_REFERENCE' })
+    const changedVersion = { ...fresh, version: fresh.version + 1 }
+    const changed = action === 'edit' ? vault.save(person, operationId, replacement, changedVersion) : vault.delete(person, operationId, changedVersion)
+    await expect(changed).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    if (action === 'edit') {
+      await expect(vault.save(person, operationId, canaryInput(), fresh)).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      const resumed = await vault.save(person, operationId, replacement, fresh)
+      expect(resumed.reference.id).toBe(first.reference.id); expect(resumed.reference.version).toBe(2)
+      expect((await vault.list(person)).length).toBe(1)
+    } else {
+      await vault.delete(person, operationId, fresh); expect((await vault.list(person)).length).toBe(0)
+    }
+  })
   it('recovers a committed management effect after the completion audit failed without saving it twice', async () => {
     const { vault } = await fixture(); await setup(vault)
     const input = canaryInput(), operationId = randomUUID(), original = VaultDisk.prototype.write
