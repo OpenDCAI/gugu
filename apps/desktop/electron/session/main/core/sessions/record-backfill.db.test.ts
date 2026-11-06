@@ -30,6 +30,7 @@ import { onActivitySignal } from '../activity/signals';
 import { syncStoredHistoryFromRecord } from './record-backfill';
 import { withStoredTurns } from './session-turn-store';
 import { nativeConversationUnread } from './session-conversation-read';
+import { nativeConversationActivity } from './session-conversation-activity';
 
 type Fixture = Awaited<ReturnType<typeof openFixture>>;
 let fixture: Fixture;
@@ -119,7 +120,13 @@ it.each([false, true])('finds a settled Claude reply after a live snapshot (earl
     expect(stored).toHaveLength(1);
     expect(JSON.parse(stored[0].data)).toMatchObject({ id: 'c1:turn:s0', seq: 0, outcome: { kind: 'done' } });
     expect((JSON.parse(stored[0].data) as TranscriptTurn).items).toContainEqual(expect.objectContaining({ kind: 'message', role: 'assistant', text: 'SETTLEDREPLY' }));
-    expect(events.emit).not.toHaveBeenCalled();
+    // Only the list projection changes: imported history is not a new unread/live message.
+    expect(events.emit).toHaveBeenCalledTimes(earlyPrompt ? 2 : 1);
+    for (const [channel, data] of vi.mocked(events.emit).mock.calls) {
+      expect(channel.name).toBe('session:changed');
+      expect(data).toEqual({ sessionId: 'c1', projectId: 'p1', changes: { nativeLastMessage: true } });
+    }
+    expect(nativeConversationActivity('c1')?.text).toBe('SETTLEDREPLY');
     expect(activity).not.toHaveBeenCalled();
     expect(await nativeConversationUnread('c1')).toEqual(unreadBefore);
     expect(fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('c1')).toEqual(sessionBefore);

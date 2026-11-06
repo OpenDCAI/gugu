@@ -2189,8 +2189,9 @@ export class SessionManager implements InboundRouter {
       onPromptSteered: () => this.deps.onPromptSteered?.(input.sessionId),
       onSessionStateChanged: () => this.syncRecord(record),
       onTranscriptChanged: () => {
-        this.publishOnTick(record);
+        // Queue the durable turn before an empty active-turn snapshot can release its list preview.
         this.emitCommittedTurns(record);
+        this.publishOnTick(record);
       },
       onDraftChanged: () => this.syncRecord(record),
       onAgentEvent: (phase) => {

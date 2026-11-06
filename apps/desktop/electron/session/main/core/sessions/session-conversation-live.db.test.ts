@@ -18,6 +18,7 @@ import { events } from '@main/lib/events';
 let fixture: Awaited<ReturnType<typeof openFixture>>;
 beforeEach(async () => {
   fixture = await openFixture(); mock.db = fixture.db;
+  vi.mocked(events.emit).mockReset();
   fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id) VALUES('s','p')");
 });
 afterEach(() => { openNativeConversationPreviews(async () => {}).dispose(); fixture.close(); mock.db = undefined; vi.restoreAllMocks(); });
@@ -34,9 +35,11 @@ describe('ordinary personal replies in the native conversation directory', () =>
     const h = makeAcpHarness();
     const bridge = openNativeConversationPreviews(id => withStoredTurns(id, async () => {}));
     const writes: Promise<unknown>[] = [];
+    const order: string[] = [];
+    let releaseDurable = () => {};
     const rt = new AcpRuntime({ ...h.deps,
-      onConversationActivity: event => { writes.push(bridge.update(event)); },
-      onTurnCommitted: event => { writes.push(persistCommittedTurn(event)); },
+      onConversationActivity: event => { if (!event.preview) order.push('empty'); writes.push(bridge.update(event)); },
+      onTurnCommitted: event => { order.push('commit'); writes.push(persistCommittedTurn(event)); },
     });
     let finish!: () => void;
     try {
@@ -61,9 +64,24 @@ describe('ordinary personal replies in the native conversation directory', () =>
       now = 40_000; await send('second', ' continued');
       await vi.waitFor(() => expect(nativeConversationListActivity('s')?.text).toBe('Last reply continued'));
       expect(nativeConversationListActivity('s')?.at).toBe(new Date(30_000).toISOString());
+      // Finish after the transcript publication tick is drained, with persistence deliberately blocked.
+      await new Promise(resolve => setTimeout(resolve, 150));
+      const barrier = withStoredTurns('s', () => new Promise<void>(resolve => { releaseDurable = resolve; }));
+      await Promise.resolve();
+      const observed: Array<string | null> = [];
+      vi.mocked(events.emit).mockImplementation((_channel, data) => {
+        if ((data as { changes?: { nativeLastMessage?: boolean } }).changes?.nativeLastMessage) observed.push(nativeConversationListActivity('s')?.text ?? null);
+      });
       finish(); await running;
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(order.indexOf('commit')).toBeGreaterThanOrEqual(0);
+      expect(order.indexOf('empty')).toBeGreaterThan(order.indexOf('commit'));
+      expect(nativeConversationActivity('s')).toBeNull();
+      expect(nativeConversationListActivity('s')?.text).toBe('Last reply continued');
+      releaseDurable(); await barrier;
       await vi.waitFor(() => expect(nativeConversationActivity('s')?.text).toBe('Last reply continued'));
       await Promise.all(writes);
+      expect(observed.every(text => text === 'Last reply continued')).toBe(true);
       expect(nativeConversationListActivity('s')).toMatchObject({ text: 'Last reply continued', at: new Date(30_000).toISOString() });
       expect(nativeConversationActivity('s')).toMatchObject({ text: 'Last reply continued', at: new Date(30_000).toISOString() });
       expect(nativeConversationUnread('s')).toHaveLength(2);
@@ -71,7 +89,7 @@ describe('ordinary personal replies in the native conversation directory', () =>
       // A worker restart can discard temporary state without reverting the row to the owner's input.
       bridge.dispose();
       expect(nativeConversationListActivity('s')?.text).toBe('Last reply continued');
-    } finally { finish?.(); await rt.dispose(); bridge.dispose(); await Promise.all(writes); }
+    } finally { releaseDurable(); finish?.(); await rt.dispose(); bridge.dispose(); await Promise.all(writes); }
   });
 
   it('ignores an old worker and its delayed cleanup after a successor publishes', async () => {

@@ -286,7 +286,7 @@ const acpWorker = lazyWorker(
       );
       const conversationPreviews = openNativeConversationPreviews(sessionId => withStoredTurns(sessionId, async () => undefined));
       handle.scope.add(() => conversationPreviews.dispose());
-      handle.scope.add(handle.client.conversationActivity.subscribe(undefined, {
+      handle.scope.add(await handle.client.conversationActivity.subscribe(undefined, {
         onEvent: event => {
           void conversationPreviews.update(event).catch(error => log.error('Failed to update personal conversation preview', { sessionId: event.sessionId, error }));
         },
