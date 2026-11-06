@@ -1375,6 +1375,9 @@ export function ChatRoot(props: ChatRootProps) {
     if (!viewShown()) return;
     const u = units().at(ui);
     if (!u) return;
+    // A folded activity owns zero height (or its in-flight closing tween). Idle
+    // prefetch must not reserve the hidden bubble's full measured height again.
+    if (u.activityFold && !viewState().isCollapsed(u.activityFold)) return;
     const unitDef = UNIT_REGISTRY[u.kind];
     if (!unitDef) return;
     const c = u.chrome;

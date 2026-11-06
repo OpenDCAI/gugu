@@ -267,4 +267,18 @@ describe('approved A2A activity', () => {
     await untilStable('reduced motion final anchor', () => t.scroll().scrollTop);
     expect(t.button().getAttribute('aria-expanded')).toBe('false');
   });
+  it('keeps closed activity lanes at header height while idle prefetch measures the surrounding history', async () => {
+    const records = Array.from({ length: 18 }, (_, i) => turn(`t${i}`, [delivery(`hidden${i}`, 'A hidden long agent update. '.repeat(100)), ordinary(`Panel reply ${i}`)]));
+    const t = await mount(800, records);
+    const oversized: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      t.scroll().scrollTop = i * 80;
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      for (const header of t.host.querySelectorAll<HTMLElement>('[data-agent-activity][data-expanded="false"]')) {
+        const height = Number.parseFloat(header.closest<HTMLElement>('[data-index]')!.style.height);
+        if (height > 70) oversized.push(height);
+      }
+    }
+    expect(oversized, 'prefetch must not restore reserved height for an invisible folded message').toEqual([]);
+  });
 });
