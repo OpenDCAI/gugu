@@ -227,6 +227,7 @@ export const attachmentStrip = style({
       minHeight: '4rem',
       maxHeight: '4rem',
       boxSizing: 'border-box',
+      paddingTop: '0.5rem',
       paddingBottom: '0.25rem',
       minWidth: 0,
       overflowX: 'auto',
@@ -257,7 +258,8 @@ export const attachmentChip = style({
   paddingRight: '0.625rem',
   backgroundColor: vars.surfaceBaseSelected,
   selectors: {
-    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: { height: '3rem', boxSizing: 'border-box' },
+    // The inline retry's line box needs 40px plus the chip's 12px vertical padding.
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: { height: '3.25rem', boxSizing: 'border-box' },
     '&[data-viewable]': {
       cursor: 'pointer',
       outline: 'none',
