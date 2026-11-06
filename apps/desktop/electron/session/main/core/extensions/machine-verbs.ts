@@ -69,6 +69,11 @@ export const machineVerbs = {
   filesMkdir: async (extensionId, args) => (await import('./app-files')).makeAppFolder(pageOf(extensionId), args),
   filesMove: async (extensionId, args) => (await import('./app-files')).moveAppFile(pageOf(extensionId), args),
   filesRemove: async (extensionId, args) => (await import('./app-files')).removeAppFile(pageOf(extensionId), args),
+  filesDraft: async (_extensionId, args) => {
+    const ref = fileRefOf(args.ref);
+    if (!isWorkspace(ref) || !('id' in ref)) throw invalid('A draft is of a working copy\'s file, by its path');
+    return (await import('./app-files')).draftHere(ref as never, args.text);
+  },
   // Who may name what was decided where the page is (`writeAppFileChunk`): a file handed to it there has no page here.
   filesWriteChunk: async (_extensionId, args) => {
     const place = placeOf(args.place);
