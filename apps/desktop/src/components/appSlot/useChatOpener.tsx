@@ -147,6 +147,8 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
       if (canTakeRef.current && !canTakeRef.current()) return
       const ask = takeChatAsk(chatId)
       if (!ask) return
+      for (const receipt of receipts.current) receipt.reject(new Error('The file opening was superseded'))
+      receipts.current.clear()
       // A page beside the chat asked: the tab on screen is the 上一页 of what it opens (owner 10-24).
       const source = 'from' in ask ? ask.from : undefined
       if ('itemId' in ask) {
