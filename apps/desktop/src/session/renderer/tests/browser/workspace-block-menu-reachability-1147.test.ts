@@ -129,6 +129,14 @@ const gugu = {
 };
 const ownStyle = document.createElement('style');
 const byId = (id: string) => document.getElementById(id)!;
+// One read/edit toggle (owner 11-06): the button a press goes to is the one shown; the current mode's and 对照's (a ⋯ item)
+// are hidden. A shown one is pressed as a person would; a hidden one is the page's own mode change.
+const toMode = async (mode: 'edit' | 'preview' | 'split') => {
+  const button = byId(`mode-${mode}`);
+  if (button.hidden) button.click();
+  else await userEvent.click(button);
+};
+const shownToggle = () => [...document.querySelectorAll<HTMLButtonElement>('.modes > button')].find((button) => !button.hidden)!;
 const controls = () => byId('block-controls');
 const handle = (id = 'block-handle') => byId(id) as HTMLButtonElement;
 const editor = () => view.EditorView.findFromDOM(document.querySelector<HTMLElement>('.cm-editor')!)!;
@@ -151,7 +159,7 @@ beforeEach(async () => {
   const before = renders;
   editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: text } });
   await userEvent.keyboard('{Escape}');
-  await userEvent.click(byId('mode-split'));
+  await toMode('split');
   const preview = byId('preview');
   if (preview.scrollTop !== 0) {
     const settled = new Promise<Event>((resolve) => preview.addEventListener('scroll', resolve, { once: true }));
@@ -206,7 +214,7 @@ async function openHandle(insertion = true) {
 }
 
 async function readMenu() {
-  await userEvent.click(byId('mode-preview'));
+  await toMode('preview');
   const box = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
   await pointer(box.left + 30, box.top + box.height / 2);
   expect(controls().hidden).toBe(true);
@@ -365,7 +373,7 @@ it.each([
 async function showSource(source: string) {
   const before = renders;
   editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: source } });
-  await userEvent.click(byId('mode-split'));
+  await toMode('split');
   await until('the new source is rendered', () => renders > before && file.text === source);
 }
 
@@ -457,17 +465,17 @@ it('treats an upload without contentType as a file link and reports picker failu
 
 it('slash divider after a paragraph remains a divider and whitespace ends slash completion', async () => {
   await showSource('Paragraph.\n');
-  await userEvent.click(byId('mode-edit'));
+  await toMode('edit');
   editor().dispatch({ selection: { anchor: editor().state.doc.length } });
   editor().focus();
   await userEvent.keyboard('/div');
   await until('the slash menu filters to Divider', () => document.querySelectorAll('.cm-tooltip-autocomplete [role="option"]').length === 1 && document.querySelector('.cm-tooltip-autocomplete')?.textContent?.includes('Divider') === true);
   await userEvent.click(document.querySelector('.cm-tooltip-autocomplete [role="option"]')!);
   expect(file.text).toBe('Paragraph.\n***\n');
-  await userEvent.click(byId('mode-split'));
+  await toMode('split');
   await until('the paragraph is not converted into a setext heading', () => !!byId('preview').querySelector('hr') && byId('preview').querySelector('p')?.textContent === 'Paragraph.');
   await showSource('\n');
-  await userEvent.click(byId('mode-edit'));
+  await toMode('edit');
   editor().dispatch({ selection: { anchor: 0 } });
   editor().focus();
   await userEvent.keyboard('/quo ');
@@ -485,7 +493,7 @@ it('keeps keyboard focus on the handle after Escape until focus leaves it', asyn
   await dismiss();
   expect(document.activeElement).toBe(handle('block-handle'));
   expect(controls().hidden).toBe(false);
-  byId('mode-edit').focus();
+  shownToggle().focus();
   await until('focus leaving restores hiding', () => controls().hidden === true);
 });
 
@@ -592,7 +600,7 @@ it('moves, duplicates and deletes full source blocks without changing their neig
 });
 
 it('filters / on an empty source line and inserts the same Quote template', async () => {
-  await userEvent.click(byId('mode-edit'));
+  await toMode('edit');
   const at = editor().state.doc.length;
   editor().dispatch({ selection: { anchor: at } });
   editor().focus();
@@ -602,7 +610,7 @@ it('filters / on an empty source line and inserts the same Quote template', asyn
   expect(file.text).toBe(`${text}> \n`);
   expect(editor().state.selection.main.head).toBe(at + 2);
   await userEvent.keyboard('From slash');
-  await userEvent.click(byId('mode-split'));
+  await toMode('split');
   await until('slash content is rendered from Y.Text', () => byId('preview').querySelector('blockquote')?.textContent?.includes('From slash') === true);
 });
 
@@ -631,7 +639,7 @@ it('keeps reading clean and offers block links on right-click', async () => {
 });
 
 it('leaves a reading selection with its own bar when it is pressed for a menu', async () => {
-  await userEvent.click(byId('mode-preview'));
+  await toMode('preview');
   const box = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
   const [x, y] = [box.left + 30, box.top + box.height / 2];
   await pointer(x, y, 'mousePressed', { clickCount: 2 });
@@ -646,8 +654,8 @@ it('leaves a reading selection with its own bar when it is pressed for a menu', 
 
 it('keeps every side control hidden for a read-only document, with reading links still usable', async () => {
   file.readOnly = true;
-  for (const mode of ['preview', 'edit', 'split']) {
-    await userEvent.click(byId(`mode-${mode}`));
+  for (const mode of ['preview', 'edit', 'split'] as const) {
+    await toMode(mode);
     expect(controls().hidden).toBe(true);
   }
   await readMenu();
@@ -663,7 +671,7 @@ it('keeps the single editing control outside the text in narrow source and side-
   try {
     for (const [mode, width] of [['edit', 480], ['split', 1100]] as const) {
       await page.viewport(width, 760);
-      await userEvent.click(byId(`mode-${mode}`));
+      await toMode(mode);
       const paragraph = (mode === 'edit' ? [...byId('editor').querySelectorAll<HTMLElement>('.cm-line')].find((line) => line.textContent === 'First paragraph keeps its own actions.')! : byId('preview').querySelector<HTMLElement>('p[data-line="3-3"]')!).getBoundingClientRect();
       await pointer(paragraph.left + 40, paragraph.top + paragraph.height / 2);
       await until('the single block control appears beside the paragraph', () => !controls().hidden);
@@ -673,6 +681,6 @@ it('keeps the single editing control outside the text in narrow source and side-
     }
   } finally {
     await page.viewport(1100, 760);
-    await userEvent.click(byId('mode-split'));
+    await toMode('split');
   }
 });
