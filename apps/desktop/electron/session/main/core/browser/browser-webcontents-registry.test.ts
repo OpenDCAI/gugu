@@ -152,6 +152,18 @@ describe('BrowserWebContentsRegistry', () => {
     expect(registry.isRegistered('missing', PROFILE_PARTITION)).toBe(false);
   });
 
+  it('does not revive a credential destination identity when the same registration object is reused', () => {
+    const registry = new BrowserWebContentsRegistry();
+    const input = { browserId: 'browser-1', partition: PROFILE_PARTITION, sessionId: 'owner' };
+    registry.registerSession(input);
+    const original = registry.registrationIdentity(input.browserId);
+    input.sessionId = 'mutated';
+    expect(registry.isRegisteredForSession(input.browserId, 'owner', PROFILE_PARTITION)).toBe(true);
+    registry.unregisterSession(input.browserId);
+    input.sessionId = 'owner'; registry.registerSession(input);
+    expect(registry.registrationIdentity(input.browserId)).not.toBe(original);
+  });
+
   it('#7274 同一份配置上的几张网页各归各的页签', () => {
     const registry = new BrowserWebContentsRegistry();
     registry.registerSession({ browserId: 'browser-1', partition: PROFILE_PARTITION });

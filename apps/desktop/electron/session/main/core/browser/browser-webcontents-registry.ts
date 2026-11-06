@@ -79,7 +79,7 @@ export class BrowserWebContentsRegistry {
   private browserShortcuts = getBrowserShortcuts();
 
   registerSession(input: RegisteredBrowserSession): void {
-    this.sessionsByBrowserId.set(input.browserId, input);
+    this.sessionsByBrowserId.set(input.browserId, Object.freeze({ ...input }));
   }
 
   unregisterSession(browserId: string): void {
@@ -126,6 +126,9 @@ export class BrowserWebContentsRegistry {
     const registered = this.sessionsByBrowserId.get(browserId);
     return registered?.partition === partition && registered.sessionId === sessionId;
   }
+
+  /** Host-only lifetime identity. Closing/re-registering the same tab ID cannot revive an old login. */
+  registrationIdentity(browserId: string): object | undefined { return this.sessionsByBrowserId.get(browserId); }
 
   /**
    * #7274 页签的网页(主进程建的 WebContentsView,见 browser-page-views.ts)建好了:收紧它、认作这个页签的网页。

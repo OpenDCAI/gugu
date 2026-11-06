@@ -21,6 +21,7 @@ vi.mock('./browser-webcontents-registry', () => ({ browserWebContentsRegistry: {
   browsersOfSession: (sessionId: string) => [...native.owners.entries()].filter(([, owner]) => owner.sessionId === sessionId)
     .map(([browserId, owner]) => ({ browserId, webContents: owner.contents })),
   browserIdFor: (id: number) => native.published.get(id),
+  registrationIdentity: (id: string) => native.owners.get(id),
 } }));
 
 let next = 0;
@@ -121,6 +122,20 @@ describe('physical B partition isolation prototype', () => {
     native.owners.set(f.binding.browserId, owner);
     expect(() => boundary.assertCurrent(f.binding)).toThrow('credential_isolation_unavailable');
   });
+
+  it('rejects closing and reopening the same tab registration with identical strings', async () => {
+    const f = fixture(), boundary = await f.prepare(), owner = native.owners.get(f.binding.browserId)!;
+    native.owners.set(f.binding.browserId, { ...owner });
+    expect(() => boundary.assertCurrent(f.binding)).toThrow('credential_isolation_unavailable');
+    expect(boundary.signal.aborted).toBe(true);
+  });
+
+  it.each(['origin', 'credentialVersion', 'accountId', 'lockEpoch', 'documentId', 'formFingerprint'] as const)(
+    'rejects a mismatching %s before physical readiness is accepted', async key => {
+      const f = fixture(), boundary = await f.prepare();
+      expect(() => boundary.assertCurrent({ ...f.binding, [key]: 'changed' })).toThrow('credential_isolation_unavailable');
+    },
+  );
 
   it('keeps cleanup and prepared destination private until synchronous publication', async () => {
     const f = fixture(), boundary = await f.prepare(); boundary.beginCleanup(); f.login.wc.close(); f.release();

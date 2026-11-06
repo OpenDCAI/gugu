@@ -26,6 +26,7 @@ import { wirePageDialogs, type PageDialogs } from './browser-page-dialogs';
 import { BrowserPageRuntime } from './browser-page-runtime';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { credentialAgentPartitionBlocked } from './credential-isolation-registry';
+import type { CredentialUseBinding } from './credential-use-contract';
 import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
 
 /**
@@ -205,6 +206,13 @@ export function mountBrowserPage(args: {
     return { success: true, reused: true, ready: page.ready, state: pageState(page.webContents) };
   }
 
+  page = createBrowserPage(args);
+  installBrowserPage(page);
+  navigatePage(page, validation.url);
+  return { success: true, reused: false, ready: false, state: pageState(page.webContents) };
+}
+
+function createBrowserPage(args: { browserId: string; partition: string; windowName: string }): BrowserPage {
   const view = new WebContentsView({
     // 锁定态(生产包)下 DevTools 一并关掉,同咕咕别的窗口(devtools-lock.ts)。
     webPreferences: hardenWebPreferences({
@@ -227,7 +235,7 @@ export function mountBrowserPage(args: {
     const current = pages.get(args.browserId);
     if (current?.runtime === runtime && current.releaseExpired) destroyBrowserPage(args.browserId);
   });
-  page = {
+  const page: BrowserPage = {
     browserId: args.browserId,
     partition: args.partition,
     view,
@@ -244,16 +252,66 @@ export function mountBrowserPage(args: {
     cursorShown: false,
     dialogs: null,
   };
-  pages.set(args.browserId, page);
-  const adopted = page;
-  browserWebContentsRegistry.adoptPageWebContents(args.browserId, webContents, {
-    window: () => (adopted.runtime.host && !adopted.runtime.host.isDestroyed() ? adopted.runtime.host : null),
-    origin: () => (adopted.fullscreen ? { x: 0, y: 0 } : { x: adopted.rect?.x ?? 0, y: adopted.rect?.y ?? 0 }),
+  return page;
+}
+
+function installBrowserPage(page: BrowserPage): void {
+  browserWebContentsRegistry.adoptPageWebContents(page.browserId, page.webContents, {
+    window: () => (page.runtime.host && !page.runtime.host.isDestroyed() ? page.runtime.host : null),
+    origin: () => (page.fullscreen ? { x: 0, y: 0 } : { x: page.rect?.x ?? 0, y: page.rect?.y ?? 0 }),
   });
+  pages.set(page.browserId, page);
   wirePage(page);
-  moveToHost(page, args.windowName);
-  navigatePage(page, validation.url);
-  return { success: true, reused: false, ready: false, state: pageState(webContents) };
+  moveToHost(page, page.windowName);
+}
+
+/** Capture presentation before retirement; never retain DOM, snapshots, URL/query or old observers.
+ * The returned native slot is private to the fixed host and is not an Agent tool or approval.
+ */
+export function captureCredentialBrowserSlot(binding: CredentialUseBinding) {
+  const original = livePage(binding.browserId);
+  if (!original || !browserWebContentsRegistry.isRegisteredForSession(binding.browserId, binding.sessionId, original.partition)) {
+    throw new Error('credential_handoff_target_unavailable');
+  }
+  const registration = browserWebContentsRegistry.registrationIdentity(binding.browserId);
+  const presentation = { browserId: original.browserId, partition: original.partition, windowName: original.windowName,
+    rect: original.rect ? { ...original.rect } : null, mode: original.mode };
+  let created: BrowserPage | undefined;
+  const assertCurrent = () => {
+    const current = pages.get(binding.browserId);
+    const host = resolveHost(presentation.windowName);
+    if (!registration || browserWebContentsRegistry.registrationIdentity(binding.browserId) !== registration
+      || !browserWebContentsRegistry.isRegisteredForSession(binding.browserId, binding.sessionId, presentation.partition)
+      || (current && current !== original && current !== created) || !host || host.isDestroyed()) {
+      throw new Error('credential_handoff_target_unavailable');
+    }
+  };
+  return Object.freeze({ source: original.webContents, assertCurrent,
+    create: () => {
+      assertCurrent();
+      if (created || !original.webContents.isDestroyed()) throw new Error('credential_handoff_target_unavailable');
+      const candidate = createBrowserPage(presentation);
+      created = candidate;
+      candidate.rect = presentation.rect;
+      // Initial viewport exists, but the candidate is neither shown nor registered/observed.
+      candidate.runtime.moveTo(resolveHost(presentation.windowName));
+      candidate.runtime.layout(candidate.rect, false);
+      return Object.freeze({ webContents: candidate.webContents, runtime: candidate.runtime,
+        publish: () => {
+          assertCurrent();
+          if (pages.has(binding.browserId) || candidate.webContents.isDestroyed()) throw new Error('credential_handoff_target_unavailable');
+          candidate.mode = presentation.mode;
+          candidate.ready = true;
+          installBrowserPage(candidate);
+          emitPageEvent(candidate, 'dom-ready');
+        },
+        dispose: () => {
+          if (pages.get(binding.browserId) === candidate) destroyBrowserPage(binding.browserId);
+          else candidate.runtime.close();
+        },
+      });
+    },
+  });
 }
 
 function moveToHost(page: BrowserPage, windowName: string): void {

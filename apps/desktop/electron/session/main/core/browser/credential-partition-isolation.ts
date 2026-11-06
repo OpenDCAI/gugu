@@ -2,6 +2,7 @@ import { app, webContents, type WebContents } from 'electron';
 import type { CredentialUseBinding } from './credential-use-contract';
 import { assertCredentialWebsite } from './credential-website';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
+import { copyCredentialBinding, credentialBindingMatches } from './credential-binding';
 import {
   markCredentialHandoffCandidate, privateCredentialSurface, publishCredentialHandoffCandidate,
   restrictCredentialPartition, type PrivateCredentialSurface,
@@ -17,6 +18,7 @@ export class CredentialPartitionIsolation {
   private readonly controller = new AbortController();
   private readonly releaseRestriction: () => void;
   private readonly nativeSession: WebContents['session'];
+  private readonly registration: object;
   private phase: 'preparing' | 'isolated' | 'cleaning' | 'publishing' | 'handed_back' | 'fault' = 'preparing';
   private candidate: WebContents | undefined;
   private constructingCandidate = false;
@@ -32,6 +34,9 @@ export class CredentialPartitionIsolation {
       throw new Error('credential_source_unavailable');
     }
     this.nativeSession = source.session;
+    const registration = browserWebContentsRegistry.registrationIdentity(binding.browserId);
+    if (!registration) throw new Error('credential_source_unavailable');
+    this.registration = registration;
     this.releaseRestriction = restrictCredentialPartition(this.surface.partition, this.nativeSession, this);
     app.on('web-contents-created', this.created);
     this.surface.contents.once('destroyed', this.privateDestroyed);
@@ -39,7 +44,8 @@ export class CredentialPartitionIsolation {
 
   /** Resolves only after actual native destruction, with no other live same-session page. */
   static async prepare(binding: CredentialUseBinding, source: WebContents): Promise<CredentialPartitionIsolation> {
-    const boundary = new CredentialPartitionIsolation(Object.freeze({ ...binding }), source);
+    const fixed = copyCredentialBinding(binding);
+    const boundary = new CredentialPartitionIsolation(fixed, source);
     try {
       boundary.checkPages(true);
       await boundary.retireSource();
@@ -60,10 +66,9 @@ export class CredentialPartitionIsolation {
   /** Lifecycle guard also accepts the already-published replacement; fill readiness never does. */
   assertLifecycleCurrent(binding: CredentialUseBinding): void {
     if (this.phase !== 'handed_back') { this.assertCurrent(binding); return; }
-    if (binding.useId !== this.binding.useId || binding.requestId !== this.binding.requestId
-      || binding.browserId !== this.binding.browserId || binding.sessionId !== this.binding.sessionId
-      || binding.loginSurfaceId !== this.binding.loginSurfaceId || binding.loginSurfaceEpoch !== this.binding.loginSurfaceEpoch
+    if (!credentialBindingMatches(this.binding, binding)
       || this.signal.aborted || !this.candidate || this.candidate.isDestroyed()
+      || browserWebContentsRegistry.registrationIdentity(binding.browserId) !== this.registration
       || !browserWebContentsRegistry.isRegisteredForSession(binding.browserId, binding.sessionId, this.surface.partition)
       || browserWebContentsRegistry.browserIdFor(this.candidate.id) !== binding.browserId) {
       throw new Error('credential_handoff_target_unavailable');
@@ -71,14 +76,13 @@ export class CredentialPartitionIsolation {
   }
 
   assertCurrent(binding: CredentialUseBinding): void {
-    if (binding.useId !== this.binding.useId || binding.requestId !== this.binding.requestId
-      || binding.browserId !== this.binding.browserId || binding.sessionId !== this.binding.sessionId
-      || binding.loginSurfaceId !== this.binding.loginSurfaceId || binding.loginSurfaceEpoch !== this.binding.loginSurfaceEpoch) {
+    if (!credentialBindingMatches(this.binding, binding)) {
       throw new Error('credential_isolation_unavailable');
     }
     try {
       if (this.phase === 'fault' || this.phase === 'handed_back' || this.phase === 'preparing'
         || !this.source.isDestroyed()
+        || browserWebContentsRegistry.registrationIdentity(binding.browserId) !== this.registration
         || !browserWebContentsRegistry.isRegisteredForSession(binding.browserId, binding.sessionId, this.surface.partition)) {
         throw new Error('credential_isolation_unavailable');
       }
