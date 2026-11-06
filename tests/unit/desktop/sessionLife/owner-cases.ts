@@ -174,6 +174,7 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     const stranded = archived.send();
     await archived.owner.interrupt('s', { k: 'interrupt', reason: 'archive' });
     assert.equal(archived.rows.get(stranded.seq)!.state, 'failed');
+    assert.ok(archived.trace.includes('failure:SessionArchived'));
     assert.deepEqual(archived.store.pending('s'), { queued: [], dispatching: [] });
   } },
   { name: 'only a person\'s own prompt can be discarded: a delivery has a sender, and a chat-page first turn is what the run needs', async run() {

@@ -1,8 +1,8 @@
 /** Row actions are shared by desktop context menus and future touch menus. */
 export type ConversationRowAction = 'mark-read' | 'pin' | 'notifications' | 'mark-all-read' | 'delete-chat' | 'remove-project'
-/** DMs use personal deletion; group/topic deletion follows the server's distinct management capabilities. */
-export function conversationCanDelete(kind: string | null, authority?: { can_dissolve?: boolean; can_archive_topic?: boolean } | null, ownedAgentDm = false): boolean {
-  return (kind === 'dm' && ownedAgentDm) || (kind === 'group' && authority?.can_dissolve === true) || (kind === 'topic' && authority?.can_archive_topic === true)
+/** Personal DM deletion requires an archived/removed owned Agent, matching delete_my_dm_conversation. */
+export function conversationCanDelete(kind: string | null, authority?: { can_dissolve?: boolean; can_archive_topic?: boolean } | null, ownedAgentDm?: { session_archived_at?: string | null; removed_at?: string | null }): boolean {
+  return (kind === 'dm' && !!ownedAgentDm && (ownedAgentDm.session_archived_at != null || ownedAgentDm.removed_at != null)) || (kind === 'group' && authority?.can_dissolve === true) || (kind === 'topic' && authority?.can_archive_topic === true)
 }
 export type ConversationRowMenuState = ({ kind: 'chat'; canDelete: boolean } | { kind: 'project' } | { kind: 'topic' }) & {
   hasUnread: boolean
