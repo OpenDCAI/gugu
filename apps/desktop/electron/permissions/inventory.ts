@@ -6,11 +6,11 @@ function entries(effect: ToolEffect, risk: ToolRisk['risk'], names: string): Rec
 }
 export const CORE_TOOL_RISKS: Readonly<Record<string, ToolRisk>> = {
   ...entries('discovery', 'low', `app_search catalog_describe catalog_list device_actions guide_read guide_topics
-    profile_lookup profile_whoami session_devices session_list_harnesses session_list_models message_members message_rules
-    topic_list topic_members group_info group_list`),
+    session_list_harnesses session_list_models`),
   ...entries('read', 'medium', `activity_chat_list activity_context activity_list forum_read library_list library_read
     message_conversations message_download_file message_history message_invitations message_search owner_friends_list
-    project_list schedule_list session_children session_get session_list_tabs session_peers group_join_requests`),
+    project_list schedule_list session_children session_get session_list_tabs session_peers group_join_requests
+    profile_lookup profile_whoami session_devices message_members message_rules topic_list topic_members group_info group_list`),
   ...entries('write', 'medium', `library_write profile_update project_create schedule_cancel schedule_create
     session_close_tab session_open_in_tab session_set_parent session_stop group_avatar_set group_leave
     group_announcement_delete group_announcement_post group_announcement_update topic_delete`),

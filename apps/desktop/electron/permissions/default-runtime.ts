@@ -1,5 +1,4 @@
-import { join } from 'node:path'
-import { resolveGuguHome } from '@gugu/core/local/state/paths'
+import { privateServicePermissionDirectory } from '@gugu/core/local/state/agentFileBoundary'
 import { anySignal } from '@gugu/core/shared/anySignal'
 import type { VersionedSettingsTableClient } from '@gugu/core/cloud/userSettings'
 import { currentAccountAccessToken } from '../session/main/core/extensions/account-token'
@@ -13,7 +12,7 @@ let runtime: ServicePermissionRuntime | undefined
 export function defaultServicePermissionRuntime(): ServicePermissionRuntime {
   const observations = new Map<string, { policy: PermissionPolicy | null; at: number; pending?: Promise<void> }>()
   return runtime ??= new ServicePermissionRuntime({
-    records: new PrivatePermissionRecords(join(resolveGuguHome(), 'private-service-permissions')),
+    records: new PrivatePermissionRecords(privateServicePermissionDirectory()),
     async readPolicy(caller, signal, mode) {
       signal.throwIfAborted()
       const token = await currentAccountAccessToken()

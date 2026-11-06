@@ -48,6 +48,9 @@ describe('service permission risk inventory', () => {
     expect(CORE_TOOL_RISKS.project_get).toEqual({ risk: 'high', effect: 'social' })
     expect(CORE_TOOL_RISKS.project_add_folder).toEqual({ risk: 'high', effect: 'permission' })
     expect(CORE_TOOL_RISKS.session_archive).toEqual({ risk: 'high', effect: 'permission' })
+    for (const name of ['message_rules', 'message_members', 'topic_list', 'topic_members', 'group_info', 'group_list', 'profile_whoami', 'session_devices']) {
+      expect(CORE_TOOL_RISKS[name]).toEqual({ risk: 'medium', effect: 'read' })
+    }
   })
   it('classifies exactly the actual device actions, including generated computer mappings and mixed-case names', () => {
     const names = new Set(createAllFamilies(null).flatMap(family => family.actions.map(action => action.name)))

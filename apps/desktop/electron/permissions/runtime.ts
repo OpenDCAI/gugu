@@ -29,7 +29,10 @@ export class ServicePermissionRuntime {
 
   async begin(caller: PermissionCaller, name: string, args: unknown, signal: AbortSignal): Promise<PermissionAttempt> {
     let operation = permissionOperation(caller, name, args)
-    let resourceVerified = operation.effect === 'discovery'
+    // Only target-free capability/documentation discovery is safe without a host resource resolver.
+    // Raw resource spellings (public numbers, UUIDs, implicit reply targets) are never canonical authority.
+    let resourceVerified = operation.effect === 'discovery' && Object.keys(operation.resource).length === 1
+      && operation.resource.session === caller.sessionId
     if (this.deps.resolveResource) {
       try {
         const resource = await this.deps.resolveResource(caller, operation, signal, { name, args })
@@ -47,7 +50,7 @@ export class ServicePermissionRuntime {
     let snapshot: PermissionSnapshot | null = null
     try { snapshot = await this.deps.readPolicy(caller, signal, enforcing ? 'enforce' : 'observe') } catch { /* Unknown authority fails closed below. */ }
     let decision = verifyResource(decidePermission({ operation, agentId: caller.subjectId, policy: switchAvailable ? snapshot?.policy ?? null : null }))
-    const mode = enforcing ? 'enforce' : 'observe'
+    let mode: 'enforce' | 'observe' = enforcing ? 'enforce' : 'observe'
     const record = async (phase: 'before' | 'after', outcome: Parameters<PrivatePermissionRecords['append']>[2]['outcome']) => {
       // No signed-in account: do not create records attributed to an outgoing/unknown account.
       if (!snapshot && !enforcing) return
@@ -66,28 +69,37 @@ export class ServicePermissionRuntime {
       execute, decision, refusal: denied,
       finish: async (value, failed) => {
         let output = value
+        // A failed switch read cannot prove observation is still active.
+        let postEnforcing = true
         const mayHaveEffects = operation.effect !== 'read' && operation.effect !== 'discovery'
         let outcome: 'completed' | 'failed' | 'unknown' = failed ? mayHaveEffects ? 'unknown' : 'failed' : 'completed'
         try {
           const stillEnforcing = await this.deps.records.enforcement(caller.ownerId)
-          const latest = await this.deps.readPolicy(caller, signal, enforcing || stillEnforcing ? 'enforce' : 'observe')
+          postEnforcing = enforcing || stillEnforcing
+          mode = postEnforcing ? 'enforce' : 'observe'
+          const latest = await this.deps.readPolicy(caller, signal, mode)
           const after = verifyResource(decidePermission({ operation, agentId: caller.subjectId, policy: latest?.policy ?? null }))
-          if ((enforcing || stillEnforcing) && (signal.aborted || after.effect !== 'allow')) {
+          if (postEnforcing && (signal.aborted || after.effect !== 'allow')) {
             // The effect may already have occurred. Withhold the result, never retry or claim rollback.
             output = refusal('permission_changed_after_execution: effects_may_have_occurred; do_not_retry_automatically')
             outcome = 'unknown'
-          } else if (enforcing || stillEnforcing) {
+          } else if (postEnforcing) {
             output = failed ? refusal(mayHaveEffects ? 'tool_failed_after_execution: effects_may_have_occurred; do_not_retry_automatically' : 'tool_failed: details_withheld')
               : filterPermissionResult(value, [...(snapshot?.knownSecrets ?? []), ...(latest?.knownSecrets ?? [])])
           }
           decision = after
         } catch {
-          if (enforcing) { output = refusal('permission_unavailable_after_execution: effects_may_have_occurred; do_not_retry_automatically'); outcome = 'unknown' }
+          if (postEnforcing) {
+            mode = 'enforce'
+            decision = decidePermission({ operation, agentId: caller.subjectId, policy: null })
+            output = refusal('permission_unavailable_after_execution: effects_may_have_occurred; do_not_retry_automatically')
+            outcome = 'unknown'
+          }
         }
         try { await record('after', outcome) }
         catch {
           this.recordFailure()
-          if (enforcing) output = refusal('permission_record_failed_after_execution: effects_may_have_occurred; do_not_retry_automatically')
+          if (postEnforcing) output = refusal('permission_record_failed_after_execution: effects_may_have_occurred; do_not_retry_automatically')
         }
         return output
       },

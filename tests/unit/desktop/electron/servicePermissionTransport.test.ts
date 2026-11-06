@@ -20,7 +20,7 @@ const person = { kind: 'person' as const, userId: 'owner' }
 const invariant = { ownerId: 'owner', subjectId: 'agent-a', toolScope: 'gugu+session' }
 const content = (text: string) => ({ content: [{ type: 'text' as const, text }] })
 
-async function fixture(options: { enforce?: boolean; scope?: string; custom?: boolean; beforeResult?: () => void; failure?: boolean; unresolved?: boolean } = {}) {
+async function fixture(options: { enforce?: boolean; scope?: string; custom?: boolean; beforeResult?: () => void | Promise<void>; failure?: boolean; unresolved?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'gugu-permission-'))
   cleanup.push(() => rm(directory, { recursive: true, force: true }))
   const records = new PrivatePermissionRecords(directory)
@@ -36,7 +36,7 @@ async function fixture(options: { enforce?: boolean; scope?: string; custom?: bo
   const result = content(JSON.stringify({ password: 'canary-secret-123', ordinary: 'normal', nested: { access_token: 'test-token' } }))
   const perform = async (name: string, args: unknown) => {
     effects.push({ name, args })
-    options.beforeResult?.()
+    await options.beforeResult?.()
     if (options.failure) throw new Error('canary-secret-123 raw private error body')
     return result
   }
@@ -46,7 +46,7 @@ async function fixture(options: { enforce?: boolean; scope?: string; custom?: bo
       server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{ name: 'arbitrary_read', inputSchema: { type: 'object' as const } }] }))
       server.server.setRequestHandler(CallToolRequestSchema, request => perform(request.params.name, request.params.arguments))
     } else {
-      for (const name of ['message_send', 'message_history', 'message_send_as_owner', 'group_set_role', 'device_call']) {
+      for (const name of ['message_send', 'message_history', 'message_rules', 'message_members', 'message_send_as_owner', 'group_set_role', 'device_call']) {
         server.registerTool(name, { inputSchema: z.record(z.string(), z.unknown()) }, args => perform(name, args))
       }
       registerGuguCatalogTools(server, async () => [{ name: 'demo__arbitrary_read', description: 'Claims to be read-only.',
@@ -103,6 +103,15 @@ describe('actual authenticated MCP permission boundary', () => {
     const f = await fixture({ enforce: true, unresolved: true })
     f.state.policy.user.rules = [{ id: 'all', tool: '*', effect: 'allow' }]
     expect(await f.call('message_send', { reply_to_message_id: 'alias', confirmed: true })).toMatchObject({ isError: true, content: [{ text: 'owner_confirmation_required' }] })
+    expect(f.effects).toEqual([])
+  })
+  it.each(['message_rules', 'message_members'])('cannot bypass a locked private %s read with a public chat number', async name => {
+    const f = await fixture({ enforce: true, unresolved: true })
+    f.state.policy.user.mode = 'always_ask'
+    f.state.policy.user.rules = [{ id: 'private', tool: name, resource: { chat_id: 'canonical-chat' }, effect: 'deny', locked: true }]
+    for (const chat_id of ['canonical-chat', '12345']) {
+      expect(await f.call(name, { chat_id })).toMatchObject({ isError: true })
+    }
     expect(f.effects).toEqual([])
   })
   it('blocks a catalog payload and device payload before their real handlers execute', async () => {
@@ -177,6 +186,17 @@ describe('actual authenticated MCP permission boundary', () => {
     f.state.unavailable = true
     expect(await f.call('message_history')).toMatchObject({ isError: true, content: [{ text: 'permission_denied: policy_unavailable' }] })
     expect(f.effects).toEqual([])
+  })
+  it('withholds a result when observation becomes enforcement and the post-call policy read throws', async () => {
+    const f = await fixture({ beforeResult: async () => { await f.records.setEnforcement(person, 'owner', true) } })
+    f.state.policy.user.rules = [{ id: 'read', tool: 'message_history', effect: 'allow' }]
+    f.readPolicy.mockResolvedValueOnce({ policy: f.state.policy, knownSecrets: ['canary-secret-123'] })
+      .mockRejectedValueOnce(new Error('policy query failed'))
+    const result = await f.call('message_history')
+    expect(result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('permission_unavailable_after_execution') }] })
+    expect(JSON.stringify(result)).not.toContain('canary-secret-123')
+    expect(f.effects).toHaveLength(1)
+    expect((await f.records.read(person, 'owner')).find(record => record.phase === 'after')).toMatchObject({ mode: 'enforce', outcome: 'unknown', decision: { effect: 'deny', reason: 'policy_unavailable' } })
   })
   it('does not dispatch a call cancelled while its pre-call policy read is pending', async () => {
     const f = await fixture({ enforce: true })
