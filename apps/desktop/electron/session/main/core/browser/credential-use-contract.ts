@@ -5,6 +5,9 @@ declare const useCapability: unique symbol;
 export type VaultUseCapability = Readonly<{ [useCapability]: true }>;
 
 export type CredentialUseBinding = Readonly<{
+  /** Allocated by the approval authority; never evidence of authority on their own. */
+  requestId: string;
+  useId: string;
   accountId: string;
   installationId: string;
   agentId: string;
@@ -44,7 +47,7 @@ export interface CredentialUseAuthority {
   /** Revoke synchronously before waiting for cleanup. Unlock never revives an old use. */
   invalidate(accountId: string, reason: CredentialUseInvalidation, credentialId?: string): void;
   /** Resolves only after cleanup, or returns a durable paused state; a timeout cannot release it. */
-  cleanup(useRef: string): Promise<CredentialUseCleanup>;
+  cleanup(useId: string): Promise<CredentialUseCleanup>;
 }
 
 export type CredentialAuditWrite =
