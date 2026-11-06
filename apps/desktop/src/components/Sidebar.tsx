@@ -169,7 +169,7 @@ function HelpOnRail({ onOpenGroup }: { onOpenGroup: () => void }) {
   const tour = useProductTourState(user?.id ?? null)
   const resume = resumableStep(tour.data)
   const [open, setOpen] = useState(false)
-  const [openedAt, setOpenedAt] = useState(0)
+  const [helpGeneration, setHelpGeneration] = useState(0)
   const anchor = useRef<HTMLDivElement>(null)
   const { setActiveChatId } = useChatStore('setActiveChatId')
   const request = (detail: ProductTourRequest) => {
@@ -178,9 +178,9 @@ function HelpOnRail({ onOpenGroup }: { onOpenGroup: () => void }) {
   }
   return (
     <div ref={anchor}>
-      <RailItem icon={<HelpCircle size={22} />} active={open} menuOpen={open} onClick={() => { if (!open) setOpenedAt(Date.now()); setOpen((value) => !value) }}
+      <RailItem icon={<HelpCircle size={22} />} active={open} menuOpen={open} onClick={() => { if (!open) setHelpGeneration((value) => value + 1); setOpen((value) => !value) }}
         title={t('help.label')} rail="help" badge={resume ? 1 : 0} />
-      <SupportHelp helpOpen={open} openedAt={openedAt} onCloseMenu={() => setOpen(false)} onOpenGroup={(id) => { setActiveChatId(id); onOpenGroup(); setOpen(false) }}>{(supportEntry) => open && (
+      <SupportHelp helpOpen={open} generation={helpGeneration} onCloseMenu={() => setOpen(false)} onOpenGroup={(id) => { setActiveChatId(id); onOpenGroup(); setOpen(false) }}>{(supportEntry) => open && (
         <Menu anchor={anchor} minWidth={200} onClose={() => setOpen(false)} ariaLabel={t('help.label')}>
           {supportEntry}
           {resume && (

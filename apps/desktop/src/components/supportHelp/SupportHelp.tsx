@@ -12,14 +12,15 @@ import { fetchSupportHelp, joinSupportHelp } from './api'
 import type { HelpInfo, SupportHelpInfo } from './contract'
 import './catalog'
 
-export function SupportHelp({ helpOpen, openedAt, onCloseMenu, onOpenGroup, children }: {
-  helpOpen: boolean; openedAt: number; onCloseMenu: () => void; onOpenGroup: (id: string) => void
+export function SupportHelp({ helpOpen, generation, onCloseMenu, onOpenGroup, children }: {
+  helpOpen: boolean; generation: number; onCloseMenu: () => void; onOpenGroup: (id: string) => void
   children: (entry: ReactNode) => ReactNode
 }) {
   const { t } = useTranslation('supportHelp')
   const { user } = useAuth()
   const [dialog, setDialog] = useState(false)
-  const key = ['support-help', user?.id ?? null]
+  // Each menu opening gets a new query, so cached release flags cannot flash before revalidation.
+  const key = ['support-help', user?.id ?? null, generation]
   const query = useQuery({
     queryKey: key, queryFn: ({ signal }) => fetchSupportHelp(signal), enabled: helpOpen || dialog,
     staleTime: 0, gcTime: 0, refetchOnMount: 'always', refetchInterval: 30_000, retry: false,
@@ -28,7 +29,7 @@ export function SupportHelp({ helpOpen, openedAt, onCloseMenu, onOpenGroup, chil
   const info = snapshot?.support_help_entry_enabled === true && 'group' in snapshot ? snapshot : null
   // Server revocation closes the surface and stops polling when the menu is also closed.
   useEffect(() => { if (query.isSuccess && !query.data.support_help_entry_enabled) setDialog(false) }, [query.data, query.isSuccess])
-  const visible = info !== null && !query.isError && query.dataUpdatedAt >= openedAt
+  const visible = info !== null && !query.isError
   return <>
     {children(visible ? <><MenuItem onClick={() => { setDialog(true); onCloseMenu() }}>{t('entry')}</MenuItem><MenuSeparator /></> : null)}
     {dialog && info && <SupportHelpDialog info={info} failed={query.isError} refreshing={query.isFetching}
