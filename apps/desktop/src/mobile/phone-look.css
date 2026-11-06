@@ -9,6 +9,7 @@
   --bubble-mine: var(--ta-bubble-mine);
   --conversation-bubble-mine: var(--ta-bubble-mine);
   --conversation-bubble-mine-fg: var(--foreground);
+  --conversation-bubble-mine-color-scheme: var(--chat-color-scheme);
   --bubble-other: var(--ta-bubble-other);
   --bubble-own: var(--ta-bubble-mine);
   --bubble-agent: var(--ta-bubble-other);
@@ -147,6 +148,11 @@
   border-radius: calc(var(--control-h-touch) / 2);
   background: var(--card);
   box-shadow: var(--ta-composer-shadow);
+}
+/* Start files on the same content column as the text, past the attach button
+   and the editor's inline padding, on every phone composer. */
+[data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-attachments'] {
+  padding-inline-start: calc(var(--control-h-touch) + var(--spacing-lg));
 }
 /* 输入的字跟着咕咕的前景色走:编辑器自己的字色取会话页那套 --em-foreground,手机聊天页不在会话页皮肤里,
    取到哪一套要看外面挂了什么 —— 实底换上以后,深色里一旦取到浅色那套,深字压深底就看不见了。 */

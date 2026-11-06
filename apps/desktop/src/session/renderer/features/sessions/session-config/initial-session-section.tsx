@@ -1,3 +1,4 @@
+import { useAttachmentFileSelection } from '@/hooks/useAttachmentFileSelection';
 import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
 import { useConnectionPanel } from '@renderer/features/settings/subscriptions/use-connection-panel';
 import { DEFAULT_FREE_PLATFORM_MODEL, DEFAULT_PLATFORM_MODEL_BY_PROVIDER } from '@shared/core/sessions/new-session-defaults';
@@ -533,6 +534,7 @@ export function useInitialSessionState(
   // 把它移走,所以「屏幕上还剩什么」逐字等于「重试还要发什么」,不需要第二份快照。
   const [localAttachments, setLocalAttachments] = useState<ComposerAttachment[]>([]);
   const attachments = draft ? draft.attachments : localAttachments;
+  const fileSelection = useAttachmentFileSelection(attachments, draft);
   const setAttachmentsState: Dispatch<SetStateAction<ComposerAttachment[]>> = useCallback((next) => {
     if (!draft) { setLocalAttachments(next); return; }
     const chips = typeof next === 'function' ? next(draft.attachments) : next;
@@ -565,28 +567,35 @@ export function useInitialSessionState(
     [placements]
   );
   const enqueueAttachments = useCallback(async (files: File[]) => {
-    const queued = await Promise.all(
-      files.map(async (file) => {
-        const id = crypto.randomUUID();
-        if (!draft) pendingAttachmentFilesRef.current.set(id, file);
-        const image = file.type.toLowerCase().startsWith('image/');
-        // chip 点开看的内容,入列时就得在手上(#5269)。
-        const preview = image ? undefined : await readAttachmentPreviewText(file);
-        return {
-          id,
-          name: file.name,
-          kind: image ? ('image' as const) : ('file' as const),
-          mimeType: file.type,
-          previewUrl: image ? URL.createObjectURL(file) : undefined,
-          previewText: preview?.text,
-          previewTruncated: preview?.truncated,
-        };
-      })
-    );
-    if (draft) draft.setPending([...draft.pending, ...queued.map((chip, index) => ({ chip, file: files[index]! }))]);
-    else setAttachmentsState((current) => [...current, ...queued]);
-    setAttachmentEditSeq((seq) => seq + 1);
-  }, [draft, setAttachmentsState]);
+    const selected = fileSelection.choose(files);
+    if (!selected.length) return;
+    try {
+      const queued = await Promise.all(
+        selected.map(async ({ file, id }) => {
+          if (!draft) pendingAttachmentFilesRef.current.set(id, file);
+          const image = file.type.toLowerCase().startsWith('image/');
+          // chip 点开看的内容,入列时就得在手上(#5269)。
+          const preview = image ? undefined : await readAttachmentPreviewText(file);
+          return {
+            id,
+            name: file.name,
+            kind: image ? ('image' as const) : ('file' as const),
+            mimeType: file.type,
+            previewUrl: image ? URL.createObjectURL(file) : undefined,
+            previewText: preview?.text,
+            previewTruncated: preview?.truncated,
+          };
+        })
+      );
+      if (draft) draft.setPending([...draft.pending, ...queued.map((chip, index) => ({ chip, file: selected[index]!.file }))]);
+      else setAttachmentsState((current) => [...current, ...queued]);
+      setAttachmentEditSeq((seq) => seq + 1);
+    } catch (error) {
+      fileSelection.release(selected);
+      for (const { id } of selected) pendingAttachmentFilesRef.current.delete(id);
+      throw error;
+    }
+  }, [draft, fileSelection, setAttachmentsState]);
   const setAttachments = useCallback((next: ComposerAttachment[]) => {
     // ChatComposer 是从它手上那份(可能已经过期的)props 算出 next 的。发送中途点掉某个 chip 时,
     // 那份快照里可能还留着刚刚送达、已被 dropAttachment 移走的那一件 —— 原样写回去会把它**复活**成

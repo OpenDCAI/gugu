@@ -2,6 +2,7 @@ import { useLayoutEffect, useState, useSyncExternalStore } from 'react'
 import { Toaster } from 'sonner'
 import { readEffectiveHostTheme, subscribeToHostTheme } from '@renderer/lib/theme/host-theme'
 import './notice-host.css'
+import { useNoticeComposerBottom } from './notice-host-position'
 
 const CLAIM = 'noticeHost'
 const CHANGED = 'gugu:notice-host-changed'
@@ -28,6 +29,7 @@ export function NoticeHost({ closeLabel, embedded = false }: { closeLabel?: stri
   // 能认领就在第一次渲染里就画出来:sonner 的提示条只认它挂上之后发的提示(之前发的不补),
   // 晚一拍才画,同一次挂载里子组件发的提示就丢了。认领本身仍在下面的 layout effect 里做,认不到再收回。
   const [owner, setOwner] = useState(() => canClaim(document.documentElement.dataset[CLAIM], embedded))
+  const composerBottom = useNoticeComposerBottom(owner)
   useLayoutEffect(() => {
     const root = document.documentElement
     const me = `${embedded ? 'embedded' : 'app'}:${++hostSeq}`
@@ -60,8 +62,10 @@ export function NoticeHost({ closeLabel, embedded = false }: { closeLabel?: stri
   if (!owner) return null
   return (
     <Toaster
-      className="gugu-notices"
+      className={composerBottom === undefined ? 'gugu-notices' : 'gugu-notices gugu-notices-above-composer'}
       position="bottom-right"
+      offset={composerBottom === undefined ? undefined : { bottom: composerBottom }}
+      mobileOffset={composerBottom === undefined ? undefined : { bottom: composerBottom }}
       theme={theme}
       toastOptions={closeLabel ? { closeButtonAriaLabel: closeLabel } : undefined}
     />

@@ -98,7 +98,7 @@ export class AgentMcpConfigManager {
     const rows: { providerId: string; server: McpServer }[] = [];
     for (const provider of this.getMcpProviders()) {
       const agentId = provider.metadata.id;
-      const result = await this.deps.agentHost.readMcpServers(agentId);
+      const result = await this.deps.agentHost.readMcpServers(agentId).catch((error: unknown) => err(toIoError(error)));
       if (!result.success) {
         this.deps.logger.warn(`Failed to read MCP config for ${agentId}:`, {
           error: agentHostErrorMessage(result.error),

@@ -260,13 +260,16 @@ export function downloadPoster(canvas: HTMLCanvasElement, filename = 'gugu-share
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
-// @@@445 返回已加载的 Image 元素本身(成功/失败都 resolve;失败时 naturalWidth=0,drawImage 侧记录诊断并画空槽)。
-// 调用方直接用这个元素 drawImage,避免重新 new Image() 的 complete 不可靠问题。
+// Return the decoded element used by drawImage. Remote member avatars must be requested with CORS
+// before setting src: even a storage host that sends Allow-Origin cannot make a no-CORS image exportable.
 function preloadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image()
+    img.crossOrigin = 'anonymous'
     img.onload = () => resolve(img)
-    img.onerror = () => resolve(img)
+    img.onerror = () => reject(new Error(i18n.t('sharing.posterFailed', { ns: 'contacts' }), {
+      cause: new Error(`Failed to load share poster image: ${src}`),
+    }))
     img.src = src
   })
 }

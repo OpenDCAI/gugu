@@ -6,6 +6,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
+import { InitialResizeObserver } from '../../../support/initialResizeObserver'
 
 vi.mock('../../../../apps/desktop/src/components/MessagePreviewCard', () => ({
   MessagePreviewCard: () => <div data-testid="preview-card"><button type="button">open</button></div>,
@@ -16,6 +17,7 @@ const { RunningTokenBar } = await import('../../../../apps/desktop/src/component
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  vi.stubGlobal('ResizeObserver', InitialResizeObserver)
   harness = createReactHarness()
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
     return this.matches('.rtb-more') ? 32 : this.matches('[data-message-preview-trigger]') ? 150 : 0
@@ -24,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   harness.cleanup()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 const wait = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
@@ -203,6 +206,7 @@ describe('desktop running agents fit the available width', () => {
         id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
         stateKey: 'running', toolCount: 0, lastActiveAt: null,
       }))} />)
+      await act(async () => report()) // the observer's first notification
       const pills = () => [...document.body.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')]
       expect(pills()).toHaveLength(8)
       expect(pills().filter(e => e.style.visibility !== 'hidden')).toHaveLength(5)

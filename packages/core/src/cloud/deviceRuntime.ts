@@ -1,4 +1,4 @@
-import type { DeviceActionsCapability } from '../shared/deviceActions'
+import { DEVICE_ACTION_PROTOCOL_VERSION, type DeviceActionsCapability, type DeviceActionsReadFailure } from '../shared/deviceActions'
 import { createHash, randomUUID } from 'node:crypto'
 import { execFile } from '../local/childProcess'
 import { access, link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
@@ -755,14 +755,16 @@ function resolveSessionDigest(source: DeviceSessionDigestSource | undefined): De
   }
 }
 
-/** 动作清单同样尽力而为:取不到就不登记这一格,❌ 让心跳失败(那会让整台机器在别人眼里下线)。 */
-function resolveDeviceActions(source: DeviceActionsSource | undefined): { actions?: DeviceActionsCapability } {
+/** 动作清单取不到:❌ 让心跳失败(那会让整台机器在别人眼里下线),也 ❌ 当成没有动作 —— 写进日志,行上标明读取失败。 */
+function resolveDeviceActions(source: DeviceActionsSource | undefined): { actions?: DeviceActionsCapability | DeviceActionsReadFailure } {
   if (!source) return {}
   try {
     const actions = source()
     return actions ? { actions } : {}
-  } catch {
-    return {}
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log.error({ err: message }, 'device actions list read failed')
+    return { actions: { v: DEVICE_ACTION_PROTOCOL_VERSION, read_error: message } }
   }
 }
 

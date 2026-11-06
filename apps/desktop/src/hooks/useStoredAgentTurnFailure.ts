@@ -44,13 +44,15 @@ export function useStoredAgentTurnFailure(scope: StoredFailureScope | null, agen
     setDismissals({ userId: user.id, value: next })
   }, [user?.id])
   useEffect(() => {
-    if (!user?.id || scopeKey === null || !ids) return
+    if (!user?.id || scopeKey === null) return
     const where = JSON.parse(scopeKey) as StoredFailureScope
+    // A chat with no agent left can still owe its owner a notice about one that was removed; the task page reads only its own.
+    if (where === 'any-chat' && !ids) return
     let live = true
     let generation = 0
     const refresh = () => {
       const current = ++generation
-      void readStoredAgentTurnFailures(where, ids.split(',')).then(({ failures: rows }) => {
+      void readStoredAgentTurnFailures(where, ids ? ids.split(',') : []).then(({ failures: rows }) => {
         if (!live || current !== generation) return
         changeDismissals((now) => {
           const pending = rows.filter((row) => now[row.commandId]?.revision === null)
@@ -67,7 +69,7 @@ export function useStoredAgentTurnFailure(scope: StoredFailureScope | null, agen
       if (!raw || typeof raw !== 'object') return
       const event = raw as Record<string, unknown>
       if (where !== 'any-chat' && (event.chat_id !== where.chatId || (event.thread_root_id || null) !== where.threadRootId)) return
-      if (typeof event.agent_user_id !== 'string' || !ids.split(',').includes(event.agent_user_id)) return
+      if (typeof event.agent_user_id !== 'string' || (where === 'any-chat' && !ids.split(',').includes(event.agent_user_id))) return
       const settled = typeof event.id === 'string' && event.status !== 'error' ? event.id : null
       if (settled) changeDismissals((now) => {
         if (!(settled in now)) return null

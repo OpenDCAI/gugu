@@ -200,6 +200,9 @@ export type SessionRecordResume = {
   readonly fingerprint: string;
 };
 
+/** Shared across native descendants; checked before copying opaque source state. */
+export type RecordArchiveBudget = { remainingBytes: number };
+
 /** Native primary-file lineage, used only to prove a fork's inherited prefix; never persisted. */
 export type RecordLineageNode = { uuid: string; parentUuid: string | null };
 
@@ -217,7 +220,7 @@ export interface SessionRecordSource {
    * 此刻的续读点。返回 null = 这一家不支持续读（或此刻还不能安全地续），
    * 外面据此退回「每次整份重读」，那是慢，不是错。
    */
-  resumePoint?(): Promise<SessionRecordResume | null>;
+  resumePoint?(budget?: RecordArchiveBudget): Promise<SessionRecordResume | null>;
   /** 立刻把尾读追到文件尾,读完(行已交给 onEntries)才返回。不支持的源没有这个口。 */
   catchUp?(): Promise<void>;
   /** 按 `imageOrigins` 给的位置把一张图从记录里读回来;读不到或核对不上回 null。不支持的源没有这个口。 */

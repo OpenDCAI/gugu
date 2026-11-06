@@ -260,6 +260,34 @@ describe('调用方(DeviceActionCaller)', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
+  it('咕咕 server 不登记动作:如实说它不提供,❌ 说成版本太旧', async () => {
+    const rpc = vi.fn()
+    const server = { label: 'cloud-box', host_kind: 'server', actions: undefined }
+    const caller = createDeviceActionCaller({ listDevices: async () => [target({ ...server, device_id: 'srv' }), target({ ...server, device_id: 'other-srv', this_machine: false })], rpc })
+    // Called on the server itself, and from another device: neither says "too old" nor sends the agent to the server.
+    for (const deviceId of ['srv', 'other-srv']) {
+      const result = await caller.call({ deviceId, action: 'clipboard.read' })
+      expect(result).toMatchObject({ ok: false, code: 'unsupported' })
+      expect(!result.ok && result.message).toContain('不提供设备动作')
+    }
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('读取清单失败:带着原因报出来,和「没有动作」「没登记」都不一样,调用 ❌ 发出去', async () => {
+    const rpc = vi.fn()
+    const failed = { v: 1, read_error: 'boom' }
+    const caller = createDeviceActionCaller({ listDevices: async () => [target({ actions: failed })], rpc })
+    expect((await caller.describe())[0]).toMatchObject({ groups: null, read_error: 'boom' })
+    expect((await caller.describe('mac'))[0]).toMatchObject({ actions: null, read_error: 'boom' })
+    expect((await caller.describe('mac', { group: 'calendar' }))[0]).toMatchObject({ actions: null, read_error: 'boom' })
+    const result = await caller.call({ deviceId: 'mac', action: 'calendar.events.create' })
+    expect(result).toMatchObject({ ok: false, code: 'execution_failed' })
+    expect(!result.ok && result.message).toContain('boom')
+    expect(rpc).not.toHaveBeenCalled()
+    expect(normalizeDeviceActionsSummary(failed)).toEqual({ v: 1, actions: [], read_error: 'boom' })
+    expect(normalizeDeviceActionsCapability(failed)).toEqual({ v: 1, actions: [], read_error: 'boom' })
+  })
+
   it('收到 → 结果事件 → 回「结果收到」;第一次没收到就用同一个 call_id 重发', async () => {
     const sent: Array<{ type: string; payload: Record<string, unknown> }> = []
     let attempts = 0

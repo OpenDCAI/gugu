@@ -791,6 +791,41 @@ describe('AgentConfigRuntime sign-in expiry (#6264)', () => {
   });
 });
 
+describe('MCP preparation failure containment', () => {
+  it('owns a rejected provider read, continues healthy providers, and permits a later refresh', async () => {
+    let broken = true;
+    const warn = vi.fn();
+    const { runtime, agentHost } = makeRuntime({
+      logger: { ...noopLogger, warn },
+      mcpRead: async () => { if (broken) throw new Error('home copy failed'); return []; },
+    });
+    try {
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Failed to read MCP config for claude:', { error: 'home copy failed' }));
+      const provider = agentHost.get('claude')!;
+      vi.spyOn(agentHost, 'getAll').mockReturnValue([provider, { ...provider, metadata: { ...provider.metadata, id: 'healthy' } }]);
+      const read = vi.spyOn(agentHost, 'readMcpServers').mockImplementation(async id => {
+        if (id === 'claude' && broken) throw new Error('home copy failed');
+        return ok([]);
+      });
+      await expect(runtime.mcp.refresh()).resolves.toEqual([]);
+      expect(read.mock.calls.map(call => call[0])).toEqual(['claude', 'healthy']);
+      broken = false;
+      await expect(runtime.mcp.refresh()).resolves.toEqual([]);
+      expect(read.mock.calls.map(call => call[0])).toEqual(['claude', 'healthy', 'claude', 'healthy']);
+    } finally { await runtime.dispose(); }
+  });
+
+  it('handles an unexpected initialization rejection at the runtime owner', async () => {
+    const { AgentMcpConfigManager } = await import('./mcp');
+    const initialize = vi.spyOn(AgentMcpConfigManager.prototype, 'initialize').mockRejectedValueOnce(new Error('init failed'));
+    const warn = vi.fn();
+    const { runtime } = makeRuntime({ logger: { ...noopLogger, warn } });
+    try {
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('AgentConfigRuntime: MCP initialization failed', { error: 'Error: init failed' }));
+    } finally { initialize.mockRestore(); await runtime.dispose(); }
+  });
+});
+
 function makeRuntime(
   options: {
     hostDependencyLedger?: ReplicaHostDependencyLedger;
@@ -805,6 +840,7 @@ function makeRuntime(
     subscriptionUsage?: () => Promise<SubscriptionUsageReading>;
     usageRefresh?: 'on-open' | 'on-demand';
     isolatedCredentialFs?: boolean;
+    mcpRead?: () => Promise<McpServerRegistration[]>;
     /** 伴随程序 `claude-tui`(认领 tui)自己的登录(#6335)。 */
     companionAuth?: {
       checkStatus: (ctx: AgentAuthContext) => Promise<AgentAuthStatus>;
@@ -893,7 +929,7 @@ function makeRuntime(
         ...(options.companionAuth ? { programs: { 'claude-tui': options.companionAuth } } : {}),
       },
       mcp: {
-        readServers: vi.fn(async () => [...mcpServers]),
+        readServers: vi.fn(async () => options.mcpRead ? options.mcpRead() : [...mcpServers]),
         writeServers: vi.fn(async (_pluginFs, servers) => {
           mcpServers.splice(0, mcpServers.length, ...servers);
         }),

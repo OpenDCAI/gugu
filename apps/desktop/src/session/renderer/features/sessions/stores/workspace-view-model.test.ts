@@ -915,6 +915,11 @@ describe('WorkspaceViewModel source-aware page opens', () => {
     view.showPage('https://example.com/', { reload: false }); expect(reload).not.toHaveBeenCalled();
     view.showPage('https://example.com/', { reload: true }); expect(reload).toHaveBeenCalledOnce();
   });
+  it.each(['newTab', 'navigate'] as const)('preserves beside placement for an inactive %s host request', (intent) => {
+    const { view, open } = fake();
+    view.showPage('https://example.com/', { reload: false, intent, beside: true, activate: false });
+    expect(open).toHaveBeenCalledWith('browser', { initialUrl: 'https://example.com/' }, { from: null, intent: 'beside', activate: false });
+  });
   it('passes files from Outputs through the existing file opener', () => {
     const { view } = fake(); WorkspaceViewModel.prototype.reopenOutput.call(view, { kind: 'file', path: 'notes.md' });
     expect(view.openFile).toHaveBeenCalledWith('notes.md', { beside: true });

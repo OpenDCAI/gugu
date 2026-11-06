@@ -81,6 +81,8 @@ jobs:
           printf '%s\n' "GUGU_HOME=$profile/home" "GUGU_USER_DATA_DIR=$profile/user-data" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
+          # setup-community clears stale source while keeping local dependency caches.
+          clean: ${{ runner.environment != 'self-hosted' }}
           persist-credentials: false
       - run: command -v tmux || brew install tmux
       - uses: ./.github/actions/setup-community

@@ -37,16 +37,18 @@ describe('其他设备的额度通知由命令结果驱动', () => {
     read.mockResolvedValue([unavailable('two')]); await emit()
     expect(current()).toBe('cmd')
   })
-  it('打开时补读；事件只刷新当前聊天/话题/Agent，重连后再补读', async () => {
+  it('打开时补读；事件只刷新当前聊天/话题（已离开的 Agent 也算），重连后再补读', async () => {
     read.mockResolvedValue([failure()])
     await ui.render(createNode(Probe, {}))
     expect(current()).toBe('cmd')
     expect(read).toHaveBeenCalledTimes(1)
     expect(read).toHaveBeenCalledWith({ chatId: 'chat', threadRootId: null }, ['agent'])
-    await emit({ thread_root_id: 'other' }); await emit({ chat_id: 'other' }); await emit({ agent_user_id: 'other' })
+    await emit({ thread_root_id: 'other' }); await emit({ chat_id: 'other' })
     expect(read).toHaveBeenCalledTimes(1)
-    await act(async () => bus.onSubscribed?.())
+    await emit({ agent_user_id: 'departed' })
     expect(read).toHaveBeenCalledTimes(2)
+    await act(async () => bus.onSubscribed?.())
+    expect(read).toHaveBeenCalledTimes(3)
   })
   // A task page reads its agent over every chat: an event from any chat of that agent refreshes it.
   it('任务页按 Agent 读：任何聊天来的事件都刷新，别的 Agent 不刷', async () => {

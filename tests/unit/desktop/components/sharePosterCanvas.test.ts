@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { copyPosterToClipboard, drawSharePoster } from '../../../../apps/desktop/src/components/sharePosterCanvas'
+import { copyPosterToClipboard, createSharePosterCanvas, drawSharePoster } from '../../../../apps/desktop/src/components/sharePosterCanvas'
 function canvasContext() {
   const gradient = { addColorStop: vi.fn() }
   return {
@@ -111,4 +111,24 @@ describe('share poster group CTA rendering', () => {
     ])
     expect(ctaLines.every(([text]) => context.measureText(String(text)).width <= 184)).toBe(true)
   })
+})
+
+
+it('rejects a failed member image instead of returning a poster with the member silently omitted', async () => {
+  const source = 'https://images.example.test/member.png'
+  class FailedImage {
+    crossOrigin: string | null = null
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    set src(value: string) {
+      if (value === source) queueMicrotask(() => this.onerror?.())
+      else queueMicrotask(() => this.onload?.())
+    }
+  }
+  vi.stubGlobal('Image', FailedImage)
+  try {
+    await expect(createSharePosterCanvas({
+      title: '研究小组', subtitle: '群聊', qrDataUrl: 'data:image/png;base64,qr', memberAvatarUrls: [source],
+    })).rejects.toMatchObject({ cause: expect.objectContaining({ message: expect.stringContaining(source) }) })
+  } finally { vi.unstubAllGlobals() }
 })

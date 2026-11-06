@@ -21,13 +21,23 @@ export class ProjectGroupsStore {
   private stop: (() => void) | null = null;
   /** 此刻连着、项目清单同步过的机器(由远程主机那边给;❌ 在这里 import 它 —— 那边反过来要用这里)。 */
   private syncedMachines: () => readonly string[] = () => [];
+  private projectRows: () => readonly string[] = () => [];
+
+  /** 项目页实际渲染的代表行;聊天列表、打开群和快捷搜索都认这一份关系。 */
+  private get projectsByChat(): ReadonlyMap<string, string> {
+    const rows = new Map<string, string>();
+    for (const projectId of this.projectRows()) {
+      const chatId = this.byProject.get(projectId);
+      if (chatId) rows.set(chatId, projectId);
+    }
+    return rows;
+  }
 
   /** 这个本地项目绑的群;没绑(或还没读到)= undefined。 */
   chatIdOf(projectId: string): string | undefined {
     return this.byProject.get(projectId);
   }
 
-  /** 绑在这个群上的一个本地项目(几台机器上的同一个项目绑同一个群,任取一个;认侧栏那一行用 rowProjectIdOf)。不是项目群 = undefined。 */
   /**
    * 这个本地项目绑没绑群,此刻是不是已经知道:绑着(这次读到的或上次记下的)、它那台机器这次已经答过(读失败也算答过,
    * 失败进日志;下一次读成了绑定照常补上)、或者那台机器此刻连不上(不会有回音,按「没有」画能画的那部分)。
@@ -39,14 +49,21 @@ export class ProjectGroupsStore {
       || (machine !== null && !this.syncedMachines().includes(machine));
   }
 
+  /** 这个群绑定的一个项目,不受项目行显隐影响(成员权限等按绑定判断)。 */
   projectOfChat(chatId: string): string | undefined {
     for (const [projectId, bound] of this.byProject) if (bound === chatId) return projectId;
     return undefined;
   }
 
+  /** 这个群在项目页上的代表行;没有行就从聊天列表打开。 */
+  rowProjectOfChat(chatId: string): string | undefined {
+    return this.projectsByChat.get(chatId);
+  }
+
   /** 会话页挂上时由远程主机那边调一次(它知道哪些机器连着)。重复调用无害。 */
-  start(syncedMachines: () => readonly string[], agentSessions: () => readonly { projectId: string; sessionId: string; agentUserId: string | null | undefined }[] = () => []): void {
+  start(syncedMachines: () => readonly string[], agentSessions: () => readonly { projectId: string; sessionId: string; agentUserId: string | null | undefined }[], projectRows: () => readonly string[]): void {
     this.syncedMachines = syncedMachines;
+    this.projectRows = projectRows;
     if (!this.stop) {
       void this.refresh(null);
       // 连上(且项目清单同步过)的机器各读一次;之后再连上一次就再读一次。
@@ -62,9 +79,10 @@ export class ProjectGroupsStore {
       const offMachines = onEachMachine((deviceId) =>
         onMachineEvent(deviceId, projectGroupBindingChangedChannel, () => void this.refresh(deviceId))
       );
-      // 聊天页的列表据此把项目群拿掉(它们在项目页里)。
+      // 只有项目页确实有行的群才从聊天页拿掉;绑定还在但项目已隐藏的群仍在聊天页。
       const offPublish = reaction(
         () => {
+          const chatIds = [...this.projectsByChat.keys()].sort();
           const byChat = new Map<string, Set<string>>([...this.byProject.values()].map((chatId) => [chatId, new Set<string>()]));
           for (const session of agentSessions()) {
             const chatId = this.byProject.get(session.projectId);
@@ -73,9 +91,9 @@ export class ProjectGroupsStore {
           const rows = [...byChat].map(([chatId, ids]) => [chatId, [...ids].sort()] as const).sort(([a], [b]) => a.localeCompare(b));
           // 哪个 agent 是哪条会话(这台电脑与连着的每台机器上的):资料卡「发消息」据此打开它的会话。
           const sessions = agentSessions().flatMap(({ agentUserId, projectId, sessionId }) => agentUserId ? [[agentUserId, { projectId, sessionId }] as const] : []).sort(([a], [b]) => a.localeCompare(b));
-          return { rows, sessions };
+          return { chatIds, rows, sessions };
         },
-        ({ rows, sessions }) => publishProjectGroupChats(rows.map(([chatId]) => chatId), new Map(rows), new Map(sessions)),
+        ({ chatIds, rows, sessions }) => publishProjectGroupChats(chatIds, new Map(rows), new Map(sessions)),
         { fireImmediately: true, equals: comparer.structural }
       );
       this.stop = () => {

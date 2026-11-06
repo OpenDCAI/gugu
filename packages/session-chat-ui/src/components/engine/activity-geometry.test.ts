@@ -1,0 +1,54 @@
+import { expect, it } from 'vitest';
+import { unit } from '../../core/units';
+import { Virtualizer } from '../../core/virtualizer';
+import { makeUnitsView } from '../../state/flatten';
+import { activityLanes } from '../../state/activity-lanes';
+import { createActivityGeometry } from './activity-geometry';
+import { createTweenRegistry } from './tween-registry';
+
+it('keeps an offscreen expansion attached to its source rows during history prepend', () => {
+  const row = (kind: string, id: string) => unit(kind, { kind: 'message', id, seq: 0, role: 'user', text: id }, { id }, { key: 'self' });
+  const header = row('agent-activity', 'gate');
+  const children = ['one', 'two'].map(id => ({ ...row('message', id), activityFold: header.id }));
+  const rows = [header, ...children], model = {};
+  const virt = new Virtualizer();
+  virt.setCount(rows.length, () => 0);
+  const registry = createTweenRegistry(virt, () => {}, { now: () => 0, reducedMotion: () => false });
+  const geometry = createActivityGeometry(virt, registry, () => {});
+  geometry.sync(model, makeUnitsView(rows, []), activityLanes(rows), () => false, () => 100);
+  geometry.sync(model, makeUnitsView(rows, []), activityLanes(rows), () => true, () => 100);
+  registry.advance(50);
+  expect(virt.size(1)).toBeGreaterThan(0);
+  const before = row('message', 'earlier');
+  const next = [before, ...rows];
+  virt.prepend(1, () => 80);
+  geometry.sync(model, makeUnitsView(next, []), activityLanes(next), () => true, () => 100);
+  registry.advance(300);
+  expect(virt.size(0)).toBe(80);
+  expect(virt.size(1)).toBe(0);
+  expect(virt.size(2)).toBe(100);
+  expect(virt.size(3)).toBe(100);
+  geometry.dispose();
+});
+
+it('finishes an expanded offscreen height after its mounted row releases ownership', () => {
+  const header = unit('agent-activity', { id: 'gate', kind: 'message', role: 'user', seq: 0, text: '' }, {}, { key: 'self' });
+  const child = { ...unit('message', { id: 'body', kind: 'message', role: 'user', seq: 0, text: 'body' }, {}, { key: 'self' }), activityFold: header.id };
+  const rows = [header, child], model = {}, mounted = {};
+  const virt = new Virtualizer();
+  virt.setCount(rows.length, () => 0);
+  const registry = createTweenRegistry(virt, () => {}, { now: () => 0, reducedMotion: () => false });
+  const geometry = createActivityGeometry(virt, registry, () => {});
+  geometry.sync(model, makeUnitsView(rows, []), activityLanes(rows), () => false, () => 100);
+  geometry.sync(model, makeUnitsView(rows, []), activityLanes(rows), () => true, () => 100);
+  registry.set(child.id, () => 1, 100, true, mounted);
+  registry.advance(40);
+  expect(virt.size(1)).toBeGreaterThan(0);
+  expect(virt.size(1)).toBeLessThan(100);
+  expect(geometry.release(child, 100)).toBe(true);
+  registry.unregister(child.id, mounted);
+  registry.advance(300);
+  expect(virt.size(1)).toBe(100);
+  geometry.dispose();
+  expect(registry.heightOf(child.id)).toBeUndefined();
+});

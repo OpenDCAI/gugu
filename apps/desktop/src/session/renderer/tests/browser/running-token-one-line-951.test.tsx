@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
@@ -42,7 +43,9 @@ async function mount(width: number, list: RunningToken[], onTokenClick = vi.fn()
   render([])
   await until('the dock and composer are laid out', () => composer()?.getBoundingClientRect().height === 110)
   const original = composer().getBoundingClientRect()
-  render(list)
+  // The row is fitted in the next frame's ResizeObserver step, before that frame paints: judge it after a frame.
+  flushSync(() => render(list))
+  await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)))
   await until('the strip fits its one row', () => shown('.rtb-tok').length > 0 && rowTops().size === 1
     && shown('.rtb-tok').length + Number(column!.querySelector('.rtb-more')?.textContent?.slice(1) ?? 0) === list.length)
   return { original, render }
@@ -139,6 +142,26 @@ describe('running strip: one row, +N opens a grouped, capped, scrolling panel', 
     await until('the panel opens', () => (panel()?.getBoundingClientRect().height ?? 0) > 0)
     expect(panel()!.querySelectorAll('[role="group"]')).toHaveLength(1)
     expect(panel()!.querySelector('.rtb-oh')).toBeNull()
+  })
+
+  it('a parent re-render reads no layout while it commits', async () => {
+    const list = tokens(20, () => false)
+    const { render } = await mount(900, list)
+    const reads: string[] = []
+    const spied = [[Element.prototype, 'clientWidth'], [HTMLElement.prototype, 'offsetWidth']] as const
+    const originals = spied.map(([proto, key]) => Object.getOwnPropertyDescriptor(proto, key)!)
+    spied.forEach(([proto, key], index) => Object.defineProperty(proto, key, {
+      configurable: true,
+      get(this: Element) { reads.push(key); return originals[index].get!.call(this) },
+    }))
+    try {
+      // The chat page rebuilds the token array on every render; each commit used to force a layout of what it had just written.
+      for (let pass = 0; pass < 5; pass++) flushSync(() => render(list.map(token => ({ ...token }))))
+    } finally {
+      spied.forEach(([proto, key], index) => Object.defineProperty(proto, key, originals[index]))
+    }
+    expect(reads).toEqual([])
+    expect(shown('.rtb-tok').length + Number(column!.querySelector('.rtb-more')?.textContent?.slice(1) ?? 0)).toBe(list.length)
   })
 
   it('phone: the same one row, and a tap on +N opens the panel', async () => {

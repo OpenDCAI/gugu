@@ -17,6 +17,15 @@ outputs:
 runs:
   using: composite
   steps:
+    # Persistent Mac checkouts retain dependency content; remove all other stale source
+    # before pnpm reads any workspace configuration, then validate with frozen install.
+    - name: Clean source while preserving checkout-local dependency caches
+      if: runner.environment == 'self-hosted' && runner.os == 'macOS'
+      shell: bash
+      run: |
+        cd -- "${GITHUB_WORKSPACE:?}"
+        test "$(git rev-parse --show-prefix)" = ''
+        git clean -ffdx -e node_modules -e .ci-cache
     - uses: pnpm/action-setup@v4
     - id: node
       uses: actions/setup-node@v4

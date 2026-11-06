@@ -4,8 +4,16 @@ import { identityDb } from './supabase'
 
 export type StoredAgentTurnFailure = AgentTurnFailure & { revision: string }
 
-/** 每位 Agent 只认当前聊天/话题的最新投递；后来的成功或重试会盖掉以前的失败。 */
-export function storedAgentTurnFailures(rows: unknown[], agentIds: readonly string[]): StoredAgentTurnFailure[] {
+/** What happened to a message sent to an agent that has since left this chat. Its other failures left with it. */
+function departedAgentStillOwes(reason: AgentFailureReason): boolean {
+  return reason === 'deliveryRejected' || reason === 'outcomeUnknown'
+}
+
+/**
+ * 每位 Agent 只认当前聊天/话题的最新投递；后来的成功或重试会盖掉以前的失败。
+ * `includeDeparted`: the rows of one chat name every agent it delivered to, current member or not, so a removed agent's undelivered message still reaches its owner.
+ */
+export function storedAgentTurnFailures(rows: unknown[], agentIds: readonly string[], includeDeparted = false): StoredAgentTurnFailure[] {
   const seen = new Set<string>()
   const failures: StoredAgentTurnFailure[] = []
   for (const raw of rows) {
@@ -13,16 +21,17 @@ export function storedAgentTurnFailures(rows: unknown[], agentIds: readonly stri
     const row = raw as Record<string, unknown>
     const payload = row.payload && typeof row.payload === 'object' ? row.payload as Record<string, unknown> : null
     const id = payload?.agent_user_id
-    if (typeof id !== 'string' || !agentIds.includes(id) || seen.has(id)) continue
+    const departed = !agentIds.includes(id as string)
+    if (typeof id !== 'string' || (departed && !includeDeparted) || seen.has(id)) continue
     seen.add(id)
     if (row.status !== 'error' || typeof row.id !== 'string') continue
     const result = row.result && typeof row.result === 'object' ? row.result as Record<string, unknown> : null
     // 宿主在聊天里说过的（in-chat）由聊天说；只认它留给 composer 的（context），原因是宿主落的码。
     const recorded = AGENT_FAILURE_REASONS.find((known) => known === result?.reason)
     const reason = recorded ? (result?.reply_notice === 'context' ? recorded : null) : olderHostReason(row, result)
-    if (!reason) continue
+    if (!reason || (departed && !departedAgentStillOwes(reason))) continue
     const revision = typeof row.completed_at === 'string' ? row.completed_at : String(row.created_at ?? '')
-    failures.push({ agentUserId: id, commandId: row.id, reason, at: Date.parse(revision), revision })
+    failures.push({ agentUserId: id, commandId: row.id, reason, at: Date.parse(revision), revision, departed })
   }
   return failures
 }
@@ -65,5 +74,5 @@ export async function readStoredAgentTurnFailures(scope: StoredFailureScope, age
     p_thread_root_id: scope === 'any-chat' ? null : scope.threadRootId || null,
   })
   if (error) throw new Error(error.message)
-  return { failures: storedAgentTurnFailures(data ?? [], agentIds), recovered: storedAgentRecoveries(data ?? [], agentIds) }
+  return { failures: storedAgentTurnFailures(data ?? [], agentIds, scope !== 'any-chat'), recovered: storedAgentRecoveries(data ?? [], agentIds) }
 }

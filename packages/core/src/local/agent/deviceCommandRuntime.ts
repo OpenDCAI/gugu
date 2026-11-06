@@ -44,8 +44,7 @@ import type { AgentDeliveredMessageRead } from './deliveredReadMarkers'
 import {
   deviceCommandAgentUserId,
   latestClaimerForAgent,
-  readDeviceRuntimeInstances,
-  RUNTIME_INSTANCE_STALE_MS,
+  readLiveDeviceRuntimeInstanceIds,
   type DeviceCommandHolding,
   type DeviceCommandTableClient,
   type PendingDeviceCommand,
@@ -1043,14 +1042,8 @@ export function createDeviceCommandHoldingResolver(
     return (await roster).has(agentUserId)
   }
   let liveSiblings: Promise<Set<string>> | null = null
-  const liveSiblingIds = () => (liveSiblings ??= readDeviceRuntimeInstances(input.client, input.deviceId, input.operationTimeouts)
-    .then((instances) => new Set(instances
-      .filter((instance) => instance.instanceId !== input.instanceId)
-      .filter((instance) => {
-        const at = Date.parse(instance.lastHeartbeatAt)
-        return !Number.isNaN(at) && nowMs() - at < RUNTIME_INSTANCE_STALE_MS
-      })
-      .map((instance) => instance.instanceId))))
+  const liveSiblingIds = () => (liveSiblings ??= readLiveDeviceRuntimeInstanceIds(input.client, input.deviceId, nowMs(), input.operationTimeouts)
+    .then((ids) => { ids.delete(input.instanceId); return ids }))
   return async (command) => {
     if (command.type === 'agent.create') return 'held'
     const agentUserId = deviceCommandAgentUserId(command)
