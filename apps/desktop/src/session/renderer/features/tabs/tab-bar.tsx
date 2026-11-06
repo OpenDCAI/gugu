@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import { ChevronDown, ChevronLeft } from '@/lib/icons';
 import { Button } from '@renderer/lib/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu';
@@ -8,7 +8,6 @@ import { cn } from '@renderer/utils/utils';
 import { isStripOverflowing, readStripTabs, wheelToHorizontal, type StripTabEntry } from './tab-bar/tab-overflow';
 import { readRendererPlatform, shellRestoreLane, WINDOW_CONTROL_BAR_HEIGHT_PX } from '@/lib/window-chrome';
 import { PaneContext, usePaneContext } from '@renderer/features/tabs/pane-context';
-import type { PaneStore } from './pane-store';
 import { PaneDropZone } from './tab-bar/draggable-tab';
 import { SESSION_TAB_HEIGHT_PX } from './tab-bar/tab-chip';
 import { isUnavailableTabResource, UnavailableTabBarItem } from './unavailable-tab';
@@ -36,7 +35,6 @@ export const TabBar = observer(function TabBar({
   const { paneId, pane, isFocusedPane } = usePaneContext();
   // 并排时另一页在它自己那一格里,页签画在这条页签条上、紧跟钉住那枚(一条会话只有一条页签条,spec session-page「并排」)。
   const side = pane.pairSide;
-  const pinned = side ? pane.resolvedActiveTabId : undefined;
 
   const { translate } = useSessionMessages();
   const active = pane.activeEntry;
@@ -50,11 +48,21 @@ export const TabBar = observer(function TabBar({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const order = useTabOrderPreview(pane, scrollContainerRef);
-  const tabsById = new Map(resolvedTabs.map((tab) => [tab.tabId, tab]));
+  const entries = [
+    ...resolvedTabs.map((tab) => ({ tab, host: pane, paneId, focused: isFocusedPane })),
+    ...(side?.pane.resolvedTabs.map((tab) => ({ tab, host: side.pane, paneId: side.paneId, focused: !isFocusedPane })) ?? []),
+  ];
+  const tabsById = new Map(entries.map((entry) => [entry.tab.tabId, entry]));
+  const sideOrder = side ? [...side.pane.resolvedTabs].sort((a, b) => Number(b.isActive) - Number(a.isActive)).map((tab) => tab.tabId) : [];
+  const combined = order.flatMap((id) => id === pane.resolvedActiveTabId ? [id, ...sideOrder] : [id]);
+  const start = entries.find(({ tab }) => tab.pairRole === 'start')?.tab.tabId;
+  const end = entries.find(({ tab }) => tab.pairRole === 'end')?.tab.tabId;
+  // Pair identity can point at two hidden main-pane tabs while the old side is still displayed.
+  const stripOrder = start && end ? combined.filter((id) => id !== end).flatMap((id) => id === start ? [id, end] : [id]) : combined;
 
   // 放不下了没有:滚动区尺寸变了、页签数变了才重算(ResizeObserver,❌ 定时量)。
   const [overflowing, setOverflowing] = useState(false);
-  const tabCount = resolvedTabs.length;
+  const tabCount = entries.length;
   useEffect(() => {
     const scroller = scrollContainerRef.current;
     if (!scroller) return;
@@ -99,7 +107,7 @@ export const TabBar = observer(function TabBar({
         overflowing ? (
           <TabOverflowMenu
             read={() => (scrollContainerRef.current ? readStripTabs(scrollContainerRef.current) : [])}
-            onPick={(tabId) => pane.setActiveTab(tabId)}
+            onPick={(tabId) => tabsById.get(tabId)?.host.setActiveTab(tabId)}
           />
         ) : null
       }
@@ -108,35 +116,19 @@ export const TabBar = observer(function TabBar({
       leadingReservePx={leadingReservePx}
       leadingSlot={leadingSlot}
     >
-      <TabStripMotion scroller={scrollContainerRef} order={order.join('\0')} activeTabId={pane.activeTabId}>
-      {order.map((id) => {
-        const tab = tabsById.get(id);
-        if (!tab) return null;
-        if (isUnavailableTabResource(tab.resource) || !pane.registry.has(tab.kind)) {
-          return <UnavailableTabBarItem key={tab.tabId} tab={tab} host={pane} />;
-        }
-        const def = pane.registry.get(tab.kind);
-        const TabItemComponent = def.TabBarItem;
-        const item = <TabItemComponent key={tab.tabId} tab={tab} host={pane} ctx={pane.ctx} />;
-        return side && id === pinned ? [item, <PairedSideTabs key={`side-${side.paneId}`} side={side} focused={!isFocusedPane} />] : item;
+      <TabStripMotion scroller={scrollContainerRef} order={stripOrder.join('\0')} activeTabId={pane.activeTabId}>
+      {stripOrder.map((id) => {
+        const entry = tabsById.get(id);
+        if (!entry) return null;
+        const { tab, host } = entry;
+        const Item = host.registry.has(tab.kind) ? host.registry.get(tab.kind).TabBarItem : null;
+        return <PaneContext.Provider key={id} value={{ paneId: entry.paneId, pane: host, isFocusedPane: entry.focused }}>
+          {isUnavailableTabResource(tab.resource) || !Item ? <UnavailableTabBarItem tab={tab} host={host} /> : <Item tab={tab} host={host} ctx={host.ctx} />}
+        </PaneContext.Provider>;
       })}
       </TabStripMotion>
     </TabStripShell>
   );
-});
-
-/**
- * The side pane's tabs, drawn in the main strip with their own host (close, menu, drag act on them): the side in front
- * first (joined to the pinned tab), then the pages it showed before.
- */
-const PairedSideTabs = observer(function PairedSideTabs({ side, focused }: { side: { paneId: string; pane: PaneStore }; focused: boolean }) {
-  const value = useMemo(() => ({ paneId: side.paneId, pane: side.pane, isFocusedPane: focused }), [side, focused]);
-  const tabs = [...side.pane.resolvedTabs].sort((a, b) => Number(b.isActive) - Number(a.isActive));
-  return <PaneContext.Provider value={value}>{tabs.map((tab) => {
-    if (isUnavailableTabResource(tab.resource) || !side.pane.registry.has(tab.kind)) return <UnavailableTabBarItem key={tab.tabId} tab={tab} host={side.pane} />;
-    const Item = side.pane.registry.get(tab.kind).TabBarItem;
-    return <Item key={tab.tabId} tab={tab} host={side.pane} ctx={side.pane.ctx} />;
-  })}</PaneContext.Provider>;
 });
 
 /** 放不下时贴条右端那枚「全部页签」(照 VS Code 的 Show Opened Editors)。菜单打开时才读一次页签。 */
