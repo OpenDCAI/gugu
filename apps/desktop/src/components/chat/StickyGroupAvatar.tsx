@@ -3,6 +3,22 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react'
 /** 组首那条消息的头像占位带这个标记;组尾的头像层往上找到它为止。 */
 const GROUP_TOP_ATTR = 'data-avatar-group-top'
 
+type AvatarBounds = { layer: HTMLDivElement; bottom: number; height: number }
+const avatarMeasures = new Map<Element, Set<() => AvatarBounds | undefined>>()
+let avatarResize: ResizeObserver | undefined
+function avatarResizeObserver(): ResizeObserver {
+  // Like BubbleSender's owner-fit observer, read every affected row before writing any styles, including across lists.
+  return avatarResize ??= new ResizeObserver((entries) => {
+    const measures = new Set(entries.flatMap(({ target }) => [...(avatarMeasures.get(target) ?? [])]))
+    const bounds = [...measures].map(measure => measure())
+    for (const box of bounds) {
+      if (!box) continue
+      box.layer.style.bottom = `${box.bottom}px`
+      box.layer.style.height = `${box.height}px`
+    }
+  })
+}
+
 /**
  * 消息行的头像那一列(owner 10-25,照 Telegram Web 的 .bubbles-group-avatar):头像画在一组连续消息的最后一条旁边,
  * 组里其余几条只留同宽的占位。最后一条那里套一层从组首气泡上沿伸到这条气泡下沿的绝对定位层,头像在层里
@@ -21,7 +37,8 @@ function StickyGroupAvatar({ width, continuesGroup, children }: { width: string;
   useLayoutEffect(() => {
     const slot = slotRef.current, layer = layerRef.current
     const row = slot?.closest('[role="listitem"]')
-    if (!slot || !layer || !row?.parentElement) return
+    const list = row?.parentElement
+    if (!slot || !layer || !row || !list) return
     const measure = () => {
       // 一条成组的消息,组首就是自己这一行 ⇒ 不往上找(往上找会落到上一组的组首,层伸进别的组)。
       let top: Element | null = null
@@ -30,14 +47,23 @@ function StickyGroupAvatar({ width, continuesGroup, children }: { width: string;
       const bubble = (r: Element) => r.querySelector('[data-message-bubble-row]')?.getBoundingClientRect()
       const own = bubble(row), first = bubble(top?.closest('[role="listitem"]') ?? row), box = slot.getBoundingClientRect()
       if (!own || !first) return
-      layer.style.bottom = `${box.bottom - own.bottom}px`
-      layer.style.height = `${own.bottom - first.top}px`
+      return { layer, bottom: box.bottom - own.bottom, height: own.bottom - first.top }
     }
-    // No synchronous first measure (it forced a layout mid-commit): the observer's first delivery runs after layout,
-    // before paint, and only writes styles.
-    const observer = new ResizeObserver(measure)
-    observer.observe(row.parentElement)
-    return () => observer.disconnect()
+    // The first delivery still measures after layout and before paint, without a synchronous mid-commit read.
+    const observer = avatarResizeObserver()
+    // A new tail row needs its first notification even when the list's dimensions stay unchanged.
+    const targets = [list, row].map(target => {
+      const measures = avatarMeasures.get(target) ?? new Set<() => AvatarBounds | undefined>()
+      if (!avatarMeasures.has(target)) { avatarMeasures.set(target, measures); observer.observe(target) }
+      measures.add(measure)
+      return { target, measures }
+    })
+    return () => {
+      for (const { target, measures } of targets) {
+        measures.delete(measure)
+        if (!measures.size) { avatarMeasures.delete(target); observer.unobserve(target) }
+      }
+    }
   }, [continuesGroup])
   return (
     <div ref={slotRef} className={`${width} relative shrink-0 self-stretch`}>
