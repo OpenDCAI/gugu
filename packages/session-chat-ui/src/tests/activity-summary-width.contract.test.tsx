@@ -107,3 +107,27 @@ it('preserves a hanging space when the count wraps before its unit', async () =>
  expect(reading.dom).toBe(reading.computed);
  expect(reading.spill).toBe(0);
 });
+
+it.each([342, 350, 358, 366, 390])('keeps native Chinese punctuation inside a %ipx conversation', async width => {
+ const actorNames = ['账号与用户主管（Claude，d22）', '手机线协调（Codex）', '第三位协作者'];
+ const context = createChatContext({ locale: () => 'zh-CN', layout: { preset: 'double', agentConversation: true, userGutter: 0 },
+  actor: id => ({ id, type: 'agent', name: actorNames[Number(id.slice(-1))] }), translator: chinese });
+ const state = createChatState(context);
+ state.transcript.history.seed(actorNames.map((_, index): TranscriptTurn => ({ id: `native-turn-${index}`, seq: index,
+  initiator: 'user', outcome: { kind: 'done' }, items: [{ kind: 'message', id: `native-input-${index}`, seq: 0, role: 'user',
+   text: `<gugu_delivery route="chat" from="Agent" from_id="user:actor${index}" from_type="agent" msg="msg:${index}"><![CDATA[Agent update]]></gugu_delivery>` }] })));
+ const host = document.body.appendChild(document.createElement('div'));
+ host.style.cssText = `position:fixed;top:0;left:0;width:${width}px;height:600px`;
+ const view = createChatView({ context, state, parent: host, stickToBottom: false });
+ cleanup.push(() => { view.dispose(); state.dispose(); context.dispose(); host.remove(); });
+ await until('native semantic summary', () => !!host.querySelector('[data-agent-activity]'));
+ await untilStable('native summary geometry', () => host.querySelector('[data-agent-activity]')!.getBoundingClientRect().width);
+ const label = host.querySelector('[data-agent-activity]')!.lastElementChild!.children[1] as HTMLElement;
+ const lines = [...label.children].map(line => ({ text: line.textContent, width: line.getBoundingClientRect().width,
+  painted: [...line.children].reduce((sum, part) => sum + part.getBoundingClientRect().width, 0) }));
+ console.log(JSON.stringify({ font: getComputedStyle(label).font, lines }));
+ expect(label.textContent).toContain('手机线协调（Codex）');
+ expect(lines.length).toBeLessThanOrEqual(3);
+ expect(Math.ceil(Math.max(...lines.map(line => line.painted)))).toBeLessThanOrEqual(label.clientWidth);
+ expect(label.scrollWidth, 'native punctuation must not push an actor letter outside the label').toBeLessThanOrEqual(label.clientWidth);
+});
