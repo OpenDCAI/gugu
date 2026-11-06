@@ -31,6 +31,7 @@ import type {
 import { TOOL_IMAGE_FETCH_LIMIT } from './contract';
 import { questionAnswered, readQuestion } from './sources/question-tools';
 import { findToolImage, findToolItem } from './tool-image';
+import { fitsTimelineArchiveBudget, TIMELINE_ARCHIVE_MAX_BYTES, TIMELINE_ARCHIVE_MAX_ENTRIES } from './archive-budget';
 
 /**
  * 一条已经折算好的时间线的存档。
@@ -317,8 +318,32 @@ class RecordTimeline implements SessionTimeline {
    */
   async archive(): Promise<TimelineArchive | null> {
     if (this.disposed) return null;
-    const resume = await this.source.resumePoint?.();
+    // Check cheap retained metadata before resumePoint copies source state or
+    // parserForArchive walks the transcript. One giant item is just as unsafe as
+    // many small entries; publication already owns its JSON, so only read length.
+    if (this.seenKeys.size + this.published.size + this.settlements.size + this.removed.size
+      + this.imageOrigins.size + this.archivedImages.size > TIMELINE_ARCHIVE_MAX_ENTRIES) return null;
+    let chars = 0;
+    let items = 0;
+    for (const turn of this.published.values()) {
+      items += turn.items.size;
+      if (items > TIMELINE_ARCHIVE_MAX_ENTRIES) return null;
+      chars += turn.metaJson.length + turn.orderJson.length;
+      for (const item of turn.items.values()) chars += item.json.length;
+      if (chars > TIMELINE_ARCHIVE_MAX_BYTES / 6) return null;
+    }
+    // Opaque host payloads have no retained size metadata. Do not enumerate an
+    // arbitrarily wide object merely to decide whether to cache it.
+    for (const settlement of this.settlements.values()) {
+      if (settlement.origin?.payload && typeof settlement.origin.payload === 'object') return null;
+    }
+    const resume = await this.source.resumePoint?.({ remainingBytes: TIMELINE_ARCHIVE_MAX_BYTES,
+      remainingSources: 16 });
     if (!resume) return null;
+    // Validate the unmodified state before exporting/copying it. In particular,
+    // an inline image or a large resume/settlement cannot bypass the text gate.
+    if (!fitsTimelineArchiveBudget({ resume, parser: this.parser.snapshotState(),
+      settlements: [...this.settlements.values()] })) return null;
     const { parser, images } = this.parserForArchive();
     const published: TurnPublishArchive[] = [];
     for (const [turnId, entry] of this.published) {
@@ -330,7 +355,7 @@ class RecordTimeline implements SessionTimeline {
         items: [...entry.items].map(([id, one]) => [id, one.seq] as const)
       });
     }
-    return {
+    const archive: TimelineArchive = {
       version: TIMELINE_ARCHIVE_VERSION,
       resume,
       epoch: this.epochValue,
@@ -346,6 +371,7 @@ class RecordTimeline implements SessionTimeline {
       published,
       images
     };
+    return fitsTimelineArchiveBudget(archive) ? archive : null;
   }
 
   /**

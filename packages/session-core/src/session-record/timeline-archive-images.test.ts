@@ -28,8 +28,8 @@ afterEach(async () => {
   while (disposers.length > 0) await disposers.pop()?.();
 });
 
-/** 一张像样大小的图:随机字节的 base64,正文里没有任何重复可让「找错位置」碰巧对上。 */
-const picture = (bytes = 60_000) => randomBytes(bytes).toString('base64');
+/** Keep cache-format fixtures within the bounded hotfix admission policy. */
+const picture = (bytes = 512) => randomBytes(bytes).toString('base64');
 
 const at = (second: number) => `2026-10-30T01:00:${String(second).padStart(2, '0')}.000Z`;
 const codexLine = (second: number, type: string, payload: unknown) => JSON.stringify({ timestamp: at(second), type, payload });
@@ -127,10 +127,15 @@ describe('时间线存档里的工具图只存位置', () => {
     const { staged, done } = await twoTurns();
     const timeline = await openCodex(staged.root);
     const archive = await timeline.archive?.();
-    const bytes = JSON.stringify(archive).length;
-    const images = done.reduce((sum, shot) => sum + shot.length, 0);
-    // 存档里还有那张在跑的图(约 80K 字)与正文;收尾那两张(约 160K 字)不在里面。
-    expect(bytes).toBeLessThan(images);
+    expect(archive).not.toBeNull();
+    const cached = JSON.stringify(archive);
+    const inline = JSON.stringify({ ...archive, parser: {
+      ...archive!.parser, transcript: { ...archive!.parser.transcript,
+        committed: timeline.getSnapshot({ limit: 100, committedOnly: true }).turns },
+    } });
+    // Compare the same metadata with and without the committed image bodies.
+    expect(cached.length).toBeLessThan(inline.length);
+    for (const shot of done) expect(cached).not.toContain(shot);
   });
 
   it('装回来再存一代:位置照样带着;当时还在跑、后来收了尾的那一轮与新长出来的轮,图也换成位置', async () => {

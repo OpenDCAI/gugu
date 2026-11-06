@@ -19,6 +19,7 @@ import {
 import { toolDisplayName, type ToolCallItem } from '../../acp/models/turns/tool-calls';
 import { createCodexJsonlSource } from './codex-jsonl';
 import { SessionRecordNotFoundError } from './shared';
+import { TailReader } from './tail-reader';
 
 const FIXTURE = fileURLToPath(new URL('../__fixtures__/codex-rollout.jsonl', import.meta.url));
 const THREAD_ID = '019ed98a-a0ce-7f63-a9aa-04e0760a80c2';
@@ -58,6 +59,25 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('codex rollout 记录源', () => {
+  it('rejects an oversized rollout before structured-cloning its resume state', async () => {
+    const staged = await stage();
+    const source = createCodexJsonlSource(
+      { harness: 'codex', providerSessionId: THREAD_ID, roots: [staged.root] },
+      { pollIntervalMs: 100_000 },
+    );
+    await startAll(source);
+    const point = TailReader.prototype.resumePoint;
+    const metadata = vi.spyOn(TailReader.prototype, 'resumePoint').mockImplementation(async function (this: TailReader) {
+      const tail = await point.call(this);
+      return tail ? { ...tail, size: 596_177_689 } : null;
+    });
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    try {
+      expect(await source.resumePoint!({ remainingBytes: 64 * 1024, remainingSources: 16 })).toBeNull();
+      expect(clone).not.toHaveBeenCalled();
+    } finally { source.stop(); clone.mockRestore(); metadata.mockRestore(); }
+  });
+
   it('reads archived zstd through the same decoder only in snapshot mode', async () => {
     const { root, file } = await stage();
     const expected = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }));

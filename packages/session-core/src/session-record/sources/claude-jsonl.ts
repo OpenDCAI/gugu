@@ -9,6 +9,7 @@ import { readClaudeRecord, type ClaudeRecordItem } from '@gugu/core/local/agent/
 
 import {
   type RecordEntry,
+  type RecordArchiveBudget,
   type RecordLineageNode,
   type RecordImageRef,
   type SessionRecordLocator,
@@ -36,6 +37,7 @@ import {
 } from './shared';
 import { TailReader, type TailResume } from './tail-reader';
 import { withSubagentSources } from './subagent-sources';
+import { TIMELINE_ARCHIVE_MAX_ENTRIES } from '../archive-budget';
 
 
 /** 续读点里那份 claude 自己的数据。形状或读法变了就升版本号,老存档一律作废重读。 */
@@ -172,13 +174,15 @@ class ClaudeJsonlSource implements SessionRecordSource {
     return true;
   }
 
-  async resumePoint(): Promise<SessionRecordResume | null> {
+  async resumePoint(budget?: RecordArchiveBudget): Promise<SessionRecordResume | null> {
     if (this.options?.readMode === 'snapshot') return null;
     // 存档在拆除时取,紧接着同步 stop() 把 this.reader 置空 —— await 之后只认这一刻的 reader。
     const reader = this.reader;
     if (!reader || !this.primaryPath) return null;
+    if (budget && (--budget.remainingSources < 0 || this.seenUuids.size > TIMELINE_ARCHIVE_MAX_ENTRIES)) return null;
     const tail = await reader.resumePoint();
     if (!tail) return null;
+    if (budget && (budget.remainingBytes -= Math.max(tail.size, tail.lineOffset)) < 0) return null;
     const data: ClaudeResumeData = {
       version: CLAUDE_RESUME_VERSION,
       primaryPath: this.primaryPath,
