@@ -30,6 +30,8 @@ export function usePaneContext(): PaneContextValue {
 interface PaneProviderProps {
   group: Pane;
   isFocusedPane: boolean;
+  /** The strip drawn above a pair: the pane's page provider already answers its tab shortcuts. */
+  passive?: boolean;
   children?: ReactNode;
 }
 
@@ -41,6 +43,7 @@ interface PaneProviderProps {
 export function PaneProvider({
   group,
   isFocusedPane,
+  passive,
   children,
 }: PaneProviderProps) {
   // The tab shortcuts listen on the document, so a retained page that is not on screen must not count
@@ -51,7 +54,7 @@ export function PaneProvider({
   const shown = pageShown && layerShown;
   const { focused: blockFocused } = useScreenBlock();
   const focused = isFocusedPane && shown && blockFocused;
-  useTabShortcuts(group.pane, { focused });
+  useTabShortcuts(group.pane, { focused: focused && !passive });
 
   // The value must keep its identity across re-renders: every consumer of this context re-renders
   // when the value changes, and this provider sits above a pane whose contents change constantly

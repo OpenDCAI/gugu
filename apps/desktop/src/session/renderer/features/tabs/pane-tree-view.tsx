@@ -6,10 +6,14 @@ import { createPaneDimensionSink, PaneDimensionProvider } from './pane-dimension
 import { RetainedTabContent } from './retained-tab-content';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneLayoutStore } from './pane-layout-store';
 import { cornerPane, minExtent, paneOrder, type PaneLayoutNode } from './pane-layout-tree';
+import { fullscreenCover, tabFullscreen } from './tab-fullscreen';
+import { WINDOW_CONTROL_BAR_HEIGHT_PX } from '@/lib/window-chrome';
 import { setDragShield } from '@renderer/lib/drag-shield';
 import { useRef } from 'react';
 
-type RenderPane = (paneId: string, first: boolean, last: boolean) => ReactNode;
+/** `part`: 'all' = the pane's strip over its page; while paired the main pane's 'bar' is drawn above both 'body's. */
+type RenderPane = (paneId: string, first: boolean, last: boolean, part: 'all' | 'bar' | 'body') => ReactNode;
+const STRIP_OVER_FULLSCREEN = fullscreenCover('anchor(top)', 'auto');
 const childId = (node: PaneLayoutNode) => node.type === 'pane' ? `pane-${node.paneId}` : `cut-${node.id}`;
 
 /**
@@ -29,16 +33,24 @@ export const PaneTreeView = observer(function PaneTreeView({ layout, renderPane,
   const first = cornerPane(layout.layout, 'top-left');
   const last = cornerPane(layout.layout, 'top-right');
   const anchorOf = (paneId: string) => `--pane-${treeId}-${paneId}`;
+  // 并排(spec session-page「并排」):一条会话只有一条页签条 —— 横跨两页画在上面,两页各自的内容在下面。
+  const paired = layout.sidePaneId !== null;
   return <PaneDimensionProvider sink={size}>
-    <div className="relative h-full min-h-0 min-w-0" data-pane-tree-narrow={narrow || undefined}>
-      <Tree node={layout.layout} layout={layout} narrow={single} visiblePaneId={visiblePaneId} anchorOf={anchorOf} />
-      {layout.groups.map(({ paneId }) => {
-        const shown = !single || paneId === visiblePaneId;
-        const anchored = { position: 'absolute', positionAnchor: anchorOf(paneId), top: 'anchor(top)', bottom: 'anchor(bottom)', left: 'anchor(left)', right: 'anchor(right)' } as CSSProperties;
-        return <RetainedTabContent key={paneId} visible={shown} style={anchored} className="min-h-0 min-w-0" inert={!shown} aria-hidden={!shown || undefined}>
-          {renderPane(paneId, single || paneId === first, single || paneId === last)}
-        </RetainedTabContent>;
-      })}
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      {/* A page of the pair in full screen keeps this one strip over it (its exit is on the tab); the row keeps its height, so nothing under it moves. */}
+      {paired && <div className="min-w-0 shrink-0" style={{ height: WINDOW_CONTROL_BAR_HEIGHT_PX }} data-pane-strip="">
+        <div style={layout.groups.some(({ pane }) => tabFullscreen.isOn(pane)) ? STRIP_OVER_FULLSCREEN : undefined}>{renderPane(layout.mainGroup.paneId, true, true, 'bar')}</div>
+      </div>}
+      <div className="relative min-h-0 min-w-0 flex-1" data-pane-tree-narrow={narrow || undefined}>
+        <Tree node={layout.layout} layout={layout} narrow={single} visiblePaneId={visiblePaneId} anchorOf={anchorOf} />
+        {layout.groups.map(({ paneId }) => {
+          const shown = !single || paneId === visiblePaneId;
+          const anchored = { position: 'absolute', positionAnchor: anchorOf(paneId), top: 'anchor(top)', bottom: 'anchor(bottom)', left: 'anchor(left)', right: 'anchor(right)' } as CSSProperties;
+          return <RetainedTabContent key={paneId} visible={shown} style={anchored} className="min-h-0 min-w-0" inert={!shown} aria-hidden={!shown || undefined}>
+            {renderPane(paneId, single || paneId === first, single || paneId === last, paired ? 'body' : 'all')}
+          </RetainedTabContent>;
+        })}
+      </div>
     </div>
   </PaneDimensionProvider>;
 });

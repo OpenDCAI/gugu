@@ -417,39 +417,42 @@ describe('PaneLayoutStore: onActiveTabChange callback', () => {
   });
 });
 
-// #7052 会话里的格子:拖页签到一格的边上 = 在那边分出一格;形状存下来、读回来还是那个形状。
-describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
+// spec session-page「并排」(owner 11-05):一条会话一条页签条,分屏 = 这条页签条里的一对,另一页单独在旁边那一格。
+describe('PaneLayoutStore: side by side is a pair in the one strip', () => {
   const tabIdOf = (layout: ReturnType<typeof createRuntimeProjectionLayout>['layout'], id: string): string => {
     for (const { pane } of layout.groups) {
       for (const [tabId, entry] of pane.entries) if ((entry.state as { id?: string })?.id === id) return tabId;
     }
     throw new Error(`no tab ${id}`);
   };
+  const strip = (layout: ReturnType<typeof createRuntimeProjectionLayout>['layout']) => layout.stripTabIds;
 
-  it('拖到一格的下边 = 上下叠两格,拖过去的那枚在下面那格', () => {
+  it('拖到右边 = 和屏上那页并排;拖到下边不分(只有左右)', () => {
     const { layout } = createRuntimeProjectionLayout();
     layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
     layout.open('persistent-test', { id: 'b' }, { from: null, intent: 'newTab' });
     const paneId = layout.activePaneId;
-    const b = tabIdOf(layout, 'b');
+    const [a, b] = ['a', 'b'].map((id) => tabIdOf(layout, id));
 
     layout.handleDragEnd(b, paneEdgeDropId('bottom', paneId));
+    expect(layout.groups).toHaveLength(1);
 
-    expect(layout.groups).toHaveLength(2);
-    expect(layout.layout).toMatchObject({ type: 'split', orientation: 'vertical', sizes: [50, 50] });
-    const [top, bottom] = layout.groups;
-    expect(top.paneId).toBe(paneId);
-    expect(bottom.pane.resolvedTabs.map((t) => t.tabId)).toEqual([b]);
+    layout.handleDragEnd(b, paneEdgeDropId('right', paneId));
+    expect(layout.layout).toMatchObject({ type: 'split', orientation: 'horizontal', sizes: [50, 50] });
+    expect(layout.pair).toEqual({ pinned: a, side: b });
+    expect(layout.sideGroup!.pane.tabOrder).toEqual([b]);
+    expect(layout.mainGroup.pane.resolvedTabs.find((t) => t.tabId === a)?.pairRole).toBe('start');
+    expect(layout.sideGroup!.pane.resolvedTabs[0].pairRole).toBe('end');
     layout.dispose();
   });
 
-  it('一格只剩一枚页签时拖到自己的边上:没有可分的,什么都不变', () => {
+  it('只有一枚页签时拖到自己的边上:没有可分的,什么都不变', () => {
     const { layout } = createRuntimeProjectionLayout();
     layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
     const paneId = layout.activePaneId;
     const a = tabIdOf(layout, 'a');
 
-    expect(layout.canSplit(paneId, a)).toBe(false);
+    expect(layout.splitBlocked(paneId, a, 'right')).toBe('only-tab');
     layout.handleDragEnd(a, paneEdgeDropId('right', paneId));
 
     expect(layout.groups).toHaveLength(1);
@@ -457,52 +460,24 @@ describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
     layout.dispose();
   });
 
-  it('页签右键「移到另一栏」:挪到后一格(没有就前一格);只有一格时没有这一项', () => {
+  it('右键「向右分」再分多少次也只有一对:换掉的是另一页,它退回页签条', () => {
     const { layout } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
-    layout.open('persistent-test', { id: 'b' }, { from: null, intent: 'newTab' });
-    layout.open('persistent-test', { id: 'c' }, { from: null, intent: 'newTab' });
-    const first = layout.activePaneId;
-    const [a, b, c] = ['a', 'b', 'c'].map((id) => tabIdOf(layout, id));
-    const paneOf = (paneId: string) => layout.groups.find((g) => g.paneId === paneId)!.pane;
-    expect(paneOf(first).inSplitLayout).toBe(true);
-    expect(paneOf(first).tabMoveToOtherPane(a)).toBeNull();
-
-    layout.handleDragEnd(c, paneEdgeDropId('right', first));
-    const second = layout.groups[1].paneId;
-    paneOf(first).tabMoveToOtherPane(a)!();
-    const tabs = () => layout.groups.map((g) => g.pane.resolvedTabs.map((t) => t.tabId));
-    expect(tabs()).toEqual([[b], [c, a]]);
-
-    // 最后一格里的往前挪。
-    paneOf(second).tabMoveToOtherPane(c)!();
-    expect(tabs()).toEqual([[b, c], [a]]);
-    layout.dispose();
-  });
-
-  it('页签右键「向右分 / 向下分」走这一格自己的口子:分得出来就分,数的是格子,到上限才说分满', () => {
-    const { layout } = createRuntimeProjectionLayout();
-    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+    const ids = ['a', 'b', 'c', 'd', 'e'];
     for (const id of ids) layout.open('persistent-test', { id }, { from: null, intent: 'newTab' });
-    const first = layout.groups[0].pane;
-    // 每次从第一格拿一枚往外分:格子从 1 数到 8。
-    for (let panes = 1; panes < 8; panes++) {
-      const tabId = tabIdOf(layout, ids[panes]);
-      const edge = panes % 2 ? 'right' : 'bottom';
-      expect(first.tabSplitBlocked(tabId, edge)).toBeNull();
-      first.splitTab(tabId, edge);
-      expect(layout.groups).toHaveLength(panes + 1);
+    const main = layout.mainGroup.pane;
+    main.setActiveTab(tabIdOf(layout, 'a'));
+    for (const id of ids.slice(1)) {
+      const tabId = tabIdOf(layout, id);
+      expect(main.tabSplitBlocked(tabId)).toBeNull();
+      main.splitTab(tabId);
+      expect(layout.groups).toHaveLength(2);
+      expect(layout.pair).toEqual({ pinned: tabIdOf(layout, 'a'), side: tabId });
     }
-    const last = tabIdOf(layout, 'i');
-    expect(first.tabSplitBlocked(last, 'right')).toBe('full');
-    // 只剩一枚的那一格:没有别的页可并排。
-    const lone = layout.groups.find((g) => g.pane !== first)!.pane;
-    layout.closePane(layout.groups.find((g) => g.pane !== first && g.pane !== lone)!.paneId);
-    expect(lone.tabSplitBlocked(lone.tabOrder[0], 'right')).toBe('only-tab');
+    expect(new Set([...strip(layout), ...layout.sideGroup!.pane.tabOrder]).size).toBe(5);
     layout.dispose();
   });
 
-  it('一格太窄(装不下两格 220px)就不往左右分,说「太窄」;高度够照样能上下分 (#7052 窄格子)', () => {
+  it('太窄(放不下两页各 220px)就不分,说「太窄」;量不到 = 不拦', () => {
     const { layout } = createRuntimeProjectionLayout();
     layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
     layout.open('persistent-test', { id: 'b' }, { from: null, intent: 'newTab' });
@@ -510,41 +485,50 @@ describe('PaneLayoutStore: cells cut on an edge (#7052)', () => {
     const b = tabIdOf(layout, 'b');
     layout.setPaneSizer(() => ({ width: 400, height: 600 }));
     expect(layout.splitBlocked(paneId, b, 'right')).toBe('too-small');
-    expect(layout.canSplit(paneId, b, 'bottom')).toBe(true);
     layout.handleDragEnd(b, paneEdgeDropId('right', paneId));
     expect(layout.groups).toHaveLength(1);
-    // 量不到(还没画出来、测试里)= 不拦。
     layout.setPaneSizer(() => null);
     expect(layout.splitBlocked(paneId, b, 'right')).toBeNull();
     layout.dispose();
   });
 
-  it('套着分的形状与份额存下来、读回来不变', () => {
+  it('一对存下来、读回来不变:哪边、份额、钉住的那页', () => {
     const { layout } = createRuntimeProjectionLayout();
-    layout.open('persistent-test', { id: 'a' }, { from: null, intent: 'newTab' });
-    layout.open('persistent-test', { id: 'b' }, { from: null, intent: 'newTab' });
-    layout.open('persistent-test', { id: 'c' }, { from: null, intent: 'newTab' });
-    const first = layout.activePaneId;
-    layout.handleDragEnd(tabIdOf(layout, 'c'), paneEdgeDropId('right', first));
-    const right = layout.groups[1].paneId;
-    layout.handleDragEnd(tabIdOf(layout, 'b'), paneEdgeDropId('bottom', right));
-    if (layout.layout.type !== 'split') throw new Error('expected a cut');
-    layout.setSplitSizes(layout.layout.id, [70, 30]);
-    const saved = structuredClone(layout.snapshot);
+    for (const id of ['a', 'b', 'c']) layout.open('persistent-test', { id }, { from: null, intent: 'newTab' });
+    layout.mainGroup.pane.setActiveTab(tabIdOf(layout, 'a'));
+    layout.handleDragEnd(tabIdOf(layout, 'c'), paneEdgeDropId('left', layout.activePaneId));
+    if (layout.layout.type !== 'split') throw new Error('expected a pair');
+    layout.setSplitSizes(layout.layout.id, [30, 70]);
 
     const { layout: restored } = createRuntimeProjectionLayout();
-    restored.restoreSnapshot(saved);
+    restored.restoreSnapshot(structuredClone(layout.snapshot));
 
-    const shape = (node: PaneLayoutNode): unknown =>
-      node.type === 'pane' ? node.paneId : { o: node.orientation, sizes: node.sizes, children: node.children.map(shape) };
-    expect(shape(restored.layout)).toEqual(shape(layout.layout));
-    expect(shape(restored.layout)).toEqual({
-      o: 'horizontal',
-      sizes: [70, 30],
-      children: [first, { o: 'vertical', sizes: [50, 50], children: [right, expect.any(String)] }],
-    });
+    expect(restored.pair).toEqual({ pinned: tabIdOf(restored, 'a'), side: tabIdOf(restored, 'c') });
+    expect(restored.layout).toMatchObject({ type: 'split', orientation: 'horizontal', sizes: [30, 70] });
+    expect((restored.layout as Extract<PaneLayoutNode, { type: 'split' }>).children[0]).toEqual({ type: 'pane', paneId: restored.sidePaneId });
     layout.dispose();
     restored.dispose();
+  });
+
+  it('读回 v3 存的好几格(上下套着分的也算):并成一条页签条,至多一对,哪枚都不丢', () => {
+    const { layout } = createRuntimeProjectionLayout();
+    const tab = (id: string) => ({ kind: 'extension' as const, extensionKind: 'persistent-test', tabId: `t-${id}`, state: { id } });
+    layout.restoreSnapshot({
+      groups: [
+        { groupId: 'p1', tabManager: { tabs: [tab('a'), tab('b')], activeTabId: 't-a' } },
+        { groupId: 'p2', tabManager: { tabs: [tab('c'), tab('d')], activeTabId: 't-d' } },
+        { groupId: 'p3', tabManager: { tabs: [tab('e')], activeTabId: 't-e' } },
+      ],
+      activeGroupId: 'p2',
+      paneSizes: [],
+      layout: { split: 'horizontal', sizes: [50, 50], children: [{ pane: 'p1' }, { split: 'vertical', sizes: [50, 50], children: [{ pane: 'p2' }, { pane: 'p3' }] }] },
+    });
+    expect(layout.groups).toHaveLength(2);
+    expect(layout.pair).toEqual({ pinned: 't-a', side: 't-d' });
+    expect(layout.sideGroup!.pane.tabOrder).toEqual(['t-c', 't-d']);
+    expect(strip(layout)).toEqual(['t-a', 't-d', 't-c', 't-b', 't-e']);
+    expect(layout.layout).toMatchObject({ type: 'split', orientation: 'horizontal' });
+    layout.dispose();
   });
 });
 
@@ -591,7 +575,7 @@ describe('PaneLayoutStore: 一枚页签单独成窗 (#7052)', () => {
     layout.dispose();
   });
 
-  it('放回:回到原来那一格;那一格没了就回焦点那一格', () => {
+  it('放回:回到这条会话的页签条', () => {
     const { layout, dispose } = windowLayout();
     layout.open('single-test', { id: 'a' }, { from: null, intent: 'newTab' });
     layout.open('single-test', { id: 'b' }, { from: null, intent: 'newTab' });

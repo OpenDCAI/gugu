@@ -146,7 +146,7 @@ export const SessionMainColumn = observer(function SessionMainColumn() {
         onDragCancel={drag.onDragCancel}
       >
         <div className="h-full min-h-0 min-w-0" data-session-panes="">
-          <PaneTreeView layout={paneLayout} renderPane={(paneId, first, last) => <PaneCell paneId={paneId} atLeftEdge={first} atWindowEdge={last} draggingTabId={drag.dragging} />} />
+          <PaneTreeView layout={paneLayout} renderPane={(paneId, first, last, part) => <PaneCell paneId={paneId} part={part} atLeftEdge={first} atWindowEdge={last} draggingTabId={drag.dragging} />} />
         </div>
         <TabDragOverlay />
       </DndContext>
@@ -157,11 +157,14 @@ export const SessionMainColumn = observer(function SessionMainColumn() {
 /** One pane: its tab strip («+» right after the last tab) and its content; the top-right one carries the session's own controls. */
 const PaneCell = observer(function PaneCell({
   paneId,
+  part,
   atLeftEdge,
   atWindowEdge,
   draggingTabId,
 }: {
   paneId: string;
+  /** 'bar' = the session's one strip drawn above a pair; 'body' = a page of the pair; 'all' = both (spec session-page「并排」). */
+  part: 'all' | 'bar' | 'body';
   /** 这一块左上那一格 —— 它的页签条最左是 ⋮⋮;这一块又在屏的左上时,侧栏收起要让开那枚浮动的「展开侧栏」钮。 */
   atLeftEdge: boolean;
   /** 这一块右上那一格 —— 托管这一块自己的控制(在哪打开、输出、分享、关闭这一块);这一块又在屏的右上时让开窗口控制条。 */
@@ -176,17 +179,23 @@ const PaneCell = observer(function PaneCell({
   if (!group) return null;
   // 拖到哪条边 = 在那一边并排(spec session-page「并排」);放不下两页的那一向不出落点。
   const splitEdges = draggingTabId === null ? [] : PANE_EDGES.filter((edge) => paneLayout.splitBlocked(paneId, draggingTabId, edge) === null);
+  const focused = sessionView.focusedRegion === 'main' && paneLayout.activePaneId === paneId;
+  const strip = {
+    tabLeadingSlot: atLeftEdge ? <SessionGrip /> : undefined,
+    tabTrailingSlot: <TabBarAddMenu />,
+    actionsSlot: atWindowEdge ? <SessionBlockActions atScreenEdge={block.topRight} /> : undefined,
+    reserveShellRestoreLane: atLeftEdge && block.topLeft && !block.windowId && !isLeftOpen,
+    leadingReservePx: atLeftEdge && block.windowId ? auxLeadingReserve() : undefined,
+  };
+  if (part === 'bar') return <PaneProvider group={group} isFocusedPane={focused} passive><PaneContent part="bar" {...strip} /></PaneProvider>;
   return (
-    <PaneProvider group={group} isFocusedPane={sessionView.focusedRegion === 'main' && paneLayout.activePaneId === paneId}>
+    <PaneProvider group={group} isFocusedPane={focused}>
       <SplitPaneHotkey />
       <div className="h-full min-h-0 min-w-0" onPointerDown={() => paneLayout.setActiveGroup(paneId)} data-pane-cell={paneId}>
         <PaneContent
+          part={part}
           emptyState={<PaneEmptyState />}
-          tabLeadingSlot={atLeftEdge ? <SessionGrip /> : undefined}
-          tabTrailingSlot={<TabBarAddMenu />}
-          actionsSlot={atWindowEdge ? <SessionBlockActions atScreenEdge={block.topRight} /> : undefined}
-          reserveShellRestoreLane={atLeftEdge && block.topLeft && !block.windowId && !isLeftOpen}
-          leadingReservePx={atLeftEdge && block.windowId ? auxLeadingReserve() : undefined}
+          {...strip}
           contentOverlay={splitEdges.length > 0 ? <PaneEdgeDropZones paneId={paneId} edges={splitEdges} /> : null}
         />
       </div>

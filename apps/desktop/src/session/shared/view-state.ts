@@ -55,7 +55,6 @@ export type ExtensionTabDescriptor = {
 
 export type TabDescriptor = (BuiltInTabDescriptor | ExtensionTabDescriptor) & {
   history?: TabHistorySnapshot;
-  companionPaneId?: string;
   openerTabId?: string;
 };
 
@@ -91,7 +90,14 @@ export type TabGroupsSnapshot = {
    * those stand side by side in `groups` order with `paneSizes`, as they were drawn.
    */
   layout?: PaneLayoutSnapshotNode;
+  /** The group holding the side of the pair (spec session-page「并排」); absent = not paired, or saved before pairs. */
+  sideGroupId?: string;
+  /** What each tab pushed out of the pair, by tab id: closing it brings that one back (spec session-page「并排」). */
+  displaced?: Record<string, DisplacedTab>;
 };
+
+/** A tab pushed out of the pair, and which side it was on. */
+export type DisplacedTab = { tabId: string; role: 'pinned' | 'side' };
 
 /** One node of a saved pane layout: a pane (by its group id), or a cut of nodes with their percentage shares. */
 export type PaneLayoutSnapshotNode =

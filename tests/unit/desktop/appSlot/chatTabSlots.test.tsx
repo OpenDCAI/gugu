@@ -5,7 +5,7 @@ import { observer } from 'mobx-react-lite'
 import { createReactHarness } from '../../../support/testHarness'
 import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { folderItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { chatLayoutOf, chatPaneOf, closeChatTab, closeInfoTab, infoTabOf, openInfoTab, openPanelItem, openTopicTab, showChatOnly, showChatTab } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { chatLayoutOf, chatPaneOf, closeChatTab, closeInfoTab, closeTopicTab, infoTabOf, openInfoTab, openPanelItem, openTopicTab, showChatOnly, showChatTab } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { ChatTabHostContext } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-tab-providers'
 import { ChatTabPage, ChatTabPortals } from '../../../../apps/desktop/src/components/appSlot/ChatTabHosts'
 import { PaneContent } from '../../../../apps/desktop/src/session/renderer/features/tabs/pane-content'
@@ -33,7 +33,7 @@ describe('chat slots follow actual panes and navigation contexts', () => {
     const layout = chatLayoutOf(id)
     layout.focusedPane.setDimensions(390, 620)
     const from = origin === 'group-folder' ? openPanelItem(id, folderItem(), { intent: 'newTab' }) : undefined
-    const tabId = openPanelItem(id, { kind: null, title: 'notes.txt', itemId: `notes-${origin}` }, from ? { from } : undefined)!
+    openPanelItem(id, { kind: null, title: 'notes.txt', itemId: `notes-${origin}` }, from ? { from } : undefined)
     await harness.render(<><Panels chatId={id} /><ChatTabPortals chatId={id} panel={tab => <MessageFilePreviewPanel fill tabbed file={{ fileName: tab.item.title, sizeBytes: 12, mimeType: 'text/plain' }} kind="text" content="notes" loading={false} onClose={() => closeChatTab(id, tab.tabId)} />} topic={() => null} info={() => null} /></>)
     const toolbar = harness.container.querySelector('[data-file-toolbar]')
     expect(toolbar).not.toBeNull()
@@ -43,7 +43,8 @@ describe('chat slots follow actual panes and navigation contexts', () => {
     expect(back).not.toBeNull()
     expect(back.disabled).toBe(false)
     await act(async () => back.click())
-    expect(chatPaneOf(id, tabId)!.activeEntry?.kind).toBe(from ? 'chat-panel' : 'chat')
+    // From the conversation the file is the side of a pair (kept when narrow): Back puts focus on the conversation.
+    expect(chatLayoutOf(id).focusedPane.activeEntry?.kind).toBe(from ? 'chat-panel' : 'chat')
   })
 
   it('adds a slot after mount, keeps independent tabs, and releases only the closed slot', async () => {
@@ -55,7 +56,7 @@ describe('chat slots follow actual panes and navigation contexts', () => {
     await act(async () => closeChatTab(id, board!)); expect(slots()).toEqual([folder])
     await act(async () => closeChatTab(id, folder!)); expect(slots()).toEqual([])
   })
-  it('retains drafts when switching contexts and moving a tab into a real pane', async () => {
+  it('retains drafts when switching contexts and when the pair is separated', async () => {
     const id = 'drafts-v3'; const folder = openPanelItem(id, folderItem())!
     await harness.render(portal(id))
     const draft = harness.container.querySelector<HTMLTextAreaElement>(`[data-draft="${folder}"]`)!
@@ -63,11 +64,11 @@ describe('chat slots follow actual panes and navigation contexts', () => {
     const board = await act(async () => openPanelItem(id, { kind: 'kanban.board', title: 'Board' }, { from: folder, intent: 'newTab' }))!
     expect(harness.container.querySelector(`[data-draft="${folder}"]`)).toBe(draft)
     await act(async () => showChatTab(id, folder)); expect([draft.value, draft.scrollTop]).toEqual(['unfinished', 42])
-    const layout = chatLayoutOf(id); const source = layout.groups.find(g => g.pane.entries.has(board!))!
-    const destination = layout.groups.find(g => g !== source)!
-    await act(async () => layout.moveTab(board!, source.paneId, destination.paneId))
-    expect(slots().filter(tab => tab === board)).toHaveLength(1)
+    const layout = chatLayoutOf(id)
+    await act(async () => layout.unpair({ declined: true }))
     expect(chatPaneOf(id, board!)?.entries.has(board!)).toBe(true)
+    await act(async () => showChatTab(id, board!))
+    expect(slots().filter(tab => tab === board)).toHaveLength(1)
   })
   it('bounds hidden slots while leaving each explicitly open context in the model', async () => {
     const id = 'bound-v3'; const folder = openPanelItem(id, folderItem())!
@@ -96,7 +97,9 @@ describe('the phone draws the selected context', () => {
     await harness.render(<ChatTabPage chatId={id} panel={() => null} topic={() => <article>Topic</article>} info={() => <article>Info</article>} />)
     await act(async () => openTopicTab(id, { topicChatId: 'topic', name: 'Topic' })); expect(harness.container.textContent).toBe('Topic')
     await act(async () => openInfoTab(id, 'members')); expect(harness.container.textContent).toBe('Info')
-    await act(async () => closeInfoTab(id)); expect(harness.container.textContent).toBe('')
+    // The info page pushed the topic out: closing it brings the topic back (owner 11-05 §7).
+    await act(async () => closeInfoTab(id)); expect(harness.container.textContent).toBe('Topic')
+    await act(async () => closeTopicTab(id)); expect(harness.container.textContent).toBe('')
   })
 })
 

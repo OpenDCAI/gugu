@@ -220,7 +220,8 @@ function TopicTabContent(props: TabContentProps) {
 
 export const chatTopicTabProvider = createTabProvider<typeof CHAT_TOPIC_TAB_KIND, ChatTopicState, TabResource>({
   kind: CHAT_TOPIC_TAB_KIND,
-
+  // A topic is a conversation of its source group (owner 11-05 §6.6): what is opened from it goes beside it.
+  conversation: true,
   resourceKey: (state) => state.topicChatId,
   // As before: the topic beside a group is this window's; a restart opens the group alone.
   isPersistent: () => false,

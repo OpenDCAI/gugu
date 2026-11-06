@@ -10,6 +10,7 @@ import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { AppSettingsPage } from './app-settings-page';
 import { ExtensionGuestBinding, type ExtensionGuestTarget } from './extension-guest-binding';
+import { tabFullscreen } from '@renderer/features/tabs/tab-fullscreen';
 import { bindAppPageZoom } from '@/components/preview/file-content-zoom';
 
 /**
@@ -341,6 +342,9 @@ export const ExtensionPage = observer(function ExtensionPage({
         }
       };
       element.addEventListener('ipc-message', wheel);
+      // Same reason for Esc: pressed in the guest, it leaves full screen here (tab-fullscreen).
+      const escape = (event: Event) => { if ((event as Event & { channel: string }).channel === 'gugu-guest-escape') tabFullscreen.exit(); };
+      element.addEventListener('ipc-message', escape);
       // A tab's page is zoomed by the host, remembered per App (zoom B); a widget in a message keeps the chat's size.
       const box = inline ? null : element.closest<HTMLElement>('[data-extension-view]');
       const offZoom = box ? bindAppPageZoom(box, element, extensionId) : null;
@@ -349,6 +353,7 @@ export const ExtensionPage = observer(function ExtensionPage({
         element.removeEventListener('dom-ready', ready);
         element.removeEventListener('render-process-gone', gone);
         element.removeEventListener('ipc-message', wheel);
+        element.removeEventListener('ipc-message', escape);
       };
     },
     [aimAt, claimOf, guestBinding, kind, inline, extensionId]

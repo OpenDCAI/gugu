@@ -37,14 +37,10 @@ it('carries the actual attachment click through file resolution into the convers
   await act(async () => harness.container.querySelector('button')!.click())
   await until('the actual opener resolved the attachment', () => panelTabsOf(group).length === 1)
   const layout = chatLayoutOf(group)
-  const pane = layout.groups[0]!.pane
   const file = panelTabsOf(group)[0]!.tabId
-  const chat = pane.tabOrder[0]!
-  // v3: the topic's place (the conversation's companion) navigates to the file; the topic stays one Back away.
-  const companion = layout.groups[1]!.pane
-  expect(companion.resolvedActiveTabId).toBe(file)
-  expect(companion.entries.get(file)!.history?.pages.map((page) => page.kind)).toContain('chat-topic')
-  expect(topicTabOf(group)).toBeNull()
+  const topic = topicTabOf(group)!.tabId
+  // owner 11-05 §6.7: a file from the topic goes beside the topic — [topic | file], the group drops back into the strip.
+  expect(layout.pair).toEqual({ pinned: topic, side: file })
   expect(panelTabsOf(group)[0]!.item.message?.chat_id).toBe('topic-a')
   act(() => openTopicTab(group, { topicChatId: 'topic-b', name: 'B' }))
   await harness.render(createElement(Entry, { topic: 'topic-b' }))
@@ -52,5 +48,5 @@ it('carries the actual attachment click through file resolution into the convers
   await until('the latest message replaced the source', () => panelTabsOf(group)[0]?.item.message?.chat_id === 'topic-b')
   expect(panelTabsOf(group)).toHaveLength(1)
   expect(panelTabsOf(group)[0]!.tabId).toBe(file)
-  expect(layout.groups.map((g) => g.pane.resolvedActiveTabId)).toEqual([chat, file])
+  expect(layout.pair).toEqual({ pinned: topic, side: file })
 })

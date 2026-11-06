@@ -22,6 +22,7 @@ function mount(fromConversation: boolean) {
   layout.focusedPane.setDimensions(390, 620);
   const source = layout.open(fromConversation ? 'conversation' : 'file', { id: 'source' }, { from: null, intent: 'newTab' })!;
   const file = layout.open('file', { id: 'file' }, { from: source, intent: 'navigate' })!;
+  // From a conversation the file is the side of a pair (kept even when narrow, owner 11-05); else it is in place.
   const pane = layout.focusedPane;
   act(() => root.render(<PaneContext.Provider value={{ pane, paneId: layout.activePaneId, isFocusedPane: true }}><MessageFilePreviewPanel tabbed fill file={{ fileName: 'group-notes.txt', sizeBytes: 38, mimeType: 'text/plain' }} kind="text" content="notes" loading={false} onClose={() => {}} /></PaneContext.Provider>));
   return { source, file, pane };
@@ -33,7 +34,7 @@ it('returns to its own conversation from the file toolbar without changing tab i
   expect(back).not.toBeNull();
   expect(back!.closest('[data-tab-content-toolbar]')).not.toBeNull();
   await act(async () => back!.click());
-  expect(pane.resolvedActiveTabId).toBe(source);
+  expect(layout.focusedPane.resolvedActiveTabId).toBe(source);
   expect(pane.tabOrder).toEqual(ids);
   expect(JSON.stringify(layout.layout)).toBe(tree);
 });

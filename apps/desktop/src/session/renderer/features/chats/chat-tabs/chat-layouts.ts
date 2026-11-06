@@ -157,7 +157,10 @@ export const openPanelItem = action(function openPanelItem(
 ): string | undefined {
   const layout = chatLayoutOf(chatId);
   if (opts?.restore) keepRestore(chatId, item, opts.restore);
-  return layout.open(CHAT_PANEL_TAB_KIND, item, { from: opts?.from ?? chatTabOf(layout) ?? null, intent: opts?.intent ?? 'navigate' });
+  // Opened from a message (or a link) of the topic open here: from that topic, so it goes beside the topic (owner 11-05 §6.7).
+  const topic = topicTabOf(chatId);
+  const fromTopic = topic && (item.message?.chat_id ?? item.topicChatId) === topic.topic.topicChatId ? topic.tabId : undefined;
+  return layout.open(CHAT_PANEL_TAB_KIND, item, { from: opts?.from ?? fromTopic ?? chatTabOf(layout) ?? null, intent: opts?.intent ?? 'navigate' });
 });
 
 /** An App installed while its kind of file is open takes the file over in place: the same tab, now in that App. */
@@ -202,10 +205,12 @@ export const showChatOnly = action(function showChatOnly(chatId: string): void {
   if (chatTab) showChatTab(chatId, chatTab);
 });
 
-/** Fullscreen changes only visibility. It never dismantles the companion or its history. */
+/** Fullscreen changes only visibility. It never dismantles the pair or its history. */
 export const setPanelFull = action(function setPanelFull(chatId: string, tabId: string, full: boolean): void {
   const pane = paneHolding(chatLayoutOf(chatId), tabId);
-  if (pane && tabFullscreen.isOn(pane, tabId) !== full) tabFullscreen.toggle(pane, tabId);
+  if (!pane || tabFullscreen.isOn(pane, tabId) === full) return;
+  pane.setActiveTab(tabId);
+  tabFullscreen.toggle(pane, tabId);
 });
 
 export function panelFull(chatId: string, tabId: string): boolean {
@@ -222,6 +227,9 @@ export function topicTabOf(chatId: string): { tabId: string; topic: ChatTopicSta
 /** Open a topic beside its group (topics.md: beside the source line); another topic open takes its place. */
 export const openTopicTab = action(function openTopicTab(chatId: string, topic: ChatTopicState): void {
   const layout = chatLayoutOf(chatId);
+  const open = topicTabOf(chatId);
+  if (open && open.topic.topicChatId !== topic.topicChatId) paneHolding(layout, open.tabId)?.navigate(open.tabId, CHAT_TOPIC_TAB_KIND, topic);
+  if (open?.shown) return;
   layout.open(CHAT_TOPIC_TAB_KIND, topic, { from: chatTabOf(layout) ?? null, intent: 'navigate' });
 });
 
@@ -253,7 +261,10 @@ export const openInfoTab = action(function openInfoTab(chatId: string, page?: Ch
   const open = infoTabOf(chatId);
   const group = readChatSummary(chatId)?.kind === 'group';
   const layout = chatLayoutOf(chatId);
-  layout.open(CHAT_INFO_TAB_KIND, page || !open ? { group, page, at: Date.now() } : open.info, { from: chatTabOf(layout) ?? null, intent: 'navigate' });
+  const info = page || !open ? { group, page, at: Date.now() } : open.info;
+  // One info tab: asked for another page, that tab goes there (its history keeps the one before).
+  if (open && info !== open.info) paneHolding(layout, open.tabId)?.navigate(open.tabId, CHAT_INFO_TAB_KIND, info);
+  layout.open(CHAT_INFO_TAB_KIND, info, { from: chatTabOf(layout) ?? null, intent: 'navigate' });
 });
 
 /** The info tab leaves the strip (its members' button pressed again). */

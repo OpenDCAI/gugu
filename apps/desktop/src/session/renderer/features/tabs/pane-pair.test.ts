@@ -41,13 +41,13 @@ describe('real pane navigation and placement', () => {
     expect(layout.open('file', { id: 'README.md' }, { from: 'closed-source', intent: 'navigate' })).toBeUndefined();
     expect(JSON.stringify(layout.snapshot)).toBe(before);
   });
-  it('dragging moves one resource without initialize/dispose and assigns the actual companion', () => {
+  it('dragging moves one resource without initialize/dispose into the side of the pair', () => {
     const { layout, pane, folder, chat, initialize, dispose } = setup();
     const resource = pane._resources.get(folder);
     initialize.mockClear(); dispose.mockClear();
     expect(layout.splitPane(layout.activePaneId, 'right', folder)).toBe(true);
     expect(layout.groups).toHaveLength(2);
-    expect(pane.entries.get(chat)?.companionPaneId).toBe(layout.activePaneId);
+    expect(layout.pair).toEqual({ pinned: chat, side: folder });
     expect(layout.focusedPane._resources.get(folder)).toBe(resource);
     expect(initialize).not.toHaveBeenCalled(); expect(dispose).not.toHaveBeenCalled();
   });
@@ -70,6 +70,29 @@ describe('real pane navigation and placement', () => {
     tabFullscreen.exit();
     expect(JSON.stringify(layout.snapshot)).toBe(before);
   });
+  it('the page opened beside the conversation in full screen: going back leaves full screen, focus on the conversation', async () => {
+    const { layout, chat } = setup();
+    const file = layout.open('file', { id: 'notes.md' }, { from: chat, intent: 'newTab' })!;
+    layout.splitPane(layout.activePaneId, 'right', file);
+    const side = layout.groups.find(({ pane }) => pane.entries.has(file))!.pane;
+    side.tabFill(file)!.toggle();
+    expect(tabFullscreen.isOn(side, file)).toBe(true);
+    expect(await side.go(file, -1)).toBe(true);
+    expect(tabFullscreen.target).toBeNull();
+    expect(layout.focusedPane.entries.has(chat)).toBe(true);
+  });
+  it('full screen on a page ends when another page of the layout is brought forward, whichever pane held the focus before', () => {
+    const { layout, chat } = setup();
+    const file = layout.open('file', { id: 'notes.md' }, { from: chat, intent: 'newTab' })!;
+    layout.splitPane(layout.activePaneId, 'right', file);
+    const side = layout.groups.find(({ pane }) => pane.entries.has(file))!.pane;
+    const main = layout.groups.find(({ pane }) => pane.entries.has(chat))!.pane;
+    layout.setActiveGroup(layout.groups.find(({ pane }) => pane === main)!.paneId);
+    side.tabFill(file)!.toggle();
+    expect(tabFullscreen.isOn(side, file)).toBe(true);
+    main.setActiveTab(chat);
+    expect(tabFullscreen.target).toBeNull();
+  });
   it('a detached context keeps its resource and history when returned', () => {
     const { layout, pane, folder } = setup();
     layout.open('file', { id: 'README.md' }, { from: folder, intent: 'navigate' });
@@ -81,10 +104,13 @@ describe('real pane navigation and placement', () => {
     restored.go(folder, -1);
     expect(restored.entries.get(folder)?.kind).toBe('folder');
   });
-  it('restoring a companion never revives a pane absent from the snapshot', () => {
-    const { layout, pane, chat } = setup();
-    pane.entries.get(chat)!.companionPaneId = 'removed-pane';
-    layout.restoreSnapshot(JSON.parse(JSON.stringify(layout.snapshot)));
-    expect(layout.focusedPane.entries.get(chat)?.companionPaneId).toBeUndefined();
+  it('a legacy companion field in a save is ignored', () => {
+    const { layout, chat } = setup();
+    const saved = JSON.parse(JSON.stringify(layout.snapshot));
+    saved.groups[0].tabManager.tabs[0].companionPaneId = 'removed-pane';
+    layout.restoreSnapshot(saved);
+    expect(layout.groups).toHaveLength(1);
+    expect(JSON.stringify(layout.snapshot)).not.toContain('companionPaneId');
+    expect(layout.focusedPane.entries.has(chat)).toBe(true);
   });
 });

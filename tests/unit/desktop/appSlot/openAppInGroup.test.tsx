@@ -113,7 +113,10 @@ describe('the chat on screen answers 「在本群打开」 (useChatOpener)', () 
     const board = shownPanelTab('source-panel')
     expect(board?.item).toMatchObject({ kind: 'board.main' })
     expect(board?.item.itemId).toBeUndefined()
-    expect(chatPaneOf('source-panel', board!.tabId)?.navigationOf(board!.tabId)?.index).toBe(2)
+    // An App asked from the chat is a tab of its own beside it (owner 11-05): the folder's tab keeps its file and history.
+    expect(board!.tabId).not.toBe(folder)
+    expect(chatPaneOf('source-panel', board!.tabId)?.navigationOf(board!.tabId)?.index).toBe(0)
+    expect(chatPaneOf('source-panel', folder)?.navigationOf(folder)?.index).toBe(1)
   })
 
   it('another chat than the one on screen is not answered here', async () => {

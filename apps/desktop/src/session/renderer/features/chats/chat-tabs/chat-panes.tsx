@@ -72,13 +72,16 @@ const LegacyChatPanes = observer(function LegacyChatPanes({
     <ChatTabHostContext.Provider value={host}>
       <PaneLayoutProvider paneLayout={layout}>
         <DndContext sensors={drag.sensors} collisionDetection={edgeFirst} onDragStart={drag.onDragStart} onDragMove={drag.onDragMove} onDragEnd={drag.onDragEnd} onDragCancel={drag.onDragCancel}>
-          <PaneTreeView layout={layout} singlePaneId={chatAuxiliaryYielded(chatId) ? layout.groups.find(({ pane }) => [...pane.entries.values()].some((entry) => entry.kind === CHAT_TAB_KIND))?.paneId : undefined} renderPane={(paneId, first, last) => {
+          <PaneTreeView layout={layout} singlePaneId={chatAuxiliaryYielded(chatId) ? layout.groups.find(({ pane }) => [...pane.entries.values()].some((entry) => entry.kind === CHAT_TAB_KIND))?.paneId : undefined} renderPane={(paneId, first, last, part) => {
             const group = layout.groups.find((candidate) => candidate.paneId === paneId)!;
+            const focused = screenLayout.focusedBlockId === blockId && layout.activePaneId === paneId;
+            const strip = { tabTrailingSlot: <ChatPartSlot chatId={chatId} part="tabs" className="flex h-full items-center" />, actionsSlot: last ? actionsSlot : undefined, reserveShellRestoreLane: first && reserveShellRestoreLane };
+            if (part === 'bar') return <PaneProvider group={group} isFocusedPane={focused} passive><PaneContent part="bar" {...strip} /></PaneProvider>;
             const edges = dragging === null ? [] : PANE_EDGES.filter((edge) => layout.splitBlocked(paneId, dragging, edge) === null);
-            return <PaneProvider group={group} isFocusedPane={screenLayout.focusedBlockId === blockId && layout.activePaneId === paneId}>
+            return <PaneProvider group={group} isFocusedPane={focused}>
               <SplitPaneHotkey />
               <div className="h-full min-h-0 min-w-0" data-pane-cell={paneId} data-chat-panes={chatId} onPointerDown={() => layout.setActiveGroup(paneId)}>
-                <PaneContent tabTrailingSlot={<ChatPartSlot chatId={chatId} part="tabs" className="flex h-full items-center" />} actionsSlot={last ? actionsSlot : undefined} reserveShellRestoreLane={first && reserveShellRestoreLane} contentOverlay={edges.length ? <PaneEdgeDropZones paneId={paneId} edges={edges} /> : null} />
+                <PaneContent part={part} {...strip} contentOverlay={edges.length ? <PaneEdgeDropZones paneId={paneId} edges={edges} /> : null} />
               </div>
             </PaneProvider>;
           }} />
@@ -112,11 +115,11 @@ export const ChatTabChip = observer(function ChatTabChip({
   [data: `data-${string}`]: string | undefined;
 }) {
   const chip = <TabChip
-    isActive={tab.isActive} isFocusedPane={focused && (tab.isFocused ?? true)}
+    isActive={tab.isActive} isFocusedPane={focused && (tab.isFocused ?? true)} pairRole={tab.pairRole}
     label={label} labelSlot={labelSlot} onClick={() => host.setActiveTab(tab.tabId)}
   />;
   return (
-    <TabSlot data-tabid={tab.tabId} {...data}>
+    <TabSlot data-tabid={tab.tabId} data-tab-pair={tab.pairRole} {...data}>
       {menu ? <ContextMenu>
         <ContextMenuTrigger className="flex h-full w-full min-w-0">{chip}</ContextMenuTrigger>
         <ContextMenuContent finalFocus={false} className="min-w-40">{menu}</ContextMenuContent>

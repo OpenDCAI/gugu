@@ -92,12 +92,12 @@ describe('G2: back from a file opened by an App goes back to that App', () => {
     expect(chatAlone(chatId)).toBe(true)
   })
 
-  it('an App opened from the conversation navigates the same companion context', async () => {
+  it('an App opened from the conversation takes the side; closing it brings back the page it pushed out (owner 11-05)', async () => {
     const chatId = 'app-from-object'; const previous = openPanelItem(chatId, { kind: 'pdf.viewer', itemId: 'source', title: 'source.pdf' })!
     await harness.render(chatTabs({ chatId })); ask(chatId, { app: 'kanban' })
-    expect(shownItem(chatId)?.kind).toBe('kanban.board'); expect(shownPanelTab(chatId)?.tabId).toBe(previous)
-    expect(button('group-app-slot-back')).not.toBeNull()
-    await act(async () => button('group-app-slot-back')!.click()); expect(shownItem(chatId)?.itemId).toBe('source')
+    expect(shownItem(chatId)?.kind).toBe('kanban.board'); expect(shownPanelTab(chatId)?.tabId).not.toBe(previous)
+    expect(panelTabsOf(chatId).map((tab) => tab.tabId)).toContain(previous)
+    await act(async () => closeChatTab(chatId, shownPanelTab(chatId)!.tabId)); expect(shownItem(chatId)?.itemId).toBe('source')
     act(() => button('group-app-slot-close')!.click()); expect(chatAlone(chatId)).toBe(true); expect(panelTabsOf(chatId)).toEqual([])
   })
 })

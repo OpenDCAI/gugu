@@ -125,11 +125,17 @@ export function ExtensionTabPane({
 
   useEffect(
     () => () => {
-      layoutTeardownRef.current?.();
-      layoutTeardownRef.current = null;
       extensionSurfaceStore.setWebContentsId(sessionId, tabId, null);
     },
     [sessionId, tabId]
+  );
+
+  useEffect(
+    () => () => {
+      layoutTeardownRef.current?.();
+      layoutTeardownRef.current = null;
+    },
+    []
   );
 
   /**
@@ -183,13 +189,18 @@ export function ExtensionTabPane({
   }), [extensionId, tabKind]);
   const targetRef = useRef<ExtensionGuestTarget>({ tabId, workspace, conversation: conversationRef.current });
   targetRef.current = { workspace, conversation: conversationRef.current, resourceChat: resourceChatRef.current, tabId, itemId, filePath, viewState, navigation };
+  // @@@one-guest-many-tabs - Tabs of one kind share this pane and its webview, so another tab is a retarget of the live
+  // guest. Nothing the webview's ref depends on may change with the tab: a new ref forgets the guest, and dom-ready, the
+  // only thing that hands it back, does not fire again on a page already loaded.
+  const slotRef = useRef({ sessionId, tabId });
+  slotRef.current = { sessionId, tabId };
   const aim = useCallback(async () => {
     const result = await guestBinding.aim(targetRef.current);
     if (result && !result.success) log.warn('Extension surface binding refused:', result.error);
-    if (result?.success) extensionSurfaceStore.setWebContentsId(sessionId, tabId, result.webContentsId);
+    if (result?.success) extensionSurfaceStore.setWebContentsId(slotRef.current.sessionId, slotRef.current.tabId, result.webContentsId);
     return result;
-  }, [guestBinding, sessionId, tabId]);
-  useEffect(() => { void aim().catch((error: unknown) => log.warn('Extension surface binding failed:', error)); }, [aim, filePath, itemId, viewState, navigation?.canBack, navigation?.canForward, navigation?.backToConversation]);
+  }, [guestBinding]);
+  useEffect(() => { void aim().catch((error: unknown) => log.warn('Extension surface binding failed:', error)); }, [aim, sessionId, tabId, filePath, itemId, viewState, navigation?.canBack, navigation?.canForward, navigation?.backToConversation]);
 
   const attachWebview = useCallback(
     (element: BrowserWebviewElement | null) => {
@@ -198,7 +209,7 @@ export function ExtensionTabPane({
       layoutTeardownRef.current = null;
       zoomTeardownRef.current?.();
       zoomTeardownRef.current = null;
-      extensionSurfaceStore.setWebContentsId(sessionId, tabId, null);
+      extensionSurfaceStore.setWebContentsId(slotRef.current.sessionId, slotRef.current.tabId, null);
       if (!element) { guestBinding.reset(); return; }
       // The page is zoomed by the host, remembered per App (zoom B).
       if (element.parentElement) zoomTeardownRef.current = bindAppPageZoom(element.parentElement, element, extensionId);
@@ -218,7 +229,7 @@ export function ExtensionTabPane({
         });
       });
     },
-    [guestBinding, aim, startLayoutReports, sessionId, tabId, extensionId]
+    [guestBinding, aim, startLayoutReports, extensionId]
   );
 
   const failureText =
