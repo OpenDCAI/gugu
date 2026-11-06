@@ -17,6 +17,7 @@ export const inline = style({
 export const label = style({ display: 'block', flex: '0 1 auto', minWidth: 0, overflow: 'hidden' });
 export const line = style({ display: 'flex', height: metrics.lineHeight, whiteSpace: 'pre', alignItems: 'baseline' });
 export const word = style({ flexShrink: 0, whiteSpace: 'pre' });
+export const hanging = style({ flex: '0 0 0px', width: 0, overflow: 'hidden', whiteSpace: 'pre' });
 export const name = style({
   all: 'unset', flexShrink: 0, cursor: 'pointer', pointerEvents: 'auto', borderRadius: 2,
   ':hover': { textDecoration: 'underline' }, ':focus-visible': { outline: `2px solid ${vars.fgMuted}` },

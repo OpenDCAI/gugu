@@ -6,6 +6,7 @@ import { readableLabel } from '../readable-label';
 import { ACTIVITY_LABEL_INSET, ACTIVITY_METRICS as metrics } from './activity-metrics';
 
 export type ActivityLabelPart = string | { actor: ActivityActor; label: string };
+type ActivityLabelLine = { parts: ActivityLabelPart[]; hanging: string };
 const textOf = (part: ActivityLabelPart) => typeof part === 'string' ? part : part.label;
 
 /** Break the whole sentence once; preserve clickable actor fragments across those exact lines. */
@@ -35,7 +36,7 @@ export function activityLabel(group: AgentActivityGroup, t: ChatTranslator, ctx:
     break;
   }
   const wrapped = shape(selected.map(textOf).join(''));
-  const lines: ActivityLabelPart[][] = [];
+  const lines: ActivityLabelLine[] = [];
   let offset = 0;
   for (const line of wrapped.text.split('\n')) {
     const end = offset + line.length;
@@ -49,12 +50,20 @@ export function activityLabel(group: AgentActivityGroup, t: ChatTranslator, ctx:
       }
       start = stop;
     }
-    // Pretext hangs spaces at a line break; do not turn them into flex-item width.
-    const last = fragments.at(-1);
-    if (typeof last === 'string') fragments[fragments.length - 1] = last.trimEnd();
-    lines.push(fragments);
+    // Keep hanging spaces in the DOM without giving them flex-item advance.
+    let hanging = '';
+    while (fragments.length) {
+      const last = fragments.at(-1)!, text = textOf(last), visible = text.trimEnd();
+      hanging = text.slice(visible.length) + hanging;
+      if (visible) {
+        fragments[fragments.length - 1] = typeof last === 'string' ? visible : { ...last, label: visible };
+        break;
+      }
+      fragments.pop();
+    }
+    lines.push({ parts: fragments, hanging });
     offset = end;
   }
   return { lines, height: Math.max(metrics.height, wrapped.height + 2 * metrics.paddingY),
-    width: Math.min(budget, Math.max(...lines.map(line => shape(line.map(textOf).join(''), Number.MAX_SAFE_INTEGER).width))) };
+    width: Math.min(budget, Math.max(...lines.map(line => shape(line.parts.map(textOf).join(''), Number.MAX_SAFE_INTEGER).width))) };
 }

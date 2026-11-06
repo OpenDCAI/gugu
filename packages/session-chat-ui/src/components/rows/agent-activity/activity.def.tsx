@@ -17,7 +17,7 @@ export const activityUnitDef = defineUnit<AgentActivityGroup>({
     const commands = useCommands(), t = useChatTranslator();
     const parts = () => activitySummary(props.data, t, 2);
     const label = createMemo(() => props.ctx.measureCtx ? activityLabel(props.data, t, props.ctx.measureCtx()) : undefined);
-    const lines = () => label()?.lines ?? [parts().map(part => typeof part === 'string' ? part : { actor: part, label: part.name })];
+    const lines = () => label()?.lines ?? [{ parts: parts().map(part => typeof part === 'string' ? part : { actor: part, label: part.name }), hanging: '' }];
     const expanded = () => props.ctx.viewState.isCollapsed(props.data.id);
     const live = () => props.data.events.some(event => event.live);
     return <div class={styles.row} data-agent-activity={props.data.id} data-live={live()} data-expanded={expanded()}
@@ -28,9 +28,9 @@ export const activityUnitDef = defineUnit<AgentActivityGroup>({
       <span class={styles.inline}>
         <svg class={styles.icon} viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9.5 17-5-5 5-5m-5 5h10c1.667 0 5 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
         <ShimmerText active={live()} multiline class={styles.label} style={{ width: label() ? `${label()!.width}px` : undefined }} title={activitySummaryText(parts())}>
-          <For each={lines()}>{line => <span class={styles.line}><For each={line}>{part => typeof part === 'string' ? <span class={styles.word}>{part}</span> : <button type="button" class={styles.name}
+          <For each={lines()}>{line => <span class={styles.line}><For each={line.parts}>{part => typeof part === 'string' ? <span class={styles.word}>{part}</span> : <button type="button" class={styles.name}
             aria-label={part.actor.name} title={part.actor.name} data-activity-target={part.actor.id}
-            onClick={event => { event.stopPropagation(); commands().onOpenSender?.(part.actor.target); }}>{part.label}</button>}</For></span>}</For>
+            onClick={event => { event.stopPropagation(); commands().onOpenSender?.(part.actor.target); }}>{part.label}</button>}</For><span class={styles.hanging}>{line.hanging}</span></span>}</For>
         </ShimmerText>
         <svg class={styles.chevron} style={{ transform: expanded() ? 'rotate(90deg)' : undefined }} viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2.5 3.5 3.5L4 9.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </span>

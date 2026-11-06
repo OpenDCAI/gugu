@@ -4,6 +4,9 @@ import { createChatContext } from '../chat-context';
 import { createChatState } from '../state/chat-state';
 import { createChatView } from '../chat-view';
 import type { TranscriptTurn } from '../model';
+import { readableLabel } from '../components/rows/readable-label';
+import { ACTIVITY_LABEL_INSET } from '../components/rows/agent-activity/activity-metrics';
+import { activitySummary, activitySummaryText } from '../state/activity-summary';
 import { activityUnitDef } from '../components/rows/agent-activity/activity.def';
 import type { AgentActivityGroup } from '../state/agent-activity';
 import { makeContractCtx, renderAndMeasureUnit } from './contract';
@@ -82,4 +85,25 @@ describe.each([false, true])('three-line semantic summary (dark=%s)', dark => {
   expect(reading.spill).toBe(0);
   document.body.classList.remove('emdark');
  });
+});
+
+
+it('preserves a hanging space when the count wraps before its unit', async () => {
+ const actor = { id: 'user:cloud', name: '云端主管', target: { kind: 'sender' as const, userId: 'cloud' } };
+ const group: AgentActivityGroup = { id: 'hanging-count', events: [{ id: 'event', direction: 'received', actors: [actor], count: 37, live: false }] };
+ const sentence = activitySummaryText(activitySummary(group, chinese));
+ const ctx = makeContractCtx({ width: 390 }); ctx.translate = chinese;
+ // Find the actual font's wrap after "37 ", rather than assuming a machine-specific pixel width.
+ const width = Array.from({ length: 300 }, (_, i) => i + 100).find(width =>
+  readableLabel(sentence, ctx, width - ACTIVITY_LABEL_INSET, 12, 18, 400).text.includes('37 \n'));
+ expect(width, 'the fixture must exercise a hanging count separator').toBeDefined();
+ ctx.width = width!;
+ const reading = await renderAndMeasureUnit(activityUnitDef, group, ctx, host => {
+  const label = host.querySelector('[data-agent-activity]')!.lastElementChild!.children[1];
+  expect(label.textContent).toBe(sentence);
+  expect(label.textContent).toContain('37 条消息');
+  return {};
+ });
+ expect(reading.dom).toBe(reading.computed);
+ expect(reading.spill).toBe(0);
 });
