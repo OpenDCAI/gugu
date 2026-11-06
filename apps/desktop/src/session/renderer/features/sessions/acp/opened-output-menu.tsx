@@ -18,6 +18,9 @@ import {
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { log } from '@renderer/utils/logger';
 import { reopenSessionOutput } from '../stores/open-file-in-file-editor';
+import { asProvisioned, getSessionPageStore } from '../stores/session-selectors';
+import { resolveWorkspacePath } from '../stores/workspace-path';
+import { workspaceRegistry } from '../stores/workspace-registry';
 
 const PLATFORM = detectPlatform();
 /** 与文件树右键「在访达中显示」同一个词(editor-file-tree)。 */
@@ -89,7 +92,10 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
 
   if (!target) return { commands, menu: null };
   const { output, anchor } = target;
-  const filePath = openedFilePath(output);
+  // An Edited row names its file as the patch did, which may be relative to the working copy.
+  const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
+  const namedPath = openedFilePath(output);
+  const filePath = namedPath && resolveWorkspacePath(provisioned ? workspaceRegistry.get(projectId, provisioned.workspaceId)?.path : undefined, namedPath);
   const close = () => setTarget(null);
 
   const menu = (

@@ -42,3 +42,16 @@ export function fileChangeSummary(turns: readonly { items: readonly ChatItem[] }
   })
   return files.length ? { kind: 'file-change-summary', id: `${turnId}:file-changes`, turnId, files, ...total(patches) } : null
 }
+
+/**
+ * The one answer to "is this file already on the Edited card": an output the card already lists is not drawn twice.
+ * A harness may name a patch's file relative to the working copy; an output's path is always absolute.
+ */
+export function isListedInSummary(summary: FileChangeSummaryItem | null, path: string): boolean {
+  if (!summary) return false
+  const target = path.replaceAll('\\', '/')
+  return summary.files.some(file => {
+    const listed = file.path.replaceAll('\\', '/')
+    return listed === target || (!/^(\/|[A-Za-z]:\/)/.test(listed) && target.endsWith(`/${listed}`))
+  })
+}
