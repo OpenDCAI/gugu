@@ -4,7 +4,7 @@ import type { GitRepositorySnapshotResult } from '@shared/core/git/rpc';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { projectManager } from '../../projects/project-manager';
 import { providerRepositoryService } from '../../repository/provider-repository-service';
-import { workspaceRegistry } from '../../workspaces/workspace-registry';
+import { resolveWorkspace } from '../../projects/utils';
 
 export const gitRepositoryController = createRPCController({
   /**
@@ -78,12 +78,12 @@ export const gitRepositoryController = createRPCController({
   },
 
   fetch: async (projectId: string, workspaceId?: string) => {
+    const ws = workspaceId ? await resolveWorkspace(projectId, workspaceId) : undefined;
     const project = projectManager.getProject(projectId);
     if (!project) return err({ type: 'not_found' as const });
 
     let result;
     if (workspaceId) {
-      const ws = workspaceRegistry.get(workspaceId);
       // gugu #2358: 非 git 工作区无 fetch 服务 → 回落到项目级 fetch(对非 git 亦返回空序列成功)。
       result =
         ws && ws.gitRepositoryFetchService

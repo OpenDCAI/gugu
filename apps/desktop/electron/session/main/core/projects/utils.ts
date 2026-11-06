@@ -10,8 +10,11 @@ export function resolveSession(_projectId: string, sessionId: string) {
   return sessionWorkspaceManager.getSession(sessionId) ?? null;
 }
 
-export function resolveWorkspace(_projectId: string, workspaceId: string) {
-  return workspaceRegistry.get(workspaceId) ?? null;
+export async function resolveWorkspace(projectId: string | undefined, workspaceId: string) {
+  const cached = workspaceRegistry.get(workspaceId);
+  if (cached) return cached;
+  const { workspaceBootstrapService } = await import('@main/core/workspaces/workspace-bootstrap-service');
+  return workspaceBootstrapService.ensureWorkspaceSetupForWorkspace(projectId, workspaceId);
 }
 
 /**

@@ -13,7 +13,7 @@ export const fileTreeController = createRPCController({
     projectId: string,
     workspaceId: string
   ): Promise<FileTreeProjectionOpenResult> => {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     return await workspace.fileTreeProjector.openProjection();
   },
@@ -24,7 +24,7 @@ export const fileTreeController = createRPCController({
     subscriptionId: string,
     dirId: NodeId | null
   ): Promise<FileTreeProjectionVersionResult> => {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     return await workspace.fileTreeProjector.registerDir(subscriptionId, dirId);
   },
@@ -35,7 +35,7 @@ export const fileTreeController = createRPCController({
     subscriptionId: string,
     filePath: string
   ): Promise<FileTreeProjectionVersionResult> => {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     return await workspace.fileTreeProjector.revealPath(subscriptionId, filePath);
   },
@@ -45,7 +45,7 @@ export const fileTreeController = createRPCController({
     workspaceId: string,
     subscriptionId: string
   ): Promise<FileTreeProjectionCloseResult> => {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     await workspace.fileTreeProjector.closeProjection(subscriptionId);
     return ok<void>();
