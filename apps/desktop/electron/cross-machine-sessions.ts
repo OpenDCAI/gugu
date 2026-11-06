@@ -122,6 +122,9 @@ export type AgentSessionHost = {
 }
 
 
+/** How long a run of a page's calls goes on one reading of the devices and the cloud computer. A machine gone meanwhile is the call's own failure. */
+const APP_CALL_DEVICES_FRESH_MS = 5_000
+
 export type CrossMachineSessions = ReturnType<typeof createCrossMachineSessions>
 
 export function createCrossMachineSessions(deps: CrossMachineDeps) {
@@ -133,22 +136,38 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     const [thisDeviceId, rows] = await Promise.all([deps.thisDeviceId(), deps.listDevices()])
     return { thisDeviceId, rows }
   }
+  /** What deciding whether a machine can take a call reads: the account's device list, and the cloud computer's state. */
+  const reachFacts = async () => {
+    const [listed, cloud] = await Promise.all([devices(), deps.cloudComputerState?.().catch(() => null) ?? Promise.resolve(null)])
+    return { ...listed, cloud }
+  }
+  // @@@app-call-devices - a page's calls come one after another (a file in 512 KB parts); what they are decided by is read
+  // once for a run of them, not per part: those cloud round trips were most of what a part cost.
+  let recentFacts: { at: number; value: ReturnType<typeof reachFacts> } | null = null
+  const factsForAppCall = () => {
+    if (!recentFacts || now() - recentFacts.at >= APP_CALL_DEVICES_FRESH_MS) {
+      const value = reachFacts()
+      const held = { at: now(), value }
+      recentFacts = held
+      value.catch(() => { if (recentFacts === held) recentFacts = null })
+    }
+    return recentFacts.value
+  }
   const describe = (device: Device) => `"${device.label}" (device:${device.device_id})`
   const labelOf = async (deviceId: string) => (await deps.listDevices()).find((row) => row.device_id === deviceId)?.label ?? null
   const noTaskRuntime = (device: Device) => new CrossMachineError('device_no_task_runtime',
     `${describe(device)} 没有启用任务宿主。请主人在那台设备上开启任务宿主后重试；其他设备不能代调它的原生能力。`)
 
   /** 那台机器此刻能不能接 —— 不能就在发出去之前说清为什么。 */
-  const reachable = async (deviceId: string, requireTaskRuntime = true, signal?: AbortSignal, allowWake = false): Promise<Device> => {
+  const reachable = async (deviceId: string, requireTaskRuntime = true, signal?: AbortSignal, allowWake = false, facts = reachFacts): Promise<Device> => {
     signal?.throwIfAborted()
-    const { thisDeviceId, rows } = await devices()
+    const { thisDeviceId, rows, cloud } = await facts()
     if (deviceId === thisDeviceId) throw new CrossMachineError('SESSION_DEVICE_IS_THIS_MACHINE', `device:${deviceId} is this machine`)
     const device = rows.find((row) => row.device_id === deviceId)
     if (!device) {
       throw new CrossMachineError('SESSION_DEVICE_UNKNOWN', `device:${deviceId} is not one of this account's machines — session_devices lists them`)
     }
     if (requireTaskRuntime && !isAgentHostDevice(device)) throw noTaskRuntime(device)
-    const cloud = await deps.cloudComputerState?.().catch(() => null)
     const pausedCloud = cloud?.deviceId === deviceId && ['asleep', 'waking', 'error', 'provisioning'].includes(cloud.state)
     if (!device.is_online || pausedCloud) {
       if (!allowWake) throw new CrossMachineError('SESSION_DEVICE_OFFLINE', `${describe(device)} is offline or paused; no wake was requested`)
@@ -249,7 +268,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     // A separate method makes old hosts reject thinking before they can silently discard it.
     const channel = action.action === 'spawn' && action.thinking !== undefined ? 'agentSession.spawnWithThinking'
       : action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`
-    const result = await request(await reachable(deviceId, !!sessionCaller, signal, action.action === 'message' || action.action === 'spawn'), channel, [caller, wire], remoteActionTimeoutMs(action), action.action, signal)
+    const result = await request(await reachable(deviceId, !!sessionCaller, signal, action.action === 'message' || action.action === 'spawn', action.action === 'app_call' ? factsForAppCall : reachFacts), channel, [caller, wire], remoteActionTimeoutMs(action), action.action, signal)
     if (sessionCaller && action.action === 'spawn' && typeof action.parent_session_id === 'string'
       && action.parent_session_id !== sessionCaller.sessionId) {
       const created = result as { session_id: string; parent_session_id?: string | null }
@@ -460,7 +479,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
 
   /** 这台机器上的一个 App 页面让别的机器做一个跟着会话机器的动词(页面所在的会话在那台机器上)。 */
   const appCall: OtherMachines['appCall'] = async (app, deviceId, action) => {
-    const here = await thisDevice()
+    const here = await thisDevice(factsForAppCall)
     return await call(deviceId, { kind: 'app', deviceId: here.deviceId, deviceLabel: here.label, ...app } satisfies RemoteAppCaller, action)
   }
 
@@ -492,8 +511,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     }
   }
 
-  const thisDevice = async (): Promise<{ deviceId: string; label: string | null }> => {
-    const { thisDeviceId, rows } = await devices()
+  const thisDevice = async (facts: () => Promise<{ thisDeviceId: string; rows: Device[] }> = devices): Promise<{ deviceId: string; label: string | null }> => {
+    const { thisDeviceId, rows } = await facts()
     return { deviceId: thisDeviceId, label: rows.find((row) => row.device_id === thisDeviceId)?.label ?? null }
   }
 

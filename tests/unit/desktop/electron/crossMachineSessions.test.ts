@@ -209,6 +209,27 @@ describe('reaching another machine', () => {
     expect(call).toHaveBeenCalledOnce()
   })
 
+  it('a run of a page\'s calls reads the devices and the cloud computer once; once it is stale, an offline machine is said again; other calls always read it', async () => {
+    let at = NOW
+    const rows = [device('dev-a', 'this box', true), device('dev-b', 'gpu server', true)]
+    const listDevices = vi.fn(async () => rows)
+    const cloudComputerState = vi.fn(async () => null)
+    const { xm, call } = makeCrossMachine(undefined, { listDevices, cloudComputerState, now: () => at })
+    const appCall = (id: string) => xm.appCall({ extensionId: 'app', extensionName: 'App' }, 'dev-b', {
+      action: 'app_call', call_id: id, session_id: 's', version: '1', method: 'filesWriteChunk', args: {},
+    })
+    await appCall('c-1'); await appCall('c-2'); await appCall('c-3')
+    expect(call).toHaveBeenCalledTimes(3)
+    expect(listDevices).toHaveBeenCalledOnce()
+    expect(cloudComputerState).toHaveBeenCalledOnce()
+    rows[1] = device('dev-b', 'gpu server', false, '2026-09-30T01:00:00.000Z')
+    at += 5_000
+    await expect(appCall('c-4')).rejects.toMatchObject({ code: 'SESSION_DEVICE_OFFLINE' })
+    listDevices.mockClear()
+    await expect(xm.call('dev-b', CALLER, { action: 'get', session_id: 's' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OFFLINE' })
+    expect(listDevices).toHaveBeenCalled()
+  })
+
   it('asks that machine\'s task-page router: agentSession.<action>(caller, action), one call, no window', async () => {
     const { xm, call } = makeCrossMachine()
     await expect(xm.call('dev-b', CALLER, { action: 'get', session_id: 's' })).resolves.toEqual({ ok: true })
