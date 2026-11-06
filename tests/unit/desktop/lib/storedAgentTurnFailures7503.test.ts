@@ -12,9 +12,16 @@ describe('持久投递结果在其他设备上的投影', () => {
   it('其他Agent的成功不会清掉这一位的失败，且忽略不在当前成员里的Agent', () => {
     expect(storedAgentTurnFailures([row('foreign', 'x'), row('ok', 'other', 'done'), row('failed')], ['agent', 'other']).map((failure) => failure.commandId)).toEqual(['failed'])
   })
+  it('聊天范围:已离开的 Agent 只说它欠的未送达;任务页范围不说', () => {
+    const rejected = row('gone', 'x', 'error', { result: { reply_notice: 'context', reason: 'deliveryRejected' } })
+    expect(storedAgentTurnFailures([rejected], ['agent'], true)).toMatchObject([{ agentUserId: 'x', commandId: 'gone', reason: 'deliveryRejected', departed: true }])
+    expect(storedAgentTurnFailures([rejected], ['agent'])).toEqual([])
+    expect(storedAgentTurnFailures([row('quota', 'x')], ['agent'], true)).toEqual([])
+    expect(storedAgentTurnFailures([rejected], ['x'], true)).toMatchObject([{ departed: false }])
+  })
   it('说宿主落的原因码，不读原文', () => {
     expect(storedAgentTurnFailures([row('failed')], ['agent'])).toEqual([
-      { agentUserId: 'agent', commandId: 'failed', reason: 'weeklyQuota', at: Date.parse('2026-10-19T08:00:00Z'), revision: '2026-10-19T08:00:00Z' },
+      { agentUserId: 'agent', commandId: 'failed', reason: 'weeklyQuota', at: Date.parse('2026-10-19T08:00:00Z'), revision: '2026-10-19T08:00:00Z', departed: false },
     ])
   })
   it('已在聊天披露的失败由聊天说，这一槽不再说', () => {

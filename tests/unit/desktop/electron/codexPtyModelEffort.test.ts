@@ -206,6 +206,9 @@ vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning
 const { provisionAndOverride, teardown } = await import(
   '../../../../apps/desktop/electron/sessionpage/codex-pty-provisioning'
 )
+const { provisionSessionpageAgentForSession } = await import(
+  '../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning'
+)
 const IDENTITY = '<agent_identity>Codex 1</agent_identity>\n'
 const PLATFORM = '<gugu_platform>P</gugu_platform>\n'
 const deps = {
@@ -309,6 +312,22 @@ describe('divert 真的把选择接进了 app-server 的启动 argv', () => {
     // @@@6112 第一轮在描述符返回**之后**才投:先让 TUI 把 thread 建出来,咕咕才有地方投。
     await vi.waitFor(() => expect(waitedFirstDeliveryThreads).toEqual(['thread-1']))
     await vi.waitFor(() => expect(initialPrompts).toEqual(['model test']))
+  })
+  it('the identity this leg mints carries the name the task was created with', async () => {
+    await provisionAndOverride(
+      {
+        sessionId: 'conv-name-1',
+        providerId: 'codex',
+        cwd: '/tmp/w',
+        baseCommand: '/x/codex',
+        agentDisplayName: 'Codex 7',
+      },
+      deps,
+    )
+    expect(vi.mocked(provisionSessionpageAgentForSession)).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'conv-name-1', displayName: 'Codex 7' }),
+      deps,
+    )
   })
   it('gugu thread config 只承载 endpoint 与 bearer env 名称，凭据值只进 env', async () => {
     const capability = 'synthetic-session-capability'

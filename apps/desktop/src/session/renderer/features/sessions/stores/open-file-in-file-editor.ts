@@ -343,7 +343,6 @@ export function openHostRequestedFileInSessionWhenReady({
   sessionId,
   path,
   external,
-  intent,
   tabKind,
   ask,
   onResult,
@@ -375,19 +374,19 @@ export function openHostRequestedFileInSessionWhenReady({
           session.viewModel.paneLayout.open(
             'file',
             { path, external: true },
-            { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent, activate: false },
+            { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent: 'beside', activate: false },
           );
           onResult({ success: true, openedWith: null });
         } else if (tabKind) {
           // 摩擦单 F122 «Open with X», named by the caller (main checked X claims it): what「用哪个打开」does once picked.
-          session.viewModel.paneLayout.open(tabKind, { filePath: path }, { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent, activate: false });
+          session.viewModel.paneLayout.open(tabKind, { filePath: path }, { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent: 'beside', activate: false });
           onResult({ success: true, openedWith: tabKind });
         } else {
           // Reported, not predicted: the host says what actually opened because the
           // renderer is the one that opened it — after the person picked, when they had to.
           void openResolvedFileInPane(session.viewModel, path, {
             from: sessionConversationTabId(session.viewModel.paneLayout, sessionId),
-            intent,
+            intent: 'beside',
             activate: false,
             ...(ask ? { ask } : {}),
           }).then(
@@ -504,7 +503,7 @@ export function openHostRequestedExtensionInSessionWhenReady({
             tabKind,
             {},
             // `reveal` = 人点的(横幅、gugu://ext 链接):要看它,亮出来;agent 请上屏的不切走用户正看着的。
-            { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent, activate: reveal },
+            { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent: reveal ? intent : 'beside', activate: reveal },
           );
           onResult({ success: true });
         } catch (error) {

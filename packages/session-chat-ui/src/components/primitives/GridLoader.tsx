@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
-import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility';
-import { createSignal, For, onCleanup, onMount } from 'solid-js';
+import { pauseAnimationsOffscreen } from '@gugu/session-shared/animation-visibility';
+import { For, onCleanup, onMount } from 'solid-js';
 import { gridLoader, gridLoaderCells } from './grid-loader.css';
 
 /**
@@ -8,12 +8,10 @@ import { gridLoader, gridLoaderCells } from './grid-loader.css';
  * (grid-loader.css.ts,合成器上跑);这里只管「看不见就停」:滚出视口或窗口不可见时暂停,与 ShimmerText 同一道开关。
  */
 export function GridLoader() {
-  const [visible, setVisible] = createSignal(true);
   let host!: HTMLSpanElement;
-  onMount(() => onCleanup(observeAnimationViewport(host, setVisible)));
+  onMount(() => onCleanup(pauseAnimationsOffscreen(host)));
   return (
-    <span ref={host} class={gridLoader} aria-hidden="true" data-slot="grid-loader"
-      style={visible() ? undefined : { '--chat-shimmer-viewport-paused': 'paused' }}>
+    <span ref={host} class={gridLoader} aria-hidden="true" data-slot="grid-loader">
       <For each={gridLoaderCells}>{(cell) => <i class={cell} />}</For>
     </span>
   );

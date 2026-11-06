@@ -15,7 +15,10 @@ vi.mock('@renderer/localization/use-session-messages', () => ({
   useSessionMessages: () => ({ translate: (key: string, values?: { name?: string }) => (values?.name ? `${key}:${values.name}` : key) }),
 }));
 vi.mock('@renderer/features/projects/stores/project-groups-store', () => ({
-  projectGroupsStore: { projectOfChat: (chatId: string) => (chatId === 'g-project' ? 'project-1' : undefined) },
+  projectGroupsStore: {
+    rowProjectOfChat: (chatId: string) => (chatId === 'g-project' ? 'project-1' : undefined),
+    projectOfChat: (chatId: string) => (chatId === 'g-project' || chatId === '0b1e7c1a-0000-4000-8000-000000000003' ? 'project-1' : undefined),
+  },
 }));
 
 // cmdk 量列表高度用 ResizeObserver、把选中行滚进视野用 scrollIntoView,jsdom 都没有。
@@ -72,6 +75,14 @@ describe('quick switcher groups and contacts', () => {
     await render('内测');
     await act(async () => (host.querySelector('[cmdk-item]') as HTMLElement).click());
     expect(opened.links).toEqual([conversationLink('0b1e7c1a-0000-4000-8000-000000000001')]);
+  });
+
+  it('finds and opens a bound group whose project has no row', async () => {
+    publishChatSummaries([{ id: '0b1e7c1a-0000-4000-8000-000000000003', kind: 'group', unread_count: 0, name: 'Hidden project group' }]);
+    await render('Hidden project');
+    expect(rows()).toEqual(['Hidden project group']);
+    await act(async () => (host.querySelector('[cmdk-item]') as HTMLElement).click());
+    expect(opened.links).toEqual([conversationLink('0b1e7c1a-0000-4000-8000-000000000003')]);
   });
 
   it('selects the existing contact details without creating a conversation', async () => {

@@ -132,16 +132,19 @@ it.each([false, true])('opening the bell reads nothing; a read failure stays lis
   const failure = { ...task('error-a', 'error'), lastInteractedAt: '2026-11-05T01:00:00.000Z' }
   const wait = { ...task('approval', 'needs_user', false), lastInteractedAt: '2026-11-05T00:00:00.000Z' }
   state.sessions = [failure, wait]
+  const marks = () => rows().map(row => ({ badge: row.querySelector('.gg-list-row-trailing [data-shape="count"]')?.textContent ?? null, muted: !!row.querySelector('.gg-list-row-title .text-\\[var\\(--muted-fg\\)\\]') }))
   await mount(mobile); await open()
   await see('error-a'); await see('approval')
   expect(markSeen, 'looking at the list is not reading the task').not.toHaveBeenCalled()
   expect(document.querySelector('[data-testid="notification-count"]')?.textContent).toBe('2')
   expect(rows().map(row => row.dataset.emphasis)).toEqual(['true', 'true'])
+  expect(marks(), 'unread rows carry the chat list unread badge').toEqual([{ badge: '1', muted: false }, { badge: '1', muted: false }])
   // The host read bit lands (the task was opened); the person closes the bell and opens it again.
   state.sessions = [{ ...failure, unseen: false }, wait]
   await mount(mobile); await act(async () => toggle()!.click()); await open()
   expect(rows().map(row => row.dataset.sessionLine), 'a read failure is still a failure: it stays listed').toEqual(['error-a', 'approval'])
   expect(rows().map(row => row.dataset.emphasis)).toEqual([undefined, 'true'])
+  expect(marks(), 'a read row is muted and has no badge').toEqual([{ badge: null, muted: true }, { badge: '1', muted: false }])
   expect(document.querySelector('[data-testid="notification-count"]')?.textContent).toBe('1')
   expect(document.querySelector('[data-testid="notification-mark-all-read"]'), 'nothing unread left to mark').toBeNull()
   // Its state, not its read bit, takes it off the list.

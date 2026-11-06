@@ -581,7 +581,7 @@ export default defineConfig(({ command }) => ({
   // Electron sub-builds write here while the renderer server is live. Generated output must not
   // feed back into the renderer watcher; source changes are already handled by the Electron plugin.
   server: {
-    watch: { ignored: ['**/dist-electron/**'] },
+    watch: { ignored: ['**/dist-electron/**', '**/.ci-cache/**'] },
   },
   optimizeDeps: {
     // @@@4865 冷启第一次打开会话页必退出的根因(owner 2026-09-03 实机撞到,MBP 复现):vite 开门前

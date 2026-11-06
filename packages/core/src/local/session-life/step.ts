@@ -1,6 +1,6 @@
 import type {
   Destination, Effect, Event, Gen, Hold, InterruptEvent, Life, LifeShape, PendingView,
-  Progress, ReceiptEvent, Seq, StageResult, StepContext, Transition,
+  Progress, ReceiptEvent, Seq, SerializedError, StageResult, StepContext, Transition,
 } from './types.ts'
 
 export class LifeProtocolError extends Error {
@@ -103,11 +103,15 @@ function residueTeardown(state: Extract<Life, { kind: 'failed' }>): Effect[] {
   return state.residue.map((r): Effect => ({ e: 'teardown', gen: r.gen, have: r.have }))
 }
 
+/** A row that ends failed is written and reported together: the report is what settles its unit. */
+function failedRows(seqs: readonly Seq[], cause: SerializedError): Effect[] {
+  return seqs.length ? [...seqs.map((seq): Effect => ({ e: 'write-receipt', seq, receipt: { state: 'failed', cause } })),
+    { e: 'report-failure', seqs, cause }] : []
+}
+
+const SESSION_ARCHIVED = { name: 'SessionArchived', message: 'Session is archived' }
 function archivedRows(q: PendingView): Effect[] {
-  return q.queued.map(seq => ({
-    e: 'write-receipt', seq,
-    receipt: { state: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } },
-  }))
+  return failedRows(q.queued, SESSION_ARCHIVED)
 }
 
 function destination(event: InterruptEvent, q: PendingView): Destination {
@@ -153,7 +157,7 @@ function receiptEffects(event: ReceiptEvent): Effect[] {
   switch (event.result) {
     case 'accepted': return [{ e: 'write-receipt', seq: event.seq, receipt: { state: 'accepted', nativeReceiptId: event.nativeReceiptId } },
       { e: 'mark-source-read', seq: event.seq }]
-    case 'rejected-before-admission': return [{ e: 'write-receipt', seq: event.seq, receipt: { state: 'failed', cause: event.cause } }]
+    case 'rejected-before-admission': return failedRows([event.seq], event.cause)
     case 'channel-lost': return [{ e: 'write-receipt', seq: event.seq, receipt: { state: 'queued', channelLost: event.cause } }]
   }
 }
@@ -295,7 +299,6 @@ function stepReady(state: Extract<Life, { kind: 'ready' }>, event: RowlessEvent,
       if (event.result === 'accepted' && state.have.channel.timing === 'idle-only') {
         return [seal({ ...state, admission: { kind: 'busy' } }), effects]
       }
-      if (event.result === 'rejected-before-admission') effects.push({ e: 'report-failure', seqs: [event.seq], cause: event.cause })
       const [next, dispatch] = pump(state, q)
       return [next, [...effects, ...dispatch]]
     }
@@ -354,8 +357,7 @@ function stepStopping(state: Extract<Life, { kind: 'stopping' }>, event: Rowless
     case 'interrupt': return [seal({ ...state, destination: tighten(state.destination, event, q) }), []]
     case 'deliver':
       switch (state.destination.kind) {
-        case 'archived': case 'deleted': return [state, [{ e: 'write-receipt', seq: event.seq,
-          receipt: { state: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } } }]]
+        case 'archived': case 'deleted': return [state, failedRows([event.seq], SESSION_ARCHIVED)]
         case 'rest': return [seal({ ...state, destination: { kind: 'rest', wakeAfter: true } }), []]
         case 'held': return unchanged(state)
         default: return assertNever(state.destination)
@@ -375,8 +377,7 @@ function stepStopping(state: Extract<Life, { kind: 'stopping' }>, event: Rowless
 
 function stepArchived(state: Extract<Life, { kind: 'archived' }>, event: RowlessEvent): Transition {
   switch (event.k) {
-    case 'deliver': return [state, [{ e: 'write-receipt', seq: event.seq,
-      receipt: { state: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } } }]]
+    case 'deliver': return [state, failedRows([event.seq], SESSION_ARCHIVED)]
     case 'restore': return [seal({ kind: 'dormant', hold: null, lastExit: null }), []]
     case 'start': case 'signed-in': return unchanged(state)
     case 'interrupt': return event.reason === 'delete' ? [state, [{ e: 'remove' }]] : unchanged(state)

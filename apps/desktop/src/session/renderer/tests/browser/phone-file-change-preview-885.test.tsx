@@ -59,9 +59,9 @@ it.each(scenarios.flatMap(scenario => (['zh-CN', 'en-US'] as const).flatMap(loca
       sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
       onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
     const file = () => harness.container.querySelector<HTMLElement>(entry === 'edit card'
-      ? '[data-slot="file-change-summary"] button[title]' : 'a[href="/workspace/report.md"]');
+      ? '[data-slot="file-change-summary"] [role="button"][title]' : 'a[href="/workspace/report.md"]');
     await until('the phone renders the file entry', () => !!file());
-    expect(file()!.hasAttribute('disabled')).toBe(false);
+    expect(file()!.hasAttribute('aria-disabled')).toBe(false);
     await clickElement(file()!);
     if (!error) {
       await until('the existing phone preview displays host-authorized bytes', () => document.body.textContent?.includes(contents) === true);

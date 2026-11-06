@@ -141,6 +141,22 @@ describe('every side-by-side entry ends in one strip with one pair', () => {
 });
 
 describe('separate wins when anything says so (owner 11-05 §6.3)', () => {
+  it('leaves another page in front for a background request; recording a hidden pair is deferred', () => {
+    const { layout, conversation, open } = setup();
+    const other = open('terminal', conversation, 'newTab');
+    layout.open('file', { path: 'output.md' }, { from: conversation, intent: 'beside', activate: false });
+    expect(layout.pair).toBeNull();
+    expect(layout.focusedPane.resolvedActiveTabId).toBe(other);
+  });
+
+  it('keeps the viewed side of an existing pair when a background request arrives', () => {
+    const { layout, conversation, open } = setup();
+    const viewed = open('terminal');
+    layout.open('file', { path: 'output.md' }, { from: conversation, intent: 'beside', activate: false });
+    expect(layout.pair).toEqual({ pinned: conversation, side: viewed });
+    expect(layout.focusedPane.resolvedActiveTabId).toBe(viewed);
+  });
+
   it('a page remembered as separate opens as a tab', () => {
     const { layout, open } = setup({ read: () => 'separate', write() {} });
     open('A.md');
@@ -166,6 +182,15 @@ describe('separate wins when anything says so (owner 11-05 §6.3)', () => {
     const { layout, open } = setup({ read: () => 'beside', write() {} });
     open('A.md', undefined, 'newTab');
     expect(layout.pair).toBeNull();
+  });
+
+  it.each(['session', 'resource'])('an inactive beside request respects the %s separate choice', (choice) => {
+    const { layout, conversation, open } = setup(choice === 'resource' ? { read: () => 'separate', write() {} } : undefined);
+    if (choice === 'session') { open('A.md'); layout.mainGroup.pane.separatePair(); }
+    layout.mainGroup.pane.setActiveTab(conversation);
+    layout.open('file', { path: 'B.md' }, { from: conversation, intent: 'beside', activate: false });
+    expect(layout.pair).toBeNull();
+    expect(layout.focusedPane.resolvedActiveTabId).toBe(conversation);
   });
 });
 

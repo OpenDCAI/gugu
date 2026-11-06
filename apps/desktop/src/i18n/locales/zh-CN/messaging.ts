@@ -61,6 +61,7 @@ export default {
       "card": {
         "appUnavailable": "App 用不了",
         "deliveryRejected": "消息未送达",
+        "outcomeUnknown": "投递结果未知",
         "generic": "回复没有完成",
         "authentication": "模型服务拒绝了授权",
         "network": "连不上模型服务",
@@ -88,7 +89,7 @@ export default {
       "changeModel": "切换模型",
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
-      "deliveryRejected": "这条消息未送达，请重发。",
+      "deliveryRejected": "这条消息没有送到助理，也不会自动重投。",
       "notAdmitted": "消息已保留，助理就绪后回复。",
       "outcomeUnknown": "投递结果未知：消息可能已经送到助理，没有重投。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",

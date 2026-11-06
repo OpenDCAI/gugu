@@ -585,8 +585,8 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     const intent = config.intent ?? 'navigate';
     const activate = config.activate ?? true;
     const conversation = from && this._registry.has(from.kind) && this._registry.get(from.kind).conversation === true;
-    // How this page was last shown (owner 11-03: separate stays separate, beside stays beside); a navigation only.
-    const remembered = intent === 'navigate' ? this._placementMemory.read(this._resourceId(kind, state)) : undefined;
+    // How this page was last shown (owner 11-03: separate stays separate, beside stays beside).
+    const remembered = intent !== 'newTab' ? this._placementMemory.read(this._resourceId(kind, state)) : undefined;
     // Already open = that tab is shown (spec 「同一页已经开着」, owner 10-24: one resource, one tab); an explicit new tab
     // is a context of its own.
     const key = this._registry.get(kind).resourceKey(state as never);
@@ -607,7 +607,10 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
 
     const separate = this.pairDeclined || remembered === 'separate';
     const inLayout = !source || this.groups.includes(source as Pane<R>);
-    const beside = inLayout && activate && (intent === 'beside' || (intent === 'navigate' && (conversation || remembered === 'beside') && !separate));
+    // Pairing currently selects the pinned page. Until pair identity is independent of the active page, a background
+    // request must leave another page the person is viewing alone (spec session-page「不切走正在看的」).
+    const showPair = activate || from?.tabId === this.focusedPane.resolvedActiveTabId;
+    const beside = inLayout && showPair && !separate && (intent === 'beside' || (intent === 'navigate' && (conversation || remembered === 'beside')));
     // Shown again from another page: that page is now its 上一页 (owner 10-24: how it was opened only gives it a Back).
     if (open && from && !conversation && open !== from) open.openerTabId = from.tabId;
     // The same page asked again: the latest ask wins (#7257) — e.g. a newer message carrying the same file.
@@ -620,7 +623,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     }
     const pinned = from && inLayout ? from.tabId : this.mainGroup.pane.resolvedActiveTabId;
     if (beside && pinned && pinned !== tabId) {
-      this.pairWith(pinned, tabId);
+      this.pairWith(pinned, tabId, { focus: activate });
     } else if (activate) {
       this._groupOf(tabId)?.pane.setActiveTab(tabId);
     }

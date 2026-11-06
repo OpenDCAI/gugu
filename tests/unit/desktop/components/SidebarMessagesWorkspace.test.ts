@@ -6,6 +6,13 @@ import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stor
 import { screenLayout, type ScreenBlockContent } from '../../../../apps/desktop/src/session/renderer/app/screen-layout'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 
+// No session host here. appState registers its navigation snapshot at module load with a 1 s debounced
+// viewState.save that is never disposed; on a slow run it fired mid-file and threw "electronAPI.invoke is
+// unavailable". Keep that persistence out of this fixture, as SidebarAppMenus.test.ts does.
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/stores/snapshot-registry', () => ({
+  snapshotRegistry: { register: vi.fn(() => () => undefined) },
+}))
+
 afterEach(() => runInAction(() => {
   screenLayout.layout = null
   screenLayout.blocks.clear()

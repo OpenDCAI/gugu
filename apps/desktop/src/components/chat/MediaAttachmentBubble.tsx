@@ -6,7 +6,7 @@ import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { attachmentBytes, attachmentMetadata, sourceKeyOf, useAttachmentObjectUrl } from '../../lib/attachmentBytes'
 import { useAuth } from '../../store/auth'
-import { attachmentQueryClient } from '../../lib/attachmentQueryClient'
+import { attachmentQuery, attachmentQueryClient } from '../../lib/attachmentQueryClient'
 import { ExtensionBundleCard } from '../extensionBundle/ExtensionBundleCard'; import { isExtensionBundle } from '../extensionBundle/summarizeExtensionBundle'
 import { openImageFromThumb, registerFullImage } from '../../lib/imageViewer'
 import { Button } from '../ui/Button'
@@ -18,6 +18,10 @@ import './mediaAttachmentBubble.css'
 // @@@fit-bubble 气泡正文是 align-items:flex-start 的 flex 列,子项按内容宽取 fit-content;文件名不换行,卡片的最小内容宽顶到 260px,
 // 而气泡被封顶在列宽 → 窄栏下卡片从气泡右侧冒出。max-width:100% 在布局阶段按气泡内容区截回来(卡片里的文件名随之省略)。
 const FIT_BUBBLE = 'max-w-full'
+
+/** Whether an attachment is still there (missing / expired / gone cards). Key: account, source key, source. */
+const attachmentStateQuery = attachmentQuery('attachment-state',
+  (_accountId: string | undefined, _sourceKey: string, source: ParsedAttachment['source']) => attachmentMetadata(source))
 
 /** 与 .chat-inline-image 的上限一致:按宽高先留出画出来的那么大。 */
 const INLINE_MAX = 280
@@ -32,8 +36,7 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   const box = useRef<HTMLDivElement>(null)
   const managedFile = (meta.source.kind === 'item' || meta.source.kind === 'message' || meta.source.kind === 'attachment') && !isRenderableImage(meta.fileName, meta.mimeType)
   const near = useNearViewport(box, managedFile)
-  const metadata = useQuery({ queryKey: ['attachment-state', user?.id, sourceKeyOf(meta.source)],
-    queryFn: () => attachmentMetadata(meta.source),
+  const metadata = useQuery({ ...attachmentStateQuery(user?.id, sourceKeyOf(meta.source), meta.source),
     enabled: near && !!user && managedFile,
   }, attachmentQueryClient)
   const caption = meta.caption ? <Markdown trust="chat" content={meta.caption} onAccent={isMine} /> : null
