@@ -97,6 +97,7 @@ const STRINGS = {
     openAnyway: '仍然打开',
     openingLong: '正在打开 {name}（{size}）…',
     openingProgress: '正在打开 {name}：{done} / {total}',
+    retry: '重试',
     overHardMax: '这个文件有 {size}，超过了这里能打开的上限（100 MB），可以下载或用别的程序打开。',
     edit: '编辑',
     split: '对照',
@@ -316,6 +317,7 @@ const STRINGS = {
     openAnyway: 'Open anyway',
     openingLong: 'Opening {name} ({size})…',
     openingProgress: 'Opening {name}: {done} of {total}',
+    retry: 'Retry',
     overHardMax: 'This file is {size}, over the 100 MB that can be opened here. Download it, or open it in another program.',
     edit: 'Edit',
     split: 'Side by side',
@@ -2309,6 +2311,7 @@ const PARKED_CLEAN_FILES = 16
 
 /** The file the host handed this page (ctx.file): every file opens through the host (真源 §2.6). */
 async function openHanded(maxBytes) {
+  stopRetry()
   const handed = state.ctx.file
   const token = { id: handed.id }
   state.opening = token
@@ -2352,10 +2355,28 @@ async function openHanded(maxBytes) {
     if (file.type === 'text') await mountText(current, previewReady)
     else mountJson(current)
   } catch (error) {
-    if (state.opening === token) showDocMessage(error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message }))
+    if (state.opening !== token) return
+    showDocMessage(error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message }))
+    if (error.code !== 'denied') offerRetry(handed, maxBytes)
   } finally {
     if (state.opening === token) state.opening = null
   }
+}
+
+// A file that could not be opened (its machine out of reach, say): a way to try again, and again by itself when its machine is back.
+function offerRetry(handed, maxBytes) {
+  const again = () => {
+    stopRetry()
+    void openHanded(maxBytes)
+  }
+  const retry = Object.assign(document.createElement('button'), { type: 'button', textContent: state.t.retry, onclick: again })
+  $('doc-message').append(document.createElement('br'), retry)
+  state.retryWatch = handed.workspace ? gugu.files.onChanged({ workspace: handed.workspace, id: handed.id }, (change) => { if (change.kind === 'resync') again() }) : null
+}
+
+function stopRetry() {
+  state.retryWatch?.()
+  state.retryWatch = null
 }
 
 // The host handed it to this App (it claims the name), so nobody else says why: this page does (复核 10-15).
@@ -3443,6 +3464,7 @@ function showDoc(entry) {
 
 function showDocMessage(message) {
   document.body.dataset.state = 'message'
+  document.body.classList.remove('json-dirty')
   $('doc-title').textContent = ''
   $('doc-status').textContent = ''
   $('doc-message').hidden = false
