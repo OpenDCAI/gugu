@@ -211,6 +211,13 @@ img.details-picture { object-fit: contain; }
 .back { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; color: var(--em-foreground-muted); }
 .file[data-system] .file-mark { color: var(--em-accent-11); }
 .file.drop-target, .crumb.drop-target { background: var(--em-selected); }
+.file[data-git='added'] .file-name { color: var(--em-foreground-success); }
+.file[data-git='modified'] .file-name { color: var(--em-foreground-warning); }
+.file[data-git='deleted'] .file-name { color: var(--em-foreground-destructive); text-decoration: line-through; }
+.file[data-git='renamed'] .file-name { color: var(--em-foreground-muted); }
+.transfer { display: flex; align-items: center; gap: var(--em-spacing-sm); padding: var(--em-spacing-xs) var(--em-spacing-sm); border-top: 1px solid var(--em-border); font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
+.transfer[hidden] { display: none; }
+.transfer span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-path { font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
 .dialog { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--em-foreground) 24%, transparent); }
 .dialog-box { width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; gap: var(--em-spacing-sm); box-shadow: var(--em-shadow-dialog); }
