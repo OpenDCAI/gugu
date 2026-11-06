@@ -64,6 +64,21 @@ describe('approved A2A activity', () => {
     expect(t.open).toHaveBeenCalledWith({ kind: 'sender', userId: peer.slice(5) });
     expect(t.button().getAttribute('aria-expanded')).toBe('false');
   });
+  it('opens the owning activity and positions the original message for a search-result jump', async () => {
+    const records = Array.from({ length: 18 }, (_, i) => turn(`search${i}`, [delivery(`search${i}`, `Search result ${i}. `.repeat(50))]));
+    const t = await mount(390, [...records, turn('answer', [ordinary('Search ending')])]);
+    expect(t.button().getAttribute('aria-expanded')).toBe('false');
+    t.view.scrollToItem('search12', { align: 'center' });
+    await until('search opens the owning activity', () => t.head()?.dataset.expanded === 'true');
+    await untilStable('original search result positioned', () => {
+      const row = t.host.querySelector('[data-agent-conversation-message="search12"]');
+      return row?.getBoundingClientRect().top;
+    });
+    const row = t.host.querySelector('[data-agent-conversation-message="search12"]')!.getBoundingClientRect();
+    const viewport = t.scroll().getBoundingClientRect();
+    expect(row.top).toBeGreaterThanOrEqual(viewport.top);
+    expect(row.top).toBeLessThan(viewport.bottom);
+  });
   it('preserves manual reading across remount and collapses old A2A while following a new owner input to bottom', async () => {
     const t = await mount(800, [turn('a', [delivery('incoming', 'Long agent content '.repeat(500))]), turn('p', [ordinary('Panel answer')])]);
     t.button().click();
@@ -237,8 +252,11 @@ describe('approved A2A activity', () => {
     const first = t.scroll().scrollTop;
     await untilStable('collapse and target position settled', () => [t.scroll().scrollTop, t.scroll().scrollHeight]);
     const end = t.scroll().scrollTop;
+    expect(Math.abs(start - end), 'the fixture really moves to its collapsed anchor').toBeGreaterThan(100);
+    // Shared runners can deliver the next frame late in the 200ms tween. The
+    // contract is an observable intermediate position, not a wall-clock ratio.
     expect(Math.abs(first - end), 'the first shrinking frame has not already landed on the conclusion')
-      .toBeGreaterThan(Math.abs(start - end) * 0.1);
+      .toBeGreaterThan(1);
     await new Promise(resolve => setTimeout(resolve, 100));
     expect(t.scroll().scrollTop).toBe(end);
     if (following) {

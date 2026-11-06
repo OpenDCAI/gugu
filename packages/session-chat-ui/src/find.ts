@@ -3,6 +3,7 @@ import { batch } from 'solid-js';
 import { SEGMENTERS, UNIT_REGISTRY } from '@session-chat/components/engine/unit-registry';
 import { srOnly } from '@session-chat/components/rows/message/message.css';
 import { thinkingSummary } from '@session-chat/components/rows/thinking/thinking-summary';
+import { toolStepDetail } from '@session-chat/lib/tool-step-detail';
 import { diffUnitDef } from '@session-chat/components/rows/tools/diff/diff.def';
 import { selectPreview } from '@session-chat/components/rows/tools/diff/diff-lines';
 import { createExecuteLines, executeCommandChipText } from '@session-chat/components/rows/tools/execute/execute.layout';
@@ -82,6 +83,10 @@ function unitParts(unit: RenderUnit, caches: Caches): Part[] {
     return [...head, ...node.children.flatMap(child)];
   };
   switch (unit.kind) {
+    case 'conversation-step': {
+      const step = unit.data as Parameters<typeof toolStepDetail>[0];
+      return part(toolStepDetail(step), behind(NONE, `${step.id}:conversation-text`));
+    }
     case 'message': {
       const msg = unit.data as ChatMessage;
       return part(md(msg.id, msg.text, msg.streaming));
@@ -261,12 +266,15 @@ export function createChatFind(deps: {
     return go(matches.length === 0 ? -1 : Math.max(0, matches.findIndex((m) => m.entry.order >= topOrder)));
   };
 
-  const openItem = (itemId: string): boolean => {
+  const openItem = (itemId: string, opts?: { preserveActivity?: boolean }): boolean => {
     const unit = allUnits().units.find(unit => unit.itemId === itemId);
     if (!unit) return false;
     const state = deps.state();
     batch(() => {
-      for (const gate of unit.folds ?? []) state.viewState.setCollapsed(gate.id, gate.stored);
+      for (const gate of unit.folds ?? []) {
+        if (opts?.preserveActivity && gate.id === unit.activityFold) continue;
+        state.viewState.setCollapsed(gate.id, gate.stored);
+      }
       if (unit.kind === 'message' && (unit.data as ChatMessage).conversationNarration) {
         state.viewState.setCollapsed(`${itemId}:conversation-text`, true);
       }

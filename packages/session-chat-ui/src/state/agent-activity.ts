@@ -13,7 +13,7 @@ export type AgentActivityEvent = {
   count: number;
   live: boolean;
 };
-export type AgentActivityGroup = { id: string; events: readonly AgentActivityEvent[] };
+export type AgentActivityGroup = { id: string; events: readonly AgentActivityEvent[]; messageIds?: readonly string[] };
 export const activityId = (id: string) => `agent-activity:${id}`;
 
 function actor(address: string, ctx: SegmentCtx, fallback?: string | null): ActivityActor | null {
@@ -27,7 +27,7 @@ function actor(address: string, ctx: SegmentCtx, fallback?: string | null): Acti
 
 /** Identity comes from the authenticated envelope, never names or message prose. Mixed batches stay visible. */
 export function incomingActivity(item: ChatMessage, ctx: SegmentCtx, live = false): AgentActivityEvent | null {
-  if (item.role !== 'user') return null;
+  if (item.role !== 'user' || item.sendStatus) return null;
   const segments = readDeliveryEnvelope(item.text)?.segments;
   if (!segments?.length || segments.some(part => {
     const facts = part.facts;
@@ -92,16 +92,18 @@ export function foldActivityUnits(units: readonly RenderUnit[], previous?: Agent
   let current: AgentActivityGroup | undefined = previous;
   let header: RenderUnit<AgentActivityGroup> | undefined;
   let events = new Map(previous?.events.map(event => [event.id, event]));
+  let messageIds = new Set(previous?.messageIds);
   let lastChild: RenderUnit | undefined;
   const finish = () => {
     if (current) {
-      current = { ...current, events: [...events.values()] };
+      current = { ...current, events: [...events.values()], messageIds: [...messageIds] };
       if (header) header.data = current;
       if (lastChild) lastChild.activityGroup = current;
     }
     current = undefined;
     header = undefined;
     events = new Map();
+    messageIds = new Set();
     lastChild = undefined;
   };
   for (const unit of units) {
@@ -115,6 +117,7 @@ export function foldActivityUnits(units: readonly RenderUnit[], previous?: Agent
     }
     // A pending send and its receipt use the call identity, so completion never double counts it.
     events.set(event.id, event);
+    if (unit.kind === 'message' && (unit.data as ChatMessage).conversationPart !== 'head') messageIds.add(unit.itemId);
     const child = { ...unit, activityFold: current.id, activityGroup: current,
       folds: [{ id: current.id, stored: true }, ...(unit.folds ?? [])] };
     result.push(child);
@@ -175,4 +178,3 @@ export function appendActivityUnits(prefix: readonly RenderUnit[], tail: readonl
   if (patch) result[patch.index] = patch.unit;
   return result;
 }
-

@@ -1756,6 +1756,7 @@ export function ChatRoot(props: ChatRootProps) {
 
   const committedViewerInput = createMemo(() => latestViewerInput(projectedCommitted(), props.context.selfIdentity()?.userId));
   createEffect(() => {
+    if (!theme().layout.agentConversation) return;
     const inputs = projectedInputs();
     const turn = activeTurnWithInputs(inputs.active, state().session.state.pendingPrompt, inputs.waiting, state().transcript.state.committedTurns);
     const input = turn ? latestViewerInput([turn], props.context.selfIdentity()?.userId, committedViewerInput()) : committedViewerInput();

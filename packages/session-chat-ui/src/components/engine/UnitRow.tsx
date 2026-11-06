@@ -312,7 +312,9 @@ export function UnitRow(props: UnitRowProps) {
         armedKey = key;
       }
       const target = logicalReserved();
-      armedUnit = props.unit;
+      // Ownership metadata must not resubscribe the tween to every streamed
+      // data object. Off-screen rows keep their previous renderer inputs.
+      armedUnit = untrack(() => props.unit);
       armedTarget = target;
       // shouldAnimate re-bases itself across a unit swap and reports no toggle,
       // so a swap always snaps.

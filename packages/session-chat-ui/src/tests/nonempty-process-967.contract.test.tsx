@@ -74,6 +74,8 @@ describe('historical process disclosure after new turns', () => {
 
   it('keeps send-only segments non-expandable without losing their step counts or bubbles', async () => {
     const v = mount();
+    await until('confirmed agent sends default folded', () => !!v.host.querySelector('[data-agent-activity]'));
+    for (const button of v.host.querySelectorAll<HTMLButtonElement>('[data-agent-activity][data-expanded="false"] button[data-collapse-id]')) button.click();
     await until('send bubbles mount', () => v.host.textContent?.includes('Sent status update.'));
     const sent = [...v.host.querySelectorAll<HTMLButtonElement>('[data-conversation-process]')].filter(button => button.disabled && button.textContent?.includes('1 step'));
     expect(sent).toHaveLength(3);

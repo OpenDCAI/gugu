@@ -15,7 +15,8 @@ export const activityUnitDef = defineUnit<AgentActivityGroup>({
     const parts = () => activitySummary(props.data, t, (props.ctx.measureCtx?.().width ?? 800) < 480 ? 1 : 2);
     const expanded = () => props.ctx.viewState.isCollapsed(props.data.id);
     const live = () => props.data.events.some(event => event.live);
-    return <div class={styles.row} data-agent-activity={props.data.id} data-live={live()} data-expanded={expanded()}>
+    return <div class={styles.row} data-agent-activity={props.data.id} data-live={live()} data-expanded={expanded()}
+      data-activity-read-ids={!expanded() ? JSON.stringify(props.data.messageIds ?? []) : undefined}>
       <button type="button" class={styles.toggle} data-collapse-id={props.data.id} aria-expanded={expanded()}
         aria-label={t(expanded() ? 'transcript.activityCollapse' : 'transcript.activityExpand', { summary: activitySummaryText(parts()) })} />
       <span class={styles.inline}>

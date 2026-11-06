@@ -34,6 +34,9 @@ describe('agent activity identity and grouping', () => {
     expect(outgoingActivity('s', { ...addresses, recipients: [] }, ctx)?.group?.name).toBe('gugu');
     expect(outgoingActivity('s', { ...addresses, confirmed: false }, ctx)).toMatchObject({ count: 0, direction: 'sending', live: true });
   });
+  it.each(['sending', 'receiving', 'waiting', 'accepted', 'failed', 'unknown'] as const)('leaves the %s incoming receipt visible until custody clears', state => {
+    expect(incomingActivity({ ...incoming('pending'), sendStatus: { state } }, ctx)).toBeNull();
+  });
   it('includes silent historic branches and their process under the same stable fold', () => {
     const records = [turn('old', [incoming('one'), { ...message('quiet'), text: '[NO_REPLY]' }]), turn('last', [incoming('two')])];
     const rows = flattenTier(records, ctx, segmenters);
@@ -50,6 +53,7 @@ describe('agent activity identity and grouping', () => {
     const tail = foldActivityUnits([{ ...unit('message', later, later, { key: 'self' }), activityEvent: incomingActivity(later, ctx)! }], trailingActivity(first));
     expect(tail.some(row => row.kind === 'agent-activity')).toBe(false);
     expect((makeUnitsView(first, tail).at(0)!.data as import('./agent-activity').AgentActivityGroup).events).toHaveLength(2);
+    expect((makeUnitsView(first, tail).at(0)!.data as import('./agent-activity').AgentActivityGroup).messageIds).toEqual(['one', 'two']);
     expect((appendActivityUnits(first, tail)[0].data as import('./agent-activity').AgentActivityGroup).events).toHaveLength(2);
     const duplicate = foldActivityUnits([{ ...unit('message', later, later, { key: 'self' }), activityEvent: event }, { ...unit('message', later, later, { key: 'self' }), activityEvent: event }]);
     expect((duplicate[0].data as import('./agent-activity').AgentActivityGroup).events).toHaveLength(1);
