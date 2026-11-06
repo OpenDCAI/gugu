@@ -10,7 +10,8 @@ vi.mock('../../../../apps/desktop/electron/supabase', () => ({
 
 const receipt = { userId: 'old-agent', removedAt: '2026-10-31T03:00:00Z' }
 const auth = { accessToken: 'test-token', refreshToken: '', userId: 'owner' }
-const host = (env: NodeJS.ProcessEnv) => createSessionpageIdentityHost({
+const host = (env: NodeJS.ProcessEnv, beforeIdentityRemoval?: (id: string) => (removed: boolean) => void) => createSessionpageIdentityHost({
+  beforeIdentityRemoval,
   env, getAuth: async () => auth, resolveDeviceId: async () => 'device',
   resolveProjectName: async () => 'Project', sessionFacts: async () => null, listSessionFacts: async () => [],
 })
@@ -20,6 +21,31 @@ const bind = (env: NodeJS.ProcessEnv, key: string, id = 'old-agent') => createTe
 beforeEach(() => cloud.rpc.mockReset())
 
 describe('shared identity host archival receipt', () => {
+  it.each([true,false])('pauses publication before the removal request and settles confirmation=%s',async success=>{
+    const env=await isolatedGuguEnv('gugu-panel-remove-race-')
+    await bind(env,'emdash_session_id')
+    const settled=vi.fn(),pause=vi.fn(()=>settled)
+    cloud.rpc.mockImplementationOnce(async()=>{
+      expect(pause).toHaveBeenCalledExactlyOnceWith('old-agent')
+      expect(settled).not.toHaveBeenCalled()
+      return success ? {data:{user_id:receipt.userId,removed_at:receipt.removedAt,remove_social_identity:true},error:null}
+        : {data:null,error:{message:'fixture unavailable'}}
+    })
+    const operation=host(env,pause).archive('same-task')
+    if(success) await expect(operation).resolves.toEqual(receipt)
+    else await expect(operation).rejects.toThrow('fixture unavailable')
+    expect(settled).toHaveBeenCalledExactlyOnceWith(success)
+  })
+
+  it('stops the matched publisher for a confirmed remote removal without another archive RPC',async()=>{
+    const env=await isolatedGuguEnv('gugu-panel-remote-remove-');await bind(env,'emdash_session_id')
+    const settle=vi.fn(),pause=vi.fn(()=>settle)
+    await host(env,pause).archive('same-task',receipt)
+    expect(pause).toHaveBeenCalledExactlyOnceWith('old-agent')
+    expect(settle).toHaveBeenCalledExactlyOnceWith(true)
+    expect(cloud.rpc).not.toHaveBeenCalled()
+  })
+
   it.each(['emdash_session_id', 'sessionpage_parked_session_id'])('accepts an existing cloud receipt for its actual %s binding without another write', async key => {
     const env = await isolatedGuguEnv('gugu-archive-receipt-')
     await bind(env, key)

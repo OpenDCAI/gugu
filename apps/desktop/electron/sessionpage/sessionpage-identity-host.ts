@@ -54,6 +54,7 @@ export interface SessionpageSessionFacts {
 }
 
 export interface SessionpageIdentityHostDeps {
+  beforeIdentityRemoval?: (agentUserId: string) => (removed: boolean) => void
   getAuth: () => Promise<SessionpageIdentityAuthSnapshot | null>
   resolveDeviceId: () => Promise<string | null>
   resolveProjectName: (projectId: string) => Promise<string | null>
@@ -193,14 +194,20 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       const agent = await localAgentForSession(sessionId, env, auth.userId, Boolean(confirmedRemoval))
       if (confirmedRemoval) {
         if (agent?.gugu_user_id !== confirmedRemoval.userId) throw new Error('Confirmed removal no longer matches the task identity');
+        deps.beforeIdentityRemoval?.(confirmedRemoval.userId)(true)
         return confirmedRemoval
       }
       if (!agent?.gugu_user_id) return null
+      const settle = deps.beforeIdentityRemoval?.(agent.gugu_user_id)
+      let removed = false
       try {
         const receipt = await archiveIdentity(makeIdentityClient(auth.accessToken), agent.gugu_user_id)
+        removed = true
         return { userId: receipt.userId, removedAt: receipt.removedAt! }
       } catch (error) {
         throw new Error(`${error instanceof Error ? error.message : String(error)}. Removing the identity needs a connection; retry, or archive without removing it.`, { cause: error })
+      } finally {
+        settle?.(removed)
       }
     },
     async release(identity) {
@@ -297,4 +304,3 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     },
   }
 }
-

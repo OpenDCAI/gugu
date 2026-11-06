@@ -11,7 +11,9 @@ export type AssistantPanelBodyAccess = {
   signal?: AbortSignal; token: string; ownerId: string; chatId: string; accountId(): string | null | Promise<string | null>
 }
 async function assertOwner(input: AssistantPanelBodyAccess): Promise<void> {
+  input.signal?.throwIfAborted()
   if (await input.accountId() !== input.ownerId) throw new AssistantPanelError('account-changed','Assistant panel account changed')
+  input.signal?.throwIfAborted()
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {
@@ -36,7 +38,7 @@ export async function uploadAssistantPanelBody(input: AssistantPanelBodyAccess &
   label: string; bytes: Uint8Array
 }): Promise<{ itemId: string; sha256: string }> {
   await assertOwner(input)
-  const endpoint = panelEndpoint(input.token)
+  const endpoint = panelEndpoint(input.token,input.signal)
   const digest = await sha256(input.bytes)
   const name = panelBodyFileName(input.label)
   const staging = await uploadAttachmentBytes(endpoint,{

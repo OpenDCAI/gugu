@@ -2,6 +2,22 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { uploadAssistantPanelBody } from '@gugu/core/cloud/assistantPanelBodies'
 import { workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs'
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs() })
+it('aborts an in-flight body upload and never places its result after assistant removal',async()=>{
+  vi.stubEnv('GUGU_SUPABASE_URL','http://127.0.0.1:12345');vi.stubEnv('GUGU_SUPABASE_ANON_KEY','fixture')
+  const removal=new AbortController(),started=Promise.withResolvers<AbortSignal>()
+  const fetcher=vi.spyOn(globalThis,'fetch').mockImplementation(async(url,init)=>{
+    if(String(url).endsWith('/attachments/upload')) return Response.json({staging_key:'fixture',url:'http://127.0.0.1:12345/store',fields:{},max_bytes:4096})
+    if(String(url).endsWith('/store')) return new Promise((_resolve,reject)=>{
+      started.resolve(init!.signal!);init!.signal!.addEventListener('abort',()=>reject(init!.signal!.reason),{once:true})
+    })
+    throw new Error('An aborted upload must not place a panel body')
+  })
+  const upload=uploadAssistantPanelBody({ownerId:'owner',accountId:()=> 'owner',token:'fixture',chatId:'chat',label:'fixture',bytes:new TextEncoder().encode('fixture'),signal:removal.signal})
+  const rejection=expect(upload).rejects.toThrow('PANEL_IDENTITY_REMOVED')
+  const active=await started.promise;removal.abort(new Error('PANEL_IDENTITY_REMOVED'))
+  expect(active.aborted).toBe(true);await rejection
+  expect(fetcher.mock.calls.some(([url])=>String(url).endsWith('/attachments/place'))).toBe(false)
+})
 it('bounds an unresponsive attachment request instead of leaving a panel upload or publication stuck', async () => {
   vi.stubEnv('GUGU_SUPABASE_URL','http://127.0.0.1:12345'); vi.stubEnv('GUGU_SUPABASE_ANON_KEY','fixture')
   vi.useFakeTimers()

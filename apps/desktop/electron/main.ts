@@ -1168,6 +1168,7 @@ async function onLocalAgentRosterRemoved(
 ): Promise<void> {
   const agentUserId = agent.gugu_user_id
   if (!agentUserId) return
+  if (reason === 'cloud-removed') assistantPanelRuntime?.remove(agentUserId)
   if (reason === 'cloud-gone' || reason === 'cloud-removed') {
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY)
     if (reason === 'cloud-removed' && receipt?.userId !== agentUserId) throw new Error('Confirmed removal receipt does not match the Agent')
@@ -3512,6 +3513,7 @@ function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   return out
 }
 let emdashBridge: EmdashBridgeModule | null = null
+let assistantPanelRuntime: ReturnType<typeof createAssistantPanelRuntime> | null = null
 let reconcileSessionpagePlatformOnResume: (() => Promise<void>) | null = null
 let sessionpagePlatformRecovery: SessionpagePlatformRecoveryCoordinator | null = null
 let sessionpagePlatformRecoveryHooks: SessionpagePlatformHooks | null = null
@@ -5034,6 +5036,7 @@ app.whenReady().then(async () => {
     // @@@task-shell-port (#5012) 「给会话开账号」的口与网页版无头宿主共用(sessionpage-identity-host.ts);
     // 这里只喂它桌面版的四样:登录态、设备 id、项目名、会话事实。
     const sessionpageIdentityHost = createSessionpageIdentityHost({
+      beforeIdentityRemoval: id => assistantPanelRuntime?.pauseRemoval(id) ?? (() => {}),
       getAuth: getSessionpageAuth,
       // #4320② 锁内解析:localDeviceId 不起 tick,不会派发要同一把锁的设备命令。
       resolveDeviceId: localDeviceId,
@@ -5077,7 +5080,7 @@ app.whenReady().then(async () => {
     app.once('will-quit', nativeInbox.dispose)
     // 项目的跨设备身份由宿主的群对照维护；每次写入后通知渲染层重读。
     emdash.setUserLibraryOwner(async () => (await getSessionpageAuth())?.userId ?? null)
-    const assistantPanel = createAssistantPanelRuntime({
+    const assistantPanel = assistantPanelRuntime = createAssistantPanelRuntime({
       locale: currentHostLocale,
       getAuth: getSessionpageAuth,
       instanceId: () => deviceRuntimeHost?.instanceId ?? null,
