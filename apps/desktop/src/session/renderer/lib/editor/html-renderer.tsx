@@ -1,3 +1,4 @@
+import { hostViewerKind } from '@renderer/features/sessions/file-view/file-view-kinds';
 import { observer } from 'mobx-react-lite';
 import { useCallback } from 'react';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
@@ -110,7 +111,7 @@ export const HtmlContentRenderer = observer(function HtmlContentRenderer({
       });
       if (!target) return;
       // 任何本机文件都开 —— 标签页自己会挑渲染器(图片/PDF/CSV/文本)。
-      pane.open('file', { path: target, preview: false });
+      pane.open(hostViewerKind(target), { path: target, preview: false });
     },
     [filePath, workspacePath, pane, projectId]
   );

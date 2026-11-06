@@ -20,6 +20,7 @@ import { workspaceRegistry } from './workspace-registry';
 import type { WorkspaceViewModel } from '@renderer/features/sessions/stores/workspace-view-model';
 import { pickSessionOpener } from '@renderer/features/extensions/open-with';
 import { attachmentOpenTarget } from './attachment-open-target';
+import { hostViewerKind } from '../file-view/file-view-kinds';
 import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import type { BrowserTabResource } from '@renderer/features/browser/browser-tab-resource';
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
@@ -142,7 +143,7 @@ async function openResolvedFileInPane(
     return claim.tabKind;
   }
 
-  viewModel.paneLayout.open('file', { path: resolvedPath }, config);
+  viewModel.paneLayout.open(hostViewerKind(resolvedPath), { path: resolvedPath }, config);
   return null;
 }
 
@@ -273,7 +274,7 @@ export async function openExternalFilePath(
     // 没有可用的面板就退到系统默认程序 —— ❌ 不许在这里静默 return。
     // 「未选择项目」建出来的任务没有工作区面板,而它照样附得了文件(#5269)。
     if (viewModel) {
-      viewModel.paneLayout.open('file', { path: filePath, external: true }, { from, intent });
+      viewModel.paneLayout.open(hostViewerKind(filePath), { path: filePath, external: true }, { from, intent });
       return;
     }
   }
@@ -372,7 +373,7 @@ export function openHostRequestedFileInSessionWhenReady({
         // 宿主替 agent(或 App)打开的:开在对话右边并排,❌ 盖住对话;用户正看着别的也 ❌ 切走(spec gugu-plugin「在工作区打开文件」)。
         if (external) {
           session.viewModel.paneLayout.open(
-            'file',
+            hostViewerKind(path),
             { path, external: true },
             { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent: 'beside', activate: false },
           );

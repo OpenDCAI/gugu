@@ -1,3 +1,4 @@
+import { hostViewerKind } from '@renderer/features/sessions/file-view/file-view-kinds';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
@@ -264,7 +265,7 @@ const DiffContentPreview = observer(function DiffContentPreview({
       resourcePath: href,
     });
     if (!target) return false;
-    pane.open('file', { path: target }, { intent: 'navigate' });
+    pane.open(hostViewerKind(target), { path: target }, { intent: 'navigate' });
     return true;
   };
 
