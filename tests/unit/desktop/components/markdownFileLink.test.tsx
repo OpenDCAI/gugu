@@ -32,7 +32,7 @@ const asked: unknown[] = []
 const noop = () => undefined
 function Shell() {
   useLinkNavigation({ ownerId: 'owner', chats: [...new Set(readable.values())].map((id) => ({ id, kind: 'group' })) as never, contacts: [],
-    openChat: noop, openFile: (chatId, target) => asked.push({ chatId, ...target }), openApp: noop, openOwnApp: noop, openProject: noop, openAssistant: noop })
+    openChat: noop, openFile: (chatId, target) => { asked.push({ chatId, ...target }) }, openApp: noop, openOwnApp: noop, openProject: noop, openAssistant: noop })
   return null
 }
 function Document(props: ComponentProps<typeof Markdown>) { return createElement(Fragment, null, createElement(Shell), createElement(Markdown, props)) }
@@ -202,7 +202,7 @@ describe('Markdown local file links in chat', () => {
     const link = `gugu-file://${itemId}`
     readable.set(itemId, '44444444-4444-4444-8444-444444444444')
     expect(openLink('https://example.com')).toBeNull()
-    await expect(openLink(link)).rejects.toThrow('shell is not ready')
+    await expect(openLink(link)).rejects.toMatchObject({ cause: expect.objectContaining({ message: expect.stringContaining('shell is not ready') }) })
     await act(async () => root.render(createElement(Document, { trust: 'chat', content: '' })))
     await expect(openLink(link)).resolves.toBe(true)
     expect(asked).toEqual([{ chatId: '44444444-4444-4444-8444-444444444444', kind: 'file', itemId }])
