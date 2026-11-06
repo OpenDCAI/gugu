@@ -11,12 +11,7 @@ import {
 } from '@renderer/features/sessions/session-view-context';
 import { rpc } from '@renderer/lib/ipc';
 import { pastePromptInjection } from '@renderer/lib/pty/prompt-injection';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from '@renderer/lib/ui/context-menu';
+import { ContextMenu, MenuItem } from '@/components/ui/Menu';
 import { AddContextPopover } from '../context-bar/add-context-popover';
 import { buildSessionContextActions, type ContextAction } from '../context-bar/context-actions';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -115,18 +110,18 @@ export const ContextBar = observer(function ContextBar({
   if (!hasVisibleContextBar) return leadingRow;
 
   return (
-    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
-      <ContextMenuTrigger>
+    <ContextMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+      <ContextMenu.Trigger>
         <div className={rowClassName}>
           {leading}
           <div className="shrink-0">{contextPopover}</div>
         </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent finalFocus={false}>
-        <ContextMenuItem disabled={isSavingInterfaceSettings} onClick={hideContextBar}>
+      </ContextMenu.Trigger>
+      <ContextMenu.Content finalFocus={false}>
+        <MenuItem disabled={isSavingInterfaceSettings} onClick={hideContextBar}>
           {translate('contextBar.hide')}
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+        </MenuItem>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
   );
 });

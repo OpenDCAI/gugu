@@ -3,11 +3,7 @@ import React from 'react';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { AgentStatusGlyph } from '@renderer/lib/components/agent-status-indicator';
 import { presentationAttention, type AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuTrigger,
-} from '@renderer/lib/ui/context-menu';
+import { ContextMenu } from '@/components/ui/Menu';
 import { RelativeTime } from '@renderer/lib/ui/relative-time';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -157,8 +153,8 @@ export function SessionRowShell({
   );
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
+    <ContextMenu.Root>
+      <ContextMenu.Trigger>
         <SidebarMenuRow
           ref={rowRef}
           className={cn(
@@ -187,7 +183,7 @@ export function SessionRowShell({
           onKeyDown={(e) => {
             // Arrow keys are owned by the session navigation listener, which walks the whole chain.
             // The per-row nextElementSibling walk that used to live here could never work: the row
-            // is wrapped by ContextMenuTrigger (so it has no sibling) and the list is virtualised
+            // is wrapped by ContextMenu.Trigger (so it has no sibling) and the list is virtualised
             // (so off-screen rows have no node to focus).
             if (e.key === 'Enter') onOpen();
           }}
@@ -329,8 +325,8 @@ export function SessionRowShell({
           </span>
         </SidebarMenuRow>
         {after}
-      </ContextMenuTrigger>
-      {menu ? <ContextMenuContent>{menu}</ContextMenuContent> : null}
-    </ContextMenu>
+      </ContextMenu.Trigger>
+      {menu ? <ContextMenu.Content>{menu}</ContextMenu.Content> : null}
+    </ContextMenu.Root>
   );
 }

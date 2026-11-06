@@ -330,6 +330,7 @@ function DropdownMenuContent({
       >
         <MenuPrimitive.Popup
           className={cn(menuPopup, className)}
+          data-occludes-browser-page
           style={{ padding: menuSurfacePadding, ...style }}
           {...props}
         />
@@ -347,4 +348,37 @@ export const DropdownMenu = {
   /** 单选的一组(模式按钮 #7167):行照样用 `menuRowClassName`,选中那行由 `data-checked` 着色。 */
   RadioGroup: MenuPrimitive.RadioGroup,
   RadioItem: MenuPrimitive.RadioItem,
+}
+
+function ContextMenuRoot({ onOpenChange, ...props }: ContextMenuPrimitive.Root.Props) {
+  // Same as DropdownMenuRoot: while open, Android back closes it first.
+  const actions = useRef<ContextMenuPrimitive.Root.Actions>(null)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(Boolean(props.defaultOpen))
+  useBackLayer((props.open ?? uncontrolledOpen) ? () => actions.current?.close() : undefined)
+  return (
+    <ContextMenuPrimitive.Root
+      {...props}
+      actionsRef={actions}
+      onOpenChange={(open, details) => { setUncontrolledOpen(open); onOpenChange?.(open, details) }}
+    />
+  )
+}
+
+function ContextMenuTrigger({ className, ...props }: ContextMenuPrimitive.Trigger.Props) {
+  // A long press must open the menu, not start a text selection.
+  return <ContextMenuPrimitive.Trigger className={typeof className === 'function' ? className : cn('select-none', className)} {...props} />
+}
+
+/**
+ * Right click / long press on an area (a list row): the same surface and rows as `Menu`, anchored at the pointer.
+ * Rows are `MenuItem` / `MenuSeparator` / `MenuSubmenu`. ❌ A second menu look for lists.
+ */
+export const ContextMenu = {
+  Root: ContextMenuRoot,
+  Trigger: ContextMenuTrigger,
+  Content: ContextMenuContent,
+}
+
+function ContextMenuContent(props: DropdownMenuContentProps) {
+  return <DropdownMenuContent sideOffset={0} {...props} />
 }

@@ -18,7 +18,6 @@ export const PAGE_OCCLUDER_SELECTOR = [
   ...[
     'dropdown-menu-content',
     'dropdown-menu-sub-content',
-    'context-menu-content',
     'popover-content',
     'select-content',
     'combobox-content',

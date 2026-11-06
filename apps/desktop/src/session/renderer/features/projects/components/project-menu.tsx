@@ -12,13 +12,7 @@ import {
 } from '@renderer/features/projects/stores/project-selectors'
 import { rpc } from '@renderer/lib/ipc'
 import { useNavigate } from '@renderer/lib/layout/navigation-provider'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger
-} from '@renderer/lib/ui/context-menu'
+import { ContextMenu, MenuItem, MenuSeparator } from '@/components/ui/Menu'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { ChatTabMenuItems, chatTabHasActions } from '@renderer/features/chats/chat-tab-menu-items'
 import { OpenInMenuItems, useOpenInTargets } from '@renderer/lib/components/titlebar/open-in-menu'
@@ -49,25 +43,24 @@ const MountedProjectMenuItems = observer(function MountedProjectMenuItems({
         {chatId && chatTabHasActions(chatId) ? (
           <>
             <ChatTabMenuItems chatId={chatId} />
-            <ContextMenuSeparator />
+            <MenuSeparator />
           </>
         ) : null}
         {path ? <OpenInMenuItems targets={openIn} /> : null}
         {remoteUrl && (
           <>
-            {path ? <ContextMenuSeparator /> : null}
-            <ContextMenuItem
-              className="flex items-center gap-2"
+            {path ? <MenuSeparator /> : null}
+            <MenuItem
+              icon={isGithubUrl ? <GithubIcon /> : <Globe />}
               onClick={() => void rpc.app.openExternal(isGithubUrl ? (repository?.repositoryUrl ?? remoteUrl) : remoteUrl)}
             >
-              {isGithubUrl ? <GithubIcon className="size-4" /> : <Globe className="size-4" />}
-              <span className="truncate">{repoLabel}</span>
-            </ContextMenuItem>
+              <span className="block truncate">{repoLabel}</span>
+            </MenuItem>
           </>
         )}
-        {path || remoteUrl ? <ContextMenuSeparator /> : null}
-        <ContextMenuItem
-          className="flex items-center gap-2 text-foreground-destructive"
+        {path || remoteUrl ? <MenuSeparator /> : null}
+        <MenuItem
+          danger
           onClick={() => {
             void confirmDeleteProject({
               projectId,
@@ -75,10 +68,10 @@ const MountedProjectMenuItems = observer(function MountedProjectMenuItems({
               onDeleted: () => navigate('home')
             })
           }}
+          icon={<Trash2 />}
         >
-          <Trash2 className="size-4" />
           {translate('projects.titlebar.remove')}
-        </ContextMenuItem>
+        </MenuItem>
     </>
   )
 })
@@ -91,12 +84,12 @@ const MountedProjectMenuItems = observer(function MountedProjectMenuItems({
 export const ProjectTabMenu = observer(function ProjectTabMenu({ projectId, chatId, children }: { projectId: string; chatId: string | null; children: ReactNode }) {
   if (!projectHasMenu(projectId)) return <>{children}</>
   return (
-    <ContextMenu>
-      <ContextMenuTrigger className="flex h-full w-full min-w-0">{children}</ContextMenuTrigger>
-      <ContextMenuContent finalFocus={false} className="min-w-40">
+    <ContextMenu.Root>
+      <ContextMenu.Trigger className="flex h-full w-full min-w-0">{children}</ContextMenu.Trigger>
+      <ContextMenu.Content finalFocus={false} className="min-w-40">
         <MountedProjectMenuItems projectId={projectId} chatId={chatId} />
-      </ContextMenuContent>
-    </ContextMenu>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
   )
 })
 

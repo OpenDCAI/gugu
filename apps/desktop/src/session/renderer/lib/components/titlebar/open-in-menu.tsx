@@ -10,7 +10,7 @@ import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useOpenInApps } from '@renderer/lib/hooks/useOpenInApps';
 import { rpc } from '@renderer/lib/ipc';
-import { ContextMenuItem } from '@renderer/lib/ui/context-menu';
+import { MenuItem } from '@/components/ui/Menu';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/lib/ui/select';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
@@ -237,14 +237,9 @@ export function OpenInMenuItems({ targets }: { targets: ReturnType<typeof useOpe
         const isAvailable = availability[app.id] !== false;
         const label = labels[app.id] || app.label;
         return (
-          <ContextMenuItem key={app.id} className="flex items-center gap-2" disabled={!isAvailable} onClick={() => selectAndOpenApp(app.id)}>
-            {icons[app.id] ? (
-              <OpenInAppIcon src={icons[app.id]} monochrome={app.monochrome} alt="" />
-            ) : (
-              <span className="size-4" />
-            )}
+          <MenuItem key={app.id} icon={icons[app.id] ? <OpenInAppIcon src={icons[app.id]} monochrome={app.monochrome} alt="" /> : <span />} disabled={!isAvailable} onClick={() => selectAndOpenApp(app.id)}>
             {translate('titlebar.openIn', { app: label })}
-          </ContextMenuItem>
+          </MenuItem>
         );
       })}
     </>

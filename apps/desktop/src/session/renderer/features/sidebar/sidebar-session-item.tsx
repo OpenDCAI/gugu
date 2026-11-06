@@ -31,7 +31,7 @@ import {
   useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
 import { useAgents } from '@renderer/lib/stores/use-agents';
-import { ContextMenuItem, ContextMenuSeparator } from '@renderer/lib/ui/context-menu';
+import { MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -412,56 +412,49 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     {/* spec session-page「拼在一屏的几块是一组」:框里一行 = 拿它出来 / 整组拆开(照 Arc「Separate from Split View」)。 */}
     {grouped ? (
       <>
-        <ContextMenuItem onClick={() => takeSessionOutOfGroup(sessionId)}>
-          <SquareMinus className="size-4" />
+        <MenuItem onClick={() => takeSessionOutOfGroup(sessionId)} icon={<SquareMinus />}>
           {translate('sidebar.leaveGroup')}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => dissolveScreenGroup(sessionId)}>
-          <Scissors className="size-4" />
+        </MenuItem>
+        <MenuItem onClick={() => dissolveScreenGroup(sessionId)} icon={<Scissors />}>
           {translate('sidebar.dissolveGroup')}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
+        </MenuItem>
+        <MenuSeparator />
       </>
     ) : null}
     {isPinned ? (
-      <ContextMenuItem onClick={() => setPinned(false)}>
-        <PinOff className="size-4" />
+      <MenuItem onClick={() => setPinned(false)} icon={<PinOff />}>
         {translate('task.unpin')}
-      </ContextMenuItem>
+      </MenuItem>
     ) : (
-      <ContextMenuItem onClick={() => setPinned(true)}>
-        <Pin className="size-4" />
+      <MenuItem onClick={() => setPinned(true)} icon={<Pin />}>
         {translate('task.pin')}
-      </ContextMenuItem>
+      </MenuItem>
     )}
     {canFork && (
-      <ContextMenuItem onClick={handleFork}>
-        <GitFork className="size-4" />
+      <MenuItem onClick={handleFork} icon={<GitFork />}>
         {translate('sidebar.forkSession')}
-      </ContextMenuItem>
+      </MenuItem>
     )}
     {/* behavior session-page「键盘导航」: 键盘能做的、菜单也要能做 —— 只给快捷键等于让用鼠标的人
         看不见重命名。删除是这条规则的例外(owner 2026-09-05 把它从这份菜单里拿掉了):它在
         会话页 ⋯ 菜单里仍然可见可点,不是只剩快捷键。 */}
-    <ContextMenuItem
+    <MenuItem
       onClick={() => {
         commandRegistry.dispatch('session.rename', { projectId, sessionId });
       }}
+      icon={<Pencil />}
     >
-      <Pencil className="size-4" />
       {translate('task.renameSession')}
-    </ContextMenuItem>
-    <ContextMenuItem onClick={() => void copySessionId()}>
-      <Copy className="size-4" />
+    </MenuItem>
+    <MenuItem onClick={() => void copySessionId()} icon={<Copy />}>
       {translate('sidebar.copySessionId')}
-    </ContextMenuItem>
+    </MenuItem>
     {/* owner 2026-09-05:会话列表这一行不再提供删除 ——「正常我用 agent 也不删除会话」。
         右键这一格换成归档,与行尾 hover 浮出的归档按钮是同一个动作、同一条确认路径。
         删除仍在会话页 ⋯ 菜单与键盘两次删除上,只是不再摆在会话列表的手边。 */}
-    <ContextMenuItem onClick={requestArchive}>
-      <Archive className="size-4" />
+    <MenuItem onClick={requestArchive} icon={<Archive />}>
       {archiveLabel}
-    </ContextMenuItem>
+    </MenuItem>
         </>
       }
     />
