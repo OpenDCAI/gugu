@@ -5,6 +5,7 @@ on:
 permissions:
   contents: read
   actions: read
+cache-mode: read
 concurrency:
   group: community-ci-dev-linux
   cancel-in-progress: true
@@ -17,7 +18,7 @@ env:
   PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
 jobs:
   linux-checks:
-    name: Dev Linux checks (${{ matrix.shard }}/4)
+    name: Dev Linux checks (${{ matrix.shard }}/6)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -29,18 +30,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
       - id: setup
         uses: ./.github/actions/setup-community
-      # Each shard is the sole writer of its own content-addressed module snapshot.
-      - uses: actions/cache@v4
+      # Each shard restores its compatible dev module snapshot without writing a PR cache.
+      - uses: actions/cache/restore@v4
         with:
           path: node_modules/.experimental-vitest-cache
-          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
-          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-
-      - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
+          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shards-6-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
+          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shards-6-${{ matrix.shard }}-
+      - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/6
       - name: Report failed dev Linux checks
         if: failure()
         uses: actions/github-script@v7
@@ -51,7 +52,7 @@ jobs:
             const { owner, repo } = context.repo;
             const label = 'ci-dev-red';
             const marker = `<!-- ci-dev-linux:${context.sha}:shard-${process.env.CI_UNIT_SHARD} -->`;
-            const title = `Dev Linux checks failed at ${context.sha.slice(0, 7)} (shard ${process.env.CI_UNIT_SHARD}/4)`;
+            const title = `Dev Linux checks failed at ${context.sha.slice(0, 7)} (shard ${process.env.CI_UNIT_SHARD}/6)`;
             const runUrl = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${context.runId}`;
             const actor = context.payload.sender?.login || context.actor;
             const body = [

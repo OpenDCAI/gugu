@@ -211,8 +211,7 @@ export function cloudWakeFailureText(
       return translate('remoteHost.wake.signedOut');
     case 'gone':
       return translate('remoteHost.wake.gone', { device });
-    case 'plan_required':
-    case 'failed':
+    default:
       return translate('remoteHost.wake.failed', { device });
   }
 }

@@ -16,7 +16,7 @@ import type { TabHost } from '@renderer/features/tabs/core/tab-host';
 import type { ResolvedTab } from '@renderer/features/tabs/core/tab-provider';
 import { PaneTreeView } from '@renderer/features/tabs/pane-tree-view';
 import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
+import { ContextMenu } from '@/components/ui/Menu';
 import { chatAuxiliaryYielded, chatBlockContentOf, chatLayoutOf, closeChatTab } from './chat-layouts';
 import { CHAT_TAB_KIND, ChatTabHostContext, type ChatTabHost } from './chat-tab-providers';
 
@@ -120,10 +120,10 @@ export const ChatTabChip = observer(function ChatTabChip({
   />;
   return (
     <TabSlot data-tabid={tab.tabId} data-tab-pair={tab.pairRole} {...data}>
-      {menu ? <ContextMenu>
-        <ContextMenuTrigger className="flex h-full w-full min-w-0">{chip}</ContextMenuTrigger>
-        <ContextMenuContent finalFocus={false} className="min-w-40">{menu}</ContextMenuContent>
-      </ContextMenu> : chip}
+      {menu ? <ContextMenu.Root>
+        <ContextMenu.Trigger className="flex h-full w-full min-w-0">{chip}</ContextMenu.Trigger>
+        <ContextMenu.Content finalFocus={false} className="min-w-40">{menu}</ContextMenu.Content>
+      </ContextMenu.Root> : chip}
     </TabSlot>
   );
 });

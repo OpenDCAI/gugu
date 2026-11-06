@@ -34,7 +34,7 @@ export function ChatSettingsPanel({ mobile = false, ...body }: ChatSettingsPanel
 
 interface ChatRightPanelBodyProps {
   activeChat: ChatItem
-  /** Where it opens (the members' button: their list); back goes to the info's first page. */
+  /** Where it opens (the members' button: their list); nothing goes back past it. */
   initialPage?: 'main' | 'members' | 'announcement'
   messages: MessageItem[]
   onClose: () => void

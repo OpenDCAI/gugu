@@ -1,3 +1,4 @@
+import { useAttachmentFileSelection } from '@/hooks/useAttachmentFileSelection';
 import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
 import { useConnectionPanel } from '@renderer/features/settings/subscriptions/use-connection-panel';
 import { isTranscriptDelivery } from '@/lib/pendingSessionDeliveries';
@@ -50,7 +51,7 @@ import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
 import { createPortal, flushSync } from 'react-dom';
-import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
+import { SessionChatLoading } from './session-chat-loading';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { IntegrationIcon } from '@renderer/features/integrations/integration-icon';
 import { useConnectedIssueProviders } from '@renderer/features/integrations/use-connected-issue-providers';
@@ -307,6 +308,7 @@ const ComposerForStore = observer(function ComposerForStore({
   store,
   editorApiRef,
   composerSlot,
+  contentOverlaySlot,
   onViewAttachment,
   onScrollToBottom,
   modelMenuRequest,
@@ -315,6 +317,7 @@ const ComposerForStore = observer(function ComposerForStore({
   store: AcpChatStore;
   editorApiRef: RefObject<PromptEditorRef | null>;
   composerSlot: HTMLElement;
+  contentOverlaySlot: HTMLElement | null;
   /** 面板要把模型菜单打开(「这个模型要会员」那一行上的「换模型」):每变一次开一次。 */
   modelMenuRequest: number;
   /** 这条会话正在用的咕咕模型要开会员了(#7056):报给面板,由它挂那一行条件。null = 没有。 */
@@ -339,6 +342,7 @@ const ComposerForStore = observer(function ComposerForStore({
   }, [verb, store]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachments, setAttachmentState] = useState<ComposerAttachment[]>([]);
+  const fileSelection = useAttachmentFileSelection(attachments, store.sessionId);
   const attachmentsRef = useRef(attachments);
   // 发送等待的是上传 promise;账本必须在它 resolve 前更新,不能等 React 的下一次渲染。
   const setAttachments = useCallback((update: ComposerAttachment[] | ((prev: ComposerAttachment[]) => ComposerAttachment[])) => {
@@ -489,29 +493,32 @@ const ComposerForStore = observer(function ComposerForStore({
 
   /** 拖 / 粘 / 选进来的文件(图片也是):各上一枚 chip,当场开始放进私聊文件夹。 */
   const attachFiles = useCallback(async (files: File[], source?: 'paste' | 'drop') => {
-    for (const file of files) {
-      // 用户读的名字是 `file.name`,❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。
-      const isImage = file.type.toLowerCase().startsWith('image/');
-      const chip: ComposerAttachment = {
-        id: crypto.randomUUID(),
-        name: file.name || 'attachment',
-        kind: isImage ? 'image' : 'file',
-        mimeType: file.type,
-      };
-      if (source === 'paste') registerPastedScreenshot(file);
-      void fileUploads.add(chip, file);
-      if (isImage && !screenshotQuality(file)) {
-        const previewUrl = await readFileAsDataUrl(file);
-        if (previewUrl) setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewUrl } : att));
-      } else if (!isImage) {
-        // 文本类附件的内容在入列时读一份,chip 点开看的就是它(#5269)。
-        const preview = await readAttachmentPreviewText(file);
-        if (preview) {
-          setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewText: preview.text, previewTruncated: preview.truncated } : att));
+    const selected = fileSelection.select(files);
+    try {
+      for (const { id, file } of selected) {
+        // 用户读的名字是 `file.name`,❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。
+        const isImage = file.type.toLowerCase().startsWith('image/');
+        const chip: ComposerAttachment = {
+          id,
+          name: file.name || 'attachment',
+          kind: isImage ? 'image' : 'file',
+          mimeType: file.type,
+        };
+        if (source === 'paste') registerPastedScreenshot(file);
+        void fileUploads.add(chip, file);
+        if (isImage && !screenshotQuality(file)) {
+          const previewUrl = await readFileAsDataUrl(file);
+          if (previewUrl) setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewUrl } : att));
+        } else if (!isImage) {
+          // 文本类附件的内容在入列时读一份,chip 点开看的就是它(#5269)。
+          const preview = await readAttachmentPreviewText(file);
+          if (preview) {
+            setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewText: preview.text, previewTruncated: preview.truncated } : att));
+          }
         }
       }
-    }
-  }, [fileUploads, setAttachments]);
+    } catch (error) { fileSelection.release(selected); throw error; }
+  }, [fileSelection, fileUploads, setAttachments]);
 
   /**
    * 拖进来的文件夹。本机会话:落成正文里一条路径 pill(文件夹就在这台电脑上,agent 就地读)。
@@ -1469,12 +1476,9 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
-      {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. One loading
-          state at a time: while the history overlay is up it is the one shown (a side chat starts both at once). */}
-      {life && lifeIsStarting(life) && !store.showHistoryLoading && !store.transcriptPendingId && !store.chatState.session.state.pendingMessages.length ? (
-        <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
-          <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
-        </div>
+      {/* History and lifecycle loading share the message area; a pending input keeps its own live row. */}
+      {contentOverlaySlot && life && lifeIsStarting(life) && !store.showHistoryLoading && !store.transcriptPendingId && !store.chatState.session.state.pendingMessages.length ? (
+        createPortal(<SessionChatLoading label={translate('transcript.starting')} stage={life.stage?.at} />, contentOverlaySlot)
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life}
@@ -2265,11 +2269,11 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   if (!store) {
     return (
       <div
-        className="flex h-full w-full items-center justify-center bg-background-secondary-1 text-foreground-muted"
+        className="relative h-full w-full bg-background-secondary-1"
         data-session-chat-surface={tabKind === 'side-chat' ? 'side-chat' : 'source'}
         data-session-chat-loading="true"
       >
-        <LoadingIndicator ariaLabel={translate('chat.loading')} label={translate('chat.loading')} />
+        <SessionChatLoading label={translate('chat.loading')} />
       </div>
     );
   }
@@ -2335,18 +2339,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       {overlaySlot &&
         store.showHistoryLoading &&
         createPortal(
-          <div
-            className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background-secondary-1 text-sm text-foreground-muted"
-            aria-live="polite"
-          >
-            <LoadingIndicator
-              ariaLabel={translate('chat.loading')}
-              label={
-                startupNoticeKey ? translate(startupNoticeKey) : translate('chat.loading')
-              }
-              data-testid="acp-chat-history-loading"
-            />
-          </div>,
+          <SessionChatLoading label={startupNoticeKey ? translate(startupNoticeKey) : translate('chat.loading')} />,
           overlaySlot
         )}
 
@@ -2372,6 +2365,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           store={store}
           editorApiRef={editorApiRef}
           composerSlot={composerSlot}
+          contentOverlaySlot={overlaySlot}
           onViewAttachment={handleAttachmentView}
           onScrollToBottom={() => viewRef.current?.scrollToBottom({ behavior: 'smooth' })}
           modelMenuRequest={modelMenuRequest}

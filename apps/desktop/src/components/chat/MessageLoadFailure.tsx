@@ -4,6 +4,9 @@ import { platform } from '../../platform'
 import { useToast } from '../toastContext'
 import { Button } from '../ui/Button'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { useCopyConfirmation } from '@/hooks/useCopyConfirmation'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { Check } from '@/lib/icons'
 
 /**
  * #7199 这条线这次没读出来:说读不到、给重试。一行都没有时占满列表(❌ 落成「开始第一次对话」欢迎页 ——
@@ -15,11 +18,13 @@ export function MessageLoadFailure({ error, onRetry, inline }: { error: Error; o
   const [retrying, setRetrying] = useState(false)
   const [details, setDetails] = useState(false)
   const { toast } = useToast()
+  const mobile = useMobileShell()
+  const { copied, confirm } = useCopyConfirmation(error)
   // 复制没成(网页不安全上下文、平台不支持)要让人知道,❌ 按了没反应、只留一个未处理的拒绝。
   const copy = () => {
     // 有的平台不支持时是同步抛的:包进 promise 链里一起接住。
     void Promise.resolve().then(() => platform.writeClipboardText(error.message)).then(
-      () => toast(t('message.copied'), 'success'),
+      () => { if (mobile) confirm(); else toast(t('message.copied'), 'success') },
       (cause) => toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((cause as Error)?.message ?? cause))),
     )
   }
@@ -39,7 +44,7 @@ export function MessageLoadFailure({ error, onRetry, inline }: { error: Error; o
   const detail = details ? (
     <div className="flex max-w-[360px] items-start gap-2 text-left" data-testid="chat-load-details">
       <code className="min-w-0 flex-1 select-text break-words text-[length:var(--font-caption)] leading-[1.5] text-[var(--text-tertiary)]">{error.message}</code>
-      <Button size="sm" variant="ghost" onClick={copy} data-testid="chat-load-details-copy">{t('chatArea.loadFailedCopy')}</Button>
+      <Button size="sm" variant="ghost" onClick={copy} data-testid="chat-load-details-copy" aria-label={copied ? t('message.copied') : undefined}>{mobile && copied ? <Check size={16} /> : t('chatArea.loadFailedCopy')}</Button>
     </div>
   ) : null
   if (inline)

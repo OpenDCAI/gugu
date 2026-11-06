@@ -57,14 +57,17 @@ export async function buildHostDependencyLedgerSnapshot(
   const entries = await Promise.all(
     AGENT_DEPENDENCIES.map(async (descriptor) => {
       const id = descriptor.id as DependencyId;
-      const [selection, installRecord, lastCustom, probeEnv] = await Promise.all([
+      const [selection, installRecord, lastCustom, preparation] = await Promise.all([
         hostDependencyStore.getSelection('local', id),
         hostDependencyStore.getInstallRecord('local', id),
         hostDependencyStore.getLastCustom('local', id),
         // 伴随程序按属主那一家的环境探(#6335)。
-        resolveLocalAgentSpawnEnv(descriptor.ownerId ?? id),
+        resolveLocalAgentSpawnEnv(descriptor.ownerId ?? id).then(
+          (probeEnv) => ({ probeEnv }),
+          (error: unknown) => ({ probeError: `${descriptor.ownerId ?? id}: ${error instanceof Error ? error.message : String(error)}` }),
+        ),
       ]);
-      return { id, selection, installRecord, lastCustom, probeEnv };
+      return { id, selection, installRecord, lastCustom, ...preparation };
     })
   );
   return { ownedDirs: localManagedInstallDirs(platform), entries };

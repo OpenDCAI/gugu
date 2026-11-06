@@ -83,7 +83,7 @@ export function GroupMembersSection({
   onClearMessages,
 }: {
   chat: ChatItem
-  /** Opened at the members' list or the announcement (the info tab's members button); back: the first page. */
+  /** Opened at the members' list or the announcement (the info tab's members button): no way back into the first page. */
   initialPage?: 'main' | 'members' | 'announcement'
   snapshot: GroupCollabSnapshot
   settingsState?: GroupChatSettingsState
@@ -106,7 +106,7 @@ export function GroupMembersSection({
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
   const mobileShell = useMobileShell()
-  const { page, push, pop } = useSettingsPages(chatId, initialPage)
+  const { page, push, pop, canPop } = useSettingsPages(chatId, initialPage)
 
   const ownSettings = useGroupChatSettings(settingsState ? null : chatId, groupRoleRevision(snapshot))
   const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = settingsState ?? ownSettings
@@ -188,7 +188,7 @@ export function GroupMembersSection({
   const canExit = !!settings && (viewerRole !== 'owner' || Boolean(onDissolveGroup))
   const groupName = settings?.name ?? chat.name ?? null
 
-  const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={mobileShell ? onClose : undefined} mobile={mobileShell} />
+  const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={canPop ? pop : undefined} onClose={mobileShell ? onClose : undefined} mobile={mobileShell} />
   let content: ReactNode
   if (page === 'members') {
     content = <MemberListPanel settingsState={settingsState ?? ownSettings} chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 
 const layout = vi.hoisted(() => ({ writeServerConnectVia: vi.fn(), accounts: [] as ServerAccount[], checkLayout: vi.fn() }))
-const devices = vi.hoisted(() => ({ adoptDeviceName: vi.fn(async () => true) }))
+const devices = vi.hoisted(() => ({ adoptDeviceName: vi.fn(async () => true), restartServerAfterLogin: vi.fn() }))
 
 vi.mock('electron', () => ({ app: { getVersion: () => '0.3.0' }, safeStorage: {} }))
 vi.mock('../../../../apps/desktop/electron/server/server-auth', () => ({ writeStoredServerSession: vi.fn() }))
@@ -26,6 +26,7 @@ vi.mock('@gugu/core', async (importOriginal) => ({
   resolveServerMachineId: async () => 'machine-1',
 }))
 vi.mock('@gugu/core/cloud/devices', () => devices)
+vi.mock('../../../../apps/desktop/electron/server/server-service', () => ({ restartServerAfterLogin: devices.restartServerAfterLogin }))
 
 const saved = { ...process.env }
 const stdin = Object.getOwnPropertyDescriptor(process, 'stdin')!
@@ -70,6 +71,15 @@ describe('#6264 gugu-server login --grant-stdin --name', () => {
     expect(await login(['--grant-stdin'])).toBe(1)
     expect(fetch).not.toHaveBeenCalled()
     expect(layout.writeServerConnectVia).not.toHaveBeenCalled()
+  })
+
+  it('starts the server after login unless a controller owns the install', async () => {
+    expect(await login(['--grant-stdin'])).toBe(0)
+    expect(devices.restartServerAfterLogin).toHaveBeenCalledOnce()
+    devices.restartServerAfterLogin.mockClear()
+    process.env.GUGU_CLOUD_COMPUTER = '1'
+    expect(await login(['--grant-stdin'])).toBe(0)
+    expect(devices.restartServerAfterLogin).not.toHaveBeenCalled()
   })
 
   it('allows a signed-out account to authenticate again', async () => {

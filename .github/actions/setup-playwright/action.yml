@@ -26,17 +26,15 @@ runs:
       shell: bash
       run: |
         echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-        if [ "$RUNNER_OS" = macOS ]; then
-          echo "browsers=$HOME/Library/Caches/ms-playwright" >> "$GITHUB_OUTPUT"
+        echo 'browsers=.ci-cache/playwright' >> "$GITHUB_OUTPUT"
+        if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ "$RUNNER_OS" = macOS ]; then
+          echo 'local-cache=true' >> "$GITHUB_OUTPUT"
         else
-          echo "browsers=$HOME/.cache/ms-playwright" >> "$GITHUB_OUTPUT"
+          echo 'local-cache=false' >> "$GITHUB_OUTPUT"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$GITHUB_WORKSPACE/.ci-cache/playwright" >> "$GITHUB_ENV"
         fi
-    - if: inputs.container-image == '' && inputs.save-cache == 'true'
-      uses: actions/cache@v4
-      with:
-        path: ${{ steps.playwright.outputs.browsers }}
-        key: playwright-chromium-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-    - if: inputs.container-image == '' && inputs.save-cache != 'true'
+    - if: inputs.container-image == '' && steps.playwright.outputs.local-cache != 'true'
+      id: browser-cache
       uses: actions/cache/restore@v4
       with:
         path: ${{ steps.playwright.outputs.browsers }}
@@ -52,3 +50,8 @@ runs:
         else
           pnpm exec playwright install chromium
         fi
+    - if: inputs.container-image == '' && steps.playwright.outputs.local-cache != 'true' && inputs.save-cache == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.browser-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.playwright.outputs.browsers }}
+        key: ${{ steps.browser-cache.outputs.cache-primary-key }}

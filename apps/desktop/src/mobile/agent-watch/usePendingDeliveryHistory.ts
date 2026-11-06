@@ -4,6 +4,7 @@ import { pendingPromptLanded, type PendingPrompt } from '@session-chat/state/pen
 import { loadPendingDeliveryHistory } from '@/lib/pendingSessionDeliveries'
 import { messageForUser } from '@/lib/userFacingError'
 import { machineRpc } from './sessionpage-rpc'
+import { mergePendingDeliveryHistoryTurns } from './pending-delivery-history-turns'
 
 /** Only unknown receipts resolve older native pages; normal first paint and its requests stay unchanged. */
 export function usePendingDeliveryHistory({ deviceId, sessionId, local, enabled, ready, cursor, turns, inputs }: {
@@ -13,11 +14,7 @@ export function usePendingDeliveryHistory({ deviceId, sessionId, local, enabled,
   const key = `${local ? 'local' : deviceId}/${sessionId}`
   const [read, setRead] = useState<{ key: string; extra: readonly TranscriptTurn[]; resolved: readonly string[]; error: string | null }>({ key, extra: [], resolved: [], error: null })
   const own: Pick<typeof read, 'extra' | 'resolved' | 'error'> = read.key === key ? read : { extra: [], resolved: [], error: null }
-  const merged = useMemo(() => {
-    if (!own.extra.length) return turns
-    const byId = new Map([...own.extra, ...turns].map(turn => [turn.id, turn]))
-    return [...byId.values()].sort((a, b) => a.seq - b.seq)
-  }, [turns, own.extra])
+  const merged = useMemo(() => mergePendingDeliveryHistoryTurns(turns, own.extra), [turns, own.extra])
   const unknownKey = inputs.filter(input => input.delivery?.state === 'unknown' && !own.resolved.includes(input.id)
     && !pendingPromptLanded(input, merged)).map(input => input.id).sort().join('\0')
   const current = useRef({ inputs, turns: merged, cursor })

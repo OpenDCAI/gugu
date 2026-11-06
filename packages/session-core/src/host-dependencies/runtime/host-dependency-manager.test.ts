@@ -9,6 +9,27 @@ import { normalizeSelection } from './types';
 import type { DependencyDescriptor, InstallRecord, Provenance } from './types';
 
 describe('bounded inventory probes', () => {
+  it('publishes a provider preparation failure without losing healthy inventory, then clears it on repair', async () => {
+    let broken = true;
+    const dependencies: DependencyDescriptor[] = ['antigravity', 'claude'].map(id => ({
+      id, name: id, category: 'agent', commands: [id], skipVersionProbe: true,
+    }));
+    const manager = new HostDependencyManager(makeCtx(async (_cmd, args) => ({
+      stdout: '/bin/' + (args.at(-1) ?? 'fixture'), stderr: '',
+    })), { dependencies, installMethodDetector: unknownDetector,
+      resolveProbeEnv: async descriptor => {
+        if (broken && descriptor.id === 'antigravity') throw new Error('antigravity configuration copy failed');
+        return { PATH: '/bin' };
+      },
+    });
+    await manager.probeAll();
+    expect(manager.get('antigravity')).toMatchObject({ status: 'error', error: 'antigravity configuration copy failed' });
+    expect(manager.get('claude')).toMatchObject({ status: 'available' });
+    await expect(manager.isPathResolutionConsistent('antigravity')).resolves.toBe(false);
+    broken = false; await manager.probeAll();
+    expect(manager.get('antigravity')).toMatchObject({ status: 'available' });
+    expect(manager.get('antigravity')?.error).toBeUndefined();
+  });
   it.each(['all', 'category'] as const)('limits %s discovery, including installation enumeration, to two runtimes', async (kind) => {
     const dependencies = Array.from({ length: 5 }, (_, index): DependencyDescriptor => ({
       id: `runtime-${index}`, name: `Runtime ${index}`, category: 'agent', commands: [`runtime-${index}`],

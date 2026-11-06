@@ -287,7 +287,8 @@ describe('ImagePreviewProvider', () => {
 
   // @@@1892 - Promise 值的 ClipboardItem 要 Chrome 122+,产品 Electron 28 = Chromium 120,
   // 复制必须先 await 拿到 Blob 再构造 ClipboardItem。
-  it.each([false, true])('awaits PNG bytes before copying and reports clipboard refusals (denied=%s)', async (denied) => {
+  it.each([{ denied: false, mobile: false }, { denied: true, mobile: false }, { denied: false, mobile: true }, { denied: true, mobile: true }])('awaits PNG bytes and reports the actual clipboard outcome (denied=$denied, mobile=$mobile)', async ({ denied, mobile }) => {
+    if (mobile) platformMock.platform.kind = 'capacitor'
     const pngBlob = new Blob(['png-bytes'], { type: 'image/png' })
     const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => pngBlob }))
     vi.stubGlobal('fetch', fetchMock)
@@ -308,8 +309,15 @@ describe('ImagePreviewProvider', () => {
     expect(constructedValues).toHaveLength(1)
     expect(constructedValues[0]).toBe(pngBlob)
     expect(fetchMock).toHaveBeenCalledWith('https://example.test/one.png')
-    await waitForCondition(() => toast.mock.calls.length > 0, 'success toast was never shown')
-    if (denied) expect(toast).toHaveBeenCalledWith('无法复制图片', 'error', 'Clipboard permission denied')
-    else expect(toast).toHaveBeenCalledWith('图片已复制', 'success')
+    if (mobile && !denied) {
+      await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewCopy)?.getAttribute('aria-label') === '图片已复制', 'copy success was not announced')
+      expect(document.querySelector('output[aria-live]')?.textContent).toBe('图片已复制')
+      expect(toast).not.toHaveBeenCalled()
+    } else {
+      await waitForCondition(() => toast.mock.calls.length > 0, 'clipboard outcome was never shown')
+      if (denied) expect(toast).toHaveBeenCalledWith('无法复制图片', 'error', 'Clipboard permission denied')
+      else expect(toast).toHaveBeenCalledWith('图片已复制', 'success')
+      if (mobile) expect(document.querySelector('output[aria-live]')?.textContent).toBe('')
+    }
   })
 })

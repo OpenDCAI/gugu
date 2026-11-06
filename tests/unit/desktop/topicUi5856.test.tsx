@@ -16,6 +16,7 @@ import { attachmentQueryClient } from '../../../apps/desktop/src/lib/attachmentQ
 
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
 import { createNode, createReactHarness, clickElement, deferred, message, renderWithAppProviders } from '../../support/testHarness'
+import { NATIVE_BACK_EVENT } from '../../../apps/desktop/src/components/ui/sheetStack'
 
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
@@ -298,8 +299,8 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
   for (const layout of ['desktop', 'phone', 'tab'] as const) {
     it(`${layout}: topic header only identifies the topic and its source`, async () => {
-      await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', embedded: layout === 'tab' }))
-      expect(harness.container.querySelector('[data-testid="topic-breadcrumb"]')).not.toBeNull()
+      await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, sourceMessagePreview: '下载到 60% 就断', mobile: layout === 'phone', embedded: layout === 'tab' }))
+      expect(harness.container.querySelector(layout === 'phone' ? '[data-testid="topic-tab-source"]' : '[data-testid="topic-breadcrumb"]')).not.toBeNull()
       for (const id of ['topic-split-more', 'topic-split-members-toggle', 'topic-split-files-toggle']) {
         expect(harness.container.querySelector(`[data-testid="${id}"]`)).toBeNull()
       }
@@ -688,7 +689,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(handle?.getAttribute('aria-label')).toBe('拖动改变话题分栏的宽度')
   })
 
-  it('手机上放不下两栏:话题整页盖住来源线,出口只有左上返回,子视图开着先退回话题', async () => {
+  it('手机上放不下两栏:话题是来源页的一枚页签,没有自己的页头,返回键回到来源那一枚', async () => {
     const onClose = vi.fn()
     // currentUserId 置空:附件子视图不去拉文件,这一格只判导航。
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, onClose, currentUserId: null, mobile: true }))
@@ -696,14 +697,15 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(harness.container.querySelector('[data-testid="topic-split-resizable"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="topic-split-resize-handle"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="topic-split-close"]')).toBeNull()
-    const page = harness.container.querySelector('[data-testid="topic-split-pane"]')?.parentElement as HTMLElement
-    expect(page.style.position).toBe('fixed')
-    const back = () => harness.container.querySelector('[data-testid="topic-split-back"]') as HTMLElement
-    expect(back().getAttribute('aria-label')).toBe('返回')
-
-    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).toBeNull()
-    await clickElement(back())
+    await act(async () => { window.dispatchEvent(new Event(NATIVE_BACK_EVENT)) })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('手机上话题不在前面时不接返回键', async () => {
+    const onClose = vi.fn()
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, onClose, currentUserId: null, mobile: true, visible: false }))
+    await act(async () => { window.dispatchEvent(new Event(NATIVE_BACK_EVENT)) })
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('消息走 MessageRow + MessageBubble 渲染（接住 MessageBubble 的 props 漂移）', async () => {

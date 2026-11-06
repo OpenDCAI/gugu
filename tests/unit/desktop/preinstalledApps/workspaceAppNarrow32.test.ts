@@ -49,7 +49,8 @@ const gugu = {
 }
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
-const pressed = () => ['edit', 'split', 'preview'].filter((m) => $(`mode-${m}`).getAttribute('aria-selected') === 'true')
+// One toggle (owner 11-06): the button shown is where a press goes — ✎ (edit) while reading, 👁 (preview) otherwise.
+const toggle = () => [...document.querySelectorAll<HTMLButtonElement>('.modes > button')].filter((button) => !button.hidden).map((button) => button.id.slice(5))
 // What is on screen, read from the DOM (审计 C4).
 const shown = () => document.body.classList.contains('show-doc') && !$('download').hidden ? $('doc-title').textContent : null
 
@@ -76,11 +77,16 @@ describe('workspace App in a narrow pane (F32)', () => {
   test('side by side is not offered narrow; a document opens on its reading at every width (owner 10-30), and side by side comes back when it is wide', () => {
     // Control (the parent commit): wide, the default was side by side.
     expect(document.body.dataset.mode).toBe('preview')
-    expect(pressed()).toEqual(['preview'])
+    expect(toggle(), 'reading: the one toggle goes to editing').toEqual(['edit'])
     setNarrow(false)
     expect(document.body.dataset.mode, '阅读 first, wide too').toBe('preview')
-    expect(pressed()).toEqual(['preview'])
+    expect(toggle()).toEqual(['edit'])
+    $('mode-edit').click()
+    expect(document.body.dataset.mode).toBe('edit')
+    expect(toggle(), 'editing: the one toggle goes back to reading').toEqual(['preview'])
+    // 对照 is a ⋯ item now (its button stays, hidden, for the page's own code).
     $('mode-split').click()
+    expect(toggle(), 'side by side: the toggle goes to reading').toEqual(['preview'])
     expect(document.body.dataset.mode).toBe('split')
     setNarrow(true)
     expect(document.body.dataset.mode, 'narrow, side by side is the reading').toBe('preview')
@@ -89,8 +95,9 @@ describe('workspace App in a narrow pane (F32)', () => {
     $('mode-preview').click()
     setNarrow(true)
     expect(document.body.dataset.mode).toBe('preview')
-    expect([...document.querySelectorAll('.modes [role=tab]')].map((tab) => tab.id), '阅读 / 编辑 / 对照').toEqual(['mode-preview', 'mode-edit', 'mode-split'])
-    expect([...document.querySelectorAll('.modes [role=tab]')].map((tab) => tab.textContent)).toEqual(['Read', 'Edit', 'Side by side'])
+    expect([...document.querySelectorAll('.modes > button')].map((button) => button.id), '阅读 / 编辑 / 对照').toEqual(['mode-preview', 'mode-edit', 'mode-split'])
+    expect([...document.querySelectorAll('.modes > button')].map((button) => button.getAttribute('aria-label'))).toEqual(['Read', 'Edit', 'Side by side'])
+    expect($('mode-split').hidden, '对照 is not in the head').toBe(true)
   })
 
   test('Download and Open with another App fold behind ⋯, which is there only when one of them is', async () => {

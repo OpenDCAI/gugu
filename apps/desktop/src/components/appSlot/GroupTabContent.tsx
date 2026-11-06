@@ -118,7 +118,8 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   // Opened straight from the conversation has none (that is the conversation beside it).
   const openedBy = pane?.openerOf(tabId)
   const backIsPanel = (pane?.navigationOf(tabId)?.index ?? 0) > 0 || (!!openedBy && !(pane!.registry.has(openedBy.kind) && pane!.registry.get(openedBy.kind).conversation))
-  const back = () => backIsPanel ? pane?.go(tabId, -1) : closeChatTab(chatId, tabId)
+  // On the phone no strip brings a tab back: at its first page, leaving it closes it, which shows its 上一页.
+  const back = () => (pane?.navigationOf(tabId)?.index ?? 0) > 0 || (backIsPanel && !mobile) ? pane?.go(tabId, -1) : closeChatTab(chatId, tabId)
   const close = () => closeChatTab(chatId, tabId)
   const [offer, setOffer] = useState<Offer | null>(null)
   const [installingOffer, setInstallingOffer] = useState(false)
@@ -198,8 +199,8 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
     })
   }, [chatId, tabId, item])
 
-  // On the phone the tab is a whole page (#6815): its way out is the top-left back, and the back key does the same.
-  useBackLayer(close, mobile)
+  // On the phone the tab is a whole page (#6815): its way out is the top-left back, and the back key is that back.
+  useBackLayer(back, mobile)
   // An App took the person to this chat (`gugu.compose`): out from over the chat, so what it pointed at is seen.
   useSlotMakesWay(chatId, () => {
     if (mobile) showChatOnly(chatId)
@@ -367,7 +368,7 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
   const opener = pane?.openerOf(tabId)
   const backToConversation = (history?.index ?? 0) === 0 && !!opener && pane!.registry.has(opener.kind) && pane!.registry.get(opener.kind).conversation === true
   const navigation = { canBack: (history?.index ?? 0) > 0 || backToConversation, canForward: !!history && history.index < history.pages.length - 1, backToConversation }
-  const frames = (history?.pages ?? [{ kind: 'chat-panel', state: item }]).flatMap((page, index) => {
+  const frames = (history?.pages ?? [{ kind: 'chat-panel', state: item }]).slice(0, (history?.index ?? 0) + 1).flatMap((page, index) => {
     const current = index === (history?.index ?? 0)
     const value = current ? item : page.state as PanelItem
     return page.kind === 'chat-panel' && value.kind && (!current || (!offerUnknown && !offerFolds))

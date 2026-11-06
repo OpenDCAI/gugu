@@ -203,3 +203,12 @@ describe('用户读到的失败 / 告警落盘', () => {
     ])
   })
 })
+
+
+it('compact copy feedback uses the same notice lifecycle and does not leak its layout into a reused key', () => {
+  notify({ key: 'compact-contract', title: 'Copied', tier: 'success', duration: 1500, presentation: 'compact' })
+  expect(lastOptions(sonner.success)).toMatchObject({ duration: 1500, position: 'top-center', className: 'gugu-notice-passthrough gugu-notice-compact' })
+  const id = lastOptions(sonner.success).id
+  notify({ key: 'compact-contract', title: 'Action failed', tier: 'error' })
+  expect(lastOptions(sonner.error)).toMatchObject({ id, position: undefined, className: undefined, duration: 6000, closeButton: true })
+})

@@ -5,6 +5,7 @@ import type { PromptEditorRef } from '@gugu/session-ui/react/components';
 import { showRendererContentMenu } from '@/lib/contentContextMenu';
 import { rendererLogger } from '@/lib/log';
 import { platform } from '@/platform';
+import { notifyCopied } from '@/lib/copyFeedback';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { AcpChatStore } from './acp-chat-store';
@@ -53,7 +54,7 @@ export function useSessionMessageQuotes(store: Pick<AcpChatStore, 'sessionId' | 
         if (action === 'copy') {
           const adjusted = selectionRange ? target.root.ownerDocument.getSelection()?.toString() : undefined;
           await platform.writeClipboardText(adjusted?.trim() ? adjusted : text);
-          toast({ title: t('transcript.copied') });
+          notifyCopied(t('transcript.copied'));
         }
       }).catch(error => {
         log.error({ error }, 'Message copy menu failed');

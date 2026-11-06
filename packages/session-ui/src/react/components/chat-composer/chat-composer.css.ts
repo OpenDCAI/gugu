@@ -219,6 +219,17 @@ export const attachmentStrip = style({
   paddingLeft: '0.75rem',
   paddingRight: '0.75rem',
   paddingTop: '0.75rem',
+  selectors: {
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(5, minmax(0, 3.5rem))',
+      gap: '0.5rem',
+      boxSizing: 'border-box',
+      paddingTop: '0.5rem',
+      paddingBottom: '0.25rem',
+      minWidth: 0,
+    },
+  },
 });
 
 // 整块 chip 是预览的触发器(#5269)——`data-viewable` 决定它长得像不像可点的东西。上游 runtime
@@ -230,9 +241,7 @@ export const attachmentChip = style({
   alignItems: 'center',
   gap: '0.625rem',
   overflow: 'hidden',
-  // chip 按自己的内容宽,❌ 被容器压窄:手机输入框的附件条是一行横滑(attachment.aui.tsx),
-  // 能缩的话三五枚就挤成窄条,名字、错误原因、重试、× 全被上面的 overflow 裁掉 —— 失败的那张看不见、
-  // 重传不了、删不掉,发送又被它拦着。桌面的 attachmentStrip 折行,本来就不会压。
+  // Desktop keeps content-sized wrapping cards; mobile uses five small square columns.
   flexShrink: 0,
   // 上游是 14px。14 不在 design.md 的 shape 表上(表是 0/6/6/8/10/12/16/9999),
   // chip 是压出来的控件 ⇒ 落到 `radiusMd`(= --radius-control,8px)。
@@ -243,6 +252,9 @@ export const attachmentChip = style({
   paddingRight: '0.625rem',
   backgroundColor: vars.surfaceBaseSelected,
   selectors: {
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: {
+      width: '100%', minWidth: 0, aspectRatio: '1', boxSizing: 'border-box', padding: 0,
+    },
     '&[data-viewable]': {
       cursor: 'pointer',
       outline: 'none',
@@ -271,6 +283,9 @@ export const attachmentIconCell = style({
   overflow: 'hidden',
   color: vars.foregroundMuted,
   backgroundColor: vars.surfaceBase,
+  selectors: {
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: { width: '100%', height: '100%' },
+  },
 });
 
 export const attachmentIcon = style({
@@ -282,12 +297,18 @@ export const attachmentThumbImg = style({
   width: '2rem',
   height: '2rem',
   objectFit: 'cover',
+  selectors: {
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: { width: '100%', height: '100%' },
+  },
 });
 
 export const attachmentLabel = style({
   display: 'flex',
   flexDirection: 'column',
   minWidth: 0,
+  selectors: {
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: { display: 'none' },
+  },
 });
 
 export const attachmentName = style({
@@ -308,6 +329,9 @@ export const attachmentMeta = recipe({
     lineHeight: 1.5,
     whiteSpace: 'nowrap',
     color: vars.foregroundPassive,
+    selectors: {
+      [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: { whiteSpace: 'nowrap', maxWidth: 'none' },
+    },
   },
   variants: {
     error: {
@@ -348,6 +372,12 @@ export const attachmentTrailing = style({
   flexShrink: 0,
   width: '1.25rem',
   marginLeft: '0.25rem',
+  selectors: {
+    [`${composerRoot}[data-mobile] &, [data-phone-shell] &`]: {
+      position: 'absolute', top: '0.125rem', right: '0.125rem', marginLeft: 0,
+      borderRadius: '9999px', backgroundColor: vars.surfaceBase,
+    },
+  },
 });
 
 export const attachmentCheck = style({

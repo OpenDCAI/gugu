@@ -128,33 +128,26 @@ it('the old composer has no floating Needs you entrance', async () => {
   await renderWithAppProviders(shell, <><ChatBottomDock reserve={false}><textarea /></ChatBottomDock><NeedsYouHost /></>)
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
 })
-it.each([false, true])('only actually visible errors use the host read bit; permissions stay (phone=%s)', async mobile => {
-  state.sessions = [task('error-a', 'error'), task('error-b', 'error'), task('approval', 'needs_user', false)]
-  await mount(mobile); await open()
-  expect(markSeen).not.toHaveBeenCalled()
-  await see('error-a', 0.5); expect(markSeen).not.toHaveBeenCalled()
-  await see('error-a'); expect(markSeen).toHaveBeenCalledExactlyOnceWith('error-a')
-  await see('approval'); expect(markSeen).toHaveBeenCalledTimes(1)
-  state.sessions = [task('error-a', 'error', false), task('error-b', 'error'), task('approval', 'needs_user', false)]
-  await mount(mobile); await act(async () => toggle()!.click()); await open()
-  expect(rows().map(row => row.dataset.sessionLine)).toEqual(['error-b', 'approval'])
-  expect(state.sessions[0].status?.status).toBe('error')
-})
-it.each([false, true])('a failure read by appearing stays listed until the panel closes; only the count drops (phone=%s)', async mobile => {
+it.each([false, true])('opening the bell reads nothing; a read failure stays listed, unemphasized and uncounted (phone=%s)', async mobile => {
   const failure = { ...task('error-a', 'error'), lastInteractedAt: '2026-11-05T01:00:00.000Z' }
   const wait = { ...task('approval', 'needs_user', false), lastInteractedAt: '2026-11-05T00:00:00.000Z' }
   state.sessions = [failure, wait]
   await mount(mobile); await open()
+  await see('error-a'); await see('approval')
+  expect(markSeen, 'looking at the list is not reading the task').not.toHaveBeenCalled()
   expect(document.querySelector('[data-testid="notification-count"]')?.textContent).toBe('2')
-  await see('error-a'); expect(markSeen).toHaveBeenCalledExactlyOnceWith('error-a')
-  // The host read bit lands while the panel is still open (#1616 auto-read x #1654 unread-only filter).
+  expect(rows().map(row => row.dataset.emphasis)).toEqual(['true', 'true'])
+  // The host read bit lands (the task was opened); the person closes the bell and opens it again.
   state.sessions = [{ ...failure, unseen: false }, wait]
-  await mount(mobile)
-  expect(rows().map(row => row.dataset.sessionLine), 'the row the person is looking at does not vanish').toEqual(['error-a', 'approval'])
+  await mount(mobile); await act(async () => toggle()!.click()); await open()
+  expect(rows().map(row => row.dataset.sessionLine), 'a read failure is still a failure: it stays listed').toEqual(['error-a', 'approval'])
+  expect(rows().map(row => row.dataset.emphasis)).toEqual([undefined, 'true'])
   expect(document.querySelector('[data-testid="notification-count"]')?.textContent).toBe('1')
-  await see('error-a'); expect(markSeen).toHaveBeenCalledTimes(1)
-  await act(async () => toggle()!.click()); await open()
-  expect(rows().map(row => row.dataset.sessionLine), 'closing the panel applies the read filter').toEqual(['approval'])
+  expect(document.querySelector('[data-testid="notification-mark-all-read"]'), 'nothing unread left to mark').toBeNull()
+  // Its state, not its read bit, takes it off the list.
+  state.sessions = [{ ...failure, unseen: false, agentStatus: 'idle', status: { status: 'idle', detail: null } }, wait]
+  await mount(mobile)
+  expect(rows().map(row => row.dataset.sessionLine)).toEqual(['approval'])
 })
 it('mark all reads global unexpanded errors across groups and leaves pending actions', async () => {
   state.sessions = [task('agent-a', 'error'), task('agent-b', 'error'), task('approval', 'needs_user', false)]
@@ -164,7 +157,8 @@ it('mark all reads global unexpanded errors across groups and leaves pending act
 })
 it('failed reads retain their item and display the original error', async () => {
   state.sessions = [task('error-a', 'error')]; state.readError = new Error('host write failed')
-  await mount(); await open(); await see('error-a')
+  await mount(); await open()
+  await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="notification-mark-all-read"]')!.click())
   expect(list()?.querySelector('[role="alert"]')?.textContent).toContain('host write failed')
   expect(rows()).toHaveLength(1)
 })
@@ -172,18 +166,6 @@ it('a hidden phone list does not mount notification rows or acknowledge errors',
   state.sessions = [task('error-a', 'error')]
   await mount(true); await open(); await mount(true, true)
   expect(list()).toBeNull(); expect(markSeen).not.toHaveBeenCalled()
-})
-it('an error visible in a hidden document waits until the document becomes visible', async () => {
-  state.sessions = [task('error-a', 'error')]
-  let visibility = 'hidden'
-  vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility as DocumentVisibilityState)
-  try {
-    await mount(); await open(); await see('error-a')
-    expect(markSeen).not.toHaveBeenCalled()
-    visibility = 'visible'
-    await act(async () => document.dispatchEvent(new Event('visibilitychange')))
-    expect(markSeen).toHaveBeenCalledExactlyOnceWith('error-a')
-  } finally { vi.restoreAllMocks() }
 })
 it.each(['Enter', ' '])('keyboard %s opens the exact task without changing its pending permission', async key => {
   await mount(); await open()
@@ -196,7 +178,7 @@ it.each([false, true])('clicking a global item opens its exact host task (phone=
   await act(async () => rows()[1].click())
   expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'agent-b', deviceId: 'server' })
 })
-it('phone and desktop show the same notifications for the same tasks: no old read failures, no ⚡, nothing above Messages', async () => {
+it('phone and desktop show the same notifications for the same tasks: old read failures listed but uncounted, no ⚡, nothing above Messages', async () => {
   const at = (day: number) => new Date(Date.UTC(2026, 9, day)).toISOString()
   state.sessions = [
     ...Array.from({ length: 40 }, (_, i) => ({ ...task(`old-${i}`, 'error', false), lastInteractedAt: at(1 + (i % 28)) })),
@@ -204,17 +186,17 @@ it('phone and desktop show the same notifications for the same tasks: no old rea
     { ...task('wait', 'needs_user'), lastInteractedAt: at(30) },
     { ...task('newer-failure', 'error'), lastInteractedAt: at(20) },
   ]
-  const shown: Array<{ count: string | undefined; rows: string[] }> = []
+  const shown: Array<{ count: string | undefined; rows: string[]; listed: number }> = []
   for (const mobile of [false, true]) {
     await mount(mobile); await open()
     const zap = /\sd="([^"]+)"/.exec(ICON_BODIES.Zap)![1]
     expect([...document.querySelectorAll('[data-session-line] svg path, [data-chat-row] svg path')].filter(path => path.getAttribute('d') === zap), 'no ⚡ on any row').toHaveLength(0)
     // Tasks live in the notification list only; the Messages list has none of them.
     expect([...document.querySelectorAll('[data-session-line]')].every(row => row.closest('[data-testid="notification-list"]'))).toBe(true)
-    shown.push({ count: document.querySelector('[data-testid="notification-count"]')?.textContent ?? undefined, rows: rows().map(row => row.dataset.sessionLine!) })
+    shown.push({ count: document.querySelector('[data-testid="notification-count"]')?.textContent ?? undefined, rows: rows().filter(row => row.dataset.emphasis).map(row => row.dataset.sessionLine!), listed: rows().length })
     await act(async () => toggle()!.click())
     shell.cleanup(); workspace.cleanup(); shell = createReactHarness(); workspace = createReactHarness(); installShellSlots()
   }
-  expect(shown[0]).toEqual({ count: '3', rows: ['wait', 'newer-failure', 'older-failure'] })
+  expect(shown[0]).toEqual({ count: '3', rows: ['wait', 'newer-failure', 'older-failure'], listed: 43 })
   expect(shown[1]).toEqual(shown[0])
 })

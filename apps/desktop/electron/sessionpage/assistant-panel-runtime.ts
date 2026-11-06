@@ -19,6 +19,7 @@ import { invalidateAssistantIndex, stopAssistantIndexRefresh } from './assistant
 import { collectAssistantPanelFiles, publishAssistantPanelCollection, type PanelObservation } from './assistant-panel-publisher'
 import { createAssistantPanelBodyFailures } from './assistant-panel-body-failures'
 import { isPersonalAssistantAgent } from './assistant-agent-role'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 type Auth = { accessToken: string; userId: string }
 type Binding = AssistantPanelHome & { sessionId: string }
@@ -35,13 +36,42 @@ export function createAssistantPanelRuntime(deps: {
   const runtimes = new Map<string, ReturnType<typeof runtime>>()
   const roles = new Map<string, boolean>()
   const bodyFailures = new Map<string, ReturnType<typeof createAssistantPanelBodyFailures>>()
+  const unavailable = new Set<string>()
+  const removed = new Set<string>()
+  const removedSessions = new Map<string,string>()
+  const removals = new Map<string,number>()
+  const recheck = new Set<string>()
+  async function available(assistantId: string, ownerId: string, token: string) {
+    if (unavailable.has(assistantId)) return false
+    if (recheck.has(assistantId)) {
+      const client = createGuguSupabaseClient({ schema: 'identity',headers: { Authorization: `Bearer ${token}` } })
+      const result = await client.from('active_users').select('id').eq('id',assistantId).eq('owner_user_id',ownerId)
+        .abortSignal(AbortSignal.timeout(2000)).maybeSingle()
+      if (result.error) throw new Error('PANEL_IDENTITY_UNAVAILABLE')
+      if (!result.data || unavailable.has(assistantId)) return false
+      recheck.delete(assistantId)
+    }
+    return !unavailable.has(assistantId)
+  }
+  function stop(assistantId: string) {
+    unavailable.add(assistantId)
+    for (const [key,entry] of runtimes) if (entry.assistantId === assistantId) { entry.dispose(); runtimes.delete(key) }
+  }
+  function remove(assistantId: string) {
+    removed.add(assistantId); stop(assistantId); recheck.delete(assistantId)
+    for (const [key,binding] of bindings) if (binding.assistantId === assistantId) { removedSessions.set(key,assistantId); bindings.delete(key) }
+    for (const key of roles.keys()) if (key.endsWith(`:${assistantId}`)) roles.delete(key)
+    for (const key of bodyFailures.keys()) if (JSON.parse(key)[1] === assistantId) bodyFailures.delete(key)
+  }
   async function resolve(sessionId: string): Promise<Binding | null> {
+    if (removedSessions.has(sessionId)) return null
     const auth = await hostAuth()
     if (!auth) return null
     const known = bindings.get(sessionId)
-    if (known?.ownerId === auth.userId) return known
+    if (known?.ownerId === auth.userId) return await available(known.assistantId,auth.userId,auth.accessToken) ? known : null
     const agent = await localAgentForSession(sessionId,deps.env,auth.userId)
     if (!agent?.gugu_user_id) return null
+    if (!await available(agent.gugu_user_id,auth.userId,auth.accessToken)) return null
     const key = `${auth.userId}:${agent.gugu_user_id}`
     let assistant = roles.get(key)
     if (assistant === undefined) {
@@ -52,6 +82,7 @@ export function createAssistantPanelRuntime(deps: {
     if (!assistant) return null
     const home = await deps.local.home(sessionId, { assistantId: agent.gugu_user_id, deviceId: await deps.deviceId(), ownerId: auth.userId })
     const binding = { assistantId: agent.gugu_user_id,ownerId: auth.userId,sessionId,cwd: home.cwd,home: homedir(),kind: deps.kind }
+    if (unavailable.has(binding.assistantId)) return null
     bindings.set(sessionId,binding)
     return binding
   }
@@ -65,6 +96,7 @@ export function createAssistantPanelRuntime(deps: {
     let pulling: Promise<void> | null = null
     let scheduled: ReturnType<typeof setTimeout> | undefined
     let republish = false, disposed = false, deferredPublication = false
+    const lifetime = new AbortController()
     const watchers = new Map<string, FSWatcher>()
     const collectionTimers = new Map<AssistantPanelDomain, ReturnType<typeof setTimeout>>()
     const collections = new Map<AssistantPanelDomain, { promise: Promise<void>; again: boolean }>()
@@ -74,14 +106,16 @@ export function createAssistantPanelRuntime(deps: {
     async function auth(): Promise<Auth> {
       if (disposed) throw new Error('PANEL_RUNTIME_DISPOSED')
       const value = await hostAuth()
+      lifetime.signal.throwIfAborted()
       if (!value || value.userId !== binding.ownerId) throw new Error('PANEL_ACCOUNT_CHANGED')
       return value
     }
     const cloud = createAssistantPanelClient((name,args) => withBoundedOperation(2000,() => new Error('PANEL_CLOUD_TIMEOUT'),async signal => {
       const current = await auth()
       const client = createGuguSupabaseClient({ schema: 'identity',headers: { Authorization: `Bearer ${current.accessToken}` } })
-      signal.throwIfAborted()
-      const result = await client.rpc(name,args).abortSignal(signal)
+      const active = anySignal([signal,lifetime.signal])
+      active.throwIfAborted()
+      const result = await client.rpc(name,args).abortSignal(active)
       await auth()
       return result
     }),() => binding.ownerId)
@@ -89,11 +123,11 @@ export function createAssistantPanelRuntime(deps: {
       const current = await auth()
       if (!chatId) {
         const client = createGuguSupabaseClient({ schema: 'chat',headers: { Authorization: `Bearer ${current.accessToken}` } })
-        const result = await client.rpc('open_dm',{ p_target_user_id: binding.assistantId }).abortSignal(AbortSignal.timeout(2000))
+        const result = await client.rpc('open_dm',{ p_target_user_id: binding.assistantId }).abortSignal(anySignal([AbortSignal.timeout(2000),lifetime.signal]))
         if (result.error || typeof result.data !== 'string') throw new Error('PANEL_PRIVATE_FOLDER_UNAVAILABLE')
         await auth(); chatId = result.data
       }
-      return { token: current.accessToken,ownerId: binding.ownerId,chatId,accountId: async () => (await hostAuth())?.userId ?? null }
+      return { signal: lifetime.signal,token: current.accessToken,ownerId: binding.ownerId,chatId,accountId: async () => { await auth(); return binding.ownerId } }
     }
     async function readBody(change: AssistantPanelChange) {
       const item = await cloud.resource(binding.assistantId,change.domain as AssistantPanelDomain,change.resource_key)
@@ -225,7 +259,7 @@ export function createAssistantPanelRuntime(deps: {
       clearTimeout(collectionTimers.get(domain))
       const timer = setTimeout(() => {
         collectionTimers.delete(domain)
-        void publishCollection(domain).catch(() => { deferredPublication = true; deps.failed(domain) })
+        void publishCollection(domain).catch(() => { if (!disposed) { deferredPublication = true; deps.failed(domain) } })
       },100)
       timer.unref(); collectionTimers.set(domain,timer)
     }
@@ -276,16 +310,16 @@ export function createAssistantPanelRuntime(deps: {
           if (disposed) break
           try {
             await publishCollection(domain,baseline)
-          } catch { deferredPublication = true; deps.failed(domain) }
+          } catch { if (!disposed) { deferredPublication = true; deps.failed(domain) } }
         }
         observeFiles()
-      })().catch(error => { deferredPublication = true; throw error })
+      })().catch(error => { if (!disposed) { deferredPublication = true; throw error } })
         .finally(() => { publication = null; if (republish) schedulePublication() })
       return publication
     }
     // The existing host is already running. This timer cannot start or wake it.
     const refresh = setInterval(() => {
-      void pullPending().then(() => { if (deferredPublication) schedulePublication() }).catch(() => deps.failed('panel'))
+      void pullPending().then(() => { if (deferredPublication) schedulePublication() }).catch(() => { if (!disposed) deps.failed('panel') })
     },30_000)
     refresh.unref()
     const reconcile = setInterval(() => { void publish().catch(() => deps.failed('panel')) },600_000)
@@ -293,6 +327,7 @@ export function createAssistantPanelRuntime(deps: {
     function dispose() {
       if (disposed) return
       disposed = true; republish = false
+      lifetime.abort(new Error('PANEL_IDENTITY_REMOVED'))
       clearInterval(refresh); clearInterval(reconcile); clearTimeout(scheduled)
       stopLibrary?.()
       stopIntegrations?.()
@@ -304,7 +339,7 @@ export function createAssistantPanelRuntime(deps: {
     }
     observeFiles()
     schedulePublication()
-    return { application,dispose,
+    return { assistantId: binding.assistantId,application,dispose,
       prepare: (text: string) => serial(async () => {
         const prepared = await prepareAssistantProfileReview(await prepare(text),
           assistantHomePaths(binding.home,binding.cwd,binding.kind).memoryDir)
@@ -324,6 +359,11 @@ export function createAssistantPanelRuntime(deps: {
   async function current(sessionId: string) {
     const binding = await resolve(sessionId)
     if (!binding) return null
+    if (recheck.has(binding.assistantId)) {
+      const auth = await hostAuth()
+      if (!auth || auth.userId !== binding.ownerId || !await available(binding.assistantId,auth.userId,auth.accessToken)) return null
+    }
+    if (unavailable.has(binding.assistantId)) return null
     const key = `${binding.ownerId}:${binding.assistantId}:${binding.cwd}`
     let entry = runtimes.get(key)
     if (!entry) { entry = runtime(binding); runtimes.set(key,entry) }
@@ -332,8 +372,11 @@ export function createAssistantPanelRuntime(deps: {
   return {
     async bind(input: { sessionId: string; assistantId: string; ownerId: string; cwd: string }) {
       if ((await hostAuth())?.userId !== input.ownerId) throw new Error('PANEL_ACCOUNT_CHANGED')
+      if (unavailable.has(input.assistantId)) throw new Error('PANEL_IDENTITY_REMOVED')
+      removedSessions.delete(input.sessionId)
       bindings.set(input.sessionId,{ ...input,home: homedir(),kind: deps.kind })
-      const entry = (await current(input.sessionId))!
+      const entry = await current(input.sessionId)
+      if (!entry) throw new Error('PANEL_IDENTITY_REMOVED')
       await entry.application.prepareText('')
       return entry.application.statePath
     },
@@ -342,6 +385,22 @@ export function createAssistantPanelRuntime(deps: {
       return entry ? { ...await entry.prepare(text),assistantPanel: true as const } : { text,accepted: async () => {} }
     },
     async publish(sessionId: string) { await (await current(sessionId))?.publish() },
+    /** Stop before the removal RPC; an uncertain failure must prove liveness before resuming. */
+    pauseRemoval(assistantId: string) {
+      removals.set(assistantId,(removals.get(assistantId) ?? 0)+1)
+      stop(assistantId)
+      let settled = false
+      return (confirmed: boolean) => {
+        if (settled) return
+        settled = true
+        if (confirmed) remove(assistantId)
+        const remaining = (removals.get(assistantId) ?? 1)-1
+        if (remaining) removals.set(assistantId,remaining)
+        else removals.delete(assistantId)
+        if (!remaining && !removed.has(assistantId)) { recheck.add(assistantId); unavailable.delete(assistantId) }
+      }
+    },
+    remove,
     dispose() { for (const entry of runtimes.values()) entry.dispose(); runtimes.clear(); bindings.clear(); roles.clear(); stopAssistantIndexRefresh(deps.guguHome) },
   }
 }

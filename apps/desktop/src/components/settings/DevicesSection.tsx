@@ -1,3 +1,4 @@
+import { notifyCopied } from '@/lib/copyFeedback'
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -135,7 +136,7 @@ export function DevicesSection({
   ], [t, devices.length, onlineCount])
 
   const copyAddress = useCallback(async (address: string) => {
-    try { await platform.writeClipboardText(address); toast(t('devices.copied'), 'success') }
+    try { await platform.writeClipboardText(address); notifyCopied(t('devices.copied')) }
     catch (error) { log.error({ error }, 'device address copy failed'); toast(t('actions.copyFailed', { ns: 'common' }), 'error', messageForUser(error)) }
   }, [toast, t])
 

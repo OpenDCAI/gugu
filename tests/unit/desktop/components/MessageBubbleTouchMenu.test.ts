@@ -4,6 +4,7 @@ import postcss from 'postcss'
 import { act } from 'react'
 import { flushSync } from 'react-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { notifyCopied } from '@/lib/copyFeedback'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import type { ToastType } from '../../../../apps/desktop/src/components/toastContext'
@@ -15,10 +16,12 @@ import { QUICK_REACTIONS, REACTIONS } from '../../../../packages/core/src/shared
 import { TOOLTIP_OPEN_DELAY_MS } from '../../../../apps/desktop/src/styles/motion'
 import { clickElement, createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
+vi.mock('@/lib/copyFeedback', () => ({ notifyCopied: vi.fn() }))
 let harness: ReturnType<typeof createReactHarness>
 const originalPlatformKind = platform.kind
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.mocked(notifyCopied).mockClear()
   for (const key of ['gugu.reaction-frequency', 'emoji-mart.frequently', 'emoji-mart.last']) localStorage.removeItem(key)
   vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   harness = createReactHarness()
@@ -58,7 +61,7 @@ describe('MessageBubble touch menu', () => {
     await clickElement(document.querySelector(`[data-testid="message-action-${kind === 'link' ? 'copyLink' : 'copy'}"]`)!)
     expect(nativeWrite).toHaveBeenCalledExactlyOnceWith(kind === 'link' ? href : kind === 'selection' ? 'from mobile' : 'hello from mobile')
     expect(browserWrite).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+    expect(notifyCopied).toHaveBeenCalledExactlyOnceWith('已复制')
   })
 
   it('reports native clipboard rejection without falling back to WebView permissions (#938)', async () => {
@@ -71,7 +74,7 @@ describe('MessageBubble touch menu', () => {
     await longPress()
     await clickElement(document.querySelector('[data-testid="message-action-copy"]')!)
     expect(toast).toHaveBeenCalledWith('复制失败', 'error', 'Native copy failed [path] [redacted token]')
-    expect(toast).not.toHaveBeenCalledWith('已复制', 'success')
+    expect(notifyCopied).not.toHaveBeenCalled()
     expect(browserWrite).not.toHaveBeenCalled()
   })
 
@@ -86,7 +89,7 @@ describe('MessageBubble touch menu', () => {
     await clickElement(menuItem('复制文本'))
     expect(nativeWrite).toHaveBeenCalledExactlyOnceWith('hello from mobile')
     expect(browserWrite).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+    expect(notifyCopied).toHaveBeenCalledExactlyOnceWith('已复制')
   })
 
   it('opens the message menu from a long-press on phone message text', async () => {
@@ -137,7 +140,7 @@ describe('MessageBubble touch menu', () => {
     document.dispatchEvent(new Event('selectionchange'))
     await clickElement(document.querySelector('[data-testid="message-selection-copy"]')!)
     expect(writeText).toHaveBeenCalledWith('from mobile')
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+    expect(notifyCopied).toHaveBeenCalledExactlyOnceWith('已复制')
     expect(document.querySelector('[data-testid="message-selection-bar"]')).toBeNull()
     expect(bubble.style.userSelect, 'back to long-press = menu').toBe('none')
   })
@@ -513,7 +516,7 @@ describe('MessageBubble touch menu', () => {
     await renderMessage(toast)
     await openMenuAndCopy()
     expect(writeText).toHaveBeenCalledWith('hello from mobile')
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+    expect(notifyCopied).toHaveBeenCalledExactlyOnceWith('已复制')
   })
   it('copy text clipboard reject → fail-loud toast, not silent (#1123)', async () => {
     const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))

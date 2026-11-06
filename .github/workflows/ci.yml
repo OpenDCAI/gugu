@@ -5,6 +5,8 @@ on:
 permissions:
   contents: read
   actions: read
+# Also constrain built-in caches in setup-go/setup-java and immutable reusable callees.
+cache-mode: read
 concurrency:
   group: community-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -105,13 +107,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      # The one Linux job that saves the dependency cache when the lockfile changed.
+      # PRs restore only; ci-cache.yml seeds dependencies from dev pushes.
       - id: setup
         uses: ./.github/actions/setup-community
         with:
           save-cache: 'true'
-      # One writer. Compatible snapshots seed new source trees; ESLint validates file content.
-      - uses: actions/cache@v4
+      # Restore the latest compatible dev snapshot; ESLint validates file content.
+      - uses: actions/cache/restore@v4
         with:
           path: node_modules/.cache/eslint
           key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/checks/eslint-cached.mts', 'scripts/checks/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
@@ -146,8 +148,7 @@ jobs:
       - name: Verify e2e and integration spec execution coverage
         run: |
           # Read exact callee objects without moving the original PR base.
-          git fetch --no-tags --no-write-fetch-head --depth=1 origin 499a1ee16cb7650190e8a7869bec59e4f4ee9f22
-          git fetch --no-tags --no-write-fetch-head --depth=1 origin 0970e2e3af61985a54bedd313278f72673ccc493
+          git fetch --no-tags --no-write-fetch-head --depth=1 origin b97314c509105b6b16bf2e3d98e738200f6103b5
           args=()
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
@@ -155,7 +156,7 @@ jobs:
           fi
           node scripts/ci/ci-spec-coverage.mts "${args[@]}"
   unit:
-    name: Unit tests (${{ matrix.shard }}/4)
+    name: Unit tests (${{ matrix.shard }}/6)
     needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -164,22 +165,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - if: needs.changes.outputs.tests == 'true'
         uses: actions/checkout@v4
       - if: needs.changes.outputs.tests == 'true'
         id: setup
         uses: ./.github/actions/setup-community
-      # Each shard is the sole writer of its own content-addressed module snapshot.
+      # Each shard restores its compatible dev module snapshot without writing a PR cache.
       - if: needs.changes.outputs.tests == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: node_modules/.experimental-vitest-cache
-          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
-          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-
+          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shards-6-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
+          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shards-6-${{ matrix.shard }}-
       - if: needs.changes.outputs.tests == 'true'
-        run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
+        run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/6
   renderer-build:
     name: Renderer build (web target)
     needs: changes
@@ -221,7 +222,7 @@ jobs:
   desktop-build-mac:
     name: Desktop app build (macos-15)
     needs: changes
-    uses: GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@499a1ee16cb7650190e8a7869bec59e4f4ee9f22
+    uses: GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@b97314c509105b6b16bf2e3d98e738200f6103b5
     with:
       build-required: ${{ needs.changes.outputs.desktop-mac }}
   android-build:
@@ -257,7 +258,7 @@ jobs:
   session-db:
     name: Session database, chat UI browser and tooling
     needs: changes
-    uses: GUYI-AI/gugu/.github/workflows/ci-mac-session.yml@0970e2e3af61985a54bedd313278f72673ccc493
+    uses: GUYI-AI/gugu/.github/workflows/ci-mac-session.yml@b97314c509105b6b16bf2e3d98e738200f6103b5
     with:
       tests-required: ${{ needs.changes.outputs.tests }}
   projection-media:
@@ -307,7 +308,7 @@ jobs:
             node --test node/*.node-test.mjs
           done
   session-browser:
-    name: Session browser project
+    name: Session browser project (${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.tests == 'true'
     # On GitHub-hosted macOS (macos-14 and macos-15 alike) a full session-browser run turns animation,
@@ -315,13 +316,17 @@ jobs:
     # until that host difference is understood this project runs on Linux (87/87 green there).
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-community
       - uses: ./.github/actions/setup-playwright
         with:
           container-image: ${{ env.PLAYWRIGHT_IMAGE }}
-      - run: node scripts/test-infra/vitest-browser-shards.mjs --project session-browser
+      - run: node scripts/test-infra/vitest-browser-shards.mjs --project session-browser --shard-group=${{ matrix.shard }}/3 --shards-per-group=4
         shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
   web-smoke:
     name: Web E2E (${{ matrix.id }})

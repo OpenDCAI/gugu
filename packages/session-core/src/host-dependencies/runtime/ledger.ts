@@ -46,6 +46,8 @@ export type HostDependencyLedgerEntry = {
    * 和用户按下开始时是同一个环境里的答案 —— 算它要读用户在设置里填的东西,那在主进程。
    */
   probeEnv?: Record<string, string>;
+  /** Preparation failed for this provider; never probe it with an unrelated fallback environment. */
+  probeError?: string;
 };
 
 /** 主进程递出去的一整本账。 */
@@ -79,7 +81,11 @@ export function createReplicaLedger(): ReplicaHostDependencyLedger {
       entries = new Map(snapshot.entries.map((entry) => [entry.id, entry]));
     },
     ownedDirs: () => ownedDirs,
-    probeEnvFor: (depId) => entries.get(depId)?.probeEnv,
+    probeEnvFor: (depId) => {
+      const entry = entries.get(depId);
+      if (entry?.probeError) throw new Error(entry.probeError);
+      return entry?.probeEnv;
+    },
     getSelection: (depId) => Promise.resolve(entries.get(depId)?.selection ?? null),
     getInstallRecord: (depId) => Promise.resolve(entries.get(depId)?.installRecord ?? null),
     getLastCustom: (depId) => Promise.resolve(entries.get(depId)?.lastCustom ?? null),

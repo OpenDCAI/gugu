@@ -27,6 +27,7 @@ import { useMessages } from '../../localization/message-provider';
 import { attachmentPreviewKind } from './composer-attachment-preview';
 import type { ComposerAttachment, ComposerAttachmentState } from './composer-options';
 import * as styles from './chat-composer.css';
+import * as stripStyles from './composer-attachment-strip.css';
 
 const archiveFileExtension = /\.(?:zip|tar|gz|tgz|bz2|xz|7z|rar|dmg|iso)$/i;
 
@@ -77,6 +78,8 @@ export function ComposerAttachmentChip({ attachment: att, onView, onRemove, onRe
       role={previewKind ? 'button' : undefined}
       tabIndex={previewKind ? 0 : undefined}
       aria-label={previewKind ? translate('composer.viewAttachment', { name: att.name }) : undefined}
+      aria-description={att.meta}
+      title={[att.name, att.meta].filter(Boolean).join(' · ')}
       onClick={previewKind ? () => onView?.(att) : undefined}
       // 键盘照上游:Enter 立刻触发,Space 按下时吃掉默认滚动、抬起时才触发。
       onKeyDown={
@@ -96,6 +99,7 @@ export function ComposerAttachmentChip({ attachment: att, onView, onRemove, onRe
       className={styles.attachmentChip}
     >
       <span className={styles.attachmentIconCell}>{cell}</span>
+      {!previewKind && <span className={stripStyles.mobileName}>{att.name}: {att.meta}</span>}
       <span className={styles.attachmentLabel}>
         <span className={styles.attachmentName}>{att.name}</span>
         {(att.meta || canRetry || att.imageQuality) && (
@@ -127,6 +131,12 @@ export function ComposerAttachmentChip({ attachment: att, onView, onRemove, onRe
           </span>
         )}
       </span>
+      {att.imageQuality && onQualityChange && <button type="button" className={stripStyles.mobileQuality}
+        aria-label={translate(att.imageQuality === 'compressed' ? 'composer.sendOriginal' : 'composer.useCompressed')}
+        title={translate(att.imageQuality === 'compressed' ? 'composer.sendOriginal' : 'composer.useCompressed')}
+        disabled={qualityLocked} onClick={event => { event.stopPropagation(); onQualityChange(att.id); }}>
+        <FileImage aria-hidden="true" className={styles.attachmentIcon} />
+      </button>}
       <span className={styles.attachmentTrailing}>
         {state === 'uploading' && !canRemove ? (
           <LoadingIndicator size="inline" />

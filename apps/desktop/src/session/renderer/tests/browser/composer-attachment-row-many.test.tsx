@@ -1,71 +1,124 @@
-/**
- * 手机会话页输入框的附件条是**一行横滑**(attachment.aui.tsx 的 `aui-composer-attachments`:flex 一行 + overflow-x-auto)。
- * 一起选十张,每枚 chip 必须保持自己的宽、由条横向滚动;❌ 被压成窄条。
- *
- * 压窄时 chip 自己的 overflow 把名字、错误原因、「重试」、× 全裁掉 —— mac1 实测 5 张起 × 就没了,10 张只剩一排细条:
- * 失败的那张看不见、重传不了、删不掉,发送又被它拦着(手机用户报「传了三五张之后就传不了图」)。
- * 这里在真浏览器里排十枚 error 态 chip,读每枚的几何。
- */
-import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
-import { ComposerAttachmentChip, type ComposerAttachment } from '@gugu/session-ui/react/components'
+import { act } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { page } from 'vitest/browser'
+import { ChatComposer, type ComposerAttachment } from '@gugu/session-ui/react/components'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
+import { createReactHarness, renderWithAppProviders } from '../../../../../../../tests/support/testHarness'
+import { until } from '../../../../../../../tests/support/awaitCondition'
+import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
+import { LocalizationProvider } from '@/i18n'
+import { notify } from '@/lib/notices'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
-import { until } from '../../../../../../../tests/support/awaitCondition'
 
-let root: Root | null = null
-let host: HTMLElement | null = null
+vi.mock('@/lib/notices', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/notices')>(), notify: vi.fn() }))
+let harness: ReturnType<typeof createReactHarness>
+beforeEach(async () => { await page.viewport(390, 844); vi.mocked(notify).mockClear() })
+afterEach(() => harness?.cleanup())
+const file = (i: number): ComposerAttachment => ({ id: `a${i}`, name: `notes-${i}.txt`, kind: 'file',
+  previewText: `preview-${i}`, meta: '113 B' })
+const failed = (i: number): ComposerAttachment => ({ ...file(i), state: 'error',
+  meta: "Didn't reach that machine. Keep the original file and retry when the machine reconnects.", retryable: true })
 
-afterEach(() => {
-  root?.unmount()
-  root = null
-  host?.remove()
-  host = null
-})
-
-const failed = (i: number): ComposerAttachment => ({
-  id: `a${i}`,
-  name: `IMG_2026100${i}.jpg`,
-  kind: 'image',
-  state: 'error',
-  meta: "Didn't reach that machine",
-  retryable: true,
-})
-
-describe('手机输入框附件条:一起选十张', () => {
-  it('每枚 chip 保持自己的宽,× 和「重试」都在 chip 里,条横向滚动', async () => {
-    host = document.createElement('div')
-    host.className = 'gugu-skin'
-    document.body.appendChild(host)
-    root = createRoot(host)
-    root.render(
-      <SessionLocalizationProvider>
-        {/* 与 attachment.aui.tsx 的 aui-composer-attachments 同一组布局:一行、不折、横向滚动;宽取手机输入框的内宽。 */}
-        <div data-testid="row" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '0.5rem', overflowX: 'auto', width: '330px' }}>
-          {Array.from({ length: 10 }, (_, i) => (
-            <ComposerAttachmentChip key={i} attachment={failed(i)} onRemove={() => {}} onRetry={() => {}} />
-          ))}
-        </div>
-      </SessionLocalizationProvider>,
-    )
-    await until('十枚 chip 挂载', () => host!.querySelectorAll('[data-slot="composer-attachment"]').length === 10)
-
-    const row = host.querySelector<HTMLElement>('[data-testid="row"]')!
-    const chips = [...host.querySelectorAll<HTMLElement>('[data-slot="composer-attachment"]')]
-    for (const chip of chips) {
-      // 内容没被 chip 自己的 overflow 裁掉。
-      expect(chip.scrollWidth, chip.textContent ?? '').toBeLessThanOrEqual(chip.clientWidth + 1)
-      const box = chip.getBoundingClientRect()
-      for (const control of chip.querySelectorAll<HTMLElement>('button')) {
-        const r = control.getBoundingClientRect()
-        expect(r.width, `${control.textContent || control.getAttribute('aria-label')} 有宽度`).toBeGreaterThan(0)
-        expect(r.right, `${control.textContent || control.getAttribute('aria-label')} 在 chip 里`).toBeLessThanOrEqual(box.right + 0.5)
+describe('real mobile composer attachment grid', () => {
+  it.each(['mobile-prop', 'phone-shell'] as const)('fits 1/5/6/10 tiles in five columns via %s without horizontal scrolling', async route => {
+    harness = createReactHarness()
+    const changed = vi.fn(), viewed = vi.fn()
+    for (const width of [320, 390]) {
+      let singleRowTop = 0
+      for (const count of [1, 5, 6, 10]) {
+        await harness.render(<div data-phone-shell={route === 'phone-shell' ? '' : undefined} style={{ width }}>
+          <SessionLocalizationProvider><ChatComposer mobile={route === 'mobile-prop'} attachments={Array.from({ length: count }, (_, i) => file(i))}
+            onAttachmentsChange={changed} onViewAttachment={viewed} onSubmit={() => {}} /></SessionLocalizationProvider>
+        </div>)
+        await until('real grid mounts', () => harness.container.querySelectorAll('[data-slot="composer-attachment"]').length === count)
+        const row = harness.container.querySelector<HTMLElement>('[data-slot="composer-attachments"]')!
+        const chips = [...row.querySelectorAll<HTMLElement>('[data-slot="composer-attachment"]')]
+        const first = chips[0]!.getBoundingClientRect()
+        expect(getComputedStyle(row).display).toBe('grid')
+        expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth)
+        expect(harness.container.scrollWidth).toBeLessThanOrEqual(harness.container.clientWidth)
+        for (const [i, chip] of chips.entries()) {
+          const box = chip.getBoundingClientRect()
+          expect(box.width).toBeGreaterThan(40)
+          expect(box.width).toBeLessThanOrEqual(56)
+          expect(box.height).toBeCloseTo(box.width, 1)
+          expect(box.top).toBeCloseTo(first.top + Math.floor(i / 5) * (first.height + 8), 1)
+          expect(box.right).toBeLessThanOrEqual(row.getBoundingClientRect().right)
+          expect(chip.getAttribute('aria-label')).toContain(`notes-${i}.txt`)
+          const remove = chip.querySelector<HTMLButtonElement>('button[aria-label^="Remove"],button[aria-label^="移除"]')!
+          const button = remove.getBoundingClientRect()
+          expect(button.width).toBeGreaterThan(0)
+          expect(button.right).toBeLessThanOrEqual(box.right + 1)
+          expect(button.bottom).toBeLessThanOrEqual(box.bottom + 1)
+        }
+        const inputTop = harness.container.querySelector<HTMLElement>('[data-slot="composer-input"]')!.getBoundingClientRect().top
+        if (count === 1) singleRowTop = inputTop
+        expect(inputTop).toBeCloseTo(singleRowTop + (count > 5 ? first.height + 8 : 0), 1)
+        const last = chips.at(-1)!
+        await act(async () => last.click())
+        expect(viewed).toHaveBeenLastCalledWith(file(count - 1))
+        await act(async () => last.querySelector<HTMLButtonElement>('button')!.click())
+        expect(changed.mock.calls.at(-1)![0]).toHaveLength(count - 1)
+        expect(viewed.mock.calls.at(-1)![0].id).toBe(`a${count - 1}`)
       }
-      // × 与「重试」两颗都在。
-      expect(chip.querySelectorAll('button').length).toBe(2)
     }
-    // 放不下的那些靠条横向滚出来,❌ 挤进这一屏。
-    expect(row.scrollWidth).toBeGreaterThan(row.clientWidth)
+  })
+
+  it('keeps full failure details/retry, cancellation, image thumbnails and quality controls usable', async () => {
+    harness = createReactHarness()
+    const retry = vi.fn(), changed = vi.fn(), quality = vi.fn(), viewed = vi.fn()
+    const image: ComposerAttachment = { id: 'image', name: 'image.png', kind: 'image', state: 'uploading', cancelable: true,
+      progress: 40, previewUrl: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg"/%3E', imageQuality: 'compressed' }
+    await harness.render(<SessionLocalizationProvider><ChatComposer mobile attachments={[failed(0), image]}
+      onAttachmentsChange={changed} onRetryAttachment={retry} onAttachmentQualityChange={quality} onViewAttachment={viewed} onSubmit={() => {}} /></SessionLocalizationProvider>)
+    const error = harness.container.querySelector<HTMLElement>('[data-slot="composer-attachment-error"]')!
+    expect(error.getBoundingClientRect().height).toBeGreaterThan(0)
+    expect(error.textContent).toContain(failed(0).meta)
+    await act(async () => error.querySelector('button')!.click())
+    expect(retry).toHaveBeenCalledWith('a0')
+    const tile = harness.container.querySelectorAll<HTMLElement>('[data-slot="composer-attachment"]')[1]!
+    const imageBox = tile.querySelector('img')!.getBoundingClientRect()
+    expect(imageBox.width).toBeCloseTo(tile.getBoundingClientRect().width, 1)
+    const buttons = [...tile.querySelectorAll<HTMLButtonElement>('button')].filter(button => button.getBoundingClientRect().width > 0)
+    expect(buttons).toHaveLength(2)
+    await act(async () => buttons[0]!.click())
+    expect(quality).toHaveBeenCalledWith('image')
+    await act(async () => buttons[1]!.click())
+    expect(changed.mock.calls.at(-1)![0]).toEqual([failed(0)])
+    expect(viewed).not.toHaveBeenCalled()
+  })
+
+  it('preserves desktop wrapping and visible names', async () => {
+    harness = createReactHarness()
+    await harness.render(<div style={{ width: 390 }}><SessionLocalizationProvider><ChatComposer
+      attachments={Array.from({ length: 11 }, (_, i) => failed(i))} onSubmit={() => {}} /></SessionLocalizationProvider></div>)
+    const chips = [...harness.container.querySelectorAll<HTMLElement>('[data-slot="composer-attachment"]')]
+    expect(chips).toHaveLength(11)
+    expect(chips.at(-1)!.getBoundingClientRect().top).toBeGreaterThan(chips[0]!.getBoundingClientRect().top)
+    const name = [...chips[0]!.querySelectorAll('span')].find(el => el.textContent === 'notes-0.txt')!
+    expect(name.getBoundingClientRect().width).toBeGreaterThan(0)
+    expect(harness.container.querySelector<HTMLElement>('[data-slot="composer-attachment-error"]')!.getBoundingClientRect().height).toBe(0)
+  })
+
+  it('limits real ordinary-chat file picks before preview work and allows a replacement after removal', async () => {
+    harness = createReactHarness()
+    await renderWithAppProviders(harness, <LocalizationProvider><ChatMessageComposer chatId="grid-chat" onSend={vi.fn(async () => {})} /></LocalizationProvider>)
+    await until('chat picker mounts', () => !!harness.container.querySelector('input[type="file"]'))
+    const pick = async (count: number) => act(async () => {
+      const input = harness.container.querySelector<HTMLInputElement>('input[type="file"]')!
+      const data = new DataTransfer()
+      for (let i = 0; i < count; i++) data.items.add(new File(['x'], `pick-${i}.txt`, { type: 'text/plain' }))
+      input.files = data.files
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await pick(11)
+    await until('only ten chips added', () => harness.container.querySelectorAll('[data-slot="composer-attachment"]').length === 10)
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(notify).mock.calls[0]![0]).toMatchObject({ key: 'mobile-attachment-limit', presentation: 'compact' })
+    await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-slot="composer-attachment"] button')!.click())
+    await pick(2)
+    await until('removed slot refilled', () => harness.container.querySelectorAll('[data-slot="composer-attachment"]').length === 10)
+    expect(notify).toHaveBeenCalledTimes(2)
   })
 })

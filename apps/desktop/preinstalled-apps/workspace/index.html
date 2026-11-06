@@ -11,7 +11,6 @@
     <header class="files-toolbar files-tools">
       <nav id="crumbs" class="crumbs" hidden></nav>
       <div id="kinds" class="kinds" role="group"></div>
-      <div id="chips" class="chips" hidden></div>
       <button id="search-toggle" class="icon" type="button" aria-expanded="false"><gugu-icon name="search"></gugu-icon></button>
       <input id="filter" class="filter" type="search" autocomplete="off" hidden />
       <button id="sort" class="sort" type="button" aria-haspopup="menu" aria-expanded="false"><span id="sort-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
@@ -33,15 +32,16 @@
   <main class="doc">
     <header class="doc-head">
       <nav class="page-navigation">
-        <button id="page-back" type="button"><gugu-icon name="chevron-left"></gugu-icon><span id="page-back-label"></span></button>
-        <button id="page-forward" type="button"><gugu-icon name="chevron-right"></gugu-icon></button>
+        <button id="page-back" type="button"><gugu-icon name="arrow-left"></gugu-icon><span id="page-back-label"></span></button>
+        <button id="page-forward" type="button"><gugu-icon name="arrow-right"></gugu-icon></button>
       </nav>
       <h1 id="doc-title" class="doc-title"></h1>
       <div class="doc-actions">
-        <div class="modes" role="tablist" aria-labelledby="doc-title">
-          <button id="mode-preview" role="tab" type="button"></button>
-          <button id="mode-edit" role="tab" type="button"></button>
-          <button id="mode-split" role="tab" type="button"></button>
+        <!-- One toggle (owner 11-06): it shows the mode a press goes to — ✎ while reading, 👁 while editing; 对照 is in ⋯. -->
+        <div class="modes">
+          <button id="mode-preview" type="button"><gugu-icon name="eye"></gugu-icon></button>
+          <button id="mode-edit" type="button"><gugu-icon name="pencil"></gugu-icon></button>
+          <button id="mode-split" type="button" hidden><gugu-icon name="columns-2"></gugu-icon></button>
         </div>
         <div id="doc-info" class="doc-info" hidden></div>
         <span id="doc-status" class="status"></span>
@@ -58,6 +58,7 @@
     </header>
     <div id="banner" class="banner" role="status" hidden></div>
     <p id="doc-message" class="empty doc-message"></p>
+    <p id="preview-cut" class="preview-cut" hidden></p>
     <div class="panes">
       <div id="editor" class="editor"></div>
       <article id="preview" class="preview" tabindex="-1"></article>

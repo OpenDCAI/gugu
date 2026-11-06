@@ -305,11 +305,12 @@
 :where(meter)::-webkit-meter-suboptimum-value { background: var(--em-foreground-warning); }
 :where(meter)::-webkit-meter-even-less-good-value { background: var(--em-foreground-destructive); }
 
-/* ── 分段标签：role="tablist" 里的 role="tab" = 咕咕 SegmentedTabs 的 pill（#7333）：控件圆角 8；选中 = 中性实底（muted）+ fg ── */
-:where([role='tablist']) { display: flex; flex-wrap: wrap; gap: var(--em-spacing-xs); margin: 0 0 var(--em-spacing-md); }
+/* ── 分段标签：role="tablist" 里的 role="tab" = 宿主文件顶栏那组描边分段（owner 11-06）：一圈 hairline 框、控件圆角，
+   段与段之间不留缝；选中 = 中性实底（muted）+ fg ── */
+:where([role='tablist']) { display: flex; flex-wrap: wrap; width: fit-content; gap: 0; margin: 0 0 var(--em-spacing-md); border: 1px solid var(--em-border); border-radius: var(--em-radius-control); background-color: var(--em-background); overflow: hidden; }
 :where([role='tablist']) > :where([role='tab']) {
-  padding: calc((var(--em-control-h-md) - 1lh) / 2) var(--em-spacing-lg);
-  border: 0; border-radius: var(--em-radius-control);
+  padding: calc((var(--em-control-h-md) - 2px - 1lh) / 2) var(--em-spacing-lg);
+  border: 0; border-radius: 0;
   background-color: transparent; color: var(--em-foreground-muted); font-weight: 500;
 }
 @media (hover: hover) { :where([role='tablist']) > :where([role='tab']):where(:hover:not([aria-selected='true'], :disabled)) { background-color: var(--em-hover); color: var(--em-foreground); } }

@@ -143,3 +143,11 @@ export function bufferAnchors() {
     },
   }
 }
+
+/** The start of `text` within `bytes` of UTF-8, up to the end of a line where there is one. */
+export function firstBytes(text, bytes) {
+  const { read } = new TextEncoder().encodeInto(text, new Uint8Array(bytes))
+  if (read === text.length) return text
+  const end = text.lastIndexOf('\n', read)
+  return text.slice(0, end > 0 ? end : read)
+}

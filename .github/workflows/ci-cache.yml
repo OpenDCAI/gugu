@@ -1,0 +1,74 @@
+name: Warm shared CI caches
+on:
+  push:
+    branches: [dev]
+permissions:
+  contents: read
+cache-mode: write
+# Finish the current seed even during frequent merges; only the newest pending push waits.
+concurrency:
+  group: community-ci-cache-dev
+  cancel-in-progress: false
+env:
+  CI: true
+  GUGU_SUPABASE_URL: http://127.0.0.1:54321
+  VITE_SUPABASE_URL: http://127.0.0.1:54321
+  GUGU_SUPABASE_ANON_KEY: community-build-placeholder
+  VITE_SUPABASE_ANON_KEY: community-build-placeholder
+jobs:
+  eslint:
+    name: Seed Linux dependencies and ESLint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - id: setup
+        uses: ./.github/actions/setup-community
+        with:
+          save-cache: 'true'
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/eslint
+          key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/checks/eslint-cached.mts', 'scripts/checks/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
+          restore-keys: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/checks/eslint-cached.mts', 'scripts/checks/button-style-debt-baseline.json') }}-
+      - run: pnpm lint:source
+  unit:
+    name: Seed Vitest (${{ matrix.shard }}/6)
+    # At most one background hosted job: leave room for the full PR matrix.
+    needs: mac
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GUGU_VITEST_MODULE_CACHE: '1'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - id: setup
+        uses: ./.github/actions/setup-community
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.experimental-vitest-cache
+          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shards-6-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
+          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shards-6-${{ matrix.shard }}-
+      - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/6
+  mac:
+    name: Seed macOS dependencies and Chromium
+    needs: eslint
+    if: always()
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-community
+        with:
+          save-cache: 'true'
+      - uses: ./.github/actions/setup-playwright
+        with:
+          save-cache: 'true'

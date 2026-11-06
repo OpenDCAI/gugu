@@ -488,13 +488,16 @@ describe('the App primitives\' interaction states, like the host\'s (#7333)', ()
     expect(await settled('switch disabled', byId('switch-off'))).toMatchObject({ opacity: 0.5 });
   });
 
-  it('draws tabs as the host\'s pill: radius 8, the selected one a neutral fill; hover, press and a ring on the others', async () => {
+  it('draws tabs as the host\'s outlined segments: one hairline frame of radius 8, the selected one a neutral fill; hover, press and a ring on the others', async () => {
     await setTheme('dark');
     const selected = byId('tab-on');
     const other = byId('tab-off');
     await away();
     blur();
-    expect(getComputedStyle(selected).borderRadius).toBe('8px');
+    // owner 11-06: the host file toolbar's segments — the frame is the tablist, the segments sit in it unrounded.
+    expect(getComputedStyle(selected.parentElement!).borderRadius).toBe('8px');
+    expect(getComputedStyle(selected.parentElement!).borderTopWidth).toBe('1px');
+    expect(getComputedStyle(selected).borderRadius).toBe('0px');
     expect(await settled('selected tab', selected)).toMatchObject({ background: tokenColor('--em-background-3'), color: tokenColor('--em-foreground', 'color') });
     expect(await settled('other tab at rest', other)).toMatchObject({ background: transparent, color: tokenColor('--em-foreground-muted', 'color') });
     await userEvent.hover(other);

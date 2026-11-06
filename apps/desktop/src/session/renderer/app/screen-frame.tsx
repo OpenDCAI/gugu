@@ -14,7 +14,7 @@ import type { PaneLayoutNode } from '@renderer/features/tabs/pane-layout-tree';
 import { TabStripShell } from '@renderer/features/tabs/tab-bar';
 import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
+import { ContextMenu, MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@renderer/lib/ui/resizable';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
@@ -250,8 +250,8 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
       <TabStripShell
         reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
         leadingSlot={
-          <ContextMenu>
-            <ContextMenuTrigger className="flex h-full items-center">
+          <ContextMenu.Root>
+            <ContextMenu.Trigger className="flex h-full items-center">
               <BlockGrip
                 label={translate('screen.gripApp')}
                 onDragStart={(event) => setDraggedScreenContent(event.dataTransfer, { kind: 'app', tabKind, title: label }, event.currentTarget.closest<HTMLElement>('.session-tab-bar'))}
@@ -259,17 +259,17 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
                   if (droppedOutsideWindow(event)) openInWindow({ kind: 'app', tabKind }, { screenX: event.screenX, screenY: event.screenY });
                 }}
               />
-            </ContextMenuTrigger>
-            <ContextMenuContent finalFocus={false}>
-              <ContextMenuItem onClick={() => openInWindow({ kind: 'app', tabKind })}>{translate('screen.openInWindow')}</ContextMenuItem>
+            </ContextMenu.Trigger>
+            <ContextMenu.Content finalFocus={false}>
+              <MenuItem onClick={() => openInWindow({ kind: 'app', tabKind })}>{translate('screen.openInWindow')}</MenuItem>
               {multi ? (
                 <>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem onClick={() => closeScreenBlock(blockId)}>{translate('screen.closeBlock')}</ContextMenuItem>
+                  <MenuSeparator />
+                  <MenuItem onClick={() => closeScreenBlock(blockId)}>{translate('screen.closeBlock')}</MenuItem>
                 </>
               ) : null}
-            </ContextMenuContent>
-          </ContextMenu>
+            </ContextMenu.Content>
+          </ContextMenu.Root>
         }
         actionsSlot={
           <TabBarActionRow atWindowEdge={corners.topRight}>

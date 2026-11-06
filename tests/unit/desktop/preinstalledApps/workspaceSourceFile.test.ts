@@ -3,7 +3,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import { diffHunks, mergeThreeWay } from '../../../../apps/desktop/src/session/app-runtime/apply-from'
 // @ts-expect-error — 内置 App 是不经构建的纯 ES module,没有类型;运行时 import 可用。
-import { bufferAnchors, sourceFile } from '../../../../apps/desktop/preinstalled-apps/workspace/source-file.js'
+import { bufferAnchors, firstBytes, sourceFile } from '../../../../apps/desktop/preinstalled-apps/workspace/source-file.js'
 
 type Hunk = { from: number; to: number; insert: string }
 
@@ -124,5 +124,22 @@ describe('places in the buffer', () => {
     anchors.moved({ mapPos: (at: number) => at + 2 })
     expect(anchors.resolve(place)).toBe(7)
     expect(anchors.resolve({ at: 1, assoc: 1 })).toBeNull()
+  })
+})
+
+describe('firstBytes', () => {
+  const bytesOf = (text: string) => new TextEncoder().encode(text).length
+  test('ends at a line, counted in bytes rather than characters', () => {
+    expect(firstBytes('一二三\n四五六\n七八九\n', 10)).toBe('一二三')
+    expect(firstBytes('一二三\n四五六\n七八九\n', 21)).toBe('一二三\n四五六')
+  })
+  test('a line longer than the limit is cut without splitting a character', () => {
+    const cut = firstBytes('一二三四五六七八九', 10)
+    expect(cut).toBe('一二三')
+    expect(bytesOf(cut)).toBeLessThanOrEqual(10)
+    expect(firstBytes('😀😀😀', 6)).toBe('😀')
+  })
+  test('a text within the limit stays whole', () => {
+    expect(firstBytes('a\nb', 100)).toBe('a\nb')
   })
 })

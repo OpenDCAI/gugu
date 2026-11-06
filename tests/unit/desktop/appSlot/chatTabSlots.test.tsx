@@ -37,7 +37,7 @@ describe('chat slots follow actual panes and navigation contexts', () => {
     await harness.render(<><Panels chatId={id} /><ChatTabPortals chatId={id} panel={tab => <MessageFilePreviewPanel fill tabbed file={{ fileName: tab.item.title, sizeBytes: 12, mimeType: 'text/plain' }} kind="text" content="notes" loading={false} onClose={() => closeChatTab(id, tab.tabId)} />} topic={() => null} info={() => null} /></>)
     const toolbar = harness.container.querySelector('[data-file-toolbar]')
     expect(toolbar).not.toBeNull()
-    expect(toolbar!.querySelector('[aria-label="tabs.read"]')).not.toBeNull()
+    expect(toolbar!.querySelector('[aria-label="tabs.read"]'), 'reading: the one toggle goes to editing').toBeNull()
     expect(toolbar!.querySelector<HTMLButtonElement>('[aria-label="tabs.edit"]')!.disabled).toBe(true)
     const back = toolbar!.querySelector<HTMLButtonElement>(`[aria-label="${from ? 'tabs.back' : 'tabs.backToConversation'}"]`)!
     expect(back).not.toBeNull()

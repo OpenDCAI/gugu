@@ -357,6 +357,7 @@ export const hostDependencyLedgerSnapshotSchema = z.object({
         .nullable()
         .optional(),
       probeEnv: z.record(z.string(), z.string()).optional(),
+      probeError: z.string().optional(),
     })
   ),
 });

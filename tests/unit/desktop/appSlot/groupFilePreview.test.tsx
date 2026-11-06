@@ -90,8 +90,11 @@ async function closeFromTab(chatId: string) {
 }
 
 describe('unclaimed group files use the message preview from every entry', () => {
-  it.each([false, true])('an image opens in the viewer while keeping its folder tab (mobile=%s)', async (mobile) => {
+  it.each([false, true])('an image opened from the folder is drawn in its preview, in the folder tab (mobile=%s)', async (mobile) => {
     boundary.mobile = mobile
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:report-png')
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    boundary.read.mockResolvedValue({ status: 'ready', blob: new Blob(['png'], { type: 'image/png' }) })
     const folder = openPanelItem('preview-group', folderItem())
     const file = detail('png')
     await slot(file, true, { from: shownPanelTab('preview-group')!.tabId })
@@ -100,6 +103,21 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(panelTabsOf(file.chatId)).toHaveLength(1)
     expect(shownItem(file.chatId)?.itemId).toBe(file.itemId)
     expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).not.toBeNull()
+    await until('the picture drawn', () => harness.container.querySelector('[data-testid="message-file-preview-panel"] img')?.getAttribute('src') === 'blob:report-png')
+    expect(created).toHaveBeenCalledTimes(1)
+    await harness.render(null)
+    expect(revoked).toHaveBeenCalledWith('blob:report-png')
+  })
+  it('an image that cannot be drawn says so', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:broken-png')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    boundary.read.mockResolvedValue({ status: 'ready', blob: new Blob(['not a png'], { type: 'image/png' }) })
+    openPanelItem('preview-group', folderItem())
+    await slot(detail('png'), true, { from: shownPanelTab('preview-group')!.tabId })
+    await until('the picture tried', () => harness.container.querySelector('[data-testid="message-file-preview-panel"] img') !== null)
+    await act(async () => harness.container.querySelector('[data-testid="message-file-preview-panel"] img')!.dispatchEvent(new Event('error')))
+    expect(harness.container.querySelector('[data-testid="message-file-preview-panel"] img')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')!.textContent).toContain('无法渲染此文件')
   })
   it.each(['preview-group', 'another-chat'])('an image link retains its originating message in %s', async (chatId) => {
     const file = detail('png')
@@ -159,6 +177,33 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
     await act(async () => chatPaneOf(file.chatId, folder!)!.go(folder!, -1))
     expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+  })
+
+  it('the phone back key goes from a file to the folder that opened it, then to the chat', async () => {
+    boundary.mobile = true
+    const folder = openPanelItem('preview-group', folderItem())!
+    const file = { ...detail('md'), choice: { kind: 'one' as const, candidate } }
+    await slot(file as never, true, { from: folder })
+    expect(shownItem(file.chatId)).toMatchObject({ kind: 'workspace.main', itemId: file.itemId })
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+    expect(isFolderItem(shownItem(file.chatId)!)).toBe(true)
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(shownPanelTab(file.chatId)).toBeNull()
+  })
+
+  it('a file in a tab of its own: the phone back key closes it, so it does not come back after the folder is left', async () => {
+    boundary.mobile = true
+    const folder = openPanelItem('preview-group', folderItem())!
+    const file = { ...detail('md'), choice: { kind: 'one' as const, candidate } }
+    openPanelItem(file.chatId, { kind: candidate.tabKind, itemId: file.itemId, title: file.name, fileName: file.name, typedName: file.typedName } as never, { from: folder, intent: 'newTab' })
+    await redraw(file.chatId)
+    expect(shownItem(file.chatId)).toMatchObject({ itemId: file.itemId })
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+    await act(async () => window.dispatchEvent(new Event('gugu:native-back')))
+    expect(shownPanelTab(file.chatId)).toBeNull()
+    expect(panelTabsOf(file.chatId)).toEqual([])
   })
 
   it.each([false, true])('ordinary openWith plays MP4 on the host (mobile=%s)', async (mobile) => {
