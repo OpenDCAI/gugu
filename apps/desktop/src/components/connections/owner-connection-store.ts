@@ -1,6 +1,7 @@
 import { ConnectionError, parseConnectionSnapshot, type ConnectionClient, type ConnectionSnapshot } from '@gugu/core/cloud/connections'
 import type { ConnectionMetadataItem, ConnectionMetadataSnapshot } from './connection-metadata'
 import { createConnectionMetadataStore, type ConnectionMetadataCache } from './connection-metadata-store'
+import { assertConnectionApplicationAvailable } from './connection-action-guard'
 
 export const ownerConnectionResourceKey = (scopeKey: string, resourceKey: string) => JSON.stringify([scopeKey, resourceKey])
 
@@ -76,7 +77,13 @@ export function createOwnerConnectionStore(input: {
       return new TextEncoder().encode(result.item.document)
     },
   })
+  function assertAvailable(item: ConnectionMetadataItem) {
+    if (item.owner_user_id !== input.ownerId) throw new ConnectionError('42501','CONNECTION_RESOURCE_NOT_OWNED')
+    if (!item.source) throw new ConnectionError('invalid-resource','CONNECTION_RESOURCE_INVALID')
+    return assertConnectionApplicationAvailable({ ...input,provider: String(item.data.providerId),scopeKey: item.source.scopeKey,requireReady: true })
+  }
   return { ...store,...(input.deviceId ? { deviceId: input.deviceId } : {}),async change(item: ConnectionMetadataItem,operation: Parameters<typeof store.change>[1]) {
+    await assertAvailable(item)
     const receipt = await store.change(item,operation)
     try {
       if (item.source?.scopeKey === 'platform' && operation === 'remove' && receipt.status === 'pending') {
@@ -86,5 +93,8 @@ export function createOwnerConnectionStore(input: {
       }
       return receipt
     } finally { input.changed() }
+  },async save(item: ConnectionMetadataItem,data: Record<string,unknown>) {
+    await assertAvailable(item)
+    return store.save(item,data)
   } }
 }

@@ -199,7 +199,7 @@ function GithubDeviceFlowModalBody({ onSuccess, onClose, onError }: Omit<GithubD
     // Auth error
     const cleanupError = events.onEvent(githubAuthErrorChannel, (data) => {
       if (library.connectionMetadataExpected) {
-        notify({ key: `connections-action:${library.connectionMetadata?.ownerId}:github`,tier: 'error',title: i18n.t('connections:connectFailed',{ name: 'GitHub' }) });
+        if (data.error !== 'connection_application_busy') notify({ key: `connections-action:${library.connectionMetadata?.ownerId}:github`,tier: 'error',title: i18n.t('connections:connectFailed',{ name: 'GitHub' }) });
         onError?.(data.error); onClose(); return;
       }
       setError(messageForUser(data.message || data.error));

@@ -15,6 +15,7 @@ import { useShowModal } from '@/session/renderer/lib/modal/modal-provider'
 import { PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { ConnectionMetadataItem } from './connection-metadata'
 import { notify } from '@/lib/notices'
+import { connectionActionNoticeScope,reportConnectionActionFailure } from './connection-action-notice'
 import { connectionReadOptions } from './connection-read-policy'
 import { useConnectionMutationAllowed } from './connection-mutation-context'
 import { AppConnectionListPlaceholder } from '@/components/assistant/AppConnectionHero'
@@ -35,11 +36,13 @@ export function OwnerConnectorDetail({ host,app,deviceId,panelNavigation,onBack 
   const where = (row: ConnectionMetadataItem) => row.source?.scopeKey === 'platform' ? copy('platform')
     : devices.devices.find(device => device.device_id === row.device_id)?.label || copy('device')
   const mutate = async (row: ConnectionMetadataItem,operation: 'remove' | 'default') => {
+    const after = connectionActionNoticeScope()
     setBusy(row.resource_key)
     try {
       if (operation === 'remove') await host.connectionMetadata!.change(row,'remove')
       else await host.connectionMetadata!.save(row,{ providerId: row.data.providerId,accountId: row.data.accountId,isDefault: true })
-    } catch { notify({ tier: 'error',title: copy(operation === 'remove' ? 'disconnectFailed' : 'defaultFailed',{ name: app.name }) }) }
+    } catch (failure) { reportConnectionActionFailure(failure,{ ownerId: host.connectionMetadata?.ownerId,provider: app.id,after,
+      title: copy(operation === 'remove' ? 'disconnectFailed' : 'defaultFailed',{ name: app.name }) }) }
     finally { setBusy(null); data.reloadConnections(); void accounts.refetch() }
   }
   const connect = () => {

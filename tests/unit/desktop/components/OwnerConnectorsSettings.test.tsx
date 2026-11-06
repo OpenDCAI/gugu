@@ -94,7 +94,7 @@ describe('owner connection settings without an assistant or native host', () => 
     await vi.waitFor(() => expect(harness.container.textContent).toContain('断开连接'))
     await clickElement([...harness.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '断开连接')!)
     await act(async () => { await fixture.showConfirm.mock.calls[0]![0].onSuccess() })
-    expect(fixture.notify).toHaveBeenCalledWith({ tier: 'error',title: '高德地图没能完成断开，请稍后查看连接状态。' })
+    expect(fixture.notify).toHaveBeenCalledWith({ key: 'connections-action:owner:amap',tier: 'error',title: '高德地图没能完成断开，请稍后查看连接状态。' })
     expect(harness.container.querySelector('[role="alert"]')).toBeNull()
   })
   it('disables new actions while leaving browsing usable during the switch',async () => {

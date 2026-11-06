@@ -270,7 +270,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
           cancelled: () => cliGenerations.current.get(integrationId) !== generation,
           timeoutError: () => new Error(translateSessionMessage('integrations.cliPrepareTimedOut')),
         });
-        if (!result) return { success: false as const, error: 'This connection attempt was cancelled.' };
+        if (!result) return { success: false as const, error: 'This connection attempt was cancelled.', cancelled: true as const };
         if (result.success && 'connected' in result) {
           invalidateStatuses();
           if (!host.connectionMetadataExpected) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
