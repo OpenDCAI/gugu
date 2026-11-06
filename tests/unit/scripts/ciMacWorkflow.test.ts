@@ -123,7 +123,7 @@ describe('dev verification workflow contracts', () => {
     expect(job.permissions).toEqual({ contents: 'read', actions: 'read', issues: 'write' })
   })
 
-  it('copies the four original Linux unit shards and runs typecheck once in its own job', () => {
+  it('copies the same six Linux unit shards and runs typecheck once in its own job', () => {
     const original = ci.jobs.unit
     const linux = devLinux.jobs['linux-checks']
     expect(linux['runs-on']).toBe(original['runs-on'])
@@ -143,7 +143,7 @@ describe('dev verification workflow contracts', () => {
     expect(devLinux.permissions).toEqual(devMac.permissions)
   })
 
-  it('canonical derives only Mac on dev push and all six checks on manual runs', () => {
+  it('canonical derives only Mac on dev push and all eight checks on manual runs', () => {
     const workflows = [
       { path: '.github/workflows/ci-dev-mac.yml', source: devMacSource },
       { path: '.github/workflows/ci-dev-linux.yml', source: devLinuxSource },
@@ -154,7 +154,7 @@ describe('dev verification workflow contracts', () => {
     expect(profiles[0].checks).toEqual(['Dev desktop app build (macos-15)'])
     const manual = deriveCheckProfiles([{ ...event, id: 'manual', type: 'workflow_dispatch' }])
     expect(manual.flatMap(profile => profile.checks).sort()).toEqual([
-      'Dev Linux checks (1/4)', 'Dev Linux checks (2/4)', 'Dev Linux checks (3/4)', 'Dev Linux checks (4/4)',
+      ...Array.from({ length: 6 }, (_, i) => `Dev Linux checks (${i + 1}/6)`),
       'Dev typecheck',
       'Dev desktop app build (macos-15)',
     ].sort())
@@ -218,7 +218,7 @@ describe('dev verification workflow contracts', () => {
     const f = fixture([], step)
     await f.run()
     expect(f.issues.create).toHaveBeenCalledWith(expect.objectContaining({
-      labels: ['ci-dev-red'], title: 'Dev Linux checks failed at aaaaaaa (shard 2/4)',
+      labels: ['ci-dev-red'], title: 'Dev Linux checks failed at aaaaaaa (shard 2/6)',
       body: expect.stringContaining(`ci-dev-linux:${'a'.repeat(40)}:shard-2`),
     }))
     const retry = fixture([{ number: 3, body: `<!-- ci-dev-linux:${'a'.repeat(40)}:shard-2 -->` }], step)
