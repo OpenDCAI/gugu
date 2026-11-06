@@ -21,11 +21,11 @@ export const codeWrapper = style({
   scrollbarWidth: 'thin',
 });
 
-// A conversation bubble already bounds its content. The page's artifact outline
-// is uneven on inverted bubbles; keep the same borderless code in either bubble.
-// Retain the reserved border width so measured code geometry does not change.
+// Use the existing border token's 8% ink strength on the bubble's own text color.
+// The page foreground may be the opposite of an inverted user bubble's ink.
+// Keep the artifact width and radius, including its separate unbubbled treatment.
 globalStyle(`[data-chat-root][data-agent-conversation="true"] [data-user-card] ${codeWrapper}`, {
-  borderColor: 'transparent',
+  borderColor: 'color-mix(in oklab, currentColor 8%, transparent)',
 });
 
 /** Both palettes are emitted by Shiki; the painted surface chooses between them. */
