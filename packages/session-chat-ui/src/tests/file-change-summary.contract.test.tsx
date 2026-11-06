@@ -70,13 +70,21 @@ describe('file change result card geometry', () => {
         paths: host.querySelectorAll('button[title]').length,
         toggles: host.querySelectorAll('[data-collapse-id]').length,
         panels: host.querySelectorAll('[role="region"]').length,
-        diffText: host.textContent?.includes('+hello') ? 1 : 0
+        diffText: host.textContent?.includes('+hello') ? 1 : 0,
+        // owner 11-06 方案 A: the whole row is the one button — tile, name, 「已编辑 · +1 −0 · …/两层」, ›; the whole path as its tooltip.
+        rowTitle: host.querySelector<HTMLButtonElement>('button[title]')?.title === '/workspace/subfolder/0/test.txt' ? 1 : 0,
+        rowName: host.querySelector('button[title]')?.textContent?.includes('test.txt') ? 1 : 0,
+        rowFolder: host.querySelector('button[title]')?.textContent?.replace(/\s/g, '').includes('…/subfolder/0') ? 1 : 0,
+        rowTile: host.querySelector('button[title] svg') ? 1 : 0,
+        counts: (host.textContent?.match(/\+1/g) ?? []).length
       }),
       { onOpenFile: () => {} }
     )
     expect(reading.dom).toBe(reading.computed)
     expect(reading.spill).toBeLessThanOrEqual(1)
     expect(reading.inspected.paths).toBe(1)
+    const { rowTitle, rowName, rowFolder, rowTile, counts } = reading.inspected
+    expect({ rowTitle, rowName, rowFolder, rowTile, counts }, 'the row is the whole button: the whole path as its tooltip, the last two folders on it, the counts once').toEqual({ rowTitle: 1, rowName: 1, rowFolder: 1, rowTile: 1, counts: 1 })
     expect(reading.inspected.toggles, 'a one-file card has nothing to expand').toBe(0)
     expect(reading.inspected.panels).toBe(0)
     expect(reading.inspected.diffText).toBe(0)

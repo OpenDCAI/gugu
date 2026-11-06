@@ -30,7 +30,7 @@ export const OPENED_OUTPUT_GAP = 8;
  * 类型色:一眼分出是什么(Codex 的 PDF 红、Slack / 微信文件的类型色块同一个意思)。只用主题里已有的几格色,
  * 底是同色 12% 叠在卡底上。
  */
-function accentOf(look: ReturnType<typeof openedOutputLook>): string {
+export function accentOf(look: ReturnType<typeof openedOutputLook>): string {
   if (look.kind === 'page') return vars.link;
   if (look.kind === 'image') return vars.diffAdded;
   if (look.extension === 'PDF' || look.extension === 'PPT' || look.extension === 'PPTX') return vars.fgError;
