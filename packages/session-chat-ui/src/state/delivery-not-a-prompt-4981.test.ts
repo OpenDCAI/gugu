@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * #4981 —— 别的 agent 投递进来的那条不占「人刚发言」的身份。
  *
