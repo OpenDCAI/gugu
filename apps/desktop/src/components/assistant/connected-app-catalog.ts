@@ -59,7 +59,7 @@ export function categoryLabel(id: AppCategoryId, locale: string): string {
 }
 
 function normalize(text: string): string {
-  return text.normalize('NFKC').toLocaleLowerCase().trim().replace(/\s+/gu, ' ')
+  return text.normalize('NFKC').toLowerCase().trim().replace(/\s+/gu, ' ')
 }
 
 /** Only explicitly selected public directory fields enter the search index. */

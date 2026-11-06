@@ -94,6 +94,7 @@ span.connected-app-featured-action {
   font-weight: var(--font-weight-regular);
 }
 div.connected-app-rows { overflow: hidden; border-radius: var(--radius-surface); background: var(--card); }
+[data-theme='light'] .connected-app-catalog .connected-app-rows { background: var(--hover); }
 .connected-app-catalog .connected-app-section .connected-app-rows div.connected-app-row[role='button'] {
   position: relative;
   min-height: calc(var(--control-h-md) * 2);

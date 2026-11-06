@@ -51,7 +51,7 @@ async function render(
   owner = 'catalog-owner',
   connectionRead: 'ready' | 'pending' | 'failed' = 'ready'
 ) {
-  harness.container.style.cssText = `width:${mobile ? 390 : 640}px;height:760px;overflow:auto;`
+  harness.container.style.cssText = `width:${mobile ? 390 : 640}px;height:760px;overflow:auto;background:var(--bg);`
   await renderWithAppProviders(
     harness,
     <ConnectedAppsCatalog
@@ -84,6 +84,18 @@ afterEach(() => {
   harness.cleanup()
   delete document.documentElement.dataset.theme
 })
+
+it.each(['light', 'dark'])(
+  'keeps category row surfaces distinct from the page in %s',
+  async (theme) => {
+    document.documentElement.dataset.theme = theme
+    await render()
+    const rows = harness.container.querySelector<HTMLElement>('.connected-app-rows')!
+    expect(getComputedStyle(rows).backgroundColor).not.toBe(
+      getComputedStyle(harness.container).backgroundColor
+    )
+  }
+)
 
 it.each([false, true])(
   'renders equal full-width tabs, two featured entries and seven real categories (phone=%s)',
