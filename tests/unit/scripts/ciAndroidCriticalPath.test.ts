@@ -6,10 +6,13 @@ const read = (file: string) => YAML.parse(readFileSync(file, 'utf8'))
 type Step = { name?: string; run?: string; uses?: string; if?: string; with?: Record<string, unknown> }
 
 describe('Android CI startup costs (#1983)', () => {
-  it('changes only the node unit pool, retaining all projects and the six disjoint shards', () => {
+  it('retains the native-compatible node pool, all projects and the six disjoint shards', () => {
     const ci = read('.github/workflows/ci.yml')
     const command = ci.jobs.unit.steps.find((step: Step) => step.run?.includes('vitest run')).run as string
-    expect(command).toContain('--project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/6 --pool=threads')
+    expect(command).toContain('--project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/6')
+    expect(command).not.toContain('--pool=threads')
+    const dev = read('.github/workflows/ci-dev-linux.yml')
+    expect(dev.jobs['linux-checks'].steps.find((step: Step) => step.run?.includes('vitest run')).run).toBe(command)
     expect(ci.jobs.unit.strategy.matrix.shard).toEqual([1, 2, 3, 4, 5, 6])
     expect(ci.jobs['session-browser'].steps.find((step: Step) => step.run?.includes('vitest-browser-shards.mjs')).run)
       .toContain('--shard-group=${{ matrix.shard }}/3 --shards-per-group=4')

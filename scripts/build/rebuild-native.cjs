@@ -1,6 +1,7 @@
 const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
+const { availableParallelism } = require('node:os')
 const { createNativeAddonBuildEnv } = require('./native-addon-build-policy.cjs')
 
 const NATIVE_MODULES = 'better-sqlite3,node-pty'
@@ -37,6 +38,7 @@ function runNativeRebuild({
   platform = process.platform,
   env = process.env,
   spawn = spawnSync,
+  parallelism = availableParallelism(),
 } = {}) {
   const command = 'electron-rebuild'
   // --build-from-source:同 electron-builder.cjs 的 native-abi-owner hook(run 29914453877 实证)——
@@ -45,6 +47,20 @@ function runNativeRebuild({
   // 意义就是逼一次真编译;不带这个 flag,一旦上游给 Electron 44 发布 prebuild,闸会退化成几秒的
   // 下载,不再实际验证 GCC 能不能编过 Electron 头,覆盖缺口原样复发。
   const args = ['-f', '--build-from-source', '--only', NATIVE_MODULES]
+  // The pinned @electron/rebuild defaults to sequential modules. Bound Linux CI
+  // compilers to its reported CPU capacity, with at most two jobs per module.
+  // Both forced source builds and the existing verification remain intact.
+  if (platform === 'linux' && env.CI === 'true' && env.GUGU_CI_NATIVE_PARALLEL === '1') {
+    const jobs = Number(env.GUGU_CI_NATIVE_JOBS ?? '2')
+    if (!Number.isInteger(jobs) || jobs < 1 || jobs > 2) {
+      throw new Error('[rebuild-native] GUGU_CI_NATIVE_JOBS must be 1 or 2')
+    }
+    const modules = NATIVE_MODULES.split(',').length
+    const jobsPerModule = Math.min(jobs, Math.max(1, Math.floor(parallelism / modules)))
+    if (parallelism >= modules) args.push('--parallel')
+    args.push('--jobs', String(jobsPerModule))
+    console.log(`[rebuild-native] CI modules=${modules} mode=${parallelism >= modules ? 'parallel' : 'sequential'} jobs-per-module=${jobsPerModule} reported-cpus=${parallelism}`)
+  }
   const result = spawn(command, args, {
     cwd: process.cwd(),
     env: createNativeAddonBuildEnv(platform, env),
