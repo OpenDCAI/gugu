@@ -289,7 +289,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       from?: string | null;
     }
   ): void {
-    this.paneLayout.open('browser', { initialUrl: url }, { from, intent, activate });
+    this.paneLayout.open('browser', { initialUrl: url }, { from, intent: beside ? 'beside' : intent, activate });
     if (reload) {
       const resource = this.activePane.activeResourceOfKind<BrowserTabResource>('browser');
       if (resource) browserControlsRegistry.get(resource.browserId)?.adapter?.reload();

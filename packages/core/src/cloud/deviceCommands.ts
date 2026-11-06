@@ -55,6 +55,7 @@ type DeviceCommandTableSelector = {
 /** #5041 — identity.runtime_instances(#1676 的逐进程心跳表),持有判据据此判兄弟实例活/死。只读;删只删自己那一行(停机)。 */
 type RuntimeInstanceTableSelector = {
   eq(column: string, value: string): RuntimeInstanceTableSelector
+  gt(column: string, value: string): RuntimeInstanceTableSelector
   then<TResult1 = DeviceCommandQueryResult, TResult2 = never>(
     onfulfilled?: ((value: DeviceCommandQueryResult) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
@@ -371,27 +372,27 @@ export async function retireRuntimeInstance(
   if (error) throw new Error(error.message)
 }
 
-/** #5041 — this device's runtime instances (id + heartbeat). Owner-scoped RLS; one read per tick, lazily. */
-export async function readDeviceRuntimeInstances(
+/** #5041 — ids of this device's live runtime instances (heartbeat within RUNTIME_INSTANCE_STALE_MS). Owner-scoped RLS; one read per tick, lazily. */
+export async function readLiveDeviceRuntimeInstanceIds(
   client: DeviceCommandTableClient,
   deviceId: string,
+  nowMs: number,
   operationTimeouts?: DeviceOperationTimeoutOverrides,
-): Promise<Array<{ instanceId: string; lastHeartbeatAt: string }>> {
+): Promise<Set<string>> {
   const timeouts = resolveDeviceOperationTimeouts(operationTimeouts)
   const { data, error } = await runDeviceRequest(
     'runtime instance list',
     timeouts.runtimeInstanceHeartbeatMs,
-    () => client.from('runtime_instances').select('instance_id, last_heartbeat_at').eq('device_id', deviceId),
+    () => client.from('runtime_instances').select('instance_id').eq('device_id', deviceId)
+      .gt('last_heartbeat_at', new Date(nowMs - RUNTIME_INSTANCE_STALE_MS).toISOString()),
   )
   if (error) throw new Error(error.message)
   if (!Array.isArray(data)) throw new Error('Runtime instance response must be an array')
-  return data.map((row) => {
-    const r = row as Record<string, unknown>
-    if (typeof r.instance_id !== 'string' || typeof r.last_heartbeat_at !== 'string') {
-      throw new Error('Runtime instance row is missing instance_id/last_heartbeat_at')
-    }
-    return { instanceId: r.instance_id, lastHeartbeatAt: r.last_heartbeat_at }
-  })
+  return new Set(data.map((row) => {
+    const id = (row as Record<string, unknown>).instance_id
+    if (typeof id !== 'string') throw new Error('Runtime instance row is missing instance_id')
+    return id
+  }))
 }
 
 /**

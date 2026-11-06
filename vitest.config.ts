@@ -415,6 +415,7 @@ export default defineConfig({
         },
         test: {
           name: 'session-browser',
+          globalSetup: ['tests/support/sharePosterAvatarServer.ts'],
           env: guguTestEnv,
           testTimeout: BROWSER_CASE_CAP_MS,
           hookTimeout: BROWSER_CASE_CAP_MS,
