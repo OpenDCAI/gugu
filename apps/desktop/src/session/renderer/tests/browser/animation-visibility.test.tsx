@@ -93,6 +93,11 @@ it('pauses and resumes the running highlight and avatar pulses on the shared nat
 it('pauses avatar pulses scrolled out of view and resumes the same clocks when they return', async () => {
   const { host, animations } = await mount();
   const pulses = animations.filter((animation) => (animation as CSSAnimation).animationName === 'av-status-pulse');
+  // 14 steps while the ring is visible, then still: the second ring's 0.7 s delay lands on the same 70 ms grid.
+  const frames = (pulses[0]!.effect as KeyframeEffect).getKeyframes();
+  expect(frames.map((frame) => frame.computedOffset)).toEqual([0, 0.7, 1]);
+  expect(frames[0]!.easing).toBe('steps(14)');
+  expect(frames[1]!.transform).toBe(frames[2]!.transform);
   host.style.cssText = 'position:fixed;left:0;top:-2000px';
   await until('the off-screen pulses pause', () => pulses.every((animation) => animation.playState === 'paused'));
   host.style.cssText = '';
