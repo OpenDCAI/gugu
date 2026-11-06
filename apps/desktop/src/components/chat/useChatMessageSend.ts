@@ -94,7 +94,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       if (typed && (!captionOnImage || !onSendAttachments)) {
         await onSend(content, { ...sendOptions, beforeDeliver: beforeSend, submittedAt })
       }
-      setSendFailure(null)
+      setSendFailure(current => current?.chatId === chatId ? null : current)
       // Successful send → object URLs are no longer needed
       revokeAttachmentPreviewUrls(snapshotAttachments)
       if (!mobile && isGroupChat && currentUserId && chatId && !whisperTarget) {

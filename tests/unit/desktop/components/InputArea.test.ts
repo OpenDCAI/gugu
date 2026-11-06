@@ -12,11 +12,12 @@ import { readComposer, writeComposer, selectComposer } from '../../../support/co
 import type { GroupRosterCandidate } from '../../../../apps/desktop/src/lib/mention'
 // Opt-in contract for the follow-up rollout; production defaults are covered separately.
 vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
-const { toastMock, notifyMock } = vi.hoisted(() => ({
+const { toastMock, notifyMock, dismissNoticeMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
   notifyMock: vi.fn(),
+  dismissNoticeMock: vi.fn(),
 }))
-vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: notifyMock, dismissNotice: vi.fn() }));
+vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: notifyMock, dismissNotice: dismissNoticeMock }));
 const sendErrorLog = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: sendErrorLog }) }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({
@@ -38,6 +39,7 @@ beforeEach(() => {
   setLocalePreference('zh-CN')
   toastMock.mockClear()
   notifyMock.mockClear()
+  dismissNoticeMock.mockClear()
   harness = createReactHarness()
   container = harness.container
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:gugu-preview')
@@ -399,6 +401,10 @@ describe('ChatMessageComposer', () => {
     await flush()
     expect(chips(), 'failed send must not leak into the now-active chat-b').toHaveLength(0)
     expect(notifyMock).toHaveBeenCalledWith(expect.objectContaining({ key: 'chat-send:chat-a:self', title: '这条消息未发出，请重新发送。', ongoing: true }))
+    dismissNoticeMock.mockClear()
+    await typeInComposer('a successful message in chat-b')
+    await clickSend()
+    expect(dismissNoticeMock, 'success in another chat is not recovery of chat-a').not.toHaveBeenCalledWith('chat-send:chat-a:self')
     await harness.render(createElement(StatefulHost, { chatId: 'chat-a', onSend: vi.fn(async () => {}), onSendAttachments }))
     await flush()
     expect(chips(), 'failed send is recoverable in its original chat-a').toHaveLength(1)
