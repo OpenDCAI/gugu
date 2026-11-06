@@ -1,0 +1,187 @@
+/** @jsxImportSource solid-js */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { page } from 'vitest/browser';
+import { batch } from 'solid-js';
+import { createChatContext } from '../chat-context';
+import { createChatState } from '../state/chat-state';
+import { createChatView } from '../chat-view';
+import type { ChatMessage, TranscriptTurn } from '../model';
+import { until, untilStable } from '../../../../tests/support/awaitCondition';
+
+const peer = 'user:11111111-1111-4111-8111-111111111111';
+const me = '22222222-2222-4222-8222-222222222222';
+const delivery = (id: string, body = 'Agent update', type = 'agent'): ChatMessage => ({ kind: 'message', id, seq: 0, role: 'user', text:
+  `<gugu_delivery route="chat" from="d3" from_id="${type === 'agent' ? peer : `user:${me}`}" from_type="${type}" chat="group" chat_kind="group" msg="msg:${id}"><![CDATA[${body}]]></gugu_delivery>` });
+const ordinary = (id: string, role: 'user' | 'assistant' = 'assistant'): ChatMessage => ({ kind: 'message', id, seq: 0, role, text: id });
+const turn = (id: string, items: ChatMessage[]): TranscriptTurn => ({ id, seq: 0, initiator: 'user', outcome: { kind: 'done' }, items: items as TranscriptTurn['items'] });
+const cleanup: Array<() => void> = [];
+afterEach(() => { while (cleanup.length) cleanup.pop()?.(); });
+
+async function mount(width: number, records = [turn('in', [delivery('incoming')]), turn('panel', [ordinary('Panel answer')])]) {
+  await page.viewport(Math.max(width, 390), 720);
+  const context = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', agentConversation: true, userGutter: 0 },
+    actor: id => id === peer ? { id, type: 'agent', name: 'd3' } : null,
+    selfIdentity: () => ({ userId: me, displayName: 'Owner', guguNumber: null }), chatName: () => 'gugu', chatKind: () => 'group' });
+  const state = createChatState(context);
+  state.transcript.history.seed(records);
+  const host = document.body.appendChild(document.createElement('div'));
+  host.style.cssText = `position:fixed;top:0;left:0;width:${width}px;height:600px`;
+  const open = vi.fn();
+  const create = () => createChatView({ context, state, parent: host, pinUserMessages: true, commands: { onOpenSender: open } });
+  let view = create();
+  view.scrollToTop();
+  cleanup.push(() => { view.dispose(); state.dispose(); context.dispose(); host.remove(); });
+  const head = () => host.querySelector<HTMLElement>('[data-agent-activity]');
+  const button = () => head()!.querySelector<HTMLButtonElement>('[data-collapse-id]')!;
+  await until('activity header mounted', () => !!head());
+  await untilStable('initial geometry settled', () => [host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height]);
+  return { host, state, head, button, open, get view() { return view; },
+    remount: () => { view.dispose(); view = create(); }, scroll: () => host.querySelector<HTMLElement>('[data-chat-scroll]')! };
+}
+
+describe('approved A2A activity', () => {
+  it.each([390, 1280])('defaults closed with centered 44px semantic action and original bubbles on manual open (%i)', async width => {
+    const t = await mount(width);
+    expect(t.head()!.textContent).toContain('Received 1 message from d3');
+    expect(t.button().getAttribute('aria-expanded')).toBe('false');
+    expect(t.host.querySelector('[data-agent-conversation-message="incoming"]')).toBeNull();
+    const row = t.head()!.getBoundingClientRect();
+    expect(row.height).toBe(44);
+    const inline = t.head()!.lastElementChild!.getBoundingClientRect();
+    expect(Math.abs((inline.left + inline.right) / 2 - (row.left + row.right) / 2)).toBeLessThan(1);
+    t.button().click();
+    await until('original agent input visible', () => !!t.host.querySelector('[data-agent-conversation-message="incoming"]'));
+    await untilStable('expanded height settled', () => t.scroll().scrollHeight);
+    expect(t.button().getAttribute('aria-expanded')).toBe('true');
+    expect(t.host.querySelector('[data-user-card="incoming"]')?.textContent).toContain('Agent update');
+    t.button().click();
+    await until('original bubble removed after shrink', () => !t.host.querySelector('[data-agent-conversation-message="incoming"]'));
+    expect(t.host.querySelector('[data-agent-conversation-message="Panel answer"]')).not.toBeNull();
+  });
+  it('navigates an agent name independently of expanding the record', async () => {
+    const t = await mount(800);
+    t.head()!.querySelector<HTMLButtonElement>('[data-activity-target]')!.click();
+    expect(t.open).toHaveBeenCalledWith({ kind: 'sender', userId: peer.slice(5) });
+    expect(t.button().getAttribute('aria-expanded')).toBe('false');
+  });
+  it('preserves manual reading across remount and collapses old A2A while following a new owner input to bottom', async () => {
+    const t = await mount(800, [turn('a', [delivery('incoming', 'Long agent content '.repeat(500))]), turn('p', [ordinary('Panel answer')])]);
+    t.button().click();
+    await until('body open', () => !!t.host.querySelector('[data-user-card="incoming"]'));
+    t.remount();
+    await until('expanded state restored', () => t.head()?.getAttribute('data-expanded') === 'true');
+    const input = ordinary('Latest own message', 'user');
+    t.state.transcript.history.seed([turn('a', [delivery('incoming')]), turn('p', [ordinary('Panel answer')]), turn('own', [input])]);
+    await until('new input mounted', () => !!t.host.querySelector('[data-user-card="Latest own message"]'));
+    await until('old body closed', () => !t.host.querySelector('[data-user-card="incoming"]'));
+    await untilStable('tail follows shrink', () => [t.scroll().scrollTop, t.scroll().scrollHeight]);
+    const card = t.host.querySelector('[data-user-card="Latest own message"]')!.getBoundingClientRect();
+    const viewport = t.scroll().getBoundingClientRect();
+    expect(card.bottom).toBeLessThanOrEqual(viewport.bottom + 1);
+    expect(card.top).toBeGreaterThanOrEqual(viewport.top - 1);
+  });
+  it('keeps human deliveries and every panel reply visible between the A2A regions', async () => {
+    const t = await mount(800, [turn('t', [delivery('a'), ordinary('First panel text'), ordinary('Second panel text'), delivery('human', 'Human group message', 'human'), delivery('b')])]);
+    expect(t.host.querySelector('[data-agent-conversation-message="First panel text"]')).not.toBeNull();
+    expect(t.host.querySelector('[data-agent-conversation-message="Second panel text"]')).not.toBeNull();
+    expect(t.host.querySelector('[data-user-card="human"]')?.textContent).toContain('Human group message');
+    expect(t.host.querySelector('[data-user-card="a"]')).toBeNull();
+    expect(t.host.querySelector('[data-user-card="b"]')).toBeNull();
+  });
+  it('updates the same semantic row from pending to received receipt, and stops its light flow when settled', async () => {
+    const t = await mount(800, [turn('base', [delivery('incoming')])]);
+    const head = t.head();
+    const call = { kind: 'mcp-tool-call' as const, id: 'send', toolCallId: 'send', seq: 0, title: 'Send',
+      server: 'plugin_gugu-product_gugu', tool: 'message_send', status: 'running' as const,
+      rawInput: JSON.stringify({ chat_id: 'group', to_user_ids: [peer], text: 'Real reply content' }) };
+    const running: TranscriptTurn = { id: 'running', seq: 1, initiator: 'user', items: [call] };
+    t.state.transcript.activeTurn.set(running, 'generating');
+    await until('live semantic state', () => t.head()?.getAttribute('data-live') === 'true');
+    expect(t.head()).toBe(head);
+    expect(t.head()!.textContent).toContain('Received 1 message');
+    expect(t.host.querySelector('[data-user-card="send:sent:6417511d-8f36-4cbc-8cbb-81ce9f97df73"]')).toBeNull();
+    const finished: TranscriptTurn = { ...running, outcome: { kind: 'done' }, items: [{ ...call, status: 'done',
+      outputText: 'sent (id=msg:6417511d-8f36-4cbc-8cbb-81ce9f97df73)' }] };
+    batch(() => { t.state.transcript.history.seed([turn('base', [delivery('incoming')]), finished]); t.state.transcript.activeTurn.set(null); });
+    await until('settled confirmed count', () => !!t.head()?.textContent?.includes('Exchanged 2 messages'));
+    expect(t.head()).toBe(head);
+    expect(t.head()!.getAttribute('data-live')).toBe('false');
+    expect(t.button().getAttribute('aria-expanded')).toBe('false');
+  });
+  it('shows the viewer group reply as one source-linked line without unfolding A2A or manufacturing a message', async () => {
+    const base: ChatMessage = { ...ordinary('reply:sent:receipt'), text: 'I answered your question.',
+      sentAddresses: { target: { kind: 'chat', conversationId: 'group', whisper: false, threadRootId: null },
+        recipients: [`user:${me}`], confirmed: true, chatKind: 'group', replyTo: null } };
+    const t = await mount(800, [turn('a', [delivery('incoming')]), turn('reply', [base])]);
+    const reply = t.host.querySelector<HTMLElement>('[data-group-reply]')!;
+    expect(reply.textContent).toContain('Replied to you in gugu');
+    expect(reply.getBoundingClientRect().height).toBe(32);
+    expect(t.host.querySelector('[data-user-card="reply:sent:receipt"]')).toBeNull();
+    reply.querySelector('button')!.click();
+    expect(t.open).toHaveBeenCalledWith({ kind: 'chat', chatId: 'group', messageId: 'receipt' });
+    expect(t.state.transcript.state.committedTurns[1].items).toHaveLength(1);
+  });
+  it('keeps an opened group and source identity when older adjacent messages are prepended', async () => {
+    const t = await mount(800, [turn('a', [delivery('incoming')]), turn('p', [ordinary('Panel answer')])]);
+    const id = t.head()!.dataset.agentActivity;
+    t.button().click();
+    await until('initial body expanded', () => !!t.host.querySelector('[data-user-card="incoming"]'));
+    t.state.transcript.history.seed([turn('old', [delivery('older')]), turn('a', [delivery('incoming')]), turn('p', [ordinary('Panel answer')])]);
+    await until('prepended activity visible in same opened region', () => !!t.host.querySelector('[data-user-card="older"]'));
+    expect(t.head()!.dataset.agentActivity).toBe(id);
+    expect(t.button().getAttribute('aria-expanded')).toBe('true');
+  });
+  it.each([390, 1280])('pins the open activity header with an opaque backdrop and collapses to the following message (%i)', async width => {
+    const records = Array.from({ length: 24 }, (_, i) => turn(`a${i}`, [delivery(`a${i}`, `Update ${i}. `.repeat(45))]));
+    const t = await mount(width, [...records, turn('panel', [ordinary('Following conclusion')]), ...Array.from({ length: 15 }, (_, i) => turn(`tail${i}`, [ordinary(`Tail ${i}. `.repeat(20))]))]);
+    t.view.scrollToTop();
+    await until('top header returned', () => !!t.head());
+    t.button().click();
+    await untilStable('open group settled', () => t.scroll().scrollHeight);
+    t.scroll().scrollTop = 850;
+    await untilStable('header stuck', () => t.head()?.getBoundingClientRect().top);
+    expect(Math.abs(t.head()!.getBoundingClientRect().top - t.scroll().getBoundingClientRect().top - 8)).toBeLessThan(2);
+    const backdrop = t.head()!.closest('[data-index]')!.querySelector('[data-chat-pin-backdrop]')!;
+    expect(getComputedStyle(backdrop).opacity).toBe('1');
+    t.button().click();
+    await until('following conclusion mounted', () => !!t.host.querySelector('[data-user-card="Following conclusion"]'));
+    await untilStable('collapse anchor settled', () => [t.scroll().scrollTop, t.scroll().scrollHeight]);
+    const conclusion = t.host.querySelector('[data-user-card="Following conclusion"]')!.getBoundingClientRect();
+    expect(conclusion.top).toBeGreaterThanOrEqual(t.scroll().getBoundingClientRect().top - 1);
+    expect(conclusion.top).toBeLessThan(t.scroll().getBoundingClientRect().bottom);
+  });
+  it('returns offscreen rows to zero after collapse and a mid-animation history prepend', async () => {
+    const records = Array.from({ length: 30 }, (_, i) => turn(`history${i}`, [delivery(`history${i}`, `Long update ${i}. `.repeat(90))]));
+    const ending = turn('ending', [ordinary('Visible conclusion')]);
+    const t = await mount(800, [...records, ending]);
+    const closedHeight = t.scroll().scrollHeight;
+    t.button().click();
+    await untilStable('all open row heights settled', () => t.scroll().scrollHeight);
+    t.scroll().scrollTop = 1100;
+    await untilStable('open scrolled position', () => t.scroll().scrollTop);
+    t.button().click();
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    t.state.transcript.history.seed([turn('earlier', [delivery('earlier')]), ...records, ending]);
+    await until('group closed', () => t.button().getAttribute('aria-expanded') === 'false');
+    await untilStable('offscreen shrink settled', () => t.scroll().scrollHeight);
+    expect(t.scroll().scrollHeight).toBe(closedHeight);
+    expect(t.host.querySelector('[data-user-card="Visible conclusion"]')).not.toBeNull();
+    t.remount();
+    await untilStable('remount preserved collapsed geometry', () => t.scroll().scrollHeight);
+    expect(t.scroll().scrollHeight).toBe(closedHeight);
+  });
+  it('keeps the viewer question pinned above the open A2A header, without either covering the other', async () => {
+    const records = [turn('own', [ordinary('Owner question', 'user'), ...Array.from({ length: 24 }, (_, i) => delivery(`a${i}`, `Update ${i}. `.repeat(45))) ]),
+      turn('conclusion', [ordinary('Following conclusion')])];
+    const t = await mount(800, records);
+    t.button().click();
+    await untilStable('open activity heights settled', () => t.scroll().scrollHeight);
+    t.scroll().scrollTop = 850;
+    await untilStable('both sticky lanes settled', () => [t.head()?.getBoundingClientRect().top, t.host.querySelector('[data-user-card="Owner question"]')?.getBoundingClientRect().top]);
+    const own = t.host.querySelector('[data-agent-conversation-message="Owner question"]')!.getBoundingClientRect();
+    const activity = t.head()!.getBoundingClientRect();
+    expect(Math.abs(own.top - t.scroll().getBoundingClientRect().top - 8)).toBeLessThan(2);
+    expect(activity.top).toBeGreaterThanOrEqual(own.bottom + 6);
+    expect(activity.top - own.bottom).toBeLessThan(20);
+  });
+});

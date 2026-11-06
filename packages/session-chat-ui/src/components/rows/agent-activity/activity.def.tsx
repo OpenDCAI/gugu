@@ -1,0 +1,31 @@
+/** @jsxImportSource solid-js */
+import { For } from 'solid-js';
+import { defineUnit } from '@session-chat/core/units';
+import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
+import { useCommands } from '@session-chat/components/contexts/CommandsContext';
+import { useChatTranslator } from '@session-chat/localization';
+import type { AgentActivityGroup } from '@session-chat/state/agent-activity';
+import { activitySummary, activitySummaryText } from '@session-chat/state/activity-summary';
+import * as styles from './activity.css';
+
+export const activityUnitDef = defineUnit<AgentActivityGroup>({
+  kind: 'agent-activity', margin: { top: 8, bottom: 8 }, estimate: () => 44, measure: () => 44,
+  Render(props) {
+    const commands = useCommands(), t = useChatTranslator();
+    const parts = () => activitySummary(props.data, t, (props.ctx.measureCtx?.().width ?? 800) < 480 ? 1 : 2);
+    const expanded = () => props.ctx.viewState.isCollapsed(props.data.id);
+    const live = () => props.data.events.some(event => event.live);
+    return <div class={styles.row} data-agent-activity={props.data.id} data-live={live()} data-expanded={expanded()}>
+      <button type="button" class={styles.toggle} data-collapse-id={props.data.id} aria-expanded={expanded()}
+        aria-label={t(expanded() ? 'transcript.activityCollapse' : 'transcript.activityExpand', { summary: activitySummaryText(parts()) })} />
+      <span class={styles.inline}>
+        <svg class={styles.icon} viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9.5 17-5-5 5-5m-5 5h10c1.667 0 5 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <ShimmerText active={live()} class={styles.label} title={activitySummaryText(parts())}>
+          <For each={parts()}>{part => typeof part === 'string' ? part : <button type="button" class={styles.name}
+            data-activity-target={part.id} onClick={event => { event.stopPropagation(); commands().onOpenSender?.(part.target); }}>{part.name}</button>}</For>
+        </ShimmerText>
+        <svg class={styles.chevron} style={{ transform: expanded() ? 'rotate(90deg)' : undefined }} viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2.5 3.5 3.5L4 9.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </span>
+    </div>;
+  },
+});

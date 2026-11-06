@@ -3,6 +3,8 @@ import { conversationOutput } from './conversation-process';
 import { conversationMessages } from './conversation-messages';
 import { withSentReplies } from './sent-replies';
 import { planConversationSegments } from './conversation-segments';
+import { continuedActivityHeader, foldActivityUnits, hasUnconfirmedSend, incomingActivity, outgoingActivity, pendingActivity,
+  viewerGroupReply, type AgentActivityEvent, type AgentActivityGroup } from './agent-activity';
 /**
  * flatten — segment a transcript into a two-tier UnitsView.
  *
@@ -175,7 +177,8 @@ export function flattenTier(
   unitDefs?: Record<string, { margin?: Margin }>,
   prevKind?: string,
   prevDayKey?: string,
-  previousConversation?: ChatMessage
+  previousConversation?: ChatMessage,
+  previousActivity?: AgentActivityGroup,
 ): RenderUnit[] {
   turns = turns.map(turn => withSentReplies(turn, { allDestinations: ctx.agentConversation }));
   if (ctx.agentConversation) turns = conversationMessages(turns);
@@ -200,6 +203,7 @@ export function flattenTier(
   // is already on screen.
   let lastDayKey = prevDayKey;
   let conversationOwner: string | undefined;
+  let activityEvent: AgentActivityEvent | undefined;
   let lastConversationPart: 'input' | 'head' | 'step' | 'body' | undefined = previousConversation ? (previousConversation.role === 'user' ? 'input' : 'body') : undefined;
 
   const processItem = (item: ChatItem | SyntheticItem, folds?: readonly FoldGate[], owner = conversationOwner): void => {
@@ -214,6 +218,9 @@ export function flattenTier(
     stampGroupRoles(group);
     if (group.length === 0) return;
     if (owner) for (const u of group) u.conversationProcessOwner = owner;
+    const activity = activityEvent ?? (ctx.agentConversation && item.kind === 'message'
+      ? incomingActivity(item as ChatMessage, ctx) : null);
+    if (activity) for (const u of group) u.activityEvent = activity;
     if (ctx.revealAllFolds && folds) for (const u of group) u.folds = folds;
 
     // Copy chrome from the segmenter onto each unit (allows UnitRow to read it
@@ -386,8 +393,10 @@ export function flattenTier(
     }
     if (!ctx.active && turn.id === latestTurnId && isEmptyAgentTurn(turn) && items.every(itemIsUser)) {
       for (const item of items) processItem(item);
-      processItem({ kind: 'turn-process', id: `${turn.id}:process`, turnId: turn.id,
+      activityEvent = items.at(-1)?.kind === 'message' ? incomingActivity(items.at(-1) as ChatMessage, ctx) ?? undefined : undefined;
+      if (!activityEvent) processItem({ kind: 'turn-process', id: `${turn.id}:process`, turnId: turn.id,
         startedAt: turn.startedAt, endedAt: turn.endedAt, empty: true });
+      activityEvent = undefined;
       continue;
     }
 
@@ -412,13 +421,28 @@ export function flattenTier(
     const fold = foldPlans[turnIndex];
     let resultOwner: string | undefined;
     if (ctx.agentConversation) {
-      const blocks = planConversationSegments(turn, ctx.active && turnIndex === turns.length - 1);
+      const live = ctx.active && turnIndex === turns.length - 1;
+      const blocks = planConversationSegments(turn, live, true);
+      let inputActivity: AgentActivityEvent | undefined;
       for (const block of blocks) {
-        if (block.kind === 'input') { resultOwner = undefined; processItem(block.item); continue; }
+        if (block.kind === 'input') {
+          inputActivity = block.item.kind === 'message' ? incomingActivity(block.item as ChatMessage, ctx) ?? undefined : undefined;
+          activityEvent = inputActivity;
+          resultOwner = undefined; processItem(block.item); activityEvent = undefined; continue;
+        }
         const output = conversationOutput(block.items, block.live);
+        activityEvent = output.reply
+          ? outgoingActivity(output.reply.id.replace(/:sent:[^:]+$/, ''), output.reply.sentAddresses, ctx,
+            output.reply.sentAttachments?.length ? new Set(output.reply.sentAttachments.map(file => file.messageId)).size : 1) ?? undefined
+          : pendingActivity(block.items as TranscriptItem[], turn, ctx) ?? inputActivity;
+        if (activityEvent && live && block === blocks.at(-1)) activityEvent.live = true;
+        // Failure and permission rows must remain discoverable without opening a historical A2A fold.
+        if (hasUnconfirmedSend(block.items as TranscriptItem[], turn) || block.items.some(item => 'status' in item && item.status === 'error'
+          || 'toolCallId' in item && ctx.pendingToolCallIds().has(item.toolCallId))) activityEvent = undefined;
         const silentCopyText = output.silent && block === blocks.at(-1) && completionResult !== null ? completionResult : undefined;
         if (silentCopyText !== undefined) inlineCompletion = true;
         const ops = planRows(outsideProcess(output.rest));
+        if (!output.reply && activityEvent && ops.length === 0) { activityEvent = undefined; inlineCompletion = true; continue; }
         const process = { id: block.id, ...(block.live ? { live: true } : {}),
           startedAt: block.startedAt, endedAt: block.endedAt, ...(block.idleMs && !block.live ? { idleMs: block.idleMs } : {}), ...(block.live && ctx.pendingStarting?.() ? { starting: ctx.pendingStarting?.() } : {}), steps: output.steps.length,
           ...(ops.length ? {} : { empty: true }) };
@@ -446,7 +470,10 @@ export function flattenTier(
         if (output.reply) {
           const reply = { ...output.reply, conversationProcess: process,
             ...(block.fullReply ? { conversationFull: true } : {}) };
-          emitConversationReply(reply, [], steps);
+          const groupReply = viewerGroupReply(reply, ctx);
+          if (groupReply) {
+            processItem({ ...reply, conversationPart: 'group-reply', groupReply });
+          } else emitConversationReply(reply, [], steps);
         } else {
           processItem({ kind: 'turn-process', ...process, turnId: turn.id,
             ...(output.silent ? { silent: true } : {}),
@@ -456,6 +483,7 @@ export function flattenTier(
           if (output.stopReason) processItem(output.stopReason);
         }
         conversationOwner = undefined;
+        activityEvent = undefined;
       }
     } else if (fold) {
       const view = turnFoldView(turn, fold, foldRuns.get(turnIndex), ctx.active, false);
@@ -584,7 +612,7 @@ export function flattenTier(
     });
   }
 
-  return ctx.agentConversation ? decorateConversationDensity(out, previousConversation) : out;
+  return ctx.agentConversation ? foldActivityUnits(decorateConversationDensity(out, previousConversation), previousActivity) : out;
 }
 
 /** 一段连续工具调用的摘要行 id：锚在段首那一行上（段首不变，展开状态就跟着不丢）。 */
@@ -660,10 +688,11 @@ export function trailingDayKey(
 /** Combine two flat arrays into an UnitsView without allocating a concat. */
 export function makeUnitsView(committed: RenderUnit[], active: RenderUnit[]): UnitsView {
   const cl = committed.length;
+  const continued = continuedActivityHeader(committed, active);
   return {
     length: cl + active.length,
     at(i) {
-      return i < cl ? committed[i] : active[i - cl];
+      return i === continued?.index ? continued.unit : i < cl ? committed[i] : active[i - cl];
     },
   };
 }
