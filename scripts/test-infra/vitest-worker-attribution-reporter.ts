@@ -102,6 +102,15 @@ export class WorkerAttributionReporter implements Reporter {
   ): void {
     clearInterval(this.heartbeat)
     this.heartbeat = undefined
+    // Reusable CI jobs use this named reporter from the checked-out source too. Preserve
+    // case identities/statuses in their original logs without changing the immutable workflow.
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      const rows = _modules.flatMap(module => [...module.children.allTests()].map(testCase =>
+        `[vitest-case-result] ${JSON.stringify({ file: displayPath(module.moduleId), id: testCase.id,
+          name: testCase.fullName, state: testCase.result().state })}`))
+      rows.push(`[vitest-case-run] ${JSON.stringify({ reason, unhandledErrors: _unhandledErrors.length, cases: rows.length })}`)
+      this.write(rows.join('\n') + '\n')
+    }
     if (this.inFlight.size === 0) return
 
     const entries = [...this.inFlight.values()].sort((left, right) =>

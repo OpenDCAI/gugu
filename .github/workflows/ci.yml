@@ -263,6 +263,13 @@ jobs:
       - run: pnpm android:build
       - name: Run Android JVM unit tests
         run: bash scripts/build/android-gradle-build.sh testDebugUnitTest
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-jvm-cases-${{ github.run_attempt }}
+          path: apps/mobile/android/**/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: error
+          retention-days: 7
   session-db:
     name: Session database, chat UI browser and tooling
     needs: changes
@@ -308,7 +315,7 @@ jobs:
           export GUGU_TEST_CHROMIUM
           GUGU_TEST_CHROMIUM=$(find /ms-playwright -type f -path '*/chrome-linux64/chrome' -print)
           test -x "$GUGU_TEST_CHROMIUM"
-          go test -race -tags 'browser helper' -count=3 -timeout=5m ./...
+          go test -json -race -tags 'browser helper' -count=3 -timeout=5m ./...
           go vet -tags 'browser helper' ./...
           export GUGU_PROJECTION_FFMPEG
           GUGU_PROJECTION_FFMPEG=$(command -v ffmpeg)
