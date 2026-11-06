@@ -30,8 +30,8 @@ function gate(tests: string, overrides: Record<string, string> = {}) {
 describe('documentation/mobile filtering with immutable Mac calls', () => {
   it('keeps both Mac calls unconditional with exact pins and original changes inputs', () => {
     for (const [id, key, input, sha] of [
-      ['session-db', 'tests', 'tests-required', '0970e2e3af61985a54bedd313278f72673ccc493'],
-      ['desktop-build-mac', 'desktop-mac', 'build-required', '499a1ee16cb7650190e8a7869bec59e4f4ee9f22'],
+      ['session-db', 'tests', 'tests-required', 'b97314c509105b6b16bf2e3d98e738200f6103b5'],
+      ['desktop-build-mac', 'desktop-mac', 'build-required', 'b97314c509105b6b16bf2e3d98e738200f6103b5'],
     ]) {
       expect(ci.jobs[id].if).toBeUndefined()
       expect(ci.jobs[id].uses).toBe(`GUYI-AI/gugu/.github/workflows/${id === 'session-db' ? 'ci-mac-session' : 'ci-mac-build'}.yml@${sha}`)

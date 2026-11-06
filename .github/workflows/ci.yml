@@ -148,8 +148,7 @@ jobs:
       - name: Verify e2e and integration spec execution coverage
         run: |
           # Read exact callee objects without moving the original PR base.
-          git fetch --no-tags --no-write-fetch-head --depth=1 origin 499a1ee16cb7650190e8a7869bec59e4f4ee9f22
-          git fetch --no-tags --no-write-fetch-head --depth=1 origin 0970e2e3af61985a54bedd313278f72673ccc493
+          git fetch --no-tags --no-write-fetch-head --depth=1 origin b97314c509105b6b16bf2e3d98e738200f6103b5
           args=()
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
@@ -223,7 +222,7 @@ jobs:
   desktop-build-mac:
     name: Desktop app build (macos-15)
     needs: changes
-    uses: GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@499a1ee16cb7650190e8a7869bec59e4f4ee9f22
+    uses: GUYI-AI/gugu/.github/workflows/ci-mac-build.yml@b97314c509105b6b16bf2e3d98e738200f6103b5
     with:
       build-required: ${{ needs.changes.outputs.desktop-mac }}
   android-build:
@@ -259,7 +258,7 @@ jobs:
   session-db:
     name: Session database, chat UI browser and tooling
     needs: changes
-    uses: GUYI-AI/gugu/.github/workflows/ci-mac-session.yml@0970e2e3af61985a54bedd313278f72673ccc493
+    uses: GUYI-AI/gugu/.github/workflows/ci-mac-session.yml@b97314c509105b6b16bf2e3d98e738200f6103b5
     with:
       tests-required: ${{ needs.changes.outputs.tests }}
   projection-media:
