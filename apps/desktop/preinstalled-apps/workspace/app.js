@@ -31,6 +31,21 @@ const STRINGS = {
     hideAppData: '隐藏 App 数据',
     newFolder: '新建文件夹',
     newFolderName: '新建文件夹',
+    newFile: '新建文件',
+    invalidName: '这个名字不能用',
+    copyContent: '复制内容',
+    copyPath: '复制路径',
+    copyRelativePath: '复制相对路径',
+    tooLargeToCopy: '文件太大，不能复制内容',
+    revealFile: '在文件管理器中显示',
+    confirmRemoveCopy: '永久删除「{name}」？',
+    uploading: '正在上传 {name} · {done} / {total} · {speed}/s',
+    uploaded: '已上传 {name}',
+    saving: '正在下载 {name}…',
+    saved: '已下载 {name}',
+    replaceAsk: '「{name}」已存在',
+    replaceAll: '替换同名文件',
+    skipAll: '跳过同名文件',
     attachments: '附件',
     machineOf: '{owner} 的机器',
     storedOnMine: '保存在 {machine} 上，有人打开时才上传。按你在「设置 › 文件存储」里的设置。',
@@ -235,6 +250,21 @@ const STRINGS = {
     hideAppData: 'Hide App data',
     newFolder: 'New folder',
     newFolderName: 'New folder',
+    newFile: 'New file',
+    invalidName: 'That name cannot be used',
+    copyContent: 'Copy contents',
+    copyPath: 'Copy path',
+    copyRelativePath: 'Copy relative path',
+    tooLargeToCopy: 'Too large to copy its contents',
+    revealFile: 'Show in file manager',
+    confirmRemoveCopy: 'Permanently delete "{name}"?',
+    uploading: 'Uploading {name} · {done} / {total} · {speed}/s',
+    uploaded: 'Uploaded {name}',
+    saving: 'Downloading {name}…',
+    saved: 'Downloaded {name}',
+    replaceAsk: '"{name}" already exists',
+    replaceAll: 'Replace files of the same name',
+    skipAll: 'Skip files of the same name',
     attachments: 'Attachments',
     machineOf: '{owner}’s machine',
     storedOnMine: 'Kept on {machine}; uploaded only when someone opens it. Follows your Settings › File storage.',
@@ -507,9 +537,10 @@ function can(capability) {
 }
 const canRead = () => can('files:read') || can('files:read:all-machines') || can('files:write')
 const canWrite = () => can('files:write')
-// A working copy is browsed and its files opened here; what is made, moved and uploaded goes to the conversation's folder.
 const inWorkspace = () => state.root === 'workspace'
-const canWriteHere = () => canWrite() && !inWorkspace()
+const canWriteHere = () => canWrite()
+// A file or folder of a working copy: named by its path there, read one folder at a time.
+const inCopy = (entry) => 'workspace' in entry
 // The roots this page has: its conversation's folder, and — in a session's tab — that session's working copy.
 const rootsOf = (ctx) => [ctx?.chat ? 'chat' : null, ctx?.workspace && (ctx.capabilities ?? []).some((c) => c.startsWith('files:')) ? 'workspace' : null].filter(Boolean)
 const rootPlace = () => (inWorkspace() ? { workspace: state.ctx.workspace.id } : { chat: state.ctx.chat.id })
@@ -810,6 +841,7 @@ const isFolder = (entry) => entry.type === 'folder'
 const visibleEntry = (entry) => state.showAppData || !entry.appState
 
 async function folderContextMenu(x, y) {
+  if (inWorkspace() && !state.ctx?.file && canWriteHere()) return void toggleMenu($('new-doc'), makeHereItems(), { point: { x, y } })
   if (!state.ctx?.chat || inWorkspace() || state.ctx.file || !canRead()) return
   const chat = state.ctx.chat.id
   const show = !state.showAppData
@@ -1231,13 +1263,18 @@ function dropOnto(el, folderId) {
     return !(isFolder(moving) && under(moving.id).some((e) => e.id === folderId))
   }
   el.addEventListener('dragover', (event) => {
-    if (!fits()) return
+    if (!fits() && !droppingFiles(event)) return
     event.preventDefault()
     el.classList.add('drop-target')
   })
   el.addEventListener('dragleave', () => el.classList.remove('drop-target'))
   el.addEventListener('drop', (event) => {
     el.classList.remove('drop-target')
+    if (droppingFiles(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      return void uploadDropped(event.dataTransfer, folderId ?? '')
+    }
     if (!fits()) return
     event.preventDefault()
     const moving = state.dragging
@@ -1253,6 +1290,7 @@ async function moveTo(entry, folderId) {
   } catch (error) {
     showBanner(error.code === 'name-taken' ? fmt(state.t.nameTaken, { name: entry.name }) : fmt(state.t.failed, { e: error.message }), 'error')
   }
+  if (inWorkspace()) await readAgain(entry, folderId ?? '')
   await refreshList()
 }
 
@@ -1531,6 +1569,15 @@ function metaOf(entry, now) {
   return cells
 }
 
+// What a working copy's file or folder is not there any more under: its entries, and the folders read below it; the folder
+// it went to, when read before, is read anew.
+function readAgain(entry, into) {
+  const below = `${entry.id}/`
+  state.entries = state.entries.filter((e) => e.id !== entry.id && !e.id.startsWith(below))
+  for (const folder of [...state.listed]) if (folder === entry.id || folder.startsWith(below)) state.listed.delete(folder)
+  return into !== undefined && state.listed.has(into) ? listFolder(into, true) : undefined
+}
+
 const fileTip = (entry) => [
   pathOf(entry), ...activityOf(entry), sizeOf(entry.size), entry.storedOn ? machineOf(entry.storedOn) : '',
   entry.keep ? entry.keep.expiresAt ? state.t.keepTemporary : state.t.keepPermanent : '',
@@ -1542,6 +1589,7 @@ function listItem(entry, now = new Date(Date.now())) {
   li.dataset.id = entry.id
   li.setAttribute('role', 'option')
   li.setAttribute('aria-selected', String(state.current?.entry.id === entry.id))
+  if (entry.gitStatus) li.dataset.git = entry.gitStatus
   const open = document.createElement('button')
   open.type = 'button'
   open.className = 'file-open'
@@ -1584,6 +1632,11 @@ function listItem(entry, now = new Date(Date.now())) {
       state.dragging = entry
       event.dataTransfer?.setData('text/plain', text)
       if (isLink) event.dataTransfer?.setData('text/uri-list', text)
+      // Into a session's composer or terminal: the path where its agent runs, as the host's own drags carry it.
+      if (entry.absolutePath && entry.workspaceId) {
+        event.dataTransfer?.setData('application/x-emdash-workspace-file', JSON.stringify({ workspaceId: entry.workspaceId, targetPath: entry.absolutePath }))
+        event.dataTransfer?.setData('text/plain', entry.absolutePath)
+      }
     })
     li.addEventListener('dragend', () => (state.dragging = null))
   }
@@ -1671,11 +1724,45 @@ function fileActions(target, entry, canDelete = false) {
     { text: t.download, run: () => downloadEntry(entry) },
     ...(writable ? [
       { text: t.rename, run: () => startRename(target, entry) },
-      { text: t.move, run: () => showMoveDialog(entry) },
+      ...(inCopy(entry) ? [] : [{ text: t.move, run: () => showMoveDialog(entry) }]),
     ] : []),
-    ...(writable && canDelete ? [{ text: t.remove, run: () => removeFile(entry), ask: t.confirmRemove }] : []),
+    ...(writable && canDelete ? [{ text: t.remove, run: () => removeFile(entry), ask: inCopy(entry) ? fmt(t.confirmRemoveCopy, { name: entry.name }) : t.confirmRemove }] : []),
   ]
 }
+
+// What a working copy's row has besides: its paths and contents to copy, where it is on this computer.
+function copyActions(entry) {
+  const t = state.t
+  const copied = (text) => gugu.clipboard.writeText(text).then(() => showBanner(t.copied, 'info'), (error) => showBanner(fmt(t.failed, { e: error.message }), 'error'))
+  return [
+    ...(isFolder(entry) || entry.type === 'binary' ? [] : [{ text: t.copyContent, run: () => copyContent(entry, copied) }]),
+    ...(entry.absolutePath ? [{ text: t.copyPath, run: () => copied(entry.absolutePath) }] : []),
+    { text: t.copyRelativePath, run: () => copied(entry.id) },
+    ...(state.ctx?.workspace?.root && gugu.files.reveal ? [{ text: t.revealFile, run: () => gugu.files.reveal(entry).catch((error) => showBanner(fmt(t.failed, { e: error.message }), 'error')) }] : []),
+  ]
+}
+
+const COPY_CONTENT_MAX_BYTES = 10 * 1024 * 1024
+async function copyContent(entry, copied) {
+  if (entry.size > COPY_CONTENT_MAX_BYTES) return showBanner(state.t.tooLargeToCopy, 'error')
+  try {
+    const file = await gugu.files.open(entry, { readOnly: true })
+    try {
+      await copied(await (await file.blob()).text())
+    } finally {
+      file.close()
+    }
+  } catch (error) {
+    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+// In a working copy: what is made and uploaded, into the folder on screen.
+const makeHereItems = (then = () => {}) => [
+  { text: state.t.newFile, run: () => { then(); startCreate('file') } },
+  { text: state.t.newFolder, run: () => { then(); startCreate('folder') } },
+  { text: state.t.upload, run: () => { then(); pickUpload() } },
+]
 
 // Preserve the existing immediate-open and per-version deletion authorization for both entry points.
 function showFileMenu(anchor, entry, items, context = {}) {
@@ -1695,12 +1782,14 @@ function rowMenu(li, entry, canDelete = false) {
   const t = state.t
   const folder = isFolder(entry)
   const open = { text: t.open, run: () => folder ? enterFolder(entry.id) : openFile(entry) }
+  const copy = inCopy(entry)
   const change = canWriteHere() && !entry.systemRole
-    ? [{ text: t.rename, run: () => startRename(li, entry) }, { text: t.move, run: () => showMoveDialog(entry) }] : []
+    ? [{ text: t.rename, run: () => startRename(li, entry) }, ...(copy ? [] : [{ text: t.move, run: () => showMoveDialog(entry) }])] : []
   const remove = canWriteHere() && !entry.systemRole && canDelete
-    ? [{ text: t.remove, run: () => removeFile(entry), ask: folder && under(entry.id).length ? fmt(t.confirmRemoveFolder, { n: under(entry.id).length }) : t.confirmRemove }] : []
+    ? [{ text: t.remove, run: () => removeFile(entry), ask: copy ? fmt(t.confirmRemoveCopy, { name: entry.name }) : folder && under(entry.id).length ? fmt(t.confirmRemoveFolder, { n: under(entry.id).length }) : t.confirmRemove }] : []
   const groups = []
-  if (folder) groups.push([open], change, remove)
+  if (folder && copy) groups.push([open], canWriteHere() ? makeHereItems(() => enterFolder(entry.id)) : [], [{ text: t.download, run: () => downloadEntry(entry) }, ...copyActions(entry)], change, remove)
+  else if (folder) groups.push([open], change, remove)
   else {
     const navigation = [open, { text: t.openNewTab, run: () => openFile(entry, 'newTab') }, { text: t.openBeside, run: () => openFile(entry, 'beside') }]
     if (entry.sourceMessageIds?.length) navigation.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds.at(-1)) })
@@ -1719,7 +1808,7 @@ function rowMenu(li, entry, canDelete = false) {
     if (touchPane?.matches) {
       groups.push(fileActions(li, entry, canDelete), navigation, [select], [{ text: t.more, children: [...keep, detail] }])
     } else {
-      groups.push(fileActions(li, entry, canDelete), navigation, keep, [select, detail])
+      groups.push(fileActions(li, entry, canDelete), navigation, keep, copy ? copyActions(entry) : [], [select, detail])
     }
   }
   return groups.filter((group) => group.length).flatMap((group, i) => i ? [{ separator: true }, ...group] : group)
@@ -1752,7 +1841,7 @@ function fileMenu(li, open, entry) {
       show()
     } else if (state.picked.size <= 1 && canWriteHere() && !entry.systemRole) {
       if (event.key === 'F2') { event.preventDefault(); startRename(li, entry) }
-      if (event.key === 'Delete') {
+      if (event.key === 'Delete' || event.key === 'Backspace' && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
         void mayDelete(entry).then((yes) => {
           if (!yes) return
@@ -1806,7 +1895,13 @@ async function forwardEntries(entries, then) {
 
 async function downloadEntry(entry) {
   try {
-    await gugu.files.download(entry) // false: the person cancelled the save dialog, nothing to say
+    // A working copy's file may be far away, and a folder holds many: said while it is on its way, and when it is there.
+    if (inCopy(entry)) showBanner(fmt(state.t.saving, { name: entry.name }), 'info')
+    const saved = await gugu.files.download(entry) // false: the person cancelled the save dialog, nothing to say
+    if (inCopy(entry)) {
+      hideBanner()
+      if (saved) showBanner(fmt(state.t.saved, { name: entry.name }), 'info')
+    }
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   }
@@ -1862,6 +1957,7 @@ function startRename(li, entry) {
       } catch (error) {
         showBanner(error.code === 'name-taken' ? fmt(state.t.nameTaken, { name }) : fmt(state.t.failed, { e: error.message }), 'error')
       }
+      if (inWorkspace()) readAgain(entry)
     }
     await refreshList()
   }
@@ -1906,6 +2002,156 @@ async function createFolder() {
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   }
+}
+
+// New in a working copy: nothing is made until it has its name (a stray file there is a change in someone's repository).
+// A row at the top with a field; Enter makes it, Esc leaves nothing. A name refused stays in the field to be changed.
+function startCreate(kind) {
+  hideBanner()
+  const li = Object.assign(document.createElement('li'), { className: 'file' })
+  const input = Object.assign(document.createElement('input'), { className: 'rename-input' })
+  input.setAttribute('aria-label', kind === 'folder' ? state.t.newFolder : state.t.newFile)
+  li.append(input)
+  $('files-empty').hidden = true
+  $('file-list').prepend(li)
+  input.focus()
+  let busy = false
+  const finish = async (commit) => {
+    if (busy) return
+    const name = input.value.trim()
+    if (!commit || !name) {
+      busy = true
+      input.blur()
+      return renderList()
+    }
+    if (name === '.' || name === '..' || /[\\/]/.test(name)) {
+      input.setAttribute('aria-invalid', 'true')
+      return showBanner(state.t.invalidName, 'error')
+    }
+    busy = true
+    const place = { workspace: state.ctx.workspace.id, ...(state.folder ? { folder: state.folder } : {}) }
+    try {
+      if (kind === 'folder') await gugu.files.mkdir({ workspace: place.workspace, path: state.folder ? `${state.folder}/${name}` : name })
+      const [entry] = kind === 'folder' ? [] : await gugu.files.upload(place, new File([], name))
+      input.blur()
+      await refreshList()
+      if (entry) await openInHost(entry)
+    } catch (error) {
+      busy = false
+      input.setAttribute('aria-invalid', 'true')
+      input.focus()
+      showBanner(error.code === 'name-taken' ? fmt(state.t.nameTaken, { name }) : fmt(state.t.failed, { e: error.message }), 'error')
+    }
+  }
+  input.onkeydown = (event) => {
+    event.stopPropagation()
+    if (event.key === 'Enter') void finish(true)
+    if (event.key === 'Escape') void finish(false)
+  }
+  input.onblur = () => { if (!input.hasAttribute('aria-invalid')) void finish(true) }
+}
+
+// The computer's files coming in by the page's own picker or a drop: File objects, sent in parts with real progress.
+const pickInput = () => {
+  const input = Object.assign(document.createElement('input'), { type: 'file', multiple: true })
+  input.onchange = () => void uploadToCopy([...input.files].map((file) => ({ file, path: file.name })), state.folder ?? '')
+  return input
+}
+const pickUpload = () => pickInput().click()
+
+const droppingFiles = (event) => inWorkspace() && canWriteHere() && !state.dragging && !!event.dataTransfer?.types.includes('Files')
+
+// A drop is read at once (the browser takes its items back when the event is over): a folder comes with all that is in it.
+function uploadDropped(transfer, folder) {
+  const roots = [...transfer.items].filter((item) => item.kind === 'file').map((item) => item.webkitGetAsEntry()).filter(Boolean)
+  const walk = async (entry, at, files, folders) => {
+    const here = at ? `${at}/${entry.name}` : entry.name
+    if (entry.isFile) return files.push({ file: await new Promise((yes, no) => entry.file(yes, no)), path: here })
+    folders.push(here)
+    const reader = entry.createReader()
+    for (let batch; (batch = await new Promise((yes, no) => reader.readEntries(yes, no))).length;) {
+      for (const child of batch) await walk(child, here, files, folders)
+    }
+  }
+  return (async () => {
+    const files = [], folders = []
+    try {
+      for (const root of roots) await walk(root, '', files, folders)
+    } catch (error) {
+      return showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+    }
+    await uploadToCopy(files, folder, folders)
+  })()
+}
+
+// Into a working copy's folder: its folders first, one file after another. A name already there is asked once for all of them.
+async function uploadToCopy(files, folder, folders = []) {
+  const t = state.t
+  const workspace = state.ctx.workspace.id
+  const row = $('transfer')
+  const stop = new AbortController()
+  const under = (path) => (folder ? `${folder}/${path}` : path)
+  const total = files.reduce((sum, { file }) => sum + file.size, 0)
+  const started = Date.now()
+  let sentBefore = 0
+  let answer = null
+  hideBanner()
+  $('upload').disabled = true
+  $('transfer-cancel').textContent = t.cancel
+  $('transfer-cancel').onclick = () => stop.abort()
+  try {
+    for (const path of folders) {
+      await gugu.files.mkdir({ workspace, path: under(path) }).catch((error) => { if (error.code !== 'name-taken') throw error })
+    }
+    for (const { file, path } of files) {
+      const named = new File([file], path.slice(path.lastIndexOf('/') + 1))
+      const dir = under(path).split('/').slice(0, -1).join('/')
+      const send = (replace) => gugu.files.upload({ workspace, ...(dir ? { folder: dir } : {}) }, named, {
+        replace,
+        signal: stop.signal,
+        onProgress: (sent) => {
+          row.hidden = false
+          const done = sentBefore + sent
+          $('transfer-text').textContent = fmt(t.uploading, { name: path, done: sizeOf(done) || '0', total: sizeOf(total) || '0', speed: sizeOf(Math.round(done / Math.max((Date.now() - started) / 1000, 0.001))) || '0' })
+        },
+      })
+      try {
+        await send(answer === 'replace')
+      } catch (error) {
+        if (error.code !== 'name-taken' || answer) throw error
+        answer = await askReplace(path)
+        if (answer === 'replace') await send(true)
+      }
+      sentBefore += file.size
+    }
+    if (!stop.signal.aborted) showBanner(fmt(t.uploaded, { name: files.length === 1 ? files[0].path : String(files.length) }), 'info')
+  } catch (error) {
+    if (!stop.signal.aborted) showBanner(fmt(t.failed, { e: error.message }), 'error')
+  } finally {
+    row.hidden = true
+    $('upload').disabled = false
+    await refreshList()
+  }
+}
+
+function askReplace(name) {
+  const t = state.t
+  return new Promise((resolve) => {
+    const answered = (how) => () => {
+      $('conflicts').hidden = true
+      resolve(how)
+    }
+    const li = Object.assign(document.createElement('li'), { className: 'conflict' })
+    li.append(Object.assign(document.createElement('span'), { textContent: fmt(t.replaceAsk, { name }) }))
+    const actions = Object.assign(document.createElement('div'), { className: 'conflict-actions' })
+    for (const [text, how] of [[t.replaceAll, 'replace'], [t.skipAll, 'skip']]) {
+      actions.append(Object.assign(document.createElement('button'), { type: 'button', textContent: text, onclick: answered(how) }))
+    }
+    li.append(actions)
+    $('conflict-list').replaceChildren(li)
+    $('conflicts-done').onclick = answered('skip')
+    $('conflicts').hidden = false
+  })
 }
 
 async function uploadFiles(place = { chat: state.ctx.chat.id, ...(state.folder ? { folder: state.folder } : {}) }) {
@@ -1997,6 +2243,7 @@ async function removeFile(entry) {
   try {
     if (state.current?.entry.id === entry.id) closeCurrent()
     await gugu.files.remove(entry)
+    if (inWorkspace()) readAgain(entry)
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   }
@@ -3669,8 +3916,20 @@ function start() {
   $('search-toggle').onclick = () => { const input = $('filter'); input.hidden = !input.hidden; $('search-toggle').setAttribute('aria-expanded', String(!input.hidden)); if (!input.hidden) input.focus() }
   $('page-back').onclick = () => navigate(-1)
   $('page-forward').onclick = () => navigate(1)
-  $('new-doc').onclick = () => toggleMenu($('new-doc'), [[state.t.newDoc, createDoc], [state.t.newFolder, createFolder]])
-  $('upload').onclick = $('empty-upload').onclick = () => uploadFiles()
+  $('new-doc').onclick = () => toggleMenu($('new-doc'), inWorkspace()
+    ? [[state.t.newFile, () => startCreate('file')], [state.t.newFolder, () => startCreate('folder')]]
+    : [[state.t.newDoc, createDoc], [state.t.newFolder, createFolder]])
+  $('upload').onclick = $('empty-upload').onclick = () => (inWorkspace() ? pickUpload() : uploadFiles())
+  // The computer's files dropped on the list: into the folder on screen (a folder's row takes them itself, dropOnto).
+  const listPane = $('file-list').parentElement
+  listPane.addEventListener('dragover', (event) => {
+    if (droppingFiles(event)) event.preventDefault()
+  })
+  listPane.addEventListener('drop', (event) => {
+    if (!droppingFiles(event)) return
+    event.preventDefault()
+    void uploadDropped(event.dataTransfer, state.folder ?? '')
+  })
   $('move-cancel').onclick = closeMoveDialog
   $('move-dialog').addEventListener('pointerdown', (event) => {
     if (event.target === $('move-dialog')) closeMoveDialog()
