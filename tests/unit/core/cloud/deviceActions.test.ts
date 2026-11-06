@@ -260,6 +260,21 @@ describe('调用方(DeviceActionCaller)', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
+  it('读取清单失败:带着原因报出来,和「没有动作」「没登记」都不一样,调用 ❌ 发出去', async () => {
+    const rpc = vi.fn()
+    const failed = { v: 1, read_error: 'boom' }
+    const caller = createDeviceActionCaller({ listDevices: async () => [target({ actions: failed })], rpc })
+    expect((await caller.describe())[0]).toMatchObject({ groups: null, read_error: 'boom' })
+    expect((await caller.describe('mac'))[0]).toMatchObject({ actions: null, read_error: 'boom' })
+    expect((await caller.describe('mac', { group: 'calendar' }))[0]).toMatchObject({ actions: null, read_error: 'boom' })
+    const result = await caller.call({ deviceId: 'mac', action: 'calendar.events.create' })
+    expect(result).toMatchObject({ ok: false, code: 'execution_failed' })
+    expect(!result.ok && result.message).toContain('boom')
+    expect(rpc).not.toHaveBeenCalled()
+    expect(normalizeDeviceActionsSummary(failed)).toEqual({ v: 1, actions: [], read_error: 'boom' })
+    expect(normalizeDeviceActionsCapability(failed)).toEqual({ v: 1, actions: [], read_error: 'boom' })
+  })
+
   it('收到 → 结果事件 → 回「结果收到」;第一次没收到就用同一个 call_id 重发', async () => {
     const sent: Array<{ type: string; payload: Record<string, unknown> }> = []
     let attempts = 0

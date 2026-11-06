@@ -58,7 +58,7 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   const phone = machines.find(machine => machine.current && isPhoneDevice(machine.device))
   const currentComputer = computer?.device
   const currentPhone = phone?.device
-  const { state: thisActions } = useThisDeviceState()
+  const { state: thisActions, readError: thisActionsReadError } = useThisDeviceState()
   // 一台机器的多个版本:与「设置 › 设备」同一个移除动作(版本列表上逐个移除,当前这台除外)。
   const { configurationActions, dialogs } = useDeviceRemoval(machines)
   const [localOpen, setLocalOpen] = useState<string | null>(null)
@@ -94,11 +94,13 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   /** 这台开了哪几项;没登记动作清单(老版本、Windows / Linux 上的咕咕)= null,这一行就不说。 */
   const grants = (device: Device): string | null => {
     if (device.is_current_device && !isPhoneDevice(device)) {
+      if (thisActionsReadError) return t('devices.assistantPage.readFailed')
       if (!thisActions) return t('devices.assistantPage.reading')
       if (!thisActions.supported) return null
       const on = thisActions.groups.filter((g) => g.connected).map((g) => groupText.name(g.id))
       return on.length ? t('devices.assistantPage.granted', { list: on.join('、') }) : t('devices.assistantPage.noneGranted')
     }
+    if (device.capabilities?.actions?.read_error) return t('devices.assistantPage.readFailed')
     const usable = usableActionGroups(device)
     if (!usable) return null
     return usable.length ? t('devices.assistantPage.granted', { list: groupNames(usable) }) : t('devices.assistantPage.noneGranted')
