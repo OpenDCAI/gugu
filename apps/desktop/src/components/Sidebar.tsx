@@ -39,6 +39,8 @@ import { useToast } from './toastContext'
 import './Sidebar.css'
 import '../i18n/registerVoiceNotesCatalog'
 import { useVoiceNoteHandler } from './assistant/useVoiceNoteHandler'
+import { SupportHelp } from './supportHelp/SupportHelp'
+import { useChatStore } from '../store/chatContext'
 
 interface SidebarProps {
   activeTab: SidebarTab
@@ -161,23 +163,26 @@ function RailItem({
 // ─── Help & tour ──────────────────────────────────────────────────────────────
 // 导览唯一的入口:从第 n 步继续(中途退出 / 跳过的,带一个点)、从头开始。真实短片就绪前不展示短片入口。
 // 导览只有桌面端有。
-function HelpOnRail() {
+function HelpOnRail({ onOpenGroup }: { onOpenGroup: () => void }) {
   const { t } = useTranslation('productTour')
   const { user } = useAuth()
   const tour = useProductTourState(user?.id ?? null)
   const resume = resumableStep(tour.data)
   const [open, setOpen] = useState(false)
+  const [openedAt, setOpenedAt] = useState(0)
   const anchor = useRef<HTMLDivElement>(null)
+  const { setActiveChatId } = useChatStore('setActiveChatId')
   const request = (detail: ProductTourRequest) => {
     setOpen(false)
     window.dispatchEvent(new CustomEvent(UI_EVENTS.reopenProductTour, { detail }))
   }
   return (
     <div ref={anchor}>
-      <RailItem icon={<HelpCircle size={22} />} active={open} menuOpen={open} onClick={() => setOpen((value) => !value)}
+      <RailItem icon={<HelpCircle size={22} />} active={open} menuOpen={open} onClick={() => { if (!open) setOpenedAt(Date.now()); setOpen((value) => !value) }}
         title={t('help.label')} rail="help" badge={resume ? 1 : 0} />
-      {open && (
+      <SupportHelp helpOpen={open} openedAt={openedAt} onCloseMenu={() => setOpen(false)} onOpenGroup={(id) => { setActiveChatId(id); onOpenGroup(); setOpen(false) }}>{(supportEntry) => open && (
         <Menu anchor={anchor} minWidth={200} onClose={() => setOpen(false)} ariaLabel={t('help.label')}>
+          {supportEntry}
           {resume && (
             <DropdownMenuItem onClick={() => request({ mode: 'resume', step: resume })}>
               {t('help.resume', { current: TOUR_STEPS.indexOf(resume) + 1, total: TOUR_STEPS.length })}
@@ -185,7 +190,7 @@ function HelpOnRail() {
           )}
           <DropdownMenuItem onClick={() => request({ mode: 'restart' })}>{t('help.restart')}</DropdownMenuItem>
         </Menu>
-      )}
+      )}</SupportHelp>
     </div>
   )
 }
@@ -480,7 +485,7 @@ export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, setti
 
       <div className="gg-sidebar-bottom">
         <UpdateBanner placement="rail" />
-        {platform.kind === 'electron' && <HelpOnRail />}
+        {platform.kind === 'electron' && <HelpOnRail onOpenGroup={() => onTabChange('chats')} />}
         {/* 设置在栏底,一点就开(product spec「入口」;owner 10-15 推翻 #7046 里「设置收进头像菜单」那一半)。
             摆法照 VS Code 活动栏栏底的「管理」齿轮;owner 10-16 移除了本人账户按钮。⌘,、应用菜单「设置…」、
             命令面板开的是同一个弹窗,弹窗开着(不管从哪开的)这枚就亮着。 */}
