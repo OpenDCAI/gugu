@@ -365,6 +365,7 @@ export default {
 
     "fileUnavailable": "File unavailable right now",
     "holderOffline": "{{machine}} is offline. This file opens when it is back online.",
+    "holderOfflineOf": "This is on {{person}}'s {{machine}}. It opens when that computer is back online.",
     "holderMachine": "The computer that keeps it",
     "besideOffline": "On {machine}, not connected",
     "besideOfflineNotice": "Some files on this page are kept on {{machine}}, which is not connected. They appear when it is back online.",

@@ -87,6 +87,8 @@ export interface FileSurface {
 }
 
 export interface FilesPlatform {
+  /** Another account's machines a listed file is kept on, off right now: nothing else says when they are back. */
+  heldOffline?(deviceIds: readonly string[]): void;
   /**
    * The shared project file publisher: kept on this device, `next` as the version after the one the edit started from.
    * Null when the ordinary uploader should decide.
@@ -399,8 +401,8 @@ async function entriesOf(token: string, rows: readonly ItemRow[], platform: Pick
 }
 
 /** A chat's files as its folder lists them: entries, and which machine keeps each one that stays on a machine. */
-async function listedEntriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities'>, actor: string): Promise<AppFileEntry[]> {
-  const [entries, storedOn] = await Promise.all([entriesOf(token, rows, platform, actor), storedOnOf(token, rows, platform.identities, actor)]);
+async function listedEntriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities' | 'heldOffline'>, actor: string): Promise<AppFileEntry[]> {
+  const [entries, storedOn] = await Promise.all([entriesOf(token, rows, platform, actor), storedOnOf(token, rows, platform.identities, actor, platform.heldOffline)]);
   return entries.map((entry) => (storedOn.has(entry.id) ? { ...entry, storedOn: storedOn.get(entry.id)! } : entry));
 }
 
@@ -411,7 +413,7 @@ async function listedEntriesOf(token: string, rows: readonly ItemRow[], platform
  * column: with no cloud copy, that file is asked about. One read per machine (`file_resolve_as`: its name, its owner and
  * whether it is online, for any reader), whatever the number of its files.
  */
-async function storedOnOf(token: string, rows: readonly ItemRow[], identities: Identities, actor: string): Promise<Map<string, NonNullable<AppFileEntry['storedOn']>>> {
+async function storedOnOf(token: string, rows: readonly ItemRow[], identities: Identities, actor: string, heldOffline?: FilesPlatform['heldOffline']): Promise<Map<string, NonNullable<AppFileEntry['storedOn']>>> {
   const local = rows.filter((row) => row.kind === 'file' && (row.host_device_id || (row.host_device_id === undefined && !row.pointer)));
   const asked = new Map<string, ItemRow>();
   const keyOf = (row: ItemRow) => (row.host_device_id ? `device:${row.host_device_id}` : `item:${row.id}`);
@@ -424,6 +426,8 @@ async function storedOnOf(token: string, rows: readonly ItemRow[], identities: I
     if (resolved?.source !== 'local' || typeof resolved.host_device_id !== 'string' || typeof resolved.host_account_id !== 'string') return;
     holders.set(key, resolved as { host_device_id: string; host_account_id: string; host_label?: string | null; host_online?: boolean });
   }));
+  const away = [...holders.values()].filter((holder) => holder.host_online === false && personId(holder.host_account_id) !== personId(actor)).map((holder) => holder.host_device_id);
+  if (away.length > 0) heldOffline?.(away);
   const accounts = [...new Set([...holders.values()].map((holder) => holder.host_account_id))];
   const owners = new Map((accounts.length ? await identities(token, accounts) : []).map((person) => [personId(person.id), person]));
   const found = new Map<string, NonNullable<AppFileEntry['storedOn']>>();

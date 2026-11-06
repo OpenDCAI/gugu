@@ -27,6 +27,7 @@ export type ProjectFilePublishOptions = { message?: ProjectFileMessage; next?: P
 type Publisher = NonNullable<FilesPlatform['publishFile']>
 type AppUpload = Parameters<Publisher>[1]
 type Rpc = (name: string, args: Record<string, unknown>) => Promise<unknown>
+export type KeepableImage = { item_id: string; version: number; chat_id: string; file_name: string; content_type: string; sha256: string; size_bytes: number }
 /**
  * A project chat has no host: what this device sends into it stays on this device — in a project it binds to the chat, or
  * in its device store — and every member's device may send the next version of any file, which it then keeps. Whether
@@ -40,6 +41,25 @@ export function createProjectFilePublisher(deps: {
   /** Whether a device of this account binds the chat to a project: what makes it a project chat here. */
   projectChat(chatId: string): Promise<boolean>
 }) {
+  const readItem = async (itemId: string, actor: string) => {
+    const result = await deps.rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor })
+    const row = (Array.isArray(result) ? result[0] : result) as NonNullable<Awaited<ReturnType<Publisher>>>
+    if (!row) throw new Error('File publication account changed')
+    return row
+  }
+  const localRevision = (row: NonNullable<Awaited<ReturnType<Publisher>>>, size: number, sha256: string, identity: { accountId: string; deviceId: string }, projectId: string, path: string): FileRevision => ({ source: 'local', item_id: row.id, version: row.version, chat_id: row.chat_id, file_name: row.filename,
+      content_type: row.content_type, size_bytes: size, sha256, host_account_id: identity.accountId, host_device_id: identity.deviceId, host_project_id: projectId, relative_path: path,
+      workspace: { path: row.path, parent_id: row.parent_id, created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by, source_message_ids: row.source_message_ids ?? [] } })
+  const digestInRoot = async (root: string, path: string) => {
+    const first = await readWorkspaceChunk(root, { path, offset: 0, length: 0 }), hash = createHash('sha256')
+    for (let offset = 0; offset < first.size; offset += FILE_CHUNK_BYTES) {
+      const length = Math.min(FILE_CHUNK_BYTES, first.size - offset), part = await readWorkspaceChunk(root, { path, offset, length })
+      const bytes = Buffer.from(part.data, 'base64')
+      if (part.etag !== first.etag || bytes.length !== length) throw new Error('Project file changed during publication')
+      hash.update(bytes)
+    }
+    return { size: first.size, sha256: hash.digest('hex') }
+  }
   /** Null: not a project chat, so the ordinary upload decides. */
   const place = async (chatId: string, task = false) => {
     const identity = await deps.identity()
@@ -61,27 +81,16 @@ export function createProjectFilePublisher(deps: {
     if (temporary || !isInside(root, file.path)) file = { ...file,
       path: await importProjectFile(root, file, sha => findProjectFileCopy(projectId, sha, identity.accountId, identity.deviceId, deps.env)) }
     const path = relative(root, file.path).split(sep).join('/')
-    const first = await readWorkspaceChunk(root, { path, offset: 0, length: 0 }), hash = createHash('sha256')
-    if (first.size !== file.size) throw new Error('Selected file changed before it was sent')
-    for (let offset = 0; offset < first.size; offset += FILE_CHUNK_BYTES) {
-      const length = Math.min(FILE_CHUNK_BYTES, first.size - offset), part = await readWorkspaceChunk(root, { path, offset, length })
-      const bytes = Buffer.from(part.data, 'base64')
-      if (part.etag !== first.etag || bytes.length !== length) throw new Error('Project file changed during publication')
-      hash.update(bytes)
-    }
-    const sha256 = hash.digest('hex')
+    const { size, sha256 } = await digestInRoot(root, path)
+    if (size !== file.size) throw new Error('Selected file changed before it was sent')
     const receipt = await deps.rpc('file_device_publish', { p_item: next?.itemId ?? itemId ?? randomUUID(), p_chat: chatId, p_device: identity.deviceId,
-      p_project: projectId, p_path: path, p_sha: sha256, p_size: first.size, p_filename: file.name.split('/').at(-1), p_type: file.contentType, p_parent: parentId,
+      p_project: projectId, p_path: path, p_sha: sha256, p_size: size, p_filename: file.name.split('/').at(-1), p_type: file.contentType, p_parent: parentId,
       ...(next ? { p_expected: next.expectedVersion } : {}), ...(message ? { p_message: message } : {}) }) as { item_id: string; message?: Record<string, unknown> }
     const sent = receipt.message
     if (message && !sent) throw new Error('Project attachment was not committed')
-    const result = await deps.rpc('workspace_get_as', { p_item_id: receipt.item_id, p_as_user_id: actor })
-    const row = (Array.isArray(result) ? result[0] : result) as NonNullable<Awaited<ReturnType<Publisher>>>
-    if (!row || JSON.stringify(await deps.identity()) !== JSON.stringify(identity)) throw new Error('File publication account changed')
-    const revision: FileRevision = { source: 'local', item_id: row.id, version: row.version, chat_id: row.chat_id, file_name: row.filename,
-      content_type: row.content_type, size_bytes: first.size, sha256, host_account_id: identity.accountId, host_device_id: identity.deviceId, host_project_id: projectId, relative_path: path,
-      workspace: { path: row.path, parent_id: row.parent_id, created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by, source_message_ids: row.source_message_ids ?? [] } }
-    await rememberProjectFile(revision, identity.accountId, deps.env)
+    const row = await readItem(receipt.item_id, actor)
+    if (JSON.stringify(await deps.identity()) !== JSON.stringify(identity)) throw new Error('File publication account changed')
+    await rememberProjectFile(localRevision(row, size, sha256, identity, projectId, path), identity.accountId, deps.env)
     const published = sent ? { ...row, message: sent } : row
     return task ? { ...published, path: handed } : published
   }
@@ -106,7 +115,38 @@ export function createProjectFilePublisher(deps: {
       return await publishFile(chatId, { ...selected, path }, parentId, actor, store, options, true)
     } finally { await rm(directory, { recursive: true, force: true }).catch(() => undefined) } // the message is already committed: a stuck temp file must not turn it into an error
   }
-  return Object.assign(publish, { async local(chatId: string) { const here = await place(chatId); return !!here && !here.storage?.proactive_upload } })
+  /**
+   * An image sent into a project chat is uploaded and expires; the machine that sent it (for an agent, the machine it runs
+   * on) keeps its bytes too, so it still opens from there afterwards. `fetchCopy` reads the cloud copy, which is one path for
+   * what was just sent, what a phone sent and what was sent before this existed. Rows that fail stay pending for the next drain.
+   */
+  const keepSent = async (fetchCopy: (row: KeepableImage) => Promise<{ path: string; dispose(): Promise<void> }>) => {
+    const identity = await deps.identity()
+    const rows = await deps.rpc('file_device_adopt_pending', { p_device: identity.deviceId }) as KeepableImage[]
+    const groups = await listProjectGroupIds(identity.accountId, deps.env)
+    const failed: string[] = []
+    for (const image of rows) {
+      let copy: Awaited<ReturnType<typeof fetchCopy>> | undefined
+      try {
+        const projectId = groups.find(group => group.chatId === image.chat_id)?.projectId ?? DEVICE_STORE
+        const root = await deps.root(projectId)
+        if (!root) throw new Error('Project root is unavailable')
+        copy = await fetchCopy(image)
+        const kept = await importProjectFile(root, { path: copy.path, name: image.file_name, size: image.size_bytes }, async sha => {
+          const found = await findProjectFileCopy(projectId, sha, identity.accountId, identity.deviceId, deps.env)
+          return found?.relative_path?.startsWith('.gugu/attachments/') ? found : null
+        })
+        const path = relative(root, kept).split(sep).join('/')
+        const { size, sha256 } = await digestInRoot(root, path)
+        // The index first: a revision the database knows of must be one this machine can serve.
+        await rememberProjectFile(localRevision(await readItem(image.item_id, identity.accountId), size, sha256, identity, projectId, path), identity.accountId, deps.env)
+        await deps.rpc('file_device_adopt', { p_item: image.item_id, p_device: identity.deviceId, p_project: projectId, p_path: path, p_sha: sha256, p_size: size })
+      } catch (error) { failed.push(`${image.item_id}: ${String(error)}`) } finally { await copy?.dispose().catch(() => undefined) }
+    }
+    if (failed.length) throw new Error(`Sent images not kept on this machine, they stay pending: ${failed.join('; ')}`)
+    return rows.length
+  }
+  return Object.assign(publish, { keepSent, async local(chatId: string) { const here = await place(chatId); return !!here && !here.storage?.proactive_upload } })
 }
 
 /**

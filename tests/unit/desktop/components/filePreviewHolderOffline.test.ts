@@ -6,10 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { FilePreviewHost } from '../../../../apps/desktop/src/components/chat/filePreviewHost'
 
-const { readBytes, metadata, devices } = vi.hoisted(() => ({
+const { readBytes, metadata, holder } = vi.hoisted(() => ({
   readBytes: vi.fn(async (): Promise<unknown> => { throw new Error('File device is unavailable or its transfer timed out') }),
   metadata: vi.fn(),
-  devices: { rows: [] as { device_id: string; status: string }[] },
+  holder: { announce: null as null | (() => void) },
 }))
 vi.mock('@/lib/guguLinks', () => ({ openLinkTarget: vi.fn() }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }))
@@ -17,7 +17,8 @@ vi.mock('@/lib/attachmentBytes', () => ({
   attachmentBytes: readBytes, sourceKeyOf: () => 'notes', attachmentPreview: vi.fn(), openAttachmentInSystemApp: vi.fn(),
 }))
 vi.mock('@/lib/fileAccess', () => ({ fileMetadata: metadata }))
-vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: devices.rows }) }))
+vi.mock('@/lib/supabase', () => ({ dataClient: { channel: () => { const channel = { on: (_: string, __: unknown, handler: () => void) => { holder.announce = handler; return channel } }; return channel } } }))
+vi.mock('@/lib/realtimeChannel', () => ({ subscribeAuthenticatedRealtimeChannel: (create: () => unknown) => create(), unsubscribeAuthenticatedRealtimeChannel: async () => undefined }))
 vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
   MessageFilePreviewPanel: ({ error }: { error?: string }) => createElement('aside', null, error ?? ''),
 }))
@@ -36,7 +37,7 @@ describe('a project file whose machine is off', () => {
   let harness: ReturnType<typeof createReactHarness>
   let pane: HTMLElement
   beforeEach(() => { harness = createReactHarness(); pane = document.createElement('section'); document.body.append(pane) })
-  afterEach(() => { harness.cleanup(); pane.remove(); vi.clearAllMocks(); devices.rows = [] })
+  afterEach(() => { harness.cleanup(); pane.remove(); vi.clearAllMocks(); holder.announce = null })
   const draw = () => harness.render(createElement(FilePreviewHost.Provider, { value: { target: pane, onOpenChange: () => undefined } }, createElement(Conversation)))
   const settle = () => act(async () => { await new Promise((done) => setTimeout(done, 0)) })
   const open = async () => {
@@ -59,18 +60,17 @@ describe('a project file whose machine is off', () => {
       harness.cleanup(); harness = createReactHarness(); pane.replaceChildren()
     }
   })
-  // The tab that said so does not keep saying it: when the device list sees that machine go from off to on, it reads again.
+  // The tab that said so does not keep saying it: when that machine announces it is back, it reads again.
   it('reads again by itself when that machine comes back, and not before', async () => {
     metadata.mockResolvedValue(kept(false, 'Studio Mac'))
-    devices.rows = [{ device_id: 'mac', status: 'offline' }]
     await open()
     expect(pane.textContent).toBe('Studio Mac 离线，上线后才能打开这个文件。')
     expect(readBytes).toHaveBeenCalledTimes(1)
-    await draw(); await settle()
+    holder.announce!(); await settle()
     expect(readBytes).toHaveBeenCalledTimes(1)
     readBytes.mockResolvedValueOnce({ status: 'ready', blob: { text: async () => '# back', arrayBuffer: async () => new ArrayBuffer(0) } })
-    devices.rows = [{ device_id: 'mac', status: 'online' }]
-    await draw(); await settle()
+    metadata.mockResolvedValue(kept(true, 'Studio Mac'))
+    holder.announce!(); await settle()
     expect(readBytes).toHaveBeenCalledTimes(2)
   })
 })

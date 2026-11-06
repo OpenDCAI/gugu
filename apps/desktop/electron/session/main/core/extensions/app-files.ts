@@ -47,6 +47,8 @@ import { createLocalAppFiles, workingCopyEntry, type LocalSurface } from '@main/
 import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
 import { fileIconKey } from '@shared/extensions/app-icon';
+import { events } from '@main/lib/events';
+import { fileHoldersOfflineChannel } from '@shared/events/appEvents';
 import { claimantOf, openerChoice as chatOpenerChoice, requireOwnTabChoice } from '@shared/extensions/file-openers';
 import { sessionHostLocale } from '@main/core/host-locale';
 import { localizedManifestText } from '@shared/extensions/catalog';
@@ -150,6 +152,7 @@ const files = createAppFiles({
   hasCapability: (extensionId, capability) => extensionsService().hasCapability(extensionId, capability),
   sync: fileSync,
   claimant,
+  heldOffline: (deviceIds) => events.emit(fileHoldersOfflineChannel, { deviceIds: [...deviceIds], replace: false }),
   async identities(token, ids) {
     return (await accounts(token, ids)).map((user) => ({
       id: user.id,

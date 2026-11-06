@@ -364,6 +364,7 @@ export default {
 
     "fileUnavailable": "文件暂时打不开",
     "holderOffline": "{{machine}} 离线，上线后才能打开这个文件。",
+    "holderOfflineOf": "在 {{person}} 的 {{machine}} 上，它上线后就能打开。",
     "holderMachine": "保存它的那台电脑",
     "besideOffline": "在「{machine}」上，未连接",
     "besideOfflineNotice": "这页里有文件存在「{{machine}}」上，它现在未连接；它上线后会自动显示。",

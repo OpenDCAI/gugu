@@ -2,12 +2,14 @@ import { useEffect, useRef } from 'react'
 import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels'
 import { fetchInChunks } from '@gugu/core/shared/inChunks'
 import { readMemberRosterRevision, readWorkspaceChanges } from '../../lib/accountRevisionCoordinator'
+import { listenForHolder } from '../../lib/fileHost'
 import { rendererLogger } from '../../lib/log'
 import { chatDb } from '../../lib/supabase'
 import { platform } from '../../platform'
 import { useChatStore } from '../../store/chatContext'
 import { useDevicesStore } from '../../store/devicesContext'
-import { rpc } from '../../session/renderer/lib/ipc'
+import { events, rpc } from '../../session/renderer/lib/ipc'
+import { fileHoldersOfflineChannel } from '../../session/shared/events/appEvents'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { openFileIds, updateFileNames } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 
@@ -72,4 +74,21 @@ export function useExtensionWorkspaceRevisions(): void {
       log.warn({ error: error instanceof Error ? error.message : String(error) }, 'telling App pages a device went on or off failed')
     })
   }, [devices])
+  // Another account's machine is not in that list: while a folder on screen shows one as off, hear its return the way a
+  // reader waiting on one does. The folders read their files again, and name only the machines still off.
+  useEffect(() => {
+    if (!platform.capabilities.agentRuntime) return undefined
+    const waiting = new Map<string, () => void>()
+    const readAgain = () => void rpc.extensions.devicesOnlineChanged().catch((error: unknown) => {
+      log.warn({ error: error instanceof Error ? error.message : String(error) }, 'telling App pages a machine came back failed')
+    })
+    const leave = (deviceId: string) => { waiting.get(deviceId)?.(); waiting.delete(deviceId) }
+    const off = events.on(fileHoldersOfflineChannel, ({ deviceIds, replace }) => {
+      if (replace) for (const deviceId of [...waiting.keys()]) leave(deviceId)
+      for (const deviceId of deviceIds) {
+        if (!waiting.has(deviceId)) waiting.set(deviceId, listenForHolder(deviceId, { back: () => { leave(deviceId); readAgain() }, subscribed: readAgain }))
+      }
+    })
+    return () => { off(); for (const deviceId of [...waiting.keys()]) leave(deviceId) }
+  }, [])
 }
