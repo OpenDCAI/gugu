@@ -139,3 +139,6 @@ storybook-static-chat/
 # SQLite inspection sidecars are transient, including for checked-in fixtures.
 apps/desktop/session-tooling/fixtures/*.db-wal
 apps/desktop/session-tooling/fixtures/*.db-shm
+
+# Restored by CI; paths stay relative across hosted and isolated runner checkouts.
+/.ci-cache/

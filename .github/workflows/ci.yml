@@ -105,13 +105,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      # The one Linux job that saves the dependency cache when the lockfile changed.
+      # PRs restore only; ci-cache.yml seeds dependencies from dev pushes.
       - id: setup
         uses: ./.github/actions/setup-community
         with:
           save-cache: 'true'
-      # One writer. Compatible snapshots seed new source trees; ESLint validates file content.
-      - uses: actions/cache@v4
+      # Restore the latest compatible dev snapshot; ESLint validates file content.
+      - uses: actions/cache/restore@v4
         with:
           path: node_modules/.cache/eslint
           key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/checks/eslint-cached.mts', 'scripts/checks/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
@@ -171,9 +171,9 @@ jobs:
       - if: needs.changes.outputs.tests == 'true'
         id: setup
         uses: ./.github/actions/setup-community
-      # Each shard is the sole writer of its own content-addressed module snapshot.
+      # Each shard restores its compatible dev module snapshot without writing a PR cache.
       - if: needs.changes.outputs.tests == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: node_modules/.experimental-vitest-cache
           key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
