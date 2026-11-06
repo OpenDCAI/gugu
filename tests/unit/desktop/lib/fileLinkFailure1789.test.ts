@@ -42,6 +42,11 @@ describe('file-link failure notices', () => {
     await expect(openTarget(target)).rejects.toThrow(/^暂时打不开这个文件，请稍后重试$/)
   })
 
+  it('keeps a synchronous signed-out metadata refusal behind the generic file notice', async () => {
+    state.metadata.mockImplementation(() => { throw new Error('File reader is not signed in') })
+    await expect(openTarget(target)).rejects.toThrow(/^暂时打不开这个文件，请稍后重试$/)
+  })
+
   it('also classifies a rejected open RPC instead of exposing its internal failure', async () => {
     state.open.mockRejectedValue(new Error('file: connection closed /Users/test/private'))
     state.metadata.mockResolvedValue({ status: 'ready', revision: { source: 'local', host_online: false } })

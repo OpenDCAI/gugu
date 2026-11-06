@@ -48,7 +48,7 @@ async function fileFailureMessage(target: Extract<GuguLinkTarget, { kind: 'file'
   const [{ i18n }, { fileMetadata }] = await Promise.all([
     import('../i18n'), import('./fileAccess'), import('../i18n/registerAssistantCatalog'),
   ])
-  const file = await fileMetadata(target.itemId, target.version).catch(() => null)
+  const file = await Promise.resolve().then(() => fileMetadata(target.itemId, target.version)).catch(() => null)
   const key = file?.status === 'ready' && file.revision.source === 'local' && file.revision.host_online === false
     ? 'fileHostOffline'
     : file && file.status !== 'ready' ? 'fileMissing' : 'fileOpenFailed'
