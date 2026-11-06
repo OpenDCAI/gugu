@@ -11,6 +11,9 @@ export interface SupportHelpInfo {
   assistants: HelpIdentity[]
 }
 export type HelpInfo = SupportHelpInfo | { support_help_entry_enabled: false }
+export function isSupportHelpInfo(value: HelpInfo | undefined): value is SupportHelpInfo {
+  return value?.support_help_entry_enabled === true
+}
 export type HelpJoinResult =
   | { status: 'joined'; chat_id: string }
   | { status: 'pending' | 'config_changed' | 'unavailable' | 'login_required'; info: HelpInfo }
