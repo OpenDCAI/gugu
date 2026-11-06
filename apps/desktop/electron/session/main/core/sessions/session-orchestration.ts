@@ -93,6 +93,7 @@ import { providerConsumesStartupPrompt } from '@gugu/session-core/agents/plugins
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 import { flushDeferredMessages, sessionIsWorking, storeDeferredMessage } from './session-deferred-messages';
 import { childHarnessDefault } from './child-harness-default';
+import { HarnessNotInstalledError } from './impl/resolve-agent-executable';
 import { platformModelIdFromOption, platformOptionId } from '@shared/platform-model-id';
 import { extensionsService } from '../extensions/extensions-root';
 import {
@@ -980,7 +981,25 @@ async function assertSpawnableSurface(provider: AgentProviderId, transport: Sess
   }
   // 启动那道闸在建行之前当场过一次(与 session_list_harnesses 问的是同一个函数):起不来就同步报原话,
   // ❌ 先给 id、再在异步启动里失败并删掉会话(调用方只能事后撞上 not a session)。
-  await assertLocalHarnessLaunchable(provider, transport as SessionTransport);
+  try {
+    await assertLocalHarnessLaunchable(provider, transport as SessionTransport);
+  } catch (error) {
+    if (!(error instanceof HarnessNotInstalledError)) throw error;
+    // spawn 不替人装:拒绝当场给出两条出路 —— 这台机器上能改用的,和怎么显式装上。
+    throw new Error(`${error.message}\n${await missingHarnessWayOut(provider)}`, { cause: error });
+  }
+}
+
+/** The refusal's way out for a harness this machine does not have: what is installed here, and how to install it. */
+async function missingHarnessWayOut(provider: AgentProviderId): Promise<string> {
+  const harnesses = await listLocalHarnesses();
+  const name = harnesses.find((harness) => harness.id === provider)?.name ?? provider;
+  const usable = harnesses.filter((harness) => harness.spawnable && harness.id !== provider).map((harness) => harness.id);
+  return [
+    usable.length ? `Installed here and spawnable instead: ${usable.join(', ')}.` : 'No other harness is spawnable on this machine.',
+    `session_spawn does not install harnesses: a person installs ${name} on this machine in Gugu → Library → Agents → ${name} → Install`
+      + ' (a Gugu-managed download, usually a few minutes), then retries.',
+  ].join('\n');
 }
 
 /** A session's first turn as session-direct writes it: the sending session's envelope. */

@@ -15,7 +15,7 @@ import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { IconChevronDown, IconChevronRight, IconDocument, IconGlobe, IconImage } from '@session-chat/components/primitives/icons';
 import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
-import type { OpenedOutputItem } from '@session-chat/model';
+import type { OpenedOutput, OpenedOutputItem } from '@session-chat/model';
 import { openedOutputLook } from '@session-chat/state/opened-outputs';
 import { Match, Show, Switch } from 'solid-js';
 import { vars } from '@session-chat/styles/theme.css';
@@ -30,7 +30,7 @@ export const OPENED_OUTPUT_GAP = 8;
  * 类型色:一眼分出是什么(Codex 的 PDF 红、Slack / 微信文件的类型色块同一个意思)。只用主题里已有的几格色,
  * 底是同色 12% 叠在卡底上。
  */
-function accentOf(look: ReturnType<typeof openedOutputLook>): string {
+export function accentOf(look: ReturnType<typeof openedOutputLook>): string {
   if (look.kind === 'page') return vars.link;
   if (look.kind === 'image') return vars.diffAdded;
   if (look.extension === 'PDF' || look.extension === 'PPT' || look.extension === 'PPTX') return vars.fgError;
@@ -51,13 +51,61 @@ export function splitOutputName(name: string, isFile: boolean): { stem: string; 
   return { stem: name.slice(0, keep), tail: name.slice(keep) };
 }
 
+/** The width the row's end takes: 「Open with ▾」 where the host has that menu (only ▾ when narrow), else the › of an openable row. */
+export function outputControlWidth(output: OpenedOutput, ctx: MeasureCtx, canOpen: boolean): number {
+  const commands = ctx.commands;
+  const mode = canOpen && commands?.onOutputMenu ? commands.outputOpenMode?.(output) : null;
+  return mode ? ctx.width - 26 <= 260 ? 26 : readableLabel(mode, ctx, ctx.width, 14, 20).width + 32 : canOpen ? 16 : 0;
+}
+
+/**
+ * The row's end, wherever a file's row is drawn (an output card, the Edited card): its 「Open with ▾」, which opens the
+ * host's menu and never counts as a click on the row; else the › of a row that opens.
+ */
+export function OutputRowEnd(props: { output: OpenedOutput; itemId: string; name: string; canOpen: boolean }) {
+  const translate = useChatTranslator();
+  const commands = useCommands();
+  // 「侧边栏 ▾」:宿主说得出默认怎么打开、也接了菜单才摆;打不开的那行不摆。
+  const mode = () => (props.canOpen && commands().onOutputMenu ? commands().outputOpenMode?.(props.output) ?? null : null);
+  return (
+    <Show
+      when={mode()}
+      fallback={
+        <Show when={props.canOpen}>
+          <span data-slot="opened-output-open" class={chevron} aria-hidden="true">
+            <IconChevronRight />
+          </span>
+        </Show>
+      }
+    >
+      {(label) => (
+        <button
+          type="button"
+          data-slot="opened-output-mode"
+          class={modeButton}
+          aria-haspopup="menu"
+          aria-label={translate('transcript.outputOpenWith', { name: props.name })}
+          onClick={(event) => {
+            // 只弹菜单,❌ 再冒泡成「点整行」按默认方式打开。
+            event.stopPropagation();
+            commands().onOutputMenu?.({ output: props.output, itemId: props.itemId, anchor: event.currentTarget });
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <span class={modeLabel}>{label()}</span>
+          <IconChevronDown />
+        </button>
+      )}
+    </Show>
+  );
+}
+
 function outputLayout(data: OpenedOutputItem, ctx: MeasureCtx) {
   const t = rowTranslator(ctx), look = openedOutputLook(data.output), commands = ctx.commands;
   const kind = t(look.kind === 'page' ? 'transcript.outputPage' : look.kind === 'image' ? 'transcript.outputImage' : 'transcript.outputDocument');
   const reason = commands?.outputUnavailable?.(data.output);
   const open = !reason && commands?.onOpenOutput;
-  const mode = open && commands?.onOutputMenu ? commands.outputOpenMode?.(data.output) : null;
-  const control = mode ? ctx.width - 26 <= 260 ? 26 : readableLabel(mode, ctx, ctx.width, 14, 20).width + 32 : open ? 16 : 0;
+  const control = outputControlWidth(data.output, ctx, !!open);
   const width = ctx.width - 26 - 40 - 12 - (control ? control + 12 : 0);
   const ext = look.extension;
   const format = ext === 'PPTX' || ext === 'PPT' ? 'PowerPoint' : ext === 'DOCX' || ext === 'DOC' ? 'Word' : ext === 'XLSX' || ext === 'XLS' ? 'Excel' : null;
@@ -86,8 +134,6 @@ export const openedOutputUnitDef = defineUnit<OpenedOutputItem, { rowH: number; 
     const unavailable = () => commands().outputUnavailable?.(props.data.output) ?? null;
     const open = () => (unavailable() ? undefined : commands().onOpenOutput);
     const handleClick = () => open()?.({ output: props.data.output, itemId: props.data.id });
-    // 「侧边栏 ▾」:宿主说得出默认怎么打开、也接了菜单才摆;打不开的那行不摆。
-    const mode = () => (open() && commands().onOutputMenu ? commands().outputOpenMode?.(props.data.output) ?? null : null);
 
     const first = () => props.data.index === 0;
     const last = () => props.data.index === props.data.count - 1;
@@ -136,35 +182,7 @@ export const openedOutputUnitDef = defineUnit<OpenedOutputItem, { rowH: number; 
           <span data-slot="opened-output-name" class={nameRow}>{layout().name.text}</span>
           <span data-slot="opened-output-detail" class={detail}>{layout().description.text}</span>
         </span>
-        <Show
-          when={mode()}
-          fallback={
-            <Show when={open()}>
-              <span data-slot="opened-output-open" class={chevron} aria-hidden="true">
-                <IconChevronRight />
-              </span>
-            </Show>
-          }
-        >
-          {(label) => (
-            <button
-              type="button"
-              data-slot="opened-output-mode"
-              class={modeButton}
-              aria-haspopup="menu"
-              aria-label={translate('transcript.outputOpenWith', { name: look().name })}
-              onClick={(event) => {
-                // 只弹菜单,❌ 再冒泡成「点整行」按默认方式打开。
-                event.stopPropagation();
-                commands().onOutputMenu?.({ output: props.data.output, itemId: props.data.id, anchor: event.currentTarget });
-              }}
-              onKeyDown={(event) => event.stopPropagation()}
-            >
-              <span class={modeLabel}>{label()}</span>
-              <IconChevronDown />
-            </button>
-          )}
-        </Show>
+        <OutputRowEnd output={props.data.output} itemId={props.data.id} name={look().name} canOpen={!!open()} />
       </div>
       </div>
     );

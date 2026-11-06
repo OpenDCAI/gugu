@@ -25,7 +25,7 @@ export const BUNDLED_LIGHT_THEME = {
   tokenColors: [
     {
       scope: ['comment', 'punctuation.definition.comment', 'string.comment'],
-      settings: { foreground: '#8e8d8d', fontStyle: 'italic' },
+      settings: { foreground: '#616060', fontStyle: 'italic' },
     },
     {
       scope: [
@@ -96,7 +96,7 @@ export const BUNDLED_LIGHT_THEME = {
         'meta.brace',
         'punctuation',
       ],
-      settings: { foreground: '#848283' },
+      settings: { foreground: '#626161' },
     },
     {
       scope: ['entity.name.tag', 'meta.tag', 'punctuation.definition.tag'],
