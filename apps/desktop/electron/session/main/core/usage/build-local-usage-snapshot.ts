@@ -1,4 +1,4 @@
-import { and, asc, gt, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, gt, gte, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import type { LocalUsageRequest, LocalUsageSnapshot } from '@gugu/core/shared/usage/dailyUsage';
 import { resolveAgentHomeEnv, resolveAgentHomeRoot } from '@main/core/agents/agent-home';
 import { db } from '@main/db/client';
@@ -11,6 +11,7 @@ import { readSourceSpansByProviderSession } from './model-source-recorder';
 import { runIntervalRecorder } from './run-interval-recorder';
 import { createTokenScanClient, type TokenCachePager, type TokenScanResult } from './token-scan-client';
 import { spawnTokenScanWorker } from './token-scan-worker/spawn';
+import { tokenCachePartRange } from './token-file-cache';
 import { TOKEN_LOG_READERS } from './token-readers/registry';
 import { configRootsFor } from './token-scan';
 import { requireNativeHome } from '@gugu/session-plugins/agents';
@@ -30,6 +31,14 @@ export const dbTokenCachePager: TokenCachePager = {
       .orderBy(asc(usageTokenFileCache.path))
       .limit(limit)
       .all();
+  },
+  prune(path, generation) {
+    const all = tokenCachePartRange(path);
+    const keep = tokenCachePartRange(path, generation);
+    db.delete(usageTokenFileCache).where(and(
+      gte(usageTokenFileCache.path, all.start), lt(usageTokenFileCache.path, all.end),
+      or(lt(usageTokenFileCache.path, keep.start), gte(usageTokenFileCache.path, keep.end))
+    )).run();
   },
   save(row) {
     db.insert(usageTokenFileCache)

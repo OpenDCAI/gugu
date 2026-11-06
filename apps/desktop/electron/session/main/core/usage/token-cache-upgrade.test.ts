@@ -61,7 +61,7 @@ describe('bounded token parser cache upgrades', () => {
     expect(result.entries.filter(e => e.ts < cutoff).map(({ provider: _p, providerSessionId: _s, ...e }) => e)).toEqual(oldEntries);
     // Old first=1 remains; only the recent request changes from 1 to 9.
     expect(foldTokenEntries(result.entries).reduce((n, row) => n + row.output, 0)).toBe(10);
-    expect(f.saved).toHaveLength(1);
+    expect(f.saved).toHaveLength(2);
     expect(unpackParsedLogFile(f.saved[0].data)?.v).toBe(2);
   });
 
@@ -82,7 +82,7 @@ describe('bounded token parser cache upgrades', () => {
     expect(foldTokenEntries(first.entries).reduce((n, row) => n + row.output, 0)).toBe(13);
     const second = await collectTokenEntries(f.options);
     expect(second.stats).toMatchObject({ cacheHits: 1, bytesRead: 0 });
-    expect(f.saved).toHaveLength(1);
+    expect(f.saved).toHaveLength(2);
   });
 
   it('resumes a v2 cache for appended final snapshots and retains quality across hydration', async () => {

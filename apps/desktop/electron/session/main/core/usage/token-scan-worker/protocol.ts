@@ -24,6 +24,7 @@ export type ToWorker =
     };
 
 export type FromWorker =
+  | { type: 'prune-cache'; path: string; generation: string }
   /** 一份文件新解析完,要写回库缓存。每份单独一条消息 —— ❌ 攒成一大条,主线程反序列化会是一整块。 */
   | { type: 'save'; row: CachedLogFileSave }
   | { type: 'file-error'; path: string; error: string }

@@ -1,26 +1,23 @@
+import { recentTokenRefreshFrom, TOKEN_CACHE_VERSION } from './token-cache-version';
 import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import {
-  packParsedLogFile,
-  parseLogFile,
-  unpackParsedLogFile,
-  type ParsedLogFile,
-} from './token-log-file';
+import { readLogFileDelta, type ParsedLogFile } from './token-log-file';
+import { finishParsedFileHydration, saveParsedFileParts, type ParsedFileMemory, type CachedLogFileSave } from './token-file-cache';
+import type { TokenFileUpdate } from './incremental-token-fold';
+export { createParsedFileMemory, hydrateParsedFileMemory } from './token-file-cache';
+export type { CachedLogFileRow, CachedLogFileSave, ParsedFileMemory } from './token-file-cache';
 import type { TokenEntry, TokenLogReader } from './token-readers/types';
-import { recentTokenRefreshFrom, TOKEN_CACHE_VERSION } from './token-cache-version';
-import { canonicalizeCodexForks } from './token-forks';
 import type { NativeHome } from '@gugu/session-core/agents/plugins';
 import { nativeHomeRoots } from '@gugu/session-core/agents/plugins/helpers';
-
-export type CachedLogFileRow = { path: string; size: number; mtimeMs: number; data: string };
-
-/** 一份要写回 `usage_token_file_cache` 的行(解析发生在 worker 里,落库由主进程做)。 */
-export type CachedLogFileSave = CachedLogFileRow & { provider: string; providerSessionId: string };
 
 export type ProviderTokenEntry = TokenEntry & { provider: string; providerSessionId: string };
 
 export type TokenScanStats = {
   files: number;
+  /** Entries visited by the incremental fold, zero for an unchanged hot scan. */
+  foldedEntries?: number;
+  /** Bounded cache parts serialized this round, including at most one old tail per file. */
+  cacheWriteEntries?: number;
   /** size 与 mtime 都没变,直接用缓存。 */
   cacheHits: number;
   /** 文件变长了,从上次的偏移接着读。 */
@@ -59,26 +56,6 @@ async function mapWithConcurrency<T>(items: readonly T[], limit: number, run: (i
 }
 
 /**
- * 解析结果的内存层。库缓存(`usage_token_file_cache`,单机实测约 11 MB JSON)只在它的生命期里灌入一次
- * ({@link hydrateParsedFileMemory}),之后每次扫描只 stat 文件、命中就直接用已解析的条目。
- */
-export type ParsedFileMemory = {
-  files: Map<string, { size: number; mtimeMs: number; parsed: ParsedLogFile }>;
-};
-
-export function createParsedFileMemory(): ParsedFileMemory {
-  return { files: new Map() };
-}
-
-/** 把库缓存的行灌进内存层;认不出的行(老版本 / 截断)跳过,对应文件下次整份重读。 */
-export function hydrateParsedFileMemory(memory: ParsedFileMemory, rows: readonly CachedLogFileRow[]): void {
-  for (const row of rows) {
-    const parsed = unpackParsedLogFile(row.data);
-    if (parsed) memory.files.set(row.path, { size: row.size, mtimeMs: row.mtimeMs, parsed });
-  }
-}
-
-/**
  * 找出这些会话的日志文件,读出全部用量条目。没变的文件用内存层,变长的接着读,
  * 新解析的经 `onSave` 交出去落库。返回的条目**未去重**(去重是全局的,见 token-fold.ts)。
  */
@@ -88,12 +65,15 @@ export async function collectTokenEntries(options: {
   rootsByProvider: Readonly<Record<string, readonly string[]>>;
   memory: ParsedFileMemory;
   onSave: (row: CachedLogFileSave) => void;
+  onPrune?: (path: string, generation: string) => void;
+  onFile?: (file: TokenFileUpdate) => void;
   onFileError?: (path: string, error: unknown) => void;
-  /** Upgrade only this recent interval; older cache entries retain their previous counting rule. */
   refreshSinceMs?: number;
 }): Promise<{ entries: ProviderTokenEntry[]; stats: TokenScanStats }> {
   const stats: TokenScanStats = { files: 0, cacheHits: 0, resumed: 0, fullParses: 0, bytesRead: 0 };
   const { memory } = options;
+  finishParsedFileHydration(memory);
+  const visited = new Set<string>();
   const entries: ProviderTokenEntry[] = [];
   const refreshSinceMs = options.refreshSinceMs ?? recentTokenRefreshFrom();
 
@@ -101,67 +81,102 @@ export async function collectTokenEntries(options: {
     const providerSessionIds = new Set(
       options.providerSessions.filter((s) => s.provider === reader.provider).map((s) => s.providerSessionId)
     );
-    if (providerSessionIds.size === 0) continue;
+    if (providerSessionIds.size === 0) {
+      if (reader.provider === 'codex') memory.normalizeCodex([]);
+      continue;
+    }
     const roots = options.rootsByProvider[reader.provider] ?? [];
     const located = await reader.locate(roots, providerSessionIds);
-    const files: Array<{ path: string; providerSessionId: string }> = [];
+    const byPath = new Map<string, { path: string; sessionIds: string[] }>();
     for (const [providerSessionId, paths] of located) {
-      for (const path of paths) files.push({ path, providerSessionId });
+      for (const path of paths) {
+        let file = byPath.get(path);
+        if (!file) byPath.set(path, file = { path, sessionIds: [] });
+        if (!file.sessionIds.includes(providerSessionId)) file.sessionIds.push(providerSessionId);
+      }
     }
+    const files = [...byPath.values()];
     stats.files += files.length;
-    const parsedFiles = new Map<string, ParsedLogFile>();
 
-    await mapWithConcurrency(files, 4, async ({ path, providerSessionId }) => {
+    const updates = new Map<string, TokenFileUpdate>();
+    await mapWithConcurrency(files, 4, async ({ path, sessionIds }) => {
+      const providerSessionId = sessionIds[0];
       try {
         const info = await stat(path);
         const size = info.size;
         const mtimeMs = Math.floor(info.mtimeMs);
         const known = memory.files.get(path);
-        const changed = !known || known.size !== size || known.mtimeMs !== mtimeMs;
-        const upgrade = known?.parsed.v !== TOKEN_CACHE_VERSION
-          && !!known && (changed || known.parsed.entries.some((entry) => entry.ts >= refreshSinceMs));
 
-        let parsed: ParsedLogFile;
+        const fileId = `${info.dev}:${info.ino}`;
+        const sameFile = !known?.storage?.fileId || known.storage.fileId === fileId;
+        const changed = !known || !sameFile || known.size !== size || known.mtimeMs !== mtimeMs;
+        const upgrade = !!known && known.parsed.v !== TOKEN_CACHE_VERSION
+          && (changed || (known.latestTs ??= known.parsed.entries.reduce((max, entry) => Math.max(max, entry.ts), -Infinity)) >= refreshSinceMs);
+        let file = known;
+        let added: TokenEntry[] = [];
+        let reset = false;
         if (known && !changed && !upgrade) {
           stats.cacheHits += 1;
-          parsed = known.parsed;
         } else {
-          const resume = !upgrade && known && known.parsed.offset <= size ? known.parsed : undefined;
+          const resume = !upgrade && known && sameFile && size > known.size && known.parsed.offset <= size ? known.parsed : undefined;
           if (resume) stats.resumed += 1;
           else stats.fullParses += 1;
           stats.bytesRead += size - (resume?.offset ?? 0);
-          parsed = await parseLogFile(path, reader, resume, { providerSessionId, refreshSinceMs });
-          if (upgrade) {
-            parsed.entries = [
-              ...known.parsed.entries.filter((entry) => entry.ts < refreshSinceMs),
-              ...parsed.entries.filter((entry) => entry.ts >= refreshSinceMs),
-            ];
+          const delta = await readLogFileDelta(path, reader, resume, { providerSessionId, refreshSinceMs });
+          if (upgrade) delta.entries = [
+            ...known.parsed.entries.filter((entry) => entry.ts < refreshSinceMs),
+            ...delta.entries.filter((entry) => entry.ts >= refreshSinceMs),
+          ];
+          added = delta.entries;
+          reset = !resume;
+          const previous = resume ? known?.storage : undefined;
+          if (resume) {
+            // Reuse cached entry objects; never clone the whole history on append.
+            for (const entry of added) resume.entries.push(entry);
           }
-          memory.files.set(path, { size, mtimeMs, parsed });
-          options.onSave({
-            path,
-            size,
-            mtimeMs,
-            provider: reader.provider,
-            providerSessionId,
-            data: packParsedLogFile(parsed),
-          });
+          file = { size, mtimeMs, parsed: resume ? { ...delta, entries: resume.entries } : delta };
+          memory.files.set(path, file);
+          const hadStoredParts = memory.storedParts.has(path);
+          const saved = saveParsedFileParts({ path, provider: reader.provider, providerSessionId,
+            file, previous, fileId, onSave: options.onSave });
+          stats.cacheWriteEntries = (stats.cacheWriteEntries ?? 0) + saved.writtenEntries;
+          if (saved.reset && hadStoredParts) options.onPrune?.(path, saved.generation);
+          if (file.parsed.entries.length) memory.storedParts.add(path);
         }
-        parsedFiles.set(path, parsed);
+        if (!file) throw new Error('Parsed token file unavailable');
+        visited.add(path);
+        updates.set(path, { path, provider: reader.provider, providerSessionId, parsed: file.parsed, added, reset });
       } catch (error) {
         // 一份文件读不了(刚被删 / 没权限)不该让整页用量打不开:这一份的 token 缺席,响亮记一笔。
         options.onFileError?.(path, error);
       }
     });
-    const forkEntries = reader.provider === 'codex'
-      ? canonicalizeCodexForks([...parsedFiles].map(([path, parsed]) => ({ path, parsed }))) : undefined;
-    for (const { path, providerSessionId } of files) {
-      const parsed = parsedFiles.get(path);
-      if (!parsed) continue;
-      for (const entry of forkEntries?.get(path) ?? parsed.entries) {
-        entries.push({ ...entry, provider: reader.provider, providerSessionId });
+    const normalized = reader.provider === 'codex'
+      ? memory.normalizeCodex([...updates.values()].map(({ path, parsed }) => ({ path, parsed }))) : undefined;
+    // 1914 precedence is locate order, never asynchronous read completion order.
+    for (const { path, sessionIds } of files) {
+      const update = updates.get(path);
+      if (!update) continue;
+      let value = update;
+      if (normalized) {
+        const current = normalized.get(path)!;
+        const old = memory.normalized.get(path);
+        const append = old && !update.reset && (current === old.entries
+          || (current.length >= old.count && old.entries.slice(0, old.count).every((entry, i) =>
+            entry.key === current[i].key && entry.ts === current[i].ts && entry.model === current[i].model
+            && entry.input === current[i].input && entry.output === current[i].output
+            && entry.cacheRead === current[i].cacheRead && entry.cacheWrite === current[i].cacheWrite)));
+        value = { ...update, parsed: { ...update.parsed, entries: current as ParsedLogFile['entries'] },
+          added: append ? current.slice(old.count) : current, reset: !append };
+        memory.normalized.set(path, { entries: current, count: current.length });
+      }
+      for (const providerSessionId of sessionIds) {
+        if (options.onFile) options.onFile({ ...value, providerSessionId });
+        else for (const entry of value.parsed.entries) entries.push({ ...entry, provider: reader.provider, providerSessionId });
       }
     }
   }
+  for (const path of memory.normalized.keys()) if (!visited.has(path)) memory.normalized.delete(path);
+  for (const path of memory.files.keys()) if (!visited.has(path)) memory.files.delete(path);
   return { entries, stats };
 }

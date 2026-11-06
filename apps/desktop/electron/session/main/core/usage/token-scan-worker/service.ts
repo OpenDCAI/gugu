@@ -1,4 +1,4 @@
-import { foldTokenEntries } from '../token-fold';
+import { createIncrementalTokenFold } from '../incremental-token-fold';
 import { TOKEN_LOG_READERS } from '../token-readers/registry';
 import type { TokenLogReader } from '../token-readers/types';
 import { collectTokenEntries, createParsedFileMemory, hydrateParsedFileMemory } from '../token-scan';
@@ -16,6 +16,7 @@ export function createTokenScanService(
   readers: readonly TokenLogReader[] = TOKEN_LOG_READERS
 ): { handle(message: ToWorker): Promise<void> } {
   const memory = createParsedFileMemory();
+  let fold = createIncrementalTokenFold();
   return {
     async handle(message) {
       if (message.type === 'hydrate') {
@@ -29,16 +30,24 @@ export function createTokenScanService(
         return;
       }
       try {
-        const { entries, stats } = await collectTokenEntries({
+        fold.begin(message.sourcesByProviderSession);
+        const { stats } = await collectTokenEntries({
           providerSessions: message.providerSessions,
           readers,
           rootsByProvider: message.rootsByProvider,
           memory,
+          onFile: (file) => fold.visit(file),
+          onPrune: (path, generation) => send({ type: 'prune-cache', path, generation }),
           onSave: (row) => send({ type: 'save', row }),
           onFileError: (path, error) => send({ type: 'file-error', path, error: String(error) }),
         });
-        send({ type: 'result', id: message.id, rows: foldTokenEntries(entries, message.sourcesByProviderSession), stats });
+        const result = fold.finish();
+        stats.foldedEntries = result.processed;
+        send({ type: 'result', id: message.id, rows: result.rows, stats });
       } catch (error) {
+        // A failed collection may have applied only some file deltas. Rebuild the index
+        // from parsed memory on retry rather than exposing a partial aggregate.
+        fold = createIncrementalTokenFold();
         send({ type: 'failed', id: message.id, error: error instanceof Error ? error.stack ?? error.message : String(error) });
       }
     },

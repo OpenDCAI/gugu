@@ -21,6 +21,8 @@ export type TokenCachePager = {
   /** path 严格大于 `afterPath` 的前 `limit` 行,按 path 升序。 */
   loadPage(afterPath: string, limit: number): CachedLogFileRow[];
   save(row: CachedLogFileSave): void;
+  /** Remove superseded generations after a new checkpoint has been saved. */
+  prune?(path: string, generation: string): void;
 };
 
 export type TokenScanRequest = {
@@ -74,6 +76,10 @@ export function createTokenScanClient(options: {
     const target: Live = { worker, hydrated: Promise.resolve(), pending: new Map(), dead: null };
     worker.on('message', (message) => {
       switch (message.type) {
+        case 'prune-cache':
+          try { options.cache.prune?.(message.path, message.generation); }
+          catch (error) { options.onSaveError?.(message.path, error); }
+          return;
         case 'save':
           try {
             options.cache.save(message.row);

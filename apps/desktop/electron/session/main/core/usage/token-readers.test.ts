@@ -286,12 +286,12 @@ describe('日志文件的增量读取与缓存', () => {
     const first = await collectTokenEntries(options);
     expect(first.stats).toMatchObject({ files: 1, fullParses: 1, cacheHits: 0 });
     expect(first.entries).toHaveLength(1);
-    expect(saved).toHaveLength(1);
+    expect(saved).toHaveLength(2);
 
     const second = await collectTokenEntries(options);
     expect(second.stats).toMatchObject({ files: 1, cacheHits: 1, bytesRead: 0 });
     expect(second.entries).toEqual(first.entries);
-    expect(saved).toHaveLength(1); // 命中不写库
+    expect(saved).toHaveLength(2); // 命中不写库
 
     // 新的内存层(线程被收过、重起)从库缓存灌回来,照样命中,不重读文件。
     const rehydrated = createParsedFileMemory();

@@ -21,6 +21,11 @@ type PackedEntry = [key: string, ts: number, model: number, input: number, outpu
 
 type PackedLogFile = { v: 1 | 2; offset: number; state: ReaderState; models: string[]; entries: PackedEntry[] };
 
+/** Parser rules and segmented-storage format have independent version numbers. */
+export function isParsedLogVersion(value: unknown): value is ParsedLogFile['v'] {
+  return value === 1 || value === TOKEN_CACHE_VERSION;
+}
+
 /** 落库用的紧凑形状:模型名只存一遍,条目存成数组。 */
 export function packParsedLogFile(parsed: ParsedLogFile): string {
   const models: string[] = [];
@@ -47,8 +52,17 @@ export function unpackParsedLogFile(text: string): ParsedLogFile | null {
   } catch {
     return null;
   }
-  if (![1, TOKEN_CACHE_VERSION].includes(packed?.v) || typeof packed.offset !== 'number' || !Array.isArray(packed.entries)) return null;
+  if (!isParsedLogVersion(packed?.v) || !Number.isSafeInteger(packed.offset) || packed.offset < 0 || !Array.isArray(packed.entries)) return null;
   const models = Array.isArray(packed.models) ? packed.models : [];
+  if (!models.every((model) => typeof model === 'string')) return null;
+  if (!packed.entries.every((entry) => Array.isArray(entry) && entry.length >= 7 && entry.length <= 10
+    && typeof entry[0] === 'string' && Number.isFinite(entry[1]) && Math.abs(entry[1]) <= 8.64e15
+    && Number.isInteger(entry[2]) && entry[2] >= 0 && entry[2] < models.length
+    && entry.slice(3, 7).every((value) => typeof value === 'number' && Number.isInteger(value) && value >= 0)
+    && (entry[7] == null || typeof entry[7] === 'boolean')
+    && (entry[8] == null || (Number.isInteger(entry[8]) && entry[8] >= 0))
+    && (entry[9] == null || typeof entry[9] === 'string'))) return null;
+  if (packed.state !== null && packed.state !== undefined && (typeof packed.state !== 'object' || Array.isArray(packed.state))) return null;
   return {
     v: packed.v,
     offset: packed.offset,
@@ -82,9 +96,20 @@ export async function parseLogFile(
   resume?: ParsedLogFile,
   context: { providerSessionId?: string; refreshSinceMs?: number } = {}
 ): Promise<ParsedLogFile> {
+  const delta = await readLogFileDelta(path, reader, resume, context);
+  return resume ? { ...delta, entries: [...resume.entries, ...delta.entries] } : delta;
+}
+
+/** Append returns only the delta; production never clones cached history. */
+export async function readLogFileDelta(
+  path: string,
+  reader: TokenLogReader,
+  resume?: Pick<ParsedLogFile, 'offset' | 'state'>,
+  context: { providerSessionId?: string; refreshSinceMs?: number } = {}
+): Promise<ParsedLogFile> {
   const start = resume?.offset ?? 0;
   const state: ReaderState = resume ? structuredClone(resume.state) : reader.initialState({ path, providerSessionId: context.providerSessionId });
-  const entries: TokenEntry[] = resume ? [...resume.entries] : [];
+  const entries: TokenEntry[] = [];
   let consumed = 0;
   // 还没遇到换行的那段(一行可能跨很多块:claude 的单行工具结果能到几十 MB)。按块攒着,
   // 只在**新到的块**里找换行 —— 每块都把整段攒着的重新拼一遍、从头找,单行越长越是平方级。
