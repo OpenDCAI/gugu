@@ -74,17 +74,6 @@ it('the verbs done on the session machine are the table rows that say machine, e
 });
 
 describe('the machine that has the session does the call', () => {
-  it.each([{ capabilities: [] }, { capabilities: ['files:write'] }])('refuses workspace ranges without files:read before reading bytes (%j)', async ({ capabilities }) => {
-    fileCapabilities.granted = new Set(capabilities);
-    readWorkingCopy.mockResolvedValue({ size: 3, offset: 0, data: 'AP+A' });
-    expect(await refusal(elsewhere.answerAppCall(CALLER,
-      action({ call_id: `workspace-no-read-${capabilities.length}`, method: 'filesRead' },
-        { ref: { workspace: 'session:s-here', id: 'data.bin' }, offset: 0, length: 3 })))).toEqual({
-      code: 'denied', message: 'Not permitted: this App does not have "files:read"',
-    });
-    expect(readWorkingCopy).not.toHaveBeenCalled();
-  });
-
   it('keeps workspace range reads available with files:read alone', async () => {
     fileCapabilities.granted = new Set(['files:read']);
     readWorkingCopy.mockResolvedValue({ size: 3, offset: 0, data: 'AP+A' });
@@ -93,6 +82,26 @@ describe('the machine that has the session does the call', () => {
         { ref: { workspace: 'session:s-here', id: 'data.bin' }, offset: 0, length: 3 })))
       .toEqual({ size: 3, offset: 0, data: 'AP+A' });
     expect(readWorkingCopy).toHaveBeenCalledWith({ workspace: 'session:s-here', id: 'data.bin' }, 'data.bin', 0, 3);
+  });
+
+  it('a file call asks nothing of the App: another version, not installed, switched off, no capability here', async () => {
+    readWorkingCopy.mockResolvedValue({ size: 3, offset: 0, data: 'AP+A' });
+    const read = (id: string) => elsewhere.answerAppCall(CALLER, action({ call_id: id, method: 'filesRead' }, { ref: { workspace: 'session:s-here', id: 'data.bin' }, offset: 0, length: 3 }));
+    installed.version = '0.6.0';
+    await expect(read('another-version')).resolves.toMatchObject({ size: 3 });
+    installed.version = null;
+    await expect(read('not-installed')).resolves.toMatchObject({ size: 3 });
+    installed.version = '0.7.0';
+    installed.enabled = false;
+    await expect(read('switched-off')).resolves.toMatchObject({ size: 3 });
+    installed.enabled = true;
+    fileCapabilities.granted = new Set();
+    await expect(read('no-capability')).resolves.toMatchObject({ size: 3 });
+    fileCapabilities.granted = null;
+    // The session is still this machine's to answer for, and the App's own verbs still ask.
+    await expect(refusal(elsewhere.answerAppCall(CALLER, action({ call_id: 'not-here', method: 'filesRead', session_id: 's-elsewhere' }, { ref: { workspace: 'session:s-elsewhere', id: 'a' } })))).resolves.toMatchObject({ code: 'not-found' });
+    installed.version = '0.6.0';
+    await expect(refusal(elsewhere.answerAppCall(CALLER, action({ call_id: 'program' })))).resolves.toMatchObject({ code: 'version-mismatch' });
   });
 
   it('calls a selected machine without finding or manufacturing a session', async () => {
