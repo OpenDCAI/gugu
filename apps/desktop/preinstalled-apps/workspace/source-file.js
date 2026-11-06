@@ -31,6 +31,8 @@ export function sourceFile({ io, text, onChange, onError, onDocument }) {
   let eol = '\n'
   let editor = null
   let reloading = false
+  let refreshing = null
+  let refreshAgain = false
   const self = { dirty: false, deleted: false }
 
   const value = () => editor.text().replaceAll('\n', eol)
@@ -61,7 +63,24 @@ export function sourceFile({ io, text, onChange, onError, onDocument }) {
     report({ dirty: next !== disk })
   }
 
-  async function refresh() {
+  // One read at a time, and one more if the file changed meanwhile: a write shows as two changes (emptied, then filled), and
+  // a read of the empty one finishing last must not be what the buffer takes. As the host's text models do (`readDiskInTurn`).
+  function refresh() {
+    if (refreshing) {
+      refreshAgain = true
+      return refreshing
+    }
+    refreshing = (async () => {
+      do {
+        refreshAgain = false
+        await readDisk()
+      } while (refreshAgain)
+      refreshing = null
+    })()
+    return refreshing
+  }
+
+  async function readDisk(seenEmpty = false) {
     let read
     try {
       read = await io.read()
@@ -72,6 +91,8 @@ export function sourceFile({ io, text, onChange, onError, onDocument }) {
     }
     report({ deleted: false })
     if (read.becameDocument) onDocument()
+    // Empty where it was not: most likely caught mid-write, so not taken on one read. Empty twice, it is empty.
+    else if (read.content === '' && disk !== '' && !seenEmpty) return readDisk(true)
     else applyDisk(read.content)
   }
 

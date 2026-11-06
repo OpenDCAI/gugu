@@ -210,6 +210,54 @@ describe('TextModelRegistry', () => {
     expect(registry.getText(diskUri)).toBe('in the workspace');
   });
 
+  // A write shows as emptied, then filled. Reads that come back out of order must not leave the buffer on the emptied one:
+  // it reads as clean, and the next save writes it over the file.
+  it('reads again after a change during a read, so an emptied file seen last is not what the buffer keeps', async () => {
+    const registry = new TextModelRegistry();
+    const uri = await registry.registerModel('project', 'workspace', '/ws', 'race.md', 'markdown', 'disk');
+    await registry.registerModel('project', 'workspace', '/ws', 'race.md', 'markdown', 'buffer');
+    const diskUri = registry.toDiskUri(uri);
+    const read = (content: string) => ({ success: true, data: { content, binary: false, truncated: false, totalSize: content.length } });
+
+    let finishEmptied = (_: ReturnType<typeof read>) => undefined as void;
+    fileMocks.readFile.mockImplementationOnce(() => new Promise((resolve) => { finishEmptied = resolve; }) as never);
+    fileMocks.readFile.mockImplementation(async () => read('filled'));
+    const emptied = registry.invalidateModel(diskUri);
+    const filled = registry.invalidateModel(diskUri);
+    // Out of order, as they were before: the newer read was asked for and the older is still out.
+    finishEmptied(read(''));
+    await Promise.all([emptied, filled]);
+
+    expect(registry.getValue(uri)).toBe('filled');
+    expect(registry.getDiskValue(uri)).toBe('filled');
+    expect(registry.isDirty(uri)).toBe(false);
+    fileMocks.readFile.mockReset();
+    fileMocks.readFile.mockImplementation(async () => read('in the workspace'));
+  });
+
+  it('reads once more when a file reads empty where it was not, and takes it only if it is still empty', async () => {
+    const registry = new TextModelRegistry();
+    const uri = await registry.registerModel('project', 'workspace', '/ws', 'empty.md', 'markdown', 'disk');
+    await registry.registerModel('project', 'workspace', '/ws', 'empty.md', 'markdown', 'buffer');
+    const diskUri = registry.toDiskUri(uri);
+    const read = (content: string) => ({ success: true, data: { content, binary: false, truncated: false, totalSize: content.length } });
+
+    fileMocks.readFile.mockClear();
+    fileMocks.readFile.mockImplementationOnce(async () => read(''));
+    fileMocks.readFile.mockImplementationOnce(async () => read('filled'));
+    await registry.invalidateModel(diskUri);
+    expect(fileMocks.readFile).toHaveBeenCalledTimes(2);
+    expect(registry.getValue(uri)).toBe('filled');
+
+    fileMocks.readFile.mockClear();
+    fileMocks.readFile.mockImplementationOnce(async () => read(''));
+    fileMocks.readFile.mockImplementationOnce(async () => read(''));
+    await registry.invalidateModel(diskUri);
+    expect(fileMocks.readFile).toHaveBeenCalledTimes(2);
+    expect(registry.getValue(uri)).toBe('');
+    expect(registry.isDirty(uri)).toBe(false);
+  });
+
   // #5763 的判据:体积上限是「默认不替你打开」,不是一堵墙。同一个文件按确认门槛读被拒,
   // 按硬顶再读一次就该真的读进来 —— 第二次**不许**被 dedup 缓存喂回第一次那个「太大」。
   it('re-reads the same file when asked for a bigger limit', async () => {
