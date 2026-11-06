@@ -421,15 +421,16 @@ export async function keepAppFile(page: DesktopFilePage, args: { refs?: unknown;
 /** 子文件夹: a chat's folder at `path`, made all the way down (one already there is answered as it is). */
 export async function makeAppFolder(page: DesktopFilePage, args: { place?: unknown; path?: unknown }): Promise<AppFileEntry> {
   const place = placeOf(args.place);
-  if (!('chat' in place)) throw new AppFileError('invalid', "A working copy has no folders here: a file's path there is its name, folders included");
-  return files.mkdir(place.chat, { path: args.path }, { asAgent: page.asAgent ?? null });
+  if ('chat' in place) return files.mkdir(place.chat, { path: args.path }, { asAgent: page.asAgent ?? null });
+  return local.mkdir(await localFolder(page, place), { path: String(args.path ?? '') });
 }
 
 /** 子文件夹: a chat's file or folder into another folder, renamed too when `name` is given. */
 export async function moveAppFile(page: DesktopFilePage, args: { ref?: unknown; folder?: unknown; name?: unknown }): Promise<AppFileEntry> {
   const ref = fileRefOf(args.ref);
-  if (!isChat(ref)) throw new AppFileError('invalid', "A working copy has no folders here: rename the file to its new path instead");
-  return files.move(chatSurface(page), { ref, folder: args.folder, name: args.name });
+  if (isChat(ref)) return files.move(chatSurface(page), { ref, folder: args.folder, name: args.name });
+  const target = { ...(args.folder === undefined ? {} : { folder: folderOf(args.folder) }), ...(typeof args.name === 'string' ? { name: args.name } : {}) };
+  return local.move(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, ...target });
 }
 
 export async function removeAppFile(page: DesktopFilePage, args: { ref?: unknown }): Promise<void> {

@@ -377,6 +377,35 @@ describe('gugu.files on a working copy', () => {
     fs.rmSync(outside, { recursive: true, force: true });
   });
 
+  it('a file tree\'s writes: folders made and moved, a name taken said, nothing goes inside itself', () => {
+    const a = new Page(nextId++, null);
+    expect(files.mkdir(a.surface, { path: 'docs/old' })).toMatchObject({ id: 'docs/old', type: 'folder' });
+    expect(() => files.mkdir(a.surface, { path: 'docs/old' })).toThrow(expect.objectContaining({ code: 'name-taken' }));
+    write('docs/old/a.md', 'a');
+    expect(files.move(a.surface, { ref: { workspace: WS, id: 'docs/old' }, folder: '' })).toMatchObject({ id: 'old', type: 'folder' });
+    expect(fs.readFileSync(path.join(root, 'old/a.md'), 'utf8')).toBe('a');
+    expect(() => files.move(a.surface, { ref: { workspace: WS, id: 'old' }, folder: 'old' })).toThrow(expect.objectContaining({ code: 'invalid' }));
+    write('b.md', 'b');
+    expect(() => files.rename(a.surface, { ref: { workspace: WS, id: 'b.md' }, name: 'old' })).toThrow(expect.objectContaining({ code: 'name-taken' }));
+    expect(files.rename(a.surface, { ref: { workspace: WS, id: 'b.md' }, name: 'c.md' })).toMatchObject({ id: 'c.md' });
+  });
+
+  it('deleting takes a folder with all in it, and a link only the link', () => {
+    const a = new Page(nextId++, null);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-outside-'));
+    fs.writeFileSync(path.join(outside, 'kept.md'), 'kept');
+    fs.symlinkSync(outside, path.join(root, 'linked'));
+    fs.symlinkSync(path.join(outside, 'gone-target'), path.join(root, 'dangling'));
+    fs.mkdirSync(path.join(root, 'dir/sub'), { recursive: true });
+    write('dir/sub/x.md', 'x');
+    files.remove(a.surface, { ref: { workspace: WS, id: 'linked' } });
+    files.remove(a.surface, { ref: { workspace: WS, id: 'dangling' } });
+    files.remove(a.surface, { ref: { workspace: WS, id: 'dir' } });
+    expect([fs.existsSync(path.join(root, 'linked')), fs.existsSync(path.join(root, 'dir')), fs.readFileSync(path.join(outside, 'kept.md'), 'utf8')]).toEqual([false, false, 'kept']);
+    expect(() => files.remove(a.surface, { ref: { workspace: WS, id: 'dir' } })).toThrow(expect.objectContaining({ code: 'not-found' }));
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
   it('a file is known by its own suffix, a name the type table does not know too (复核 101 K1): main.ts is .ts, not .txt', () => {
     const stat = fs.statSync(root);
     const suffixes = Object.fromEntries(['src/main.ts', 'ci.yaml', 'notes.md'].map((rel) => workingCopyEntry({ workspace: WS }, rel, stat)).map((entry) => [entry.name, entry.suffix]));
