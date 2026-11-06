@@ -138,7 +138,7 @@ void app.whenReady().then(async () => {
     const until = async (condition: () => boolean) => {
       const deadline = Date.now() + 12000;
       while (!condition()) { if (fault) throw fault; if (exited) throw new Error('Chromium exited: ' + stderr);
-        if (Date.now() > deadline) throw new Error('Pipeline timed out: ' + stderr); await pause(20); }
+        if (Date.now() > deadline) { trace('pipeline-timeout', {paints,outcomes,encoded:[...encoded]}); throw new Error('Pipeline timed out: ' + stderr); } await pause(20); }
     };
     trace('first-paint-before');
     await until(() => paints.some(paint => paint.sequence === 1) && outcomes.length > 0);
