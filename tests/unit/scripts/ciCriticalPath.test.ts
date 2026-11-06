@@ -120,9 +120,7 @@ it('fits the full PR plus existing dev background work in the 20-hosted-job budg
   // Every cache stage runs even after an earlier failure, but never overlaps it.
   expect(warm.jobs.mac.needs).toBe('eslint')
   expect(warm.jobs.mac.if).toBe('always()')
-  expect(warm.jobs.android.needs).toBe('mac')
-  expect(warm.jobs.android.if).toBe('always()')
-  expect(warm.jobs.unit.needs).toBe('android')
+  expect(warm.jobs.unit.needs).toBe('mac')
   expect(warm.jobs.unit.if).toBe('always()')
   expect(warm.jobs.unit.strategy['max-parallel']).toBe(1)
   // Each reusable Mac call uses one hosted route, then at most one hosted fork child.
