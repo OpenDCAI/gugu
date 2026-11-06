@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { BrowserWindow, dialog, shell, type WebContents } from 'electron';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { attachmentFileRef } from '@gugu/core/shared/ui/attachmentModels';
@@ -56,8 +57,8 @@ import { localizedManifestText } from '@shared/extensions/catalog';
 import { PACKAGE_MESSAGE_SELECT, type PackageMessageRow, type PackageReads } from '@shared/extensions/attachment-install';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { events } from '@main/lib/events';
-import { workingCopyMovedChannel } from '@shared/events/appEvents';
-import type { PlaceVerb } from '@shared/extensions/bridge-protocol';
+import { appFileHeardElsewhereChannel, appFileWatchElsewhereChannel, workingCopyMovedChannel } from '@shared/events/appEvents';
+import type { ExtensionFileChangeBatch, PlaceVerb } from '@shared/extensions/bridge-protocol';
 import { uploadInParts } from '@shared/extensions/working-copy-upload';
 import { log } from '@main/lib/logger';
 
@@ -411,6 +412,61 @@ export async function readAppFileText(page: DesktopFilePage, args: { ref?: unkno
   }
 }
 
+/**
+ * `files.writeText(file, text)`: a working copy's text whole, in the upload's parts, checked on its machine against the
+ * version this page read: `content-changed` when the disk moved on. A file deleted meanwhile is simply made again, as
+ * saving does in an editor.
+ */
+export async function writeAppFileText(page: DesktopFilePage, args: { ref?: unknown; text?: unknown }): Promise<{ entry: AppFileEntry }> {
+  const ref = wholeFileRef(page, args.ref, 'files:write', 'writeText');
+  if (typeof args.text !== 'string') throw new AppFileError('invalid', 'writeText(file, text) takes the text');
+  const content = new Blob([args.text]);
+  const read = readVersions.get(page.pageId)?.get(versionKey(ref)) ?? null;
+  let etag: string | undefined;
+  const send = (expectedEtag: string | null) => uploadInParts(async (part) => {
+    const answer = await writeAppFileChunk(page, part) as { received: number; entry?: AppFileEntry; etag?: string };
+    etag = answer.etag ?? etag;
+    return answer;
+  }, { workspace: ref.workspace }, [{ name: ref.id, blob: content }], undefined, { expectedEtag });
+  const [entry] = await send(read).catch(async (error: unknown) => {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code === 'content-changed' && !(await appFileExists(page, { ref }))) return send(null);
+    // Written without reading it first, and it is there: what it holds was never seen.
+    if (code === 'name-taken') throw new AppFileError('content-changed', `${ref.id} is there already: read it first`);
+    throw error;
+  });
+  if (!readVersions.has(page.pageId)) readVersions.set(page.pageId, new Map());
+  readVersions.get(page.pageId)!.set(versionKey(ref), etag!);
+  return { entry: entry! };
+}
+
+const watchesElsewhere = new Map<string, (change: ExtensionFileChangeBatch) => void>();
+let hearingElsewhere = false;
+
+/**
+ * `files.onChanged({ workspace, id }, fn)`: one file. On its own computer from the change feed; on another, from the event
+ * that machine's file changes already reach the window as (`app-file-watches-elsewhere`).
+ */
+export async function watchAppFile(page: DesktopFilePage, value: unknown, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
+  const ref = wholeFileRef(page, value, 'files:read', 'onChanged');
+  if (!(await sessionElsewhere(ref))) {
+    const { watchWorkingCopyFile } = await import('./working-copy-files');
+    return watchWorkingCopyFile(ref, ref.id, hear);
+  }
+  if (!hearingElsewhere) {
+    hearingElsewhere = true;
+    events.on(appFileHeardElsewhereChannel, ({ key, change }) => watchesElsewhere.get(key)?.(change));
+  }
+  const key = randomUUID();
+  const sessionId = workspaceSession(ref)!;
+  watchesElsewhere.set(key, hear);
+  events.emit(appFileWatchElsewhereChannel, { key, sessionId, file: ref.id, on: true });
+  return () => {
+    watchesElsewhere.delete(key);
+    events.emit(appFileWatchElsewhereChannel, { key, sessionId, file: ref.id, on: false });
+  };
+}
+
 /** `files.exists(file)`: whether a working copy's file is there now, on the machine it is on. */
 export async function appFileExists(page: DesktopFilePage, args: { ref?: unknown }): Promise<boolean> {
   const ref = wholeFileRef(page, args.ref, 'files:read', 'exists');
@@ -549,6 +605,7 @@ export async function removeAppFile(page: DesktopFilePage, args: { ref?: unknown
 export async function writeAppFileChunk(page: DesktopFilePage, args: Record<string, unknown>): Promise<unknown> {
   const place = placeOf(args.place);
   if ('chat' in place) throw new AppFileError('invalid', "A chat's file is uploaded whole: files.upload");
+  checkAbsolute(page, { ...place, id: String(args.path) });
   const there = await onItsMachine(page, place, 'filesWriteChunk', args);
   if (there.there) return there.value;
   const { writeWorkingCopyChunk } = await import('./working-copy-files');

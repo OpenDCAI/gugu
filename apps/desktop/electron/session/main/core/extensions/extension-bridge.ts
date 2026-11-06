@@ -1,3 +1,4 @@
+import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import { appStateOf } from '@shared/extensions/app-state';
 import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import * as fs from 'node:fs';
@@ -453,6 +454,7 @@ const workingCopyPages = new Set<number>();
 export function stopPageWatches(pageId: number): void {
   for (const stop of forumWatches.get(pageId)?.values() ?? []) stop();
   forumWatches.delete(pageId);
+  void import('@main/core/extensions/app-files').then(({ forgetReadVersions }) => forgetReadVersions(pageId));
   const watching = pageWatches.get(pageId);
   for (const watch of watching?.values() ?? []) watch.disk?.stop();
   pageWatches.delete(pageId);
@@ -461,7 +463,7 @@ export function stopPageWatches(pageId: number): void {
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
-async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean, folder?: string): Promise<void> {
+async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean, folder?: string, file?: string): Promise<void> {
   let watching = pageWatches.get(caller.pageId);
   const existing = watching?.get(watchId);
   if (!on) {
@@ -479,9 +481,12 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
   if (isWorkspace(place)) {
     // The working copy's change feed, the one the file panel hears, under the folder named: the same native watch.
     const { watchWorkingCopy } = await import('@main/core/extensions/working-copy-files');
-    const stop = await watchWorkingCopy(place, folder, (change) => {
+    const heard = (change: ExtensionFileChangeBatch) => {
       if (extensionsService().hasCapability(caller.extensionId, 'files:read')) caller.hear({ type: 'filesChanged', watchId, place, change });
-    });
+    };
+    const stop = file === undefined
+      ? await watchWorkingCopy(place, folder, heard)
+      : await (await import('@main/core/extensions/app-files')).watchAppFile(caller.filePage({ ref: { ...place, id: file } }), { ...place, id: file }, heard);
     if (pageWatches.get(caller.pageId) !== watching) return stop();
     disk = { stop };
   }
@@ -1924,6 +1929,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesRead':
     case 'filesReadText':
     case 'filesExists':
+    case 'filesWriteText':
     case 'filesSearch':
     case 'filesRecent':
     case 'filesViewPreferences':
@@ -1962,6 +1968,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesRead: 'readAppFile',
         filesReadText: 'readAppFileText',
         filesExists: 'appFileExists',
+        filesWriteText: 'writeAppFileText',
         filesSearch: 'searchAppFiles',
         filesRecent: 'recentAppFiles',
         filesCreate: 'createAppFile',
@@ -1992,7 +1999,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
 
     case 'filesWatch':
       if (typeof args.watchId !== 'string' || !args.watchId) throw Object.assign(new Error('A file watch needs its subscription id'), { code: 'invalid' });
-      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false, folderOf((args.place as { folder?: unknown } | null)?.folder));
+      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false, folderOf((args.place as { folder?: unknown } | null)?.folder), typeof (args.place as { id?: unknown } | null)?.id === 'string' ? (args.place as { id: string }).id : undefined);
       return undefined;
 
     case 'filesUpload': {

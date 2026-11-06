@@ -5,6 +5,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const f = vi.hoisted(() => ({ capabilities: new Set<string>(), machine: vi.fn(async () => null as { deviceId: string; projectId: string | null } | null), remote: vi.fn(), root: '' }));
 vi.mock('electron', () => ({ BrowserWindow: {}, dialog: {} }));
+vi.mock('@main/lib/events', () => {
+  const listeners = new Map<unknown, Set<(data: unknown) => void>>();
+  return { events: {
+    on: (channel: unknown, handler: (data: unknown) => void) => { if (!listeners.has(channel)) listeners.set(channel, new Set()); listeners.get(channel)!.add(handler); return () => listeners.get(channel)!.delete(handler); },
+    emit: (channel: unknown, data: unknown) => { for (const handler of listeners.get(channel) ?? []) handler(data); },
+  } };
+});
 vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () => ({ hasCapability: (_app: string, cap: string) => f.capabilities.has(cap), get: () => ({ manifest: { id: 'reader' } }) }) }));
 vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: vi.fn(), resolveAccountFile: vi.fn(), publishAccountFile: vi.fn() }));
 vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {}, localFileService: {}, fileServiceUrl: vi.fn() }));
@@ -13,13 +20,14 @@ vi.mock('@main/core/extensions/app-programs-elsewhere', () => ({ sessionMachine:
 vi.mock('@main/core/extensions/extension-agent-context', () => ({ agentSessionContext: async () => ({ workspaceRoot: f.root, projectId: 'p', workspaceId: 'w' }) }));
 vi.mock('@main/core/files/file-tree/projector', () => ({ FileTreeProjector: class {} }));
 
-const { appFileExists, readAppFile, readAppFileText, openAppFile } = await import('./app-files');
+const { appFileExists, readAppFile, readAppFileText, openAppFile, writeAppFileChunk, writeAppFileText, watchAppFile, forgetReadVersions } = await import('./app-files');
 
 const workspace = 'session:11111111-1111-4111-8111-111111111111';
 let outside = '';
 const page = (handed: unknown = null) => ({ pageId: 3, extensionId: 'reader', handed }) as never;
 
 beforeEach(async () => {
+  forgetReadVersions(3);
   f.capabilities.clear();
   vi.clearAllMocks();
   f.machine.mockResolvedValue(null);
@@ -95,4 +103,81 @@ it('another machine is asked, for its pieces', async () => {
   f.remote.mockResolvedValue({ there: true, value: { size: 2, etag: 'e', offset: 0, data: 'aGk=' } });
   expect((await readAppFileText(page(), { ref: { workspace, id: 'a.md' } })).content).toBe('hi');
   expect(f.remote).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'filesRead', expect.objectContaining({ ref: { workspace, id: 'a.md' } }), false);
+});
+
+const onDisk = (name: string) => fsp.readFile(path.join(f.root, name), 'utf8');
+
+it('saves over the version it read, and again over what it saved', async () => {
+  f.capabilities.add('files:read');
+  f.capabilities.add('files:write');
+  const ref = { workspace, id: 'conf.json' };
+  await readAppFileText(page(), { ref });
+  await writeAppFileText(page(), { ref, text: 'one' });
+  expect(await onDisk('conf.json')).toBe('one');
+  await writeAppFileText(page(), { ref, text: 'two' });
+  expect(await onDisk('conf.json')).toBe('two');
+});
+
+it('refuses to save over a change it never read, and leaves the disk as it is', async () => {
+  f.capabilities.add('files:read');
+  f.capabilities.add('files:write');
+  const ref = { workspace, id: 'conf.json' };
+  await readAppFileText(page(), { ref });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await fsp.writeFile(path.join(f.root, 'conf.json'), 'theirs, longer');
+  await expect(writeAppFileText(page(), { ref, text: 'mine' })).rejects.toMatchObject({ code: 'content-changed' });
+  expect(await onDisk('conf.json')).toBe('theirs, longer');
+  expect((await readAppFileText(page(), { ref })).content).toBe('theirs, longer');
+  await writeAppFileText(page(), { ref, text: 'merged' });
+  expect(await onDisk('conf.json')).toBe('merged');
+});
+
+it('makes a file deleted since it was read again', async () => {
+  f.capabilities.add('files:read');
+  f.capabilities.add('files:write');
+  const ref = { workspace, id: 'conf.json' };
+  await readAppFileText(page(), { ref });
+  await fsp.rm(path.join(f.root, 'conf.json'));
+  await writeAppFileText(page(), { ref, text: 'back' });
+  expect(await onDisk('conf.json')).toBe('back');
+});
+
+it('will not write over a file it never read', async () => {
+  f.capabilities.add('files:write');
+  forgetReadVersions(3);
+  await expect(writeAppFileText(page(), { ref: { workspace, id: 'conf.json' }, text: 'x' })).rejects.toMatchObject({ code: 'content-changed' });
+  await writeAppFileText(page(), { ref: { workspace, id: 'new/made.txt' }, text: 'new' });
+  expect(await onDisk('new/made.txt')).toBe('new');
+});
+
+it('writes the handed file outside the working copy, and no other, whatever the capabilities', async () => {
+  const file = path.join(outside, 'notes.md');
+  const ref = { workspace, id: file };
+  await readAppFileText(page(ref), { ref });
+  await writeAppFileText(page(ref), { ref, text: 'saved' });
+  expect(await fsp.readFile(file, 'utf8')).toBe('saved');
+  f.capabilities.add('files:write');
+  await expect(writeAppFileText(page(), { ref, text: 'no' })).rejects.toMatchObject({ code: 'denied' });
+  await expect(writeAppFileChunk(page(), { place: { workspace }, path: file, uploadId: 'u', offset: 0, data: 'bm8=', total: 2, final: true, expectedEtag: 'force' })).rejects.toMatchObject({ code: 'denied' });
+  expect(await fsp.readFile(file, 'utf8')).toBe('saved');
+});
+
+it('hears a file on another machine through the window, which has that machine\'s events', async () => {
+  f.capabilities.add('files:read');
+  f.capabilities.add('files:read:all-machines');
+  f.machine.mockResolvedValue({ deviceId: 'there', projectId: null });
+  const { events } = await import('@main/lib/events');
+  const { appFileHeardElsewhereChannel, appFileWatchElsewhereChannel } = await import('@shared/events/appEvents');
+  const asked: { key: string; sessionId: string; file: string; on: boolean }[] = [];
+  const off = events.on(appFileWatchElsewhereChannel, (request) => asked.push(request));
+  const heard: unknown[] = [];
+  const stop = await watchAppFile(page(), { workspace, id: 'a.md' }, (change) => heard.push(change));
+  expect(asked).toEqual([expect.objectContaining({ file: 'a.md', on: true, sessionId: '11111111-1111-4111-8111-111111111111' })]);
+  events.emit(appFileHeardElsewhereChannel, { key: asked[0]!.key, change: { kind: 'resync' } });
+  expect(heard).toEqual([{ kind: 'resync' }]);
+  stop();
+  expect(asked.at(-1)).toMatchObject({ key: asked[0]!.key, on: false });
+  events.emit(appFileHeardElsewhereChannel, { key: asked[0]!.key, change: { kind: 'resync' } });
+  expect(heard.length).toBe(1);
+  off();
 });

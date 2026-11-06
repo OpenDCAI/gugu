@@ -8,14 +8,14 @@ export type WorkingCopyPart = { place: AppPlace; path: string; uploadId: string;
 /**
  * Every file going into a working copy, from a page's bytes or the person's picker, on this computer or another: part by
  * part, each written down on its machine as it comes — a file of any size, with what one call carries across machines
- * (`APP_CALL_MAX_BYTES`). One already there is `name-taken` until `replace` says so; progress is the bytes sent of them all.
+ * (`APP_CALL_MAX_BYTES`). One already there is `name-taken` until `replace` says so, or `expectedEtag` names the version being saved over; progress is the bytes sent of them all.
  */
 export async function uploadInParts(
   write: (part: WorkingCopyPart) => Promise<{ received: number; entry?: AppFileEntry }>,
   place: AppPlace,
   files: readonly { name: string; blob: Blob }[],
   folder: string | undefined,
-  options?: { replace?: boolean; onProgress?: (sent: number, total: number) => void; signal?: AbortSignal },
+  options?: { replace?: boolean; expectedEtag?: string | null; onProgress?: (sent: number, total: number) => void; signal?: AbortSignal },
 ): Promise<AppFileEntry[]> {
   const total = files.reduce((sum, { blob }) => sum + blob.size, 0);
   const entries: AppFileEntry[] = [];
@@ -30,7 +30,7 @@ export async function uploadInParts(
       }
       const bytes = new Uint8Array(await blob.slice(offset, offset + REMOTE_WORKSPACE_CHUNK_BYTES).arrayBuffer());
       final = offset + bytes.length >= blob.size;
-      const answer = await write({ place, path, uploadId, offset, data: bytesToBase64(bytes), total: blob.size, final, expectedEtag: options?.replace ? WORKSPACE_WRITE_FORCE : null });
+      const answer = await write({ place, path, uploadId, offset, data: bytesToBase64(bytes), total: blob.size, final, expectedEtag: options?.expectedEtag ?? (options?.replace ? WORKSPACE_WRITE_FORCE : null) });
       offset += bytes.length;
       sent += bytes.length;
       options?.onProgress?.(sent, total);

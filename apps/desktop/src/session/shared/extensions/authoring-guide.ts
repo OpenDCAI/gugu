@@ -559,6 +559,12 @@ The place is \`{ workspace: ctx.workspace.id }\`. An entry's \`id\` is its path 
 - \`gugu.files.upload({ workspace, folder }, file, { replace, onProgress, signal })\`: a File or a list of them, in parts, of any size, folders made as needed. A name already there is \`name-taken\` until \`replace: true\`. \`onProgress\` is told the bytes sent and the total; an aborted \`signal\` leaves nothing.
 - \`gugu.files.download(entry, { onProgress, signal })\` (a click or key): a file, or a folder with all in it; \`onProgress\` is told the bytes saved and the total; an aborted \`signal\` leaves nothing.
 - \`gugu.files.reveal(entry)\` (a page, this computer's working copy): shows it in the file manager.
+
+A text no live document holds (over 1 MiB, JSON that is no object, on another machine, outside the working copy) is read and saved whole. Nothing is needed for \`ctx.file\`, which may be an absolute path; any other file needs \`files:read\` / \`files:write\`, and no capability opens another absolute path (\`denied\`).
+- \`gugu.files.readText(file, { maxBytes })\` → \`{ entry, content, truncated, totalSize, binary?, exact? }\`. Up to 20 MiB unless told, at most 100 MiB; over that, \`truncated\` and no content. \`binary\`: it is not text. \`exact: false\`: another encoding, which saving would change: show it read-only.
+- \`gugu.files.writeText(file, text)\` saves over the version \`readText\` read: \`content-changed\` if the disk moved on, so read it, merge, save. A file deleted since is made again. \`unavailable\`: its machine cannot be reached; \`error.detail.machine\` names it.
+- \`gugu.files.exists(file)\`: whether it is there now.
+- \`gugu.files.onChanged({ workspace, id }, fn)\`: one file, by the name you gave. \`resync\`: anything may have changed (its machine is back). A file outside the working copy on another machine sends nothing.
 - After \`rename\`, \`move\` or \`remove\`, the host's panes that show the file follow it.
 `;
 

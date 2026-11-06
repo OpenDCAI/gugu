@@ -48,14 +48,14 @@ export function createGugu(
   const watchers = new Map<string, (change: ExtensionFileChangeBatch) => void>();
   let nextWatch = 0;
   let hearing: (() => void) | null = null;
-  const watch = (watchId: string, place: AppPlace & { folder?: string }, on: boolean) =>
+  const watch = (watchId: string, place: AppPlace & { folder?: string; id?: string }, on: boolean) =>
     host.appFiles.watch({ watchId, place, on }).catch((error: unknown) => {
       if (on) void host.reportError(`gugu.files.onChanged(${placeKey(place)}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
     });
   function onChanged(place: unknown, handler: (change: ExtensionFileChangeBatch) => void): () => void {
-    // A working copy may name a folder (`'.spec'`): what changes anywhere below it.
-    const folder = (place as { folder?: unknown } | null)?.folder;
-    const where = { ...placeOf(place), ...(typeof folder === 'string' && folder ? { folder } : {}) };
+    // A working copy may name a folder (`'.spec'`): what changes anywhere below it. Or one file (`id`, an entry or `ctx.file`).
+    const { folder, id } = (place ?? {}) as { folder?: unknown; id?: unknown };
+    const where = { ...placeOf(place), ...(typeof folder === 'string' && folder ? { folder } : {}), ...('workspace' in (place as object) && typeof id === 'string' && id ? { id } : {}) };
     const watchId = String(++nextWatch);
     if (typeof handler !== 'function') throw guguError('invalid', 'files.onChanged(place, fn) takes a function');
     hearing ??= host.onFilesChanged((id, change) => watchers.get(id)?.(change));
@@ -111,6 +111,8 @@ export function createGugu(
     /** A working copy's text whole, where the page holds it and no live document does; and whether it is there. */
     readText: (file: unknown, options?: { maxBytes?: number }) => withRef(file, (ref) => host.appFiles.readText({ ref, ...(options?.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }) })),
     exists: (file: unknown) => withRef(file, (ref) => host.appFiles.exists({ ref })),
+    /** Saves over the version `readText` read: `content-changed` when the disk moved on since. */
+    writeText: (file: unknown, text: string) => withRef(file, (ref) => host.appFiles.writeText({ ref, text })),
     /** Whether whoever reads may delete each file (an entry, or a list of them), in order — ask as its menu opens. */
     canDelete: (files: unknown) => withRefs(files, (refs) => host.appFiles.canDelete({ refs })),
     /** G2 A chat file's kept versions, newest first; one's content: a text file's as text, a stored file's as a Blob. */

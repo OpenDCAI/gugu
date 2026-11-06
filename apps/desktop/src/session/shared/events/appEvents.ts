@@ -1,3 +1,4 @@
+import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink';
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
 import type { SessionPaneTab, SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
@@ -121,6 +122,13 @@ export const sessionManageTabsChannel = defineEvent<{
 export const sessionManageTabsResultChannel = defineEvent<SessionPaneTabsResult & {
   requestId: string; success: boolean; error?: string;
 }>('session:manage-tabs-result');
+
+/**
+ * A page hears one file of a session on another machine: that machine's file changes reach the window only, so main asks
+ * the window to listen and to tell it (`app-file-watches-elsewhere`).
+ */
+export const appFileWatchElsewhereChannel = defineEvent<{ key: string; sessionId: string; file: string; on: boolean }>('session:app-file-watch-elsewhere');
+export const appFileHeardElsewhereChannel = defineEvent<{ key: string; change: ExtensionFileChangeBatch }>('session:app-file-heard-elsewhere');
 
 /**
  * #6264 预览要别的机器上的一块字节(`gugu-preview://` 的远端登记,见 preview-protocol.ts):
