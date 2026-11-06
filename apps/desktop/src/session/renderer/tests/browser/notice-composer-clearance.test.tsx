@@ -23,7 +23,7 @@ function Layout({ height = 120, split = false, filePane = false, hidden = false 
         <textarea aria-label="Message" style={{ width: '100%', height: '100%' }} /><button data-testid="send" style={{ position: 'absolute', right: 4, bottom: 4 }}>Send</button>
       </div>
     </div>
-    <div style={{ position: 'fixed', inset: 0, contentVisibility: 'hidden' }}>
+    <div style={{ position: 'fixed', inset: 0, contentVisibility: 'hidden', pointerEvents: 'none' }}>
       <div data-slot="composer" style={{ position: 'absolute', top: 10, width: 400, height: 500 }} />
     </div>
   </>
