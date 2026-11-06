@@ -27,7 +27,7 @@ export type TunnelProblem = 'unsupported' | 'relayDown' | 'visitorFailed' | 'ssh
 
 export type TunnelState = { ready: string[]; problems: Record<string, TunnelProblem> }
 
-/** 要不要经远程隧道连它:别的机器、在线、它报了中转通着、这台电脑没有它的 SSH 映射。纯函数。 */
+/** 能不能经远程隧道连它:别的机器、在线、它报了中转通着、这台电脑没有它的 SSH 映射(真连要等有人用,见 holdTunnel)。纯函数。 */
 export function wantsTunnel(
   device: Pick<Device, 'device_id' | 'is_online' | 'is_current_device' | 'capabilities'>,
   sshMachines: ReadonlySet<string>,
@@ -42,15 +42,17 @@ export function wantsTunnel(
 
 /**
  * 远程隧道此刻怎样(见 RemoteHostDevice.tunnel):这一端连不了(手机 / 网页)、远程 SSH 的机器、离线的、已连通的 = 缺席;
- * 那台机器没报中转通着 = off;其余 = 连不上的原因,没有原因 = 正在连。纯函数。
+ * 那台机器没报中转通着 = off;没人用着 = idle(用到时才连);其余 = 连不上的原因,没有原因 = 正在连。纯函数。
  */
 export function tunnelFacts(
   device: Pick<Device, 'device_id' | 'is_online' | 'is_current_device' | 'capabilities'>,
   sshMachines: ReadonlySet<string>,
   tunnels: TunnelState,
   canOpen: boolean,
+  inUse: ReadonlySet<string>,
 ): Pick<RemoteHostDevice, 'tunnel'> {
   if (!canOpen || sshMachines.has(device.device_id) || !device.is_online || tunnels.ready.includes(device.device_id)) return {}
   if (!wantsTunnel(device, sshMachines)) return { tunnel: 'off' }
+  if (!inUse.has(device.device_id)) return { tunnel: 'idle' }
   return { tunnel: tunnels.problems[device.device_id] ?? 'connecting' }
 }

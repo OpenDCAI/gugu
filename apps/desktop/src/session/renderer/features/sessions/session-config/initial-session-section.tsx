@@ -110,6 +110,7 @@ import { rpcOn } from '@renderer/lib/ipc';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { asMounted, getProjectStore } from '@renderer/features/projects/stores/project-selectors';
 import { pushTaskDirectory, taskAttachmentUsesSsh } from '@/lib/taskAttachmentTarget';
+import { holdTunnel } from '@/lib/sshLinkChannel';
 import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import {
   createLocalSessionMentionProvider,
@@ -492,6 +493,8 @@ export function useInitialSessionState(
   const remoteHost = useLibraryHost().remote;
   const machine = remoteHost?.deviceId ?? null;
   const machineDevice = machine ? remoteHostsStore.device(machine) : null;
+  // 选着那台机器 = 要用它的直连(建「编程」会话):远程隧道这时才连。
+  useEffect(() => (machine ? holdTunnel(machine) : undefined), [machine]);
   const remoteGeneralOnly = machine !== null && machineDevice?.directTerminal !== true;
   const preferredSessionpageLeg = remoteGeneralOnly ? 'acp' : sessionpageLegOfView(sessionViewPreference);
   const {

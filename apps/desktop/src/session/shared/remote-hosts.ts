@@ -36,11 +36,11 @@ export type RemoteHostDevice = {
    */
   directTerminal: boolean;
   /**
-   * 远程隧道此刻怎样(只在这台电脑没有它的 SSH 映射、而它在线时报):connecting = 正在连;off = 那台机器没开远程隧道
-   * (咕咕 server 太旧 / 没配中转 / 不是咕咕 server);其余 = 连不上的原因(见 src/lib/tunnelMachines.ts)。
+   * 远程隧道此刻怎样(只在这台电脑没有它的 SSH 映射、而它在线时报):idle = 能连、没人用着(用到时才连);connecting = 正在连;
+   * off = 那台机器没开远程隧道(咕咕 server 太旧 / 没配中转 / 不是咕咕 server);其余 = 连不上的原因(见 src/lib/tunnelMachines.ts)。
    * 连通了 / 远程 SSH 的机器 / 手机上 = 缺席。
    */
-  tunnel?: 'connecting' | 'off' | 'unsupported' | 'relayDown' | 'visitorFailed' | 'sshFailed' | 'local' | 'unreachable';
+  tunnel?: 'idle' | 'connecting' | 'off' | 'unsupported' | 'relayDown' | 'visitorFailed' | 'sshFailed' | 'local' | 'unreachable';
   /** directTerminal 来自远程隧道(❌ 这台电脑用远程 SSH 添加的):标连法时不当成远程 SSH。 */
   viaTunnel?: true;
   /** 那台机器是咕咕 server(不带界面)还是另一台咕咕桌面;老宿主不报 = undefined(不知道)。 */

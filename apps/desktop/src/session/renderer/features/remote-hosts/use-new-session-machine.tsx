@@ -72,8 +72,8 @@ function remoteChoice(deviceId: string, translate: Translate): MachineChoice {
   return machineChoiceFromHost(
     device,
     remoteHostsStore.connectionState(deviceId),
-    // 通用 / 编程在这台机器上能不能开,悬停时说一句(behavior gugu-server:编程只给 SSH 装上的机器)。
-    translate(device.directTerminal ? 'task.deviceHintBoth' : device.cloudComputer ? 'task.deviceHintCloudComputer' : 'task.deviceHintGeneralOnly')
+    // 通用 / 编程在这台机器上能不能开,悬停时说一句(behavior gugu-server:编程只给 SSH 装上的机器;远程隧道闲着 = 选上就连)。
+    translate(device.directTerminal || device.tunnel === 'idle' ? 'task.deviceHintBoth' : device.cloudComputer ? 'task.deviceHintCloudComputer' : 'task.deviceHintGeneralOnly')
   );
 }
 

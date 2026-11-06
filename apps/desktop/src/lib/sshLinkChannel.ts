@@ -193,8 +193,60 @@ export function subscribeTunnelState(listener: (state: TunnelState) => void): ()
   }
 }
 
+// ── 用到了才连:每台中转机器一个 frpc + 一条 ssh,只在有人用它的直连(终端、浏览器、端口)时才值得 ─────────
+//
+// 用的地方经 holdTunnel 要、用完放手;最后一处放手后再留 TUNNEL_IDLE_MS(回来接着用不再等首连),到点才收。
+// 收掉之后那台机器的会话照旧经咕咕云(deviceRpc 换管道),下次用到再连。
+
+/** 最后一处放手之后隧道还留多久。有界:每台闲着的机器最多多占这么久。 */
+export const TUNNEL_IDLE_MS = 10 * 60_000
+
+const tunnelHolds = new Map<string, number>()
+const tunnelIdle = new Map<string, ReturnType<typeof setTimeout>>()
+let tunnelsInUse: ReadonlySet<string> = new Set()
+const inUseListeners = new Set<(ids: ReadonlySet<string>) => void>()
+
+function publishTunnelsInUse(): void {
+  const next = new Set([...tunnelHolds.keys(), ...tunnelIdle.keys()])
+  if (next.size === tunnelsInUse.size && [...next].every((id) => tunnelsInUse.has(id))) return
+  tunnelsInUse = next
+  for (const listener of [...inUseListeners]) listener(tunnelsInUse)
+}
+
+/** 要用这台机器的直连(屏上有它的会话、新建框选着它):经远程隧道连过去。返回放手。 */
+export function holdTunnel(deviceId: string): () => void {
+  const idle = tunnelIdle.get(deviceId)
+  if (idle) clearTimeout(idle)
+  tunnelIdle.delete(deviceId)
+  tunnelHolds.set(deviceId, (tunnelHolds.get(deviceId) ?? 0) + 1)
+  publishTunnelsInUse()
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const left = (tunnelHolds.get(deviceId) ?? 1) - 1
+    if (left > 0) return void tunnelHolds.set(deviceId, left)
+    tunnelHolds.delete(deviceId)
+    tunnelIdle.set(deviceId, setTimeout(() => {
+      tunnelIdle.delete(deviceId)
+      publishTunnelsInUse()
+    }, TUNNEL_IDLE_MS))
+  }
+}
+
+export function currentTunnelsInUse(): ReadonlySet<string> {
+  return tunnelsInUse
+}
+
+export function subscribeTunnelsInUse(listener: (ids: ReadonlySet<string>) => void): () => void {
+  inUseListeners.add(listener)
+  return () => {
+    inUseListeners.delete(listener)
+  }
+}
+
 let lastWant = ''
-/** 此刻要经远程隧道连的那些机器(在线、中转通着、这台电脑没有它的 SSH 映射)。没有主进程(手机 / 网页)= 不连。 */
+/** 此刻要经远程隧道连的那些机器(用着的、在线、中转通着、这台电脑没有它的 SSH 映射)。没有主进程(手机 / 网页)= 不连。 */
 export function wantTunnels(wants: readonly TunnelWant[]): void {
   const electron = bridge()
   if (!electron) return

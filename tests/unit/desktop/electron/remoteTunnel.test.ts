@@ -619,12 +619,14 @@ describe('渲染层:哪几台要经远程隧道连、界面说什么', () => {
     expect(wantsTunnel(device({ is_current_device: true }), new Set())).toBe(false)
   })
 
-  it('正在连 / 连不上的原因 / 没开 / 连通了 / 手机上:各说各的', () => {
-    expect(tunnelFacts(device(), new Set(), none, true)).toEqual({ tunnel: 'connecting' })
-    expect(tunnelFacts(device(), new Set(), { ready: [], problems: { d1: 'relayDown' } }, true)).toEqual({ tunnel: 'relayDown' })
-    expect(tunnelFacts(device({ capabilities: { terminals: [], runtimes: [] } }), new Set(), none, true)).toEqual({ tunnel: 'off' })
-    expect(tunnelFacts(device(), new Set(), { ready: ['d1'], problems: {} }, true)).toEqual({})
-    expect(tunnelFacts(device(), new Set(), none, false)).toEqual({})
+  it('没人用 / 正在连 / 连不上的原因 / 没开 / 连通了 / 手机上:各说各的', () => {
+    const used = new Set(['d1'])
+    expect(tunnelFacts(device(), new Set(), none, true, new Set())).toEqual({ tunnel: 'idle' })
+    expect(tunnelFacts(device(), new Set(), none, true, used)).toEqual({ tunnel: 'connecting' })
+    expect(tunnelFacts(device(), new Set(), { ready: [], problems: { d1: 'relayDown' } }, true, used)).toEqual({ tunnel: 'relayDown' })
+    expect(tunnelFacts(device({ capabilities: { terminals: [], runtimes: [] } }), new Set(), none, true, used)).toEqual({ tunnel: 'off' })
+    expect(tunnelFacts(device(), new Set(), { ready: ['d1'], problems: {} }, true, used)).toEqual({})
+    expect(tunnelFacts(device(), new Set(), none, false, used)).toEqual({})
   })
 })
 

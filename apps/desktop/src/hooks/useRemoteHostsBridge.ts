@@ -8,10 +8,12 @@ import {
   canOpenTunnels,
   currentSshMachineIds,
   currentTunnelState,
+  currentTunnelsInUse,
   requestSshServerUpgrade,
   signInSshMachine,
   subscribeSshMachineIds,
   subscribeTunnelState,
+  subscribeTunnelsInUse,
   wantTunnels,
 } from '../lib/sshLinkChannel'
 import { tunnelFacts, wantsTunnel, type TunnelState } from '../lib/tunnelMachines'
@@ -63,14 +65,16 @@ export function useRemoteHostsBridge(
   const signIns = useSshSignInStates(devices, sshAddress)
   const linkProblems = useSshLinkProblems()
   const tunnels = useTunnelState()
-  // 远程隧道:在线、中转通着、这台电脑没有它的 SSH 映射的那几台,交给主进程经中转连过去(连通了就有终端 / 浏览器 / 端口)。
+  const tunnelsInUse = useTunnelsInUse()
+  // 远程隧道:用着的(holdTunnel)、在线、中转通着、这台电脑没有它的 SSH 映射的那几台,交给主进程经中转连过去
+  // (连通了就有终端 / 浏览器 / 端口)。没人用的 ❌ 连:每台一个 frpc + 一条 ssh。
   useEffect(() => {
     wantTunnels(
       devices
-        .filter((device) => wantsTunnel(device, sshMachines))
+        .filter((device) => tunnelsInUse.has(device.device_id) && wantsTunnel(device, sshMachines))
         .map((device) => ({ deviceId: device.device_id, label: device.label })),
     )
-  }, [devices, sshMachines])
+  }, [devices, sshMachines, tunnelsInUse])
   const remote = useMemo<RemoteHostDevice[]>(
     () =>
       remoteWorkspaceDevices(devices, { includeConfigurations: true })
@@ -85,7 +89,7 @@ export function useRemoteHostsBridge(
           sessionDigest: device.session_digest ?? null,
           directTerminal: sshMachines.has(device.device_id) || tunnels.ready.includes(device.device_id),
           ...(!sshMachines.has(device.device_id) && tunnels.ready.includes(device.device_id) ? { viaTunnel: true as const } : {}),
-          ...tunnelFacts(device, sshMachines, tunnels, canOpenTunnels()),
+          ...tunnelFacts(device, sshMachines, tunnels, canOpenTunnels(), tunnelsInUse),
           hostKind: device.capabilities?.host_kind === 'phone' ? undefined : device.capabilities?.host_kind,
           connectVia: device.capabilities?.connect_via,
           version: device.capabilities?.app_version ?? null,
@@ -100,7 +104,7 @@ export function useRemoteHostsBridge(
           ...(device.projects ? { projects: device.projects } : {}),
           ...(device.capabilities?.home_dir ? { homeDir: device.capabilities.home_dir } : {}),
         })),
-    [devices, currentMachineKey, sshMachines, signIns, linkProblems, tunnels, homeId, homeName],
+    [devices, currentMachineKey, sshMachines, signIns, linkProblems, tunnels, tunnelsInUse, homeId, homeName],
   )
   const remoteRef = useRef(remote)
   const pickFolderRef = useRef(pickFolder)
@@ -169,6 +173,15 @@ function useTunnelState(): TunnelState {
     return subscribeTunnelState(setState)
   }, [])
   return state
+}
+
+function useTunnelsInUse(): ReadonlySet<string> {
+  const [ids, setIds] = useState<ReadonlySet<string>>(() => currentTunnelsInUse())
+  useEffect(() => {
+    setIds(currentTunnelsInUse())
+    return subscribeTunnelsInUse(setIds)
+  }, [])
+  return ids
 }
 
 /** 这台桌面上用 SSH 装上的机器(主进程记的本机映射,只算此刻登着的账号);装上新的一台时跟着变。 */

@@ -9,6 +9,7 @@ import { sessionConversationTabId } from '@renderer/features/sessions/view/sessi
 import { closeSessionPaneTab, sessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
 import { comparer, reaction } from 'mobx';
 import { openLink } from '@/lib/guguLinks';
+import { holdTunnel } from '@/lib/sshLinkChannel';
 import type { SessionpagePaneOpenRequest } from '@gugu/session-core/session-record/contract';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
@@ -134,6 +135,21 @@ let wired = false;
 export function ensureMachineSessionWiring(): void {
   if (wired) return;
   wired = true;
+
+  // 屏上有那台机器上的会话 = 用着它的直连(终端、浏览器、端口都在会话的工作区里):要远程隧道;都离开屏幕就放手。
+  const tunnelHolds = new Map<string, () => void>();
+  reaction(
+    () => [...new Set(machineSessionsOnScreen().map((page) => page.deviceId))].sort(),
+    (deviceIds) => {
+      for (const [deviceId, release] of tunnelHolds) {
+        if (deviceIds.includes(deviceId)) continue;
+        release();
+        tunnelHolds.delete(deviceId);
+      }
+      for (const deviceId of deviceIds) if (!tunnelHolds.has(deviceId)) tunnelHolds.set(deviceId, holdTunnel(deviceId));
+    },
+    { fireImmediately: true, equals: comparer.structural }
+  );
 
   // 看着 = 屏上每一条别的机器上的、会话页已经准备好的会话都订上它的 open_in_tab(一个任务一条会话);离开屏幕 = 退订。
   // 那台机器的闲置回收据此判「有人看着」(remote-pane watching)。会话页还没准备好(远端工作区正在挂载)就不订:

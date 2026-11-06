@@ -38,6 +38,7 @@ export function directToolsUnavailableText(
   translate: (key: SessionMessageKey) => string
 ): string {
   switch (device?.tunnel) {
+    case 'idle':
     case 'connecting':
       return translate('remoteWorkspace.tunnel.connecting');
     case 'off':
