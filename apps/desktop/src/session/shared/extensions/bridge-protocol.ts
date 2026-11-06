@@ -833,6 +833,9 @@ export const BRIDGE_VERBS = {
   filesList: { needs: 'files:read', machine: 'place' },
   /** Up to 512 KB of a working copy's file at an offset (`f.read`): how a file of any size is read, on its own machine. */
   filesRead: { needs: ({ ref }) => ref !== null && typeof ref === 'object' && 'workspace' in ref ? 'files:read' : null, machine: 'place' },
+  /** A working copy's text whole, and whether it is there, in those pieces: gated as filesOpen, in `app-files.ts`. */
+  filesReadText: { needs: null },
+  filesExists: { needs: null },
   /**
    * Files across every chat the reader is in (gugu-supabase 20261017002319): found by a piece of their path, and the ones
    * this person opened last. `files:read` already reads any chat they are in, so it is the same consent.
