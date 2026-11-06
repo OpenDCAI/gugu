@@ -1932,7 +1932,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesRename':
     case 'filesKeep':
     case 'filesMkdir':
-    case 'filesMove': {
+    case 'filesMove':
+    case 'filesWriteChunk':
+    case 'filesReveal': {
       const files = await import('@main/core/extensions/app-files');
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
@@ -1962,6 +1964,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesKeep: 'keepAppFile',
         filesMkdir: 'makeAppFolder',
         filesMove: 'moveAppFile',
+        filesWriteChunk: 'writeAppFileChunk',
+        filesReveal: 'revealAppFile',
         filesReplace: 'replaceAppFile',
         filesCanDelete: 'appFilesCanDelete',
         filesVersions: 'appFileVersions',

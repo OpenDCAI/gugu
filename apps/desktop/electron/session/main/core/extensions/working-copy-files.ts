@@ -1,12 +1,16 @@
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import { isExpandableFileNode, type FileNode } from '@gugu/session-core/files';
-import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
+import { REMOTE_WORKSPACE_CHUNK_BYTES, WORKSPACE_CONFLICT_CODE } from '@gugu/session-core/session-record/contract';
 import { AppFileError } from '@shared/extensions/app-files-core';
 import { placeKey, workspaceSession, type AppFileEntry, type WorkspacePlace } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
+import type { IGitWorktree } from '@gugu/session-core/git';
+import type { RuntimeManager } from '@main/core/runtime/types';
+import { log } from '@main/lib/logger';
 import type { FileTreeProjector } from '@main/core/files/file-tree/projector';
-import { workingCopyEntry } from './local-files';
+import { createWorkspaceUploads, inWorkspace, WorkspaceTransferError, type WorkspaceWriteChunk } from '@main/core/files/workspace-transfer';
+import { workingCopyEntry, workingCopyFolder } from './local-files';
 
 /**
  * A working copy's files as an App reads them, on the machine it is on — the file panel's own chain: the file tree
@@ -19,7 +23,20 @@ import { workingCopyEntry } from './local-files';
  */
 
 /** A subscription to the working copy's tree: a page keeps one while it is open, so the folders it listed stay loaded. */
-interface View { place: WorkspacePlace; root: string; projector: FileTreeProjector; subscriptionId: string; close: () => Promise<void> }
+interface View { place: WorkspacePlace; root: string; projector: FileTreeProjector; subscriptionId: string; workspaceId: string | null; git: IGitWorktree | undefined; close: () => Promise<void> }
+
+async function openGit(manager: Pick<RuntimeManager, 'acquire'>, root: string): Promise<{ value: IGitWorktree; release: () => Promise<void> } | null> {
+  const lease = await manager.acquire();
+  try {
+    const worktree = await lease.value.git.openWorktree(root);
+    return { value: worktree.value, release: async () => { await worktree.release(); await lease.release(); } };
+  } catch (error) {
+    // A folder that is no repository has no git to say anything: the list is the same without it.
+    log.info('[working-copy] no git for this folder', { root, error: String(error) });
+    await lease.release();
+    return null;
+  }
+}
 
 async function openView(place: WorkspacePlace): Promise<View> {
   // Imported when used: a page let go of (`releaseWorkingCopies`) must not load the workspace stack to do it.
@@ -29,14 +46,16 @@ async function openView(place: WorkspacePlace): Promise<View> {
     import('@main/core/runtime/runtime-manager'),
     import('@main/core/files/file-tree/projector'),
   ]);
-  const { workspaceRoot: root } = await localRootOf(place);
+  const { workspaceRoot: root, workspaceId } = await localRootOf(place);
   const unreadable = () => new AppFileError('not-found', 'This folder cannot be read on its computer');
   const runtime = await acquireWorkspaceRuntime({ manager: runtimeManager }, root, true).catch(() => { throw unreadable(); });
   const projector = new Projector(runtime.fileTree, () => undefined);
-  const close = async () => { projector.dispose(); await runtime.release(); };
+  // The tree opens without git (a folder need not be a repository); what git says of its files, where it is one, is read beside it.
+  const git = await openGit(runtimeManager, root);
+  const close = async () => { projector.dispose(); await git?.release(); await runtime.release(); };
   const opened = await projector.openProjection();
   if (!opened.success) { await close(); throw unreadable(); }
-  return { place, root, projector, subscriptionId: opened.data.subscriptionId, close };
+  return { place, root, projector, subscriptionId: opened.data.subscriptionId, workspaceId, git: git?.value, close };
 }
 
 const views = new Map<string, Promise<View>>();
@@ -49,16 +68,29 @@ function folderPath(root: string, folder: string | undefined): string | null {
   return rel ? abs : null;
 }
 
+/** What a chunked write is still gathering beside its file: not a file of the working copy yet. */
+const UPLOADING_SUFFIX = '.gugu-tmp';
+
 const relOf = (root: string, abs: string) => path.relative(root, abs).split(path.sep).join('/');
 
 /** One folder's tree nodes as entries: subfolders as `folder` entries, a file's size and dates read now. */
 async function entriesOf(view: View, nodes: readonly FileNode[]): Promise<AppFileEntry[]> {
+  const status = await view.git?.getStatus().catch((error: unknown) => {
+    log.warn('[working-copy] git status failed', { root: view.root, error: String(error) });
+    return null;
+  });
+  if (status && status.kind !== 'ok') log.warn('[working-copy] git status said no', { root: view.root, kind: status.kind });
+  const gitStatus = new Map(status?.kind === 'ok' ? [...status.staged, ...status.unstaged].map((change) => [path.resolve(view.root, change.path), change.status]) : []);
   const entries = await Promise.all(nodes.map(async (node): Promise<AppFileEntry | null> => {
     const rel = relOf(view.root, node.path);
+    if (rel.endsWith(UPLOADING_SUFFIX)) return null;
     const parentId = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
-    if (isExpandableFileNode(node)) return { ...workingCopyEntry(view.place, rel, null, 'inode/directory'), type: 'folder', suffix: '', parentId };
+    const facts = { parentId, absolutePath: node.path, ...(view.workspaceId ? { workspaceId: view.workspaceId } : {}), ...(gitStatus.has(node.path) ? { gitStatus: gitStatus.get(node.path) } : {}) };
+    if (isExpandableFileNode(node)) return { ...workingCopyFolder(view.place, rel), ...facts };
     const stat = await fsp.stat(node.path).catch(() => null);
-    return stat?.isFile() ? { ...workingCopyEntry(view.place, rel, stat), parentId } : null;
+    // A link that points nowhere still stands in the folder: to be seen, and deleted.
+    if (!stat) return await fsp.lstat(node.path).then((link) => ({ ...workingCopyEntry(view.place, rel, link), ...facts }), () => null);
+    return stat.isFile() ? { ...workingCopyEntry(view.place, rel, stat), ...facts } : null;
   }));
   return entries.filter((entry): entry is AppFileEntry => entry !== null);
 }
@@ -101,6 +133,38 @@ export async function readWorkingCopy(place: WorkspacePlace, file: string, offse
   } catch (error) {
     if (error instanceof WorkspaceTransferError) throw new AppFileError(error.code === 'not_a_file' ? 'invalid' : 'not-found', error.message);
     throw error;
+  }
+}
+
+/** A file's size is the disk's to limit: the parts go to disk as they come, whatever the file's length. */
+const uploads = createWorkspaceUploads({ maxBytes: Number.MAX_SAFE_INTEGER });
+
+/**
+ * `files.upload` into a working copy, one part: at most 512 KB, so a call stays under what one call may carry across
+ * machines. `expectedEtag: null` is a new file: one already at that path is said at the first part, before any bytes go.
+ */
+export async function writeWorkingCopyChunk(place: WorkspacePlace, chunk: WorkspaceWriteChunk & { abort?: boolean }): Promise<{ received: number; entry?: AppFileEntry }> {
+  if (chunk.abort === true) {
+    await uploads.abort(chunk.uploadId);
+    return { received: 0 };
+  }
+  const { localRootOf } = await import('./app-files');
+  const { workspaceRoot } = await localRootOf(place);
+  const taken = () => new AppFileError('name-taken', `${chunk.path} already exists`);
+  try {
+    if (chunk.offset === 0) {
+      // Its folders are made once the path is known to be inside; one already there is said before any bytes go.
+      const file = await inWorkspace(workspaceRoot, chunk.path);
+      if (chunk.expectedEtag === null && await fsp.lstat(file).then(() => true, () => false)) throw taken();
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+    }
+    const { received, committed } = await uploads.write(workspaceRoot, chunk);
+    if (!committed) return { received };
+    return { received, entry: workingCopyEntry(place, relOf(workspaceRoot, path.resolve(workspaceRoot, chunk.path)), await fsp.stat(path.resolve(workspaceRoot, chunk.path))) };
+  } catch (error) {
+    if (!(error instanceof WorkspaceTransferError)) throw error;
+    if (error.code === WORKSPACE_CONFLICT_CODE) throw taken();
+    throw new AppFileError(error.code === 'outside_workspace' || error.code === 'invalid_payload' ? 'invalid' : 'failed', error.message);
   }
 }
 

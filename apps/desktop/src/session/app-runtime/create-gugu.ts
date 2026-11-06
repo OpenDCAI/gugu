@@ -2,6 +2,7 @@ import type { TabOpenIntent } from '@shared/view-state';
 import { folderOf, placeKey, placeOf, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import { DISPATCH_GONE } from '@shared/extensions/app-dispatch-core';
 import { BRIDGE_VERBS, type ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
+import { uploadInParts } from '@shared/extensions/working-copy-upload';
 import { coded, guguError, refOf, type GuguHost } from './host';
 import { createModalApi } from './modal';
 import { countsOf } from './check-counts';
@@ -121,7 +122,9 @@ export function createGugu(
     // A4 `{ sourceMessageIds }`: the messages the files came from, as an entry gives them back.
     // 子文件夹 `{ chat, folder }`: the folder they go in (its path or id, made all the way down); not given, the top.
     // `{ keep }` 临时 / 保留: how long a stored copy stays ('temporary' | 'permanent'); not given, the chat's rule.
-    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[]; keep?: string }) =>
+    // Into a working copy, `{ replace, onProgress, signal }`: bytes go in parts, a file of any size; one already there is
+    // `name-taken` until `replace` says so; progress is the bytes sent of them all; `signal` stops it, nothing arrives.
+    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[]; keep?: string; replace?: boolean; onProgress?: (sent: number, total: number) => void; signal?: AbortSignal }) =>
       withPlace(place, (where) => {
         // Checked as list and create check it (folderOf): what is not a folder's path, id or entry is `invalid`.
         let folder: string | undefined;
@@ -129,6 +132,11 @@ export function createGugu(
           folder = folderOf((place as { folder?: unknown } | null)?.folder);
         } catch (error) {
           return Promise.reject(guguError('invalid', error instanceof Error ? error.message : String(error)));
+        }
+        if (file !== undefined && 'workspace' in where) {
+          const blobs = (Array.isArray(file) ? file : [file]) as (Blob & { name?: unknown })[];
+          if (blobs.length === 0 || blobs.some((blob) => !(blob instanceof Blob) || typeof blob.name !== 'string' || !blob.name)) return Promise.reject(guguError('invalid', 'gugu.files.upload takes a File, or a Blob with a name'));
+          return uploadInParts((part) => host.appFiles.writeChunk(part), where, blobs.map((blob) => ({ name: blob.name as string, blob })), folder, options);
         }
         const into = { ...(folder === undefined ? {} : { folder }), ...(options?.keep === undefined ? {} : { keep: options.keep }) };
         return file === undefined
@@ -138,7 +146,8 @@ export function createGugu(
     ...(download && openWith
       ? {
           // API 20: several files at once — one 「save to」 for them all (a folder on the desktop, the share sheet on the phone).
-          download: (files: unknown) => (Array.isArray(files) ? withRefs(files, (refs) => download({ refs })) : withRef(files, (ref) => download({ ref }))),
+          // A working copy's folder (`entry.type: 'folder'`): saved whole.
+          download: (files: unknown) => (Array.isArray(files) ? withRefs(files, (refs) => download({ refs })) : withRef(files, (ref) => download({ ref, ...((files as { type?: unknown } | null)?.type === 'folder' ? { folder: true } : {}) }))),
           // `{ ask: true }`: 「用别的 App 打开」 — every App that opens it, the person picks. `{ at }`: the place in it (a pill's).
           // `{ peek: true }`: beside this page, which stays as it is (G1).
           openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> }) =>
@@ -148,6 +157,7 @@ export function createGugu(
       : {}),
     // API 23: 「转发」 — one file or several, the host's forward page; resolves once it is up (what is sent is the person's).
     ...(forward ? { forward: (files: unknown) => withRefs(files, (refs) => forward({ refs })) } : {}),
+    ...(host.appFiles.reveal ? { reveal: (file: unknown) => withRef(file, (ref) => host.appFiles.reveal!({ ref })) } : {}),
   });
 
   // Every v1 member; `appFiles`, `chats`, `checkPage`, `clipboard`, `messages`, `projects`, `theme` and `onFilesChanged` (it is

@@ -53,7 +53,8 @@ More \`guide_read\` topics:
 - \`apps-sessions\` — external CLI history and context.
 - \`apps-programs\` — agent tools and skills.
 - \`apps-projection\` — local picture/input.
-- \`apps-files\` — \`gugu.files\`: chat files and working copies, edited live.
+- \`apps-files\` — \`gugu.files\`: chat files, edited live.
+- \`apps-working-copy\` — a working copy.
 - \`apps-editors\` — an editor (a textarea, CodeMirror), keeping others' letters.
 - \`apps-together\` — several people in one App at once: presence, a game loop, secrets.
 - \`apps-messages\` — your chats, who is in them, their messages.
@@ -547,6 +548,20 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  * `gugu.files` — the platform runtime's shared files (L3; notes/2026-09-29-app-platform/workspace-app/
  * L3-runtime-interface.md). The page an agent reads before writing a vote, a game or an editor.
  */
+export const EXTENSION_GUIDE_WORKING_COPY = `# A session's working copy through gugu.files
+
+The place is \`{ workspace: ctx.workspace.id }\`. An entry's \`id\` is its path there; it carries \`absolutePath\`, and \`gitStatus\` when git says it changed.
+
+- \`gugu.files.list({ workspace, folder })\` lists one folder (\`''\` the top), never a whole tree. Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
+- \`gugu.files.onChanged({ workspace, folder }, fn)\`: \`{ kind: 'changes', changes }\` or \`resync\`, below \`folder\` only.
+- Another machine's working copy needs \`files:read:all-machines\` as well; every call below is done on that machine.
+- With \`files:write\`: \`gugu.files.create\`, \`gugu.files.rename\` (a path moves it), \`gugu.files.mkdir({ workspace, path })\`, \`gugu.files.move(entry, { folder, name })\`, \`gugu.files.remove\` (a folder with all in it; a link, not what it points at). A name already there: \`name-taken\`, nothing changed.
+- \`gugu.files.upload({ workspace, folder }, file, { replace, onProgress, signal })\`: a File or a list of them, in parts, of any size, folders made as needed. A name already there is \`name-taken\` until \`replace: true\`. \`onProgress\` is told the bytes sent and the total; an aborted \`signal\` leaves nothing.
+- \`gugu.files.download(folderEntry)\` (a click or key): one place asked, the folder saved with all in it.
+- \`gugu.files.reveal(entry)\` (a page, this computer's working copy): shows it in the file manager.
+- After \`rename\`, \`move\` or \`remove\`, the host's panes that show the file follow it.
+`;
+
 export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
 Claim a file's name/suffix and open it live; don't bundle data (\`app_install\` data \`{item_id}\`).
@@ -573,7 +588,6 @@ Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\
 - A name claims one file (\`"session":["TODO.md"]\`); suffixes: your own format. Preserve unknown data.
   Changing course, remove your topics/files or ask. Session files in search-skipped folders hear disk changes on write only.
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
-- Another machine's working copy: list and \`f.read\` work; open whole/download need \`files:read:all-machines\`.
 - \`gugu.files.list(place)\`: \`files:read\`; \`gugu.files.create({...place,name},content)\`, \`gugu.files.rename(entry,name)\`,
   \`gugu.files.remove(entry)\`: \`files:write\`. JSON: objects, not \`JSON.stringify\` strings.
 - \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): path search across the reader's chats, with
@@ -583,8 +597,8 @@ Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
   \`gugu.files.move(entry, { folder, name })\`; remove takes a whole folder. A name the folder has (any case):
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
-- A working copy lists one folder: \`gugu.files.list({ workspace, folder })\` (\`''\` top). Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
-- \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A working copy (\`folder\`: below it only): \`{ kind: 'changes', changes }\` or \`resync\`.
+- A session's working copy, listing and changing it on its own machine: \`apps-working-copy\`.
+- \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`.
 - \`gugu.files.openWith(entry)\`: claim or "always use"; \`{ ask: true }\`: pick among all.
   Default \`intent: 'preview'\`; double-click: \`intent: 'pinned'\`.
   \`{ at }\`: opener's \`link\` place. Unclaimed: preview, or details/download. \`{ peek: true }\`: beside this page
@@ -1125,6 +1139,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-files',
     about: 'gugu.files: a chat\'s files, and a session\'s working copy — edited live by several people and agents together: text, live JSON, errors.',
     text: EXTENSION_GUIDE_FILES,
+  },
+  {
+    topic: 'apps-working-copy',
+    about: 'A session\'s working copy through gugu.files: list, change and upload on the machine it is on; what a file tree needs.',
+    text: EXTENSION_GUIDE_WORKING_COPY,
   },
   {
     topic: 'apps-editors',

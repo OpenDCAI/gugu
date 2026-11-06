@@ -17,6 +17,9 @@ export type MachineCallFrom = { sessionId?: string } | { agent: string; agentSes
 const text = (value: unknown) => (typeof value === 'string' ? value : '');
 const invalid = (message: string) => Object.assign(new Error(message), { code: 'invalid' });
 
+/** A page on another machine has no page here: only the App it is of counts (no file was handed to it here). */
+const pageOf = (extensionId: string) => ({ pageId: -1, extensionId, handed: null });
+
 export const machineVerbs = {
   sessionsIndex: async (_extensionId, args) => (await import('./app-sessions')).indexSessionsForApp(args),
   sessionsRead: async (_extensionId, args) => (await import('./app-sessions')).readSessionForApp(args),
@@ -60,4 +63,11 @@ export const machineVerbs = {
     const { readWorkingCopy } = await import('./working-copy-files');
     return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, Number(args.offset) || 0, Number(args.length) || 0);
   },
+  // A working copy's writes: what this machine's own pages call, for the page elsewhere that named it.
+  filesCreate: async (extensionId, args) => (await import('./app-files')).createAppFile(pageOf(extensionId), args as never),
+  filesRename: async (extensionId, args) => (await import('./app-files')).renameAppFile(pageOf(extensionId), args as never),
+  filesMkdir: async (extensionId, args) => (await import('./app-files')).makeAppFolder(pageOf(extensionId), args),
+  filesMove: async (extensionId, args) => (await import('./app-files')).moveAppFile(pageOf(extensionId), args),
+  filesRemove: async (extensionId, args) => (await import('./app-files')).removeAppFile(pageOf(extensionId), args),
+  filesWriteChunk: async (extensionId, args) => (await import('./app-files')).writeAppFileChunk(pageOf(extensionId), args),
 } satisfies Record<MachineVerb | PlaceVerb, (extensionId: string, args: Record<string, unknown>, from: MachineCallFrom) => Promise<unknown>>;

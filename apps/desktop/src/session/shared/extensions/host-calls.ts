@@ -95,6 +95,8 @@ export const HOST_CALLS = {
   'appFiles.keep': { verb: 'filesKeep' },
   'appFiles.mkdir': { verb: 'filesMkdir' },
   'appFiles.move': { verb: 'filesMove' },
+  'appFiles.writeChunk': { verb: 'filesWriteChunk' },
+  'appFiles.reveal': { verb: 'filesReveal' },
   'appFiles.watch': { verb: 'filesWatch' },
   'appFiles.replace': { verb: 'filesReplace' },
   'appFiles.canDelete': { verb: 'filesCanDelete' },
