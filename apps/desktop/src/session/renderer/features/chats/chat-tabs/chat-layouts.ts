@@ -208,7 +208,9 @@ export const showChatOnly = action(function showChatOnly(chatId: string): void {
 /** Fullscreen changes only visibility. It never dismantles the pair or its history. */
 export const setPanelFull = action(function setPanelFull(chatId: string, tabId: string, full: boolean): void {
   const pane = paneHolding(chatLayoutOf(chatId), tabId);
-  if (pane && tabFullscreen.isOn(pane, tabId) !== full) tabFullscreen.toggle(pane, tabId);
+  if (!pane || tabFullscreen.isOn(pane, tabId) === full) return;
+  pane.setActiveTab(tabId);
+  tabFullscreen.toggle(pane, tabId);
 });
 
 export function panelFull(chatId: string, tabId: string): boolean {

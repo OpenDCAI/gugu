@@ -1,21 +1,20 @@
 import { useDroppable } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { createPaneDimensionSink, PaneDimensionProvider, type PaneDimensionSink } from './pane-dimension-provider';
 import { usePaneContext } from './pane-context';
 import { TabBar } from './tab-bar';
 import { isUnavailableTabResource, UnavailableTabContent } from './unavailable-tab';
 import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
-import { tabFullscreen, WORKSPACE_ANCHOR } from './tab-fullscreen';
+import { fullscreenCover, tabFullscreen } from './tab-fullscreen';
+import { WINDOW_CONTROL_BAR_HEIGHT_PX } from '@/lib/window-chrome';
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 
 // 文件编辑器收字的是 `.cm-content`(可编辑时 contenteditable)。浏览器页签的网页是主进程的 view,页签里只有它的占位 `[data-browser-page]`。
 const CONTENT_FOCUS_SELECTOR = '.cm-content, textarea:not([readonly]), webview, [data-browser-page], [contenteditable="true"]';
-const FULLSCREEN_STYLE = {
-  position: 'fixed', positionAnchor: WORKSPACE_ANCHOR,
-  top: 'anchor(top)', bottom: 'anchor(bottom)', left: 'anchor(left)', right: 'anchor(right)',
-  zIndex: 'var(--z-pane-fullscreen)',
-} as CSSProperties;
+const FULLSCREEN_STYLE = fullscreenCover('anchor(top)', 'anchor(bottom)');
+// A paired page's strip is the session's one strip above the pair: it stays on top (PaneTreeView), the page sits under it.
+const FULLSCREEN_UNDER_STRIP_STYLE = fullscreenCover(`calc(anchor(top) + ${WINDOW_CONTROL_BAR_HEIGHT_PX}px)`, 'anchor(bottom)');
 
 type PaneContentProps = {
   /**
@@ -37,13 +36,13 @@ type PaneContentProps = {
 export const PaneContent = observer(function PaneContent({ part = 'all', ...props }: PaneContentProps) {
   return part === 'bar'
     ? <TabBar leadingSlot={props.tabLeadingSlot} tabTrailingSlot={props.tabTrailingSlot} actionsSlot={props.actionsSlot} reserveShellRestoreLane={props.reserveShellRestoreLane} leadingReservePx={props.leadingReservePx} />
-    : <PaneBody {...props} hideTabBar={props.hideTabBar || part === 'body'} />;
+    : <PaneBody {...props} hideTabBar={props.hideTabBar || part === 'body'} underStrip={part === 'body'} />;
 });
 
 const PaneBody = observer(function PaneBody({
   emptyState, tabLeadingSlot, tabTrailingSlot, actionsSlot, hideTabBar,
-  reserveShellRestoreLane, leadingReservePx, contentOverlay,
-}: Omit<PaneContentProps, 'part'>) {
+  reserveShellRestoreLane, leadingReservePx, contentOverlay, underStrip,
+}: Omit<PaneContentProps, 'part'> & { underStrip: boolean }) {
   const { paneId, pane, isFocusedPane } = usePaneContext();
   const shellRef = useRef<HTMLDivElement | null>(null);
   useCommandProvider(useMemo(() => ({
@@ -92,7 +91,7 @@ const PaneBody = observer(function PaneBody({
   const retained = new Set([...recent, ...pane.registry.all().filter((provider) => provider.keepMounted && kinds.includes(provider.kind)).map((provider) => provider.kind)]);
   const fullscreen = tabFullscreen.isOn(pane);
   return (
-    <div ref={shellRef} className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'} style={fullscreen ? FULLSCREEN_STYLE : undefined} data-tab-fullscreen={fullscreen ? '' : undefined}
+    <div ref={shellRef} className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'} style={fullscreen ? (underStrip ? FULLSCREEN_UNDER_STRIP_STYLE : FULLSCREEN_STYLE) : undefined} data-tab-fullscreen={fullscreen ? '' : undefined}
       onMouseUp={(event) => {
         if (event.defaultPrevented || (event.button !== 3 && event.button !== 4)) return;
         const id = pane.resolvedActiveTabId;

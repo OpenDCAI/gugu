@@ -70,6 +70,29 @@ describe('real pane navigation and placement', () => {
     tabFullscreen.exit();
     expect(JSON.stringify(layout.snapshot)).toBe(before);
   });
+  it('the page opened beside the conversation in full screen: going back leaves full screen, focus on the conversation', async () => {
+    const { layout, chat } = setup();
+    const file = layout.open('file', { id: 'notes.md' }, { from: chat, intent: 'newTab' })!;
+    layout.splitPane(layout.activePaneId, 'right', file);
+    const side = layout.groups.find(({ pane }) => pane.entries.has(file))!.pane;
+    side.tabFill(file)!.toggle();
+    expect(tabFullscreen.isOn(side, file)).toBe(true);
+    expect(await side.go(file, -1)).toBe(true);
+    expect(tabFullscreen.target).toBeNull();
+    expect(layout.focusedPane.entries.has(chat)).toBe(true);
+  });
+  it('full screen on a page ends when another page of the layout is brought forward, whichever pane held the focus before', () => {
+    const { layout, chat } = setup();
+    const file = layout.open('file', { id: 'notes.md' }, { from: chat, intent: 'newTab' })!;
+    layout.splitPane(layout.activePaneId, 'right', file);
+    const side = layout.groups.find(({ pane }) => pane.entries.has(file))!.pane;
+    const main = layout.groups.find(({ pane }) => pane.entries.has(chat))!.pane;
+    layout.setActiveGroup(layout.groups.find(({ pane }) => pane === main)!.paneId);
+    side.tabFill(file)!.toggle();
+    expect(tabFullscreen.isOn(side, file)).toBe(true);
+    main.setActiveTab(chat);
+    expect(tabFullscreen.target).toBeNull();
+  });
   it('a detached context keeps its resource and history when returned', () => {
     const { layout, pane, folder } = setup();
     layout.open('file', { id: 'README.md' }, { from: folder, intent: 'navigate' });

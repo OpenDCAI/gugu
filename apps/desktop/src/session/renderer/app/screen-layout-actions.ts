@@ -13,6 +13,7 @@ import { auxWindows, type TabWindowHome } from './aux-windows';
 import { readChatSummaries, subscribeChatSummaries } from '@/lib/chatSummariesBridge';
 import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession, type WindowableContent } from './screen-layout';
 import { groupParticipantPanes } from '@renderer/features/chats/group-participant-panes';
+import { tabFullscreen } from '@renderer/features/tabs/tab-fullscreen';
 
 /**
  * 这一屏(screen-layout)和导航之间的那两根线(spec session-page「一屏几块」):
@@ -294,12 +295,14 @@ export function showSessionBeside(target: ScreenSession): void {
 
 /** 把一样东西摆到这屏上(项目、对话;会话走导航):它在哪组就整组回来,否则单独一屏。 */
 export function showOnScreen(content: ScreenBlockContent): void {
+  tabFullscreen.exit();
   screenLayout.show(content);
   followFocus();
 }
 
 /** ⌘ 点左边一行(项目、对话、会话都一样):并排放在正看着那块右边;满了提示。 */
 export function showBesideOnScreen(content: ScreenBlockContent): void {
+  tabFullscreen.exit();
   if (content.kind === 'session') {
     showSessionBeside(content);
     return;

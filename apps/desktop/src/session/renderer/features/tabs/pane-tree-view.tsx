@@ -6,11 +6,14 @@ import { createPaneDimensionSink, PaneDimensionProvider } from './pane-dimension
 import { RetainedTabContent } from './retained-tab-content';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneLayoutStore } from './pane-layout-store';
 import { cornerPane, minExtent, paneOrder, type PaneLayoutNode } from './pane-layout-tree';
+import { fullscreenCover, tabFullscreen } from './tab-fullscreen';
+import { WINDOW_CONTROL_BAR_HEIGHT_PX } from '@/lib/window-chrome';
 import { setDragShield } from '@renderer/lib/drag-shield';
 import { useRef } from 'react';
 
 /** `part`: 'all' = the pane's strip over its page; while paired the main pane's 'bar' is drawn above both 'body's. */
 type RenderPane = (paneId: string, first: boolean, last: boolean, part: 'all' | 'bar' | 'body') => ReactNode;
+const STRIP_OVER_FULLSCREEN = fullscreenCover('anchor(top)', 'auto');
 const childId = (node: PaneLayoutNode) => node.type === 'pane' ? `pane-${node.paneId}` : `cut-${node.id}`;
 
 /**
@@ -34,7 +37,10 @@ export const PaneTreeView = observer(function PaneTreeView({ layout, renderPane,
   const paired = layout.sidePaneId !== null;
   return <PaneDimensionProvider sink={size}>
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      {paired && <div className="min-w-0 shrink-0" data-pane-strip="">{renderPane(layout.mainGroup.paneId, true, true, 'bar')}</div>}
+      {/* A page of the pair in full screen keeps this one strip over it (its exit is on the tab); the row keeps its height, so nothing under it moves. */}
+      {paired && <div className="min-w-0 shrink-0" style={{ height: WINDOW_CONTROL_BAR_HEIGHT_PX }} data-pane-strip="">
+        <div style={layout.groups.some(({ pane }) => tabFullscreen.isOn(pane)) ? STRIP_OVER_FULLSCREEN : undefined}>{renderPane(layout.mainGroup.paneId, true, true, 'bar')}</div>
+      </div>}
       <div className="relative min-h-0 min-w-0 flex-1" data-pane-tree-narrow={narrow || undefined}>
         <Tree node={layout.layout} layout={layout} narrow={single} visiblePaneId={visiblePaneId} anchorOf={anchorOf} />
         {layout.groups.map(({ paneId }) => {

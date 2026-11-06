@@ -15,6 +15,7 @@ import {
 } from '../src/session/shared/extensions/bridge-protocol';
 import { SYNC_PORT_CHANNEL, SYNC_PORT_REQUEST, SYNC_PORT_WINDOW_MESSAGE } from '../src/session/shared/extensions/app-runtime-protocol';
 import { hostEventHub, hostMembers } from '../src/session/shared/extensions/host-calls';
+import { escapeIsFree } from '../src/session/shared/escape-is-free';
 
 installProcessMetricsResponder(ipcRenderer, process, 'app');
 
@@ -73,6 +74,10 @@ const relayWidgetWheel = (event: WheelEvent) => {
   const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? innerHeight : 1;
   ipcRenderer.sendToHost('gugu-widget-wheel', { x: event.deltaX * unit, y: event.deltaY * unit });
 };
+// Esc pressed in this page never reaches the host window. What the page or a field here used is not for the host.
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && escapeIsFree(event.target)) ipcRenderer.sendToHost('gugu-guest-escape');
+});
 ipcRenderer.on(EXTENSION_BRIDGE_EVENT_CHANNEL, (_event: unknown, payload: ExtensionHostEvent) => {
   if (payload.type === 'context') {
     const next = payload.context.widget !== undefined && !payload.context.modal;

@@ -1,3 +1,4 @@
+import { DndContext } from '@dnd-kit/core';
 import { act, useEffect } from 'react';
 import { afterAll, afterEach, expect, it } from 'vitest';
 import { cdp, page } from 'vitest/browser';
@@ -6,6 +7,9 @@ import { until } from '../../../../../../../tests/support/awaitCondition';
 import { createTabProvider, createTabRegistry } from '@renderer/features/tabs/core/tab-provider-registry';
 import { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 import { PaneTreeView } from '@renderer/features/tabs/pane-tree-view';
+import { PaneContent } from '@renderer/features/tabs/pane-content';
+import { PaneContext } from '@renderer/features/tabs/pane-context';
+import { tabFullscreen, WORKSPACE_ANCHOR } from '@renderer/features/tabs/tab-fullscreen';
 import '@renderer/index.css';
 import '@/styles/tokens.css';
 
@@ -97,4 +101,34 @@ it('splitting and closing a pane keep the pane that stays mounted, its page the 
   await until('the kept pane fills the tree again', () => harness.container.querySelector(`iframe[title="${kept}"]`)?.getBoundingClientRect().width ?? 0, (width) => width === 1000);
   expect(harness.container.querySelector(`iframe[title="${kept}"]`)).toBe(page0);
   expect(mounts).toEqual(['mount kept', 'mount other', 'unmount other']);
+});
+
+it('a page of the pair in full screen keeps the one strip over it, and nothing under it moves', async () => {
+  await page.viewport(1100, 800);
+  harness = createReactHarness();
+  harness.container.style.cssText = `position:fixed;left:0;top:0;width:1000px;height:600px;anchor-name:${WORKSPACE_ANCHOR}`;
+  const provider = createTabProvider({ kind: 'page', resourceKey: (state: { id: string }) => state.id, initialize: () => ({ dispose() {} }), dispose() {}, TabContent: () => null, TabBarItem: () => null, TabBarItemDragPreview: () => null });
+  layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'tree-v3-full' });
+  layout.open('page', { id: 'conversation' }, { from: null, intent: 'newTab' });
+  const side = layout.open('page', { id: 'notes.md' }, { from: null, intent: 'newTab' })!;
+  layout.focusedPane.setDimensions(1000, 600);
+  expect(layout.splitPane(layout.activePaneId, 'right', side)).toBe(true);
+  const group = (paneId: string) => layout.groups.find((candidate) => candidate.paneId === paneId)!;
+  await act(() => harness.render(<DndContext><PaneTreeView layout={layout} renderPane={(id, _first, _last, part) => (
+    <PaneContext.Provider value={{ paneId: id, pane: group(id).pane, isFocusedPane: true }}><PaneContent part={part} /></PaneContext.Provider>
+  )} /></DndContext>));
+  const strip = () => harness.container.querySelector<HTMLElement>('.session-tab-bar')!;
+  await until('the strip is drawn', () => strip()?.getBoundingClientRect().width ?? 0, (width) => width === 1000);
+  const row = harness.container.querySelector<HTMLElement>('[data-pane-strip]')!.getBoundingClientRect().height;
+  const sidePane = layout.groups.find(({ pane }) => pane.entries.has(side))!.pane;
+  await act(() => sidePane.tabFill(side)!.toggle());
+  const cover = harness.container.querySelector<HTMLElement>('[data-tab-fullscreen]')!;
+  await until('the page covers the workspace under the strip', () => cover.getBoundingClientRect().width, (width) => width === 1000);
+  expect(cover.getBoundingClientRect().top).toBe(strip().getBoundingClientRect().bottom);
+  expect(cover.getBoundingClientRect().bottom).toBe(600);
+  expect(strip().getBoundingClientRect().top).toBe(0);
+  expect(strip().contains(document.elementFromPoint(500, 20))).toBe(true);
+  expect(harness.container.querySelectorAll('.session-tab-bar')).toHaveLength(1);
+  expect(harness.container.querySelector<HTMLElement>('[data-pane-strip]')!.getBoundingClientRect().height).toBe(row);
+  await act(() => tabFullscreen.exit());
 });

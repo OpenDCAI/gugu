@@ -10,6 +10,7 @@ import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { AppSettingsPage } from './app-settings-page';
 import { ExtensionGuestBinding, type ExtensionGuestTarget } from './extension-guest-binding';
+import { tabFullscreen } from '@renderer/features/tabs/tab-fullscreen';
 
 /**
  * 常驻扩展的页都住在这一层:每个 App 在每个地方(一个群、一个任务)一张,一生不换地方(摩擦单 F48,
@@ -340,10 +341,14 @@ export const ExtensionPage = observer(function ExtensionPage({
         }
       };
       element.addEventListener('ipc-message', wheel);
+      // Same reason for Esc: pressed in the guest, it leaves full screen here (tab-fullscreen).
+      const escape = (event: Event) => { if ((event as Event & { channel: string }).channel === 'gugu-guest-escape') tabFullscreen.exit(); };
+      element.addEventListener('ipc-message', escape);
       guestTeardownRef.current = () => {
         element.removeEventListener('dom-ready', ready);
         element.removeEventListener('render-process-gone', gone);
         element.removeEventListener('ipc-message', wheel);
+        element.removeEventListener('ipc-message', escape);
       };
     },
     [aimAt, claimOf, guestBinding, kind, inline]

@@ -1,4 +1,6 @@
 import { action, makeObservable, observable, reaction } from 'mobx';
+import type { CSSProperties } from 'react';
+import { escapeIsFree } from '@shared/escape-is-free';
 
 /**
  * 页签全屏(owner 10-28「全屏和 separate view 肯定是不一样的两个操作」):这一枚页签临时盖住整个工作区(这一屏所有块),
@@ -10,6 +12,8 @@ import { action, makeObservable, observable, reaction } from 'mobx';
 export type TabFullscreenPane = {
   readonly entries: { has(tabId: string): boolean };
   readonly resolvedActiveTabId: string | null | undefined;
+  /** Whether this pane holds the focus of its layout. */
+  readonly isFocused: boolean;
 };
 
 export type TabFullscreenTarget = { pane: TabFullscreenPane; tabId: string };
@@ -17,16 +21,26 @@ export type TabFullscreenTarget = { pane: TabFullscreenPane; tabId: string };
 /** 工作区的锚点名:ScreenFrame(这一屏的骨架)挂着它,全屏的那一格贴到它的四条边上。 */
 export const WORKSPACE_ANCHOR = '--gg-workspace';
 
+/** Pinned to the workspace, over everything in it, from `top` to `bottom`. */
+export function fullscreenCover(top: string, bottom: string): CSSProperties {
+  return {
+    position: 'fixed', positionAnchor: WORKSPACE_ANCHOR,
+    top, bottom, left: 'anchor(left)', right: 'anchor(right)',
+    zIndex: 'var(--z-pane-fullscreen)',
+  } as CSSProperties;
+}
+
 class TabFullscreen {
   target: TabFullscreenTarget | null = null;
 
   constructor() {
     makeObservable(this, { target: observable.ref, toggle: action, exit: action });
-    // 这一枚关掉了、或这一格换成别的页签了 ⇒ 自己退出(别处打开了别的东西,焦点也就不在它上面了)。
+    // 这一枚关掉了、这一格换成别的页签了、或焦点去了别的格(「返回对话」、侧栏点任务、别处打开了东西)⇒ 自己退出:
+    // 全屏盖着整个工作区,被亮起的那一页就在它下面。
     reaction(
       () => {
         const target = this.target;
-        return target !== null && (!target.pane.entries.has(target.tabId) || target.pane.resolvedActiveTabId !== target.tabId);
+        return target !== null && (!target.pane.entries.has(target.tabId) || target.pane.resolvedActiveTabId !== target.tabId || !target.pane.isFocused);
       },
       (gone) => { if (gone) this.exit(); },
     );
@@ -60,25 +74,6 @@ class TabFullscreen {
   exit(): void {
     this.target = null;
   }
-}
-
-/** Esc 这一下是不是没人在用:焦点在输入框 / 终端 / 编辑器里,或者开着弹窗、菜单,都留给它们。 */
-export function escapeIsFree(target: EventTarget | null): boolean {
-  if (typeof document === 'undefined') return true;
-  const el = target instanceof Element ? target : null;
-  if (el?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .xterm, .cm-editor, [role="dialog"], [role="menu"], [role="listbox"]')) return false;
-  const expanded = [...document.querySelectorAll('[aria-expanded="true"][aria-controls]')];
-  return ![...document.querySelectorAll('[role="dialog"], [role="menu"], [role="listbox"]')].some((popup) => {
-    // Page lists stay mounted; only an open popup (or its expanded control) owns page Escape.
-    if (popup.getAttribute('role') === 'listbox' && !popup.hasAttribute('data-open') &&
-        !expanded.some((control) => popup.id && control.getAttribute('aria-controls')?.split(/\s+/).includes(popup.id))) return false;
-    for (let node: Element | null = popup; node; node = node.parentElement) {
-      if (node.matches('[hidden], [inert], [aria-hidden="true"], [data-closed]')) return false;
-      const style = getComputedStyle(node);
-      if (style.display === 'none' || style.visibility === 'hidden') return false;
-    }
-    return true;
-  });
 }
 
 export const tabFullscreen = new TabFullscreen();

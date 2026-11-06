@@ -827,6 +827,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
           return true;
         },
         hasSibling: () => this.groups.length > 1,
+        isFocusedPane: () => this.activePaneId === paneId,
         pairRole: (tabId) => {
           const pair = this.pair;
           if (!pair || (tabId !== pair.pinned && tabId !== pair.side)) return undefined;

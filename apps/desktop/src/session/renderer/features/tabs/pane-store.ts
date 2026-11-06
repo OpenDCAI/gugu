@@ -96,6 +96,7 @@ export interface PaneSplitter {
   revealTab?(tabId: string): boolean;
   entryForTab?(tabId: string): TabEntry | undefined;
   hasSibling?(): boolean;
+  isFocusedPane?(): boolean;
   /** This tab's place in the pair on the strip ('start' = left), undefined = not in the pair. */
   pairRole?(tabId: string): 'start' | 'end' | undefined;
   /** The side pane, drawn joined into this pane's strip (only for the main pane while paired). */
@@ -630,10 +631,15 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     void this._requestCloseInTurn(this.tabOrder.filter((id) => id !== tabId));
   }
 
+  /** 这一格是不是它那个布局里握着焦点的那格;单独成窗的那一格只有它自己。 */
+  get isFocused(): boolean {
+    return this._layoutSplitter?.isFocusedPane?.() ?? true;
+  }
+
   tabFill(tabId: string, multiBlock = false): { full: boolean; toggle: () => void } | null {
     const full = tabFullscreen.isOn(this, tabId);
     if (!full && !multiBlock && !this._layoutSplitter?.hasSibling?.()) return null;
-    return { full, toggle: () => runInAction(() => { this._focus(tabId); tabFullscreen.toggle(this, tabId); }) };
+    return { full, toggle: () => runInAction(() => { this.setActiveTab(tabId); tabFullscreen.toggle(this, tabId); }) };
   }
 
   tabWindowOpener(tabId: string): (() => void) | null {
