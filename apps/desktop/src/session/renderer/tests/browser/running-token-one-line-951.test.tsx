@@ -30,11 +30,6 @@ const rowTops = () => new Set(shown('.rtb-bar > .rtb-tok, .rtb-bar > .rtb-more')
 const panel = () => document.querySelector<HTMLElement>('.rtb-ov')
 const composer = () => column!.querySelector<HTMLElement>('[data-composer-geometry]')!
 
-async function hover(element: HTMLElement) {
-  await userEvent.hover(element)
-  await vi.runOnlyPendingTimersAsync()
-}
-
 async function mount(width: number, list: RunningToken[], onTokenClick = vi.fn()) {
   column!.style.width = `${width}px`
   const render = (items: RunningToken[]) => root!.render(
@@ -56,8 +51,6 @@ async function mount(width: number, list: RunningToken[], onTokenClick = vi.fn()
 beforeEach(async () => {
   await page.viewport(1200, VIEWPORT_HEIGHT)
   await i18n.changeLanguage('en-US')
-  // Keep pointer input, layout and CSS animation real; advance only Base UI's hover timers.
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   document.body.style.margin = '0'
   column = document.createElement('div')
   column.className = 'gugu-skin'
@@ -67,15 +60,10 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
-  try {
-    root?.unmount()
-    column?.remove()
-    root = null
-    column = null
-  } finally {
-    vi.clearAllTimers()
-    vi.useRealTimers()
-  }
+  root?.unmount()
+  column?.remove()
+  root = null
+  column = null
 })
 
 describe('running strip: one row, +N opens a grouped, capped, scrolling panel', () => {
@@ -95,7 +83,7 @@ describe('running strip: one row, +N opens a grouped, capped, scrolling panel', 
       if (!more) { expect(count).toBe(1); return }
       const collapsed = shown('.rtb-bar > .rtb-tok').map(element => element.dataset.messagePreviewTrigger!)
       const bar = column!.querySelector('.rtb-bar')!.getBoundingClientRect()
-      await hover(more)
+      await userEvent.hover(more)
       await until('the panel opens above the strip', () => (panel()?.getBoundingClientRect().height ?? 0) > 0
         && panel()!.closest('[data-slot="popover-positioner"]')?.getAttribute('data-side') === 'top')
       const popup = panel()!
@@ -131,15 +119,15 @@ describe('running strip: one row, +N opens a grouped, capped, scrolling panel', 
         return chip.top >= viewport.top - 1 && chip.bottom <= viewport.bottom + 1
       })
       inComposer(last)
-      await hover(composer())
+      await userEvent.hover(composer())
       await until('the panel collapses once the pointer leaves', () => !panel())
-      await hover(more)
+      await userEvent.hover(more)
       await until('the panel reopens', () => !!panel())
       const lastId = last.dataset.messagePreviewTrigger!
       await userEvent.click(panel()!.querySelector<HTMLElement>(`[data-message-preview-trigger="${lastId}"]`)!)
       expect(onTokenClick).toHaveBeenCalledWith(lastId)
       composer().focus() // picking an agent inserts its @ mention, which focuses the composer
-      await hover(composer())
+      await userEvent.hover(composer())
       await until('the panel collapses after an agent was picked', () => !panel())
       expect(composer().getBoundingClientRect().top).toBe(original.top)
     })
@@ -147,7 +135,7 @@ describe('running strip: one row, +N opens a grouped, capped, scrolling panel', 
 
   it('draws no group names when every overflow agent has the same owner', async () => {
     await mount(320, tokens(20, () => false))
-    await hover(column!.querySelector<HTMLElement>('.rtb-more')!)
+    await userEvent.hover(column!.querySelector<HTMLElement>('.rtb-more')!)
     await until('the panel opens', () => (panel()?.getBoundingClientRect().height ?? 0) > 0)
     expect(panel()!.querySelectorAll('[role="group"]')).toHaveLength(1)
     expect(panel()!.querySelector('.rtb-oh')).toBeNull()
