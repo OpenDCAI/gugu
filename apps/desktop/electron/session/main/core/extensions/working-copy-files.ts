@@ -91,12 +91,25 @@ export function releaseWorkingCopies(pageId: number): void {
   }
 }
 
+/**
+ * Where the chunked transfer finds a file a call names: by its path in the working copy, or, named absolute, in its own
+ * folder. Both then go through the same reads and writes, on the machine the file is on; who may name an absolute path
+ * is decided before that (`app-files`, the file the host handed the page).
+ */
+export async function fileRootOf(place: WorkspacePlace, file: string): Promise<{ root: string; path: string }> {
+  const { localRootOf } = await import('./app-files');
+  if (!path.isAbsolute(file)) return { root: (await localRootOf(place)).workspaceRoot, path: file };
+  const root = await localRootOf(place).then((found) => found.workspaceRoot, () => null);
+  if (root !== null && file.startsWith(root + path.sep)) return { root, path: file.slice(root.length + 1) };
+  return { root: path.dirname(file), path: path.basename(file) };
+}
+
 /** `f.read(offset, length)`: up to 512 KB of a working copy's file, as the file panel reads it. */
 export async function readWorkingCopy(place: WorkspacePlace, file: string, offset: number, length: number): Promise<{ size: number; etag: string; offset: number; data: string }> {
-  const [{ localRootOf }, { readWorkspaceChunk, WorkspaceTransferError }] = await Promise.all([import('./app-files'), import('@main/core/files/workspace-transfer')]);
-  const { workspaceRoot } = await localRootOf(place);
+  const { readWorkspaceChunk, WorkspaceTransferError } = await import('@main/core/files/workspace-transfer');
+  const found = await fileRootOf(place, file);
   try {
-    const chunk = await readWorkspaceChunk(workspaceRoot, { path: file, offset, length: Math.min(length, REMOTE_WORKSPACE_CHUNK_BYTES) });
+    const chunk = await readWorkspaceChunk(found.root, { path: found.path, offset, length: Math.min(length, REMOTE_WORKSPACE_CHUNK_BYTES) });
     return { size: chunk.size, etag: chunk.etag, offset: chunk.offset, data: chunk.data };
   } catch (error) {
     if (error instanceof WorkspaceTransferError) throw new AppFileError(error.code === 'not_a_file' ? 'invalid' : 'not-found', error.message);
