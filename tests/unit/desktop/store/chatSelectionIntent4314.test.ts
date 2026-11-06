@@ -36,6 +36,7 @@ const {
     revalidateWindow: vi.fn(),
     markRead: vi.fn(),
     archiveChat: vi.fn(),
+    hideConversation: vi.fn(),
   },
   openImRepositoryMock: vi.fn(),
   readDisplayIdentitiesMock: vi.fn(),
@@ -116,6 +117,12 @@ const PROJECTED_EVENTS_STUB = [
 ] as const
 vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
   createChatProjection: () => ({
+    confirmPersonalHiding: async (receipt: {chat_id:string;hidden_at:string;account_revision:string}) => {
+      const snapshot = await serverChatList()
+      projectionStub.rows = (snapshot.chats as ChatItem[]).map(row => row.id === receipt.chat_id
+        ? { ...row, conversation_hidden_at: receipt.hidden_at, conversation_visibility_revision: receipt.account_revision } : row)
+      return projectionStub.rows
+    },
     confirmPersonalDeletion: ({chat_id}: {chat_id:string}) => { projectionStub.deleted.add(chat_id) },
     hydrate: async () => {
       const snapshot = await serverChatList()
@@ -389,45 +396,40 @@ it.each(['revision','refresh'])('clears an open personally deleted DM through %s
   expect(latestStore!.activeChatId).toBeNull();
 });
 
-it('keeps a successful local deletion out of a same-cursor refresh and an already pending snapshot before its revision arrives', async () => {
-  await renderStore();
-  await act(async () => { latestStore!.setActiveChatId('chat-1') });
-  await flushReact();
-  const gate = deferred<void>();
-  publishGate.current = gate.promise;
-  let olderRead!: Promise<void>;
-  await act(async () => { olderRead = latestStore!.refreshChats() });
-  await flushReact();
-  chatServiceMock.archiveChat.mockResolvedValue({chat_id:'chat-1',deleted_at:'2026-11-03T03:48:01Z'});
-  await act(async () => { await latestStore!.deleteChat('chat-1', true) });
-  expect(projectionStub.deleted.has('chat-1')).toBe(true);
-  expect(projectionStub.revoked.has('chat-1')).toBe(false);
-  expect(latestStore!.chats).toEqual([]);
-  expect(latestStore!.activeChatId).toBeNull();
-  await act(async () => { await latestStore!.refreshChats() }); // Same server cursor, still returning the old row.
-  expect(latestStore!.chats).toEqual([]);
-  await act(async () => { gate.resolve(); await olderRead });
-  expect(latestStore!.chats).toEqual([]);
-  expect(memRepository.snapshot().chat).toEqual([]);
-  projectionStub.rows = [];
-  await act(async () => { fireMembershipRevision(false) });
-  await flushReact(20);
-  expect(latestStore!.chats).toEqual([]);
-  expect(memRepository.snapshot().chat).toEqual([]);
-});
+it('keeps a successful personal hide through an older pending snapshot while retaining the open chat, draft and cache', async () => {
+  await renderStore()
+  await act(async () => { latestStore!.setActiveChatId('chat-1'); latestStore!.setDraft('chat-1', 'keep this draft') })
+  await flushReact()
+  const gate = deferred<void>(); publishGate.current = gate.promise
+  let olderRead!: Promise<void>
+  await act(async () => { olderRead = latestStore!.refreshChats() })
+  await flushReact()
+  const hiddenAt = '2026-11-06T17:00:00Z'
+  chatServiceMock.hideConversation.mockImplementation(async (chat_id: string, operation_id: string) => ({ chat_id, operation_id, hidden_at: hiddenAt, account_revision: '9' }))
+  await act(async () => { await latestStore!.hideConversation('chat-1') })
+  expect(projectionStub.deleted.has('chat-1')).toBe(false)
+  expect(latestStore!.chats.find(row => row.id === 'chat-1')?.conversation_hidden_at).toBe(hiddenAt)
+  expect(latestStore!.activeChatId).toBe('chat-1')
+  expect(latestStore!.drafts['chat-1']).toBe('keep this draft')
+  await act(async () => { gate.resolve(); await olderRead })
+  expect(latestStore!.chats.find(row => row.id === 'chat-1')?.conversation_hidden_at).toBe(hiddenAt)
+  expect(memRepository.snapshot().chat.find(row => row.id === 'chat-1')?.value.conversation_hidden_at).toBe(hiddenAt)
+  expect(chatServiceMock.archiveChat).not.toHaveBeenCalled()
+})
 
-it('does not apply a late local deletion receipt to a different account', async () => {
-  await renderStore();
-  const receipt = deferred<{chat_id:string;deleted_at:string}>();
-  chatServiceMock.archiveChat.mockReturnValue(receipt.promise);
-  let pending!: Promise<void>;
-  await act(async () => { pending = latestStore!.deleteChat('chat-1', true) });
-  authUser.id = 'user-2';
-  const actualRepository = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/imRepository')>('../../../../apps/desktop/src/lib/imRepository');
-  memRepository = await actualRepository.openImRepository('user-2', {adapter:createMemoryLocalSyncDb()});
-  await harness!.render(createNode(ChatProvider, {active:true}, createNode(Probe)));
-  await flushReact(20);
-  await act(async () => { receipt.resolve({chat_id:'chat-1',deleted_at:'2026-11-03T03:48:01Z'}); await pending });
-  expect(projectionStub.deleted.has('chat-1')).toBe(false);
-  expect(latestStore!.chats.map(row => row.id)).toEqual(['chat-1']);
-});
+it('does not apply a late personal-hide receipt to a different account', async () => {
+  await renderStore()
+  const receipt = deferred<{chat_id:string;operation_id:string;hidden_at:string;account_revision:string}>()
+  chatServiceMock.hideConversation.mockReturnValue(receipt.promise)
+  let pending!: Promise<void>
+  await act(async () => { pending = latestStore!.hideConversation('chat-1') })
+  authUser.id = 'user-2'
+  const { resetAuthSessionBoundary } = await import('../../../../apps/desktop/src/lib/authSessionLoss')
+  resetAuthSessionBoundary()
+  const actualRepository = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/imRepository')>('../../../../apps/desktop/src/lib/imRepository')
+  memRepository = await actualRepository.openImRepository('user-2', {adapter:createMemoryLocalSyncDb()})
+  await harness!.render(createNode(ChatProvider, {active:true}, createNode(Probe)))
+  await flushReact(20)
+  await act(async () => { receipt.resolve({chat_id:'chat-1',operation_id:'op',hidden_at:'2026-11-06T17:00:00Z',account_revision:'9'}); await pending })
+  expect(latestStore!.chats.find(row => row.id === 'chat-1')?.conversation_hidden_at).toBeFalsy()
+})

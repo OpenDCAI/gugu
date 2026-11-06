@@ -93,6 +93,7 @@ function fakeCloud() {
     },
     rpc: async (schema, name, args) => {
       calls.push([name, args])
+      if (name === 'publish_native_conversation_message') return { chat_id: args.p_chat_id, already: false, account_revision: '9007199254740993' }
       if (name === 'start_agent_provision_operation') {
         provision ??= { ...args.p_blueprint.members[0], id: args.p_blueprint.members[0].provision_id, operation_id: args.p_operation_id, member_key: 'single', device_id: deviceId, phase: 'queued', project_path: null, avatar: null, special_focus: null }
         return { id: args.p_operation_id }
@@ -511,6 +512,68 @@ async function recordTurn(command, hooks, text) {
   else await writeFile(path, `${JSON.stringify({ type: 'session', version: 3, id: command.sessionId, cwd: directory, timestamp: new Date(at).toISOString() })}\n${lines}`)
   hooks.emit({ type: 'pi_live', kind: 'committed', id: `phone-input:${command.jobId}`, recordId: userId })
 }
+
+test('the real host journals every personal reply before publication and transcript reads do not publish again', async () => {
+  const durable = []
+  const fx = await fixture(async (command, hooks) => {
+    await recordTurn(command, hooks, '任务最终回复')
+    for (const [id, text] of [['first', '个人过程回复'], ['second', '任务最终回复']]) {
+      const event = { type: 'pi_live', kind: 'complete', id: `${command.jobId}:${id}`, at: 1730000000123, content: [{ type: 'text', text }] }
+      hooks.emit(event); hooks.emit(event)
+      hooks.emit({ type: 'pi_live', kind: 'committed', id: event.id, recordId: `provider-${id}` })
+    }
+    return { status: 'done', text: '任务最终回复' }
+  }, { prepare: async ({ root, cloud }) => {
+    const rpc = cloud.rpc
+    cloud.rpc = async (schema, name, args) => {
+      if (name === 'publish_native_conversation_message') {
+        const saved = JSON.parse(await readFile(join(root, 'hosts', ownerId, 'host.json'), 'utf8'))
+        const outbox = saved.conversationOutbox[args.p_message_id]
+        assert.ok(outbox)
+        const message = Object.values(saved.jobs[outbox.jobId].personalMessages).find(item => item.publicationId === args.p_message_id)
+        assert.ok(message)
+        assert.equal(message.occurredAt, args.p_occurred_at)
+        durable.push(args.p_message_id)
+      }
+      return rpc(schema, name, args)
+    }
+  } })
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: '真实个人输入' }], randomUUID())
+    await until(() => durable.length === 3 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    assert.equal(new Set(durable).size, 3)
+    await fx.host.invoke('sessionTimeline.sessionSnapshot', [{ conversationId: created.conversationId }])
+    await fx.host.invoke('sessionTimeline.sessionsList', [])
+    assert.equal(durable.length, 3)
+    const saved = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.ok(Object.values(saved.conversationOutbox).every(item => item.status === 'published' && item.receipt.account_revision === '9007199254740993'))
+  } finally { await fx.close() }
+})
+
+test('host authentication recovery publishes an already journaled reply with its original UUID', async () => {
+  let release, started
+  const pending = new Promise(resolve => { release = resolve })
+  const entered = new Promise(resolve => { started = resolve })
+  const fx = await fixture(async (_command, hooks) => {
+    started(); await pending
+    hooks.emit({ type: 'pi_live', kind: 'complete', id: 'personal-reply', at: 1730000000123, content: [{ type: 'text', text: '鉴权恢复前已接纳的回复' }] })
+    return { status: 'done', text: '鉴权恢复前已接纳的回复' }
+  })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: '真实个人输入' }], randomUUID())
+    await entered
+    await fx.authChanged(null, new Error('temporary auth outage'))
+    release()
+    await until(() => fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    const saved = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    const reply = Object.values(saved.conversationOutbox).find(item => item.role === 'assistant')
+    assert.equal(reply.status, 'pending')
+    assert.equal(fx.calls.some(([name, args]) => name === 'publish_native_conversation_message' && args.p_message_id === reply.id), false)
+    await fx.authChanged({ access_token: 'refreshed', refresh_token: 'rotated', expires_at: 2000000000 })
+    await until(() => fx.calls.some(([name, args]) => name === 'publish_native_conversation_message' && args.p_message_id === reply.id), fx.events)
+    await until(async () => JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8')).conversationOutbox[reply.id].status === 'published', fx.events)
+  } finally { release(); await fx.close() }
+})
 
 test('a local create runs its first input directly and reads the actual Pi result without any DM messages', async () => {
   const fx = await fixture(async (command, hooks) => {

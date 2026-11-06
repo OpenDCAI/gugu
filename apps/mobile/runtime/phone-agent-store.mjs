@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { admitPhonePersonalInput } from './phone-conversation-publications.mjs'
 
 export function uuid(value, label = 'id') {
   if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new Error(`${label} must be a UUID`)
@@ -27,6 +28,7 @@ export async function openPhoneAgentStore(root, ownerId) {
   if (state.version !== 1 || state.ownerId !== ownerId) throw new Error('phone host journal owner or version mismatch')
   state.artifacts ??= {}
   state.fileOutbox ??= {}
+  state.conversationOutbox ??= {}
   let writing = Promise.resolve()
   const save = () => {
     const serialized = JSON.stringify(state)
@@ -53,10 +55,14 @@ export async function openPhoneAgentStore(root, ownerId) {
   return { directory, state, save, flush: () => writing }
 }
 
-export async function admitPhoneJob(store, input) {
+export async function admitPhoneJob(store, input, personalContext) {
   uuid(input.id, 'job id')
   uuid(input.agentUserId, 'agentUserId')
-  const job = store.state.jobs[input.id] ?? { ...input, status: 'queued', createdAt: new Date().toISOString() }
+  let job = store.state.jobs[input.id]
+  if (!job) {
+    job = { ...input, status: 'queued', createdAt: new Date().toISOString() }
+    if (personalContext) admitPhonePersonalInput(store, job, personalContext)
+  }
   store.state.jobs[input.id] = job
   // A prior save may have failed after admission entered memory. A duplicate is acknowledged
   // only after this save succeeds, without replacing or requeueing the original job.

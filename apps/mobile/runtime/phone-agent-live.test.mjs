@@ -94,3 +94,13 @@ test('a user commit uses its actual Pi entry id, without guessing from text or t
   await Promise.resolve();
   assert.deepEqual(events, [{ type: 'pi_live', kind: 'committed', id: `phone-input:${jobId}`, recordId: 'actual-user' }]);
 });
+
+test('reply completion retains its observed original time when the provider has no timestamp', () => {
+  const events = []
+  const observe = createPhonePiObserver({ jobId: randomUUID(), sessionManager: { getLeafEntry: () => null, getEntries: () => [] }, emit: event => events.push(event) })
+  const message = { role: 'assistant', content: [{ type: 'text', text: '真实回复' }] }
+  observe({ type: 'message_start', message })
+  message.timestamp = 10
+  observe({ type: 'message_end', message })
+  assert.equal(events.find(event => event.kind === 'complete').at, events.find(event => event.kind === 'message').at)
+})
