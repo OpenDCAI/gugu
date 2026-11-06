@@ -54,7 +54,12 @@ it('keeps one semantic running label and stationary glyphs throughout the compos
   const animations = label.getAnimations({ subtree: true });
   for (const animation of animations) {
     expect(animation.effect!.getTiming()).toMatchObject({ duration: 2000, iterations: Infinity });
-    for (const frame of (animation.effect as KeyframeEffect).getKeyframes()) {
+    const frames = (animation.effect as KeyframeEffect).getKeyframes();
+    // The transcript's rhythm as one loop: 20 steps in the first second, then still until the next cycle.
+    expect(frames.map((frame) => frame.computedOffset)).toEqual([0, 0.5, 1]);
+    expect(frames[0]!.easing).toBe('steps(20)');
+    expect(frames[1]!.transform).toBe(frames[2]!.transform);
+    for (const frame of frames) {
       expect(Object.keys(frame).filter((key) => !['offset', 'computedOffset', 'easing', 'composite'].includes(key))).toEqual(['transform']);
     }
     animation.pause();
