@@ -69,7 +69,9 @@ export function workspaceStoredText(fileName, mimeType, bytes) {
  */
 export function workspaceFileText(fileName, bytes) {
   const stored = workspaceStoredText(fileName, null, bytes)
-  if (stored || mimeTypeFromName(fileName) || bytes.includes(0)) return stored
+  const type = mimeTypeFromName(fileName)
+  // An SVG's type says image, but on a disk it is text like any other.
+  if (stored || (type && type !== 'image/svg+xml') || bytes.includes(0)) return stored
   try {
     return { contentType: 'text/plain', text: new TextDecoder('utf-8', { fatal: true }).decode(bytes), exact: true }
   } catch {
