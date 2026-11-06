@@ -3156,7 +3156,7 @@ export class AcpChatStore {
     this.transcriptRevision += 1;
   }
 
-  /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
+  /** Input actions show repair copy; their complete causes stay in the existing diagnostic log. */
   private _toastError(title: AcpFailureTitle, error: unknown, displayReason?: string): void {
     const cause = describeFailureCause(error);
     const errorType = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
