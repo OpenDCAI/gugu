@@ -100,9 +100,17 @@ it('pauses avatar pulses scrolled out of view and resumes the same clocks when t
   expect(frames[1]!.transform).toBe(frames[2]!.transform);
   host.style.cssText = 'position:fixed;left:0;top:-2000px';
   await until('the off-screen pulses pause', () => pulses.every((animation) => animation.playState === 'paused'));
+  // Knock the clocks far off the document's; coming back has to bring them home, whatever the machine's speed.
+  for (const animation of pulses) animation.currentTime = Number(animation.timeline!.currentTime) - 60_000;
   host.style.cssText = '';
   await until('the pulses resume on screen', () => pulses.every((animation) => animation.playState === 'running'));
   expect(host.getAnimations({ subtree: true })).toEqual(animations);
+  // Back on the shared beat, and still paused by the shared stylesheet afterwards.
+  for (const animation of pulses) expect(Math.abs(Number(animation.currentTime) - Number(animation.timeline!.currentTime))).toBeLessThan(30_000);
+  window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }));
+  await until('the window pause still reaches the pulses', () => pulses.every((animation) => animation.playState === 'paused'));
+  window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }));
+  await until('they resume', () => pulses.every((animation) => animation.playState === 'running'));
 });
 
 it('keeps a visible portal animated while the opener hides and stops it when its own window hides', async () => {
