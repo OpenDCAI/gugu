@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useSyncExternalStore } from 'react'
+import { useState, useEffect, useLayoutEffect, useSyncExternalStore, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets'
 import { Trans, useTranslation } from 'react-i18next'
@@ -13,13 +13,15 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion'
 import { AuthBrandMotion } from './login/AuthBrandMotion'
 import { GoogleMark } from './login/GoogleMark'
 import { retainStartupMotion } from '../lib/startup-motion'
+import { loginOtpRequestPending, subscribeLoginOtpRequests } from '../lib/loginOtpTransport'
+import { useLoginOtpSend } from './login/useLoginOtpSend'
 import './login/login.css'
 
 const APP_LOGO_URL = publicAssetPath('/assets/app/gugu-icon-512.png')
 type Step = 'email' | 'otp'
 function stepMotion(reduceMotion: boolean, enterFrom: number) {
   if (reduceMotion) return { initial: false as const, animate: { opacity: 1, x: 0 }, transition: { duration: 0 } }
-  return { initial: { opacity: 0, x: enterFrom }, animate: { opacity: 1, x: 0 }, exit: { opacity: 0, x: -enterFrom },
+  return { initial: { opacity: 0, x: enterFrom }, animate: { opacity: 1, x: 0 },
     transition: { duration: 0.15, ease: 'easeOut' as const } }
 }
 function PrimaryButton({ disabled, loading, label }: { disabled: boolean; loading: boolean; label: string }) {
@@ -37,7 +39,9 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [submitFailed, setSubmitFailed] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [resendCountdown, setResendCountdown] = useState(0)
+  const otpSend = useLoginOtpSend()
+  const otpRequestPending = useSyncExternalStore(subscribeLoginOtpRequests, loginOtpRequestPending)
+  const verifying = useRef(false)
   const reduceMotion = usePrefersReducedMotion()
   const google = useSyncExternalStore(googleLogin.subscribe, googleLogin.getSnapshot)
   useLayoutEffect(() => googleEnabled === null ? retainStartupMotion() : undefined, [googleEnabled])
@@ -50,37 +54,30 @@ export function LoginPage() {
     return () => controller.abort()
   }, [])
 
-  useEffect(() => {
-    if (resendCountdown <= 0) return
-    const timer = setTimeout(() => setResendCountdown((v) => v - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [resendCountdown])
-
-  const handleRequestOtp = async (e: React.FormEvent) => {
+  const handleRequestOtp = (e: React.FormEvent) => {
     e.preventDefault()
-    if (google.busy) return
-    if (!email) { setError(t('auth.emailRequired')); return }
-    setLoading(true)
+    if (google.busy || loading) return
+    const address = email.trim()
+    if (!address) { setError(t('auth.emailRequired')); return }
+    const input = (e.currentTarget as HTMLFormElement).querySelector<HTMLInputElement>('input[type="email"]')
+    if (!input?.checkValidity()) { setError(t('auth.invalidEmail')); return }
+    setEmail(address)
+    setStep('otp')
+    setError('')
     setSubmitFailed(false)
-    const result = await authService.requestLoginOtp(email).finally(() => setLoading(false))
-    if (!result.success) {
-      setError(result.error ?? t('auth.sendFailed'))
-      setSubmitFailed(true)
-    } else {
-      setStep('otp')
-      setError('')
-      setResendCountdown(60)
-    }
+    void otpSend.send(address)
   }
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (google.busy) return
+    if (google.busy || otpSend.phase !== 'sent' || otpCode.length !== 6 || verifying.current) return
+    verifying.current = true
     setLoading(true)
     setSubmitFailed(false)
     const attempt = sessionCoordinator.beginInteractiveLogin()
     const result = await authService.verifyLoginOtp(email, otpCode)
     if (result.success && result.session) await sessionCoordinator.acceptInteractiveSession(attempt, result.session)
+    verifying.current = false
     setLoading(false)
     if (!result.success) {
       setError(result.error ?? t('auth.verifyFailed'))
@@ -89,22 +86,18 @@ export function LoginPage() {
   }
 
   const handleChangeEmail = () => {
+    otpSend.reset()
     setStep('email')
     setOtpCode('')
     setError('')
     setSubmitFailed(false)
   }
 
-  const handleResendOtp = async () => {
-    if (loading || resendCountdown > 0) return
-    setLoading(true)
-    const result = await authService.requestLoginOtp(email).finally(() => setLoading(false))
-    if (!result.success) {
-      setError(result.error ?? t('auth.sendFailed'))
-      return
-    }
+  const handleResendOtp = () => {
+    if (loading || google.busy || otpSend.phase === 'sending' || otpSend.countdown > 0) return
     setError('')
-    setResendCountdown(60)
+    setSubmitFailed(false)
+    void otpSend.send(email)
   }
 
   return <main className="gugu-auth-page">
@@ -122,10 +115,10 @@ export function LoginPage() {
           <h1 id="gugu-auth-title">{t('auth.welcome')}</h1>
           <p>{t('auth.subtitle')}</p>
         </header>
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence initial={false}>
           {step === 'email' && <motion.form key="email" {...stepMotion(reduceMotion, -10)} onSubmit={handleRequestOtp} className="gugu-auth-form">
             {googleLogin.available && (googleEnabled || (google.busy && google.phase !== 'failed')) && <Button type="button" variant="secondary" size="xl" className="gugu-auth-google"
-                disabled={loading || google.phase === 'restoring' || google.phase === 'accepting' || (google.busy && google.phase === 'failed')}
+                disabled={loading || otpRequestPending || google.phase === 'restoring' || google.phase === 'accepting' || (google.busy && google.phase === 'failed')}
                 onClick={() => { setError(''); void (google.busy ? googleLogin.cancel() : googleLogin.start()) }}>
                 <GoogleMark />{t(google.busy && google.phase !== 'failed' ? 'auth.google.cancel' : 'auth.google.signIn')}
             </Button>}
@@ -141,17 +134,19 @@ export function LoginPage() {
             <PrimaryButton disabled={loading || google.busy || !email} loading={loading} label={t(submitFailed ? 'auth.retry' : 'auth.continue')} />
           </motion.form>}
           {step === 'otp' && <motion.form key="otp" {...stepMotion(reduceMotion, 10)} onSubmit={handleVerifyOtp} className="gugu-auth-form">
-            <p className="gugu-auth-instructions">{t('auth.otpSent', { email })}</p>
+            <p role="status" aria-live="polite" className="gugu-auth-instructions">
+              {t(otpSend.phase === 'sending' ? 'auth.otpSending' : otpSend.phase === 'sent' ? 'auth.otpSent' : 'auth.otpNotSent', { email: otpSend.email })}
+            </p>
             <label htmlFor="gugu-auth-otp" className="gugu-auth-label">{t('auth.otpLabel')}</label>
             <input id="gugu-auth-otp" className="gugu-auth-input gugu-auth-otp" type="text" inputMode="numeric" maxLength={6}
               value={otpCode} autoComplete="one-time-code" placeholder={t('auth.otpPlaceholder')}
               onChange={(event) => { setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); setSubmitFailed(false) }} />
-            {error && <p role="alert" className="gugu-auth-error">{error}</p>}
-            <PrimaryButton disabled={otpCode.length !== 6 || loading || google.busy} loading={loading} label={t(submitFailed ? 'auth.retry' : 'auth.login')} />
+            {(otpSend.error || error) && <p role="alert" className="gugu-auth-error">{otpSend.error || error}</p>}
+            <PrimaryButton disabled={otpSend.phase !== 'sent' || otpCode.length !== 6 || loading || google.busy} loading={loading} label={t(submitFailed ? 'auth.retry' : 'auth.login')} />
             <div className="gugu-auth-actions">
               <Button type="button" variant="ghost" size="md" disabled={loading} onClick={handleChangeEmail}>{t('auth.changeEmail')}</Button>
-              <Button type="button" variant="ghost" size="md" disabled={loading || resendCountdown > 0} onClick={handleResendOtp}>
-                {resendCountdown > 0 ? t('auth.resendCountdown', { seconds: resendCountdown }) : t('auth.resend')}
+              <Button type="button" variant="ghost" size="md" disabled={loading || google.busy || otpSend.phase === 'sending' || otpSend.countdown > 0} onClick={handleResendOtp}>
+                {otpSend.phase === 'sending' ? t('auth.sending') : otpSend.countdown > 0 ? t('auth.resendCountdown', { seconds: otpSend.countdown }) : t('auth.resend')}
               </Button>
             </div>
           </motion.form>}

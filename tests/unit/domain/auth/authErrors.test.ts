@@ -33,3 +33,15 @@ describe('userVisibleAuthError', () => {
     )
   })
 })
+
+
+describe('OTP send errors use the existing auth outlet', () => {
+  it.each([
+    [{ status: 429, message: 'For security purposes, you can only request this after 30 seconds.' }, '操作过于频繁，请稍后再试'],
+    [{ status: 503, name: 'AuthRetryableFetchError', message: 'unavailable' }, '验证码服务暂时不可用，请稍后重试'],
+    [{ name: 'TimeoutError', message: 'Auth request timed out' }, '发送验证码超时，请重试'],
+    [{ code: 'email_address_invalid', message: 'bad address' }, '邮箱地址格式不正确'],
+  ])('classifies %j before generic fetch errors', (error, copy) => {
+    expect(userVisibleAuthError(error, 'sendOtp')).toBe(copy)
+  })
+})

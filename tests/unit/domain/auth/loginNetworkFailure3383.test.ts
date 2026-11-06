@@ -41,6 +41,14 @@ describe('OTP login network failure (#3383)', () => {
     })
   })
 
+  it('preserves rate limit status, code and the server wait from the SDK message', async () => {
+    mocks.signInWithOtp.mockResolvedValue({ error: { status: 429, code: 'over_email_send_rate_limit', message: 'For security purposes, you can only request this after 1 seconds.' } })
+    await expect(authService.requestLoginOtp('one@example.test')).resolves.toMatchObject({
+      success: false, status: 429, code: 'over_email_send_rate_limit', retryAfterSeconds: 1,
+      error: '操作过于频繁，请稍后再试',
+    })
+  })
+
   it('keeps a thrown verification failure distinct from an invalid code', async () => {
     const failure = new TypeError('Failed to fetch')
     mocks.verifyOtp.mockRejectedValue(failure)

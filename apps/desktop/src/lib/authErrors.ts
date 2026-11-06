@@ -3,6 +3,7 @@ type AuthErrorLike = {
   message?: string
   code?: string
   name?: string
+  status?: number
 }
 import { i18n } from '@/i18n'
 import { isAuthRetryableFetchError } from '@supabase/supabase-js'
@@ -25,12 +26,19 @@ function authErrorLike(error: unknown): AuthErrorLike {
 }
 
 export function userVisibleAuthError(
-  error: unknown
+  error: unknown,
+  operation?: 'sendOtp',
 ): string {
   const detail = authErrorLike(error)
   const code = detail.code?.trim().toLowerCase() ?? ''
   const message = detail.message?.trim() ?? ''
   const normalized = message.toLowerCase()
+
+  if (operation === 'sendOtp') {
+    if (detail.name === 'TimeoutError' || /timed?\s*out|timeout/i.test(message)) return i18n.t('auth.sendTimeout', { ns: 'main' })
+    if (detail.status === 429 || code === 'over_email_send_rate_limit' || /rate limit|too many requests|only request this after/i.test(message)) return authCopy('rateLimited')
+    if (detail.status && detail.status >= 500) return i18n.t('auth.sendServerFailed', { ns: 'main' })
+  }
 
   if (
     isAuthRetryableFetchError(error) ||
@@ -52,7 +60,7 @@ export function userVisibleAuthError(
     return authCopy('rateLimited')
   }
 
-  if (code === 'validation_failed' && normalized.includes('email')) {
+  if ((code === 'validation_failed' && normalized.includes('email')) || code === 'email_address_invalid') {
     return authCopy('invalidEmail')
   }
   if (/invalid email|email address.*invalid/i.test(message)) {
