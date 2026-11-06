@@ -179,6 +179,18 @@ img.details-picture { object-fit: contain; }
 }
 .list-section { list-style: none; padding: var(--em-spacing-sm) var(--em-spacing-sm) 2px; font-size: var(--em-font-caption); line-height: var(--em-lh-caption); font-weight: 600; color: var(--em-foreground-muted); }
 .list-section:first-child { padding-top: 0; }
+/* A time section's heading folds it (owner 11-06): the same caption line, the whole of it a button, its count after the name. */
+.list-section-toggle, .list-more { padding: 0; }
+.list-more { display: flex; justify-content: flex-start; }
+.list-more > .section-more { margin: 0; }
+.section-toggle { display: flex; align-items: center; gap: 4px; width: 100%; border: 0; background: none; padding: var(--em-spacing-sm) var(--em-spacing-sm) 2px 2px; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: var(--em-radius-control); }
+.section-toggle:hover { color: var(--em-foreground); }
+.section-toggle gugu-icon { width: 14px; height: 14px; flex: none; }
+.section-count { font-weight: 400; color: var(--em-foreground-subtle, var(--em-foreground-muted)); margin-left: 2px; }
+.list-section-toggle:first-child .section-toggle { padding-top: 0; }
+/* 「再显示 N 条」: under the section's last row shown, quiet, the width of its words. */
+.section-more { border: 0; background: none; font: inherit; font-weight: 400; color: var(--em-foreground-muted); padding: 4px var(--em-spacing-sm) var(--em-spacing-sm); cursor: pointer; border-radius: var(--em-radius-control); }
+.section-more:hover { color: var(--em-foreground); text-decoration: underline; }
 /* The menu is a .list: its label and separators are not rows (no row padding or height). */
 .menu > .menu-label { min-height: 0; padding: var(--em-spacing-xs) var(--em-spacing-sm) 0; font-size: var(--em-font-caption); color: var(--em-foreground-muted); cursor: default; }
 .menu > .menu-separator { flex: none; width: auto; height: 1px; min-height: 0; padding: 0; margin: var(--em-spacing-xs) var(--em-spacing-sm); border-radius: 0; background: var(--em-border); }
@@ -310,6 +322,8 @@ body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 /* A folder and a document each have one content toolbar below the host tab strip. */
 .files-toolbar { flex-wrap: nowrap; min-height: 36px; padding: 2px 8px; gap: 4px; border-bottom: 1px solid var(--em-border); }
 .files-toolbar > .kinds, .files-toolbar > .crumbs { min-width: 0; flex: 1; overflow: auto; white-space: nowrap; margin: 0; padding: 0; flex-wrap: nowrap; }
+/* The kinds' grey track hugs its four buttons (owner 11-06: 「Other 尾巴很长」); the controls after it keep to the right. */
+.files-toolbar > .kinds { flex: 0 1 auto; margin-right: auto; padding: 2px; }
 .files-toolbar:has(.crumbs:not([hidden])) > .kinds { display: none; }
 .files-toolbar > button { flex: none; min-height: 28px; padding: 2px 5px; }
 .files-toolbar .filter { min-width: 60px; max-width: 180px; flex: 1; }

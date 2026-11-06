@@ -142,6 +142,7 @@ const STRINGS = {
     folders: '文件夹',
     files: '文件',
     today: '今天',
+    showMore: '再显示 {n} 条',
     yesterday: '昨天',
     week: '过去 7 天',
     earlier: '更早',
@@ -332,6 +333,7 @@ const STRINGS = {
     folders: 'Folders',
     files: 'Files',
     today: 'Today',
+    showMore: 'Show {n} more',
     yesterday: 'Yesterday',
     week: 'Past 7 days',
     earlier: 'Earlier',
@@ -414,6 +416,8 @@ const state = {
   details: null, // the entry whose details are open
   ofKind: [], // the files of the kind picked in the list last drawn: what the filters offer to pick by
   picked: new Set(), // 多选: the ids of the files picked, on screen
+  closedSections: new Set(), // the time sections (today, yesterday…) folded away, by their key
+  openSections: new Set(), // the time sections shown in full, past their first SECTION_ROWS
   selecting: false, // the phone's explicit selection mode, including an empty selection
   pickFrom: null, // the file pressed last, where a Shift press's range starts
   order: [], // the files on screen, in their order: what a range runs along
@@ -855,21 +859,33 @@ function renderList() {
   if (!grid && (folders.length || files.length)) rows.push(tableHead())
   if (folders.length && files.length) rows.push(sectionRow(t.folders))
   rows.push(...folders.map(item))
-  let section = null
-  for (const entry of files) {
-    if (state.sort === 'recent') {
+  // What is drawn: in the recent order, each time section under its own heading — a press folds it away, and a long one
+  // shows its first SECTION_ROWS with 「再显示 N 条」 under them (owner 11-06). Other orders: every file, one list.
+  const drawn = []
+  const draw = (entries) => { for (const entry of entries) { rows.push(item(entry)); drawn.push(entry) } }
+  if (state.sort === 'recent') {
+    const sections = []
+    for (const entry of files) {
       const at = sectionOf(changedAt(entry), now)
-      if (at.key !== section?.key) rows.push(sectionRow(sectionName(at)))
-      section = at
-    } else if (!section && folders.length) {
-      section = { key: 'files' }
-      rows.push(sectionRow(t.files))
+      if (at.key !== sections.at(-1)?.at.key) sections.push({ at, entries: [] })
+      sections.at(-1).entries.push(entry)
     }
-    rows.push(item(entry))
+    for (const { at, entries } of sections) {
+      const closed = state.closedSections.has(at.key)
+      rows.push(sectionToggle(at, entries.length, closed))
+      if (closed) continue
+      const cut = state.openSections.has(at.key) ? entries.length : SECTION_ROWS
+      draw(entries.slice(0, cut))
+      if (entries.length > cut) rows.push(moreRow(at, entries.length - cut))
+    }
+  } else {
+    if (folders.length && files.length) rows.push(sectionRow(t.files))
+    draw(files)
   }
   list.replaceChildren(...rows)
-  // 多选: what is picked stays picked while it is on screen; the order a range runs along is the order drawn.
-  state.order = files.map((e) => e.id)
+  // 多选: what is picked stays picked while it is on screen; the order a range runs along is the order drawn (a folded
+  // section, or the rows past 「再显示」, are not on screen: neither picked nor in a range).
+  state.order = drawn.map((e) => e.id)
   for (const id of state.picked) if (!state.order.includes(id)) state.picked.delete(id)
   renderPicks()
   // A row's menu goes with its row (the list is drawn anew when the workspace changes).
@@ -911,6 +927,42 @@ function renderRoots() {
   $('empty-upload').hidden = true
   state.order = []
   renderTools([], new Date(Date.now()))
+}
+
+/** How many files a time section shows before 「再显示 N 条」. */
+const SECTION_ROWS = 20
+
+/** A time section's heading: the whole line folds the section away and back, with how many files are in it. */
+function sectionToggle(section, count, closed) {
+  const li = sectionRow('')
+  li.classList.add('list-section-toggle')
+  const button = Object.assign(document.createElement('button'), { type: 'button', className: 'section-toggle' })
+  button.setAttribute('aria-expanded', String(!closed))
+  const chevron = document.createElement('gugu-icon')
+  chevron.setAttribute('name', closed ? 'chevron-right' : 'chevron-down')
+  button.append(chevron,
+    Object.assign(document.createElement('span'), { textContent: sectionName(section) }),
+    Object.assign(document.createElement('span'), { className: 'section-count', textContent: String(count) }))
+  button.onclick = () => {
+    if (state.closedSections.has(section.key)) state.closedSections.delete(section.key)
+    else state.closedSections.add(section.key)
+    renderList()
+  }
+  li.append(button)
+  return li
+}
+
+/** Under a long section: the rest of it, one press away. */
+function moreRow(section, rest) {
+  const li = sectionRow('')
+  li.classList.add('list-more')
+  const button = Object.assign(document.createElement('button'), { type: 'button', className: 'section-more', textContent: fmt(state.t.showMore, { n: rest }) })
+  button.onclick = () => {
+    state.openSections.add(section.key)
+    renderList()
+  }
+  li.append(button)
+  return li
 }
 
 function sectionRow(text) {
