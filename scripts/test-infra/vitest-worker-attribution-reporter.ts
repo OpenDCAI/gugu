@@ -122,3 +122,9 @@ export class WorkerAttributionReporter implements Reporter {
     this.write(`${lines.join('\n')}\n`)
   }
 }
+
+// Vitest passes a reporter-options object to CLI-loaded classes. Keep that object out of
+// the injectable writer argument used by the normal config and this reporter's unit tests.
+export default class CliWorkerAttributionReporter extends WorkerAttributionReporter {
+  constructor() { super() }
+}
