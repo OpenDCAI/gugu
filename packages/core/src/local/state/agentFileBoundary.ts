@@ -1,9 +1,9 @@
 import { lstat, readdir, readlink, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path'
-import { protectedPrivateStorages } from './protectedPrivateStorage'
+import { privateStorageBoundaryRegistrations, protectedPrivateStorages } from './protectedPrivateStorage'
 
 export { privateServicePermissionDirectory } from './protectedPrivateStorage'
-export const PRIVATE_PERMISSION_STATE_REFUSAL = 'Agent file access to private permission state is forbidden'
+export const PRIVATE_PERMISSION_STATE_REFUSAL = 'Agent file access to protected private storage is forbidden'
 const within = (file: string, directory: string) => {
   const target = resolve(file).toLowerCase(), root = resolve(directory).toLowerCase()
   return target === root || target.startsWith(root + sep)
@@ -70,10 +70,18 @@ async function canonicalTarget(file: string): Promise<string> {
 }
 
 export async function agentFileBoundary() {
-  const declared = protectedPrivateStorages().flatMap(storage => storage.paths)
-  const canonicalRoots = [...new Set(await Promise.all(declared.map(canonicalTarget)))]
+  let declared: string[]
+  let canonicalRoots: string[]
+  let protectedFiles: Awaited<ReturnType<typeof protectedFileIdentities>>
+  try {
+    declared = privateStorageBoundaryRegistrations().flatMap(storage => storage.paths)
+    canonicalRoots = [...new Set(await Promise.all(declared.map(canonicalTarget)))]
+    protectedFiles = await protectedFileIdentities(canonicalRoots)
+  } catch {
+    // Do not expose private filenames or raw filesystem errors through a failed Agent operation.
+    throw new Error('Protected private storage is unavailable')
+  }
   const roots = [...new Set([...declared.map(file => resolve(file)), ...canonicalRoots])]
-  const protectedFiles = await protectedFileIdentities(canonicalRoots)
   return {
     roots,
     excludes: (file: string) => roots.some(root => within(file, root)),
@@ -104,8 +112,8 @@ export async function agentFileBoundary() {
 export async function protectedPrivateStorageStatus(id: string): Promise<
   { status: 'ready' } | { status: 'unavailable'; reason: 'not_registered' | 'protection_unavailable' }
 > {
-  if (!protectedPrivateStorages().some(storage => storage.id === id)) return { status: 'unavailable', reason: 'not_registered' }
   try {
+    if (!protectedPrivateStorages().some(storage => storage.id === id)) return { status: 'unavailable', reason: 'not_registered' }
     await agentFileBoundary()
     return { status: 'ready' }
   } catch {
@@ -120,5 +128,14 @@ export async function requireAgentFileAccess(file: string, knownBoundary?: Await
   const canonical = await canonicalTarget(file)
   if (boundary.excludes(canonical)) throw new Error(PRIVATE_PERMISSION_STATE_REFUSAL)
   await boundary.assertIdentity(canonical)
+  return canonical
+}
+
+/** A delegated workspace/archive/upload may access its whole tree, so an excluded descendant also forbids delegation. */
+export async function requireAgentFileTreeAccess(file: string): Promise<string> {
+  const boundary = await agentFileBoundary()
+  const canonical = await requireAgentFileAccess(file, boundary)
+  if (boundary.overlaps(canonical)) throw new Error(PRIVATE_PERMISSION_STATE_REFUSAL)
+  await boundary.assertTree(canonical)
   return canonical
 }

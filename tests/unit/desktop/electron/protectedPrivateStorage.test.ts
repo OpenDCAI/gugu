@@ -13,7 +13,6 @@ import { execFileAsync } from '../../../../apps/desktop/electron/device-actions/
 
 let home: string
 let register: typeof import('@gugu/core/local/state/protectedPrivateStorage').registerProtectedPrivateStorage
-let boundary: typeof import('@gugu/core/local/state/agentFileBoundary')
 let run: (name: string, args: Record<string, unknown>) => Promise<unknown>
 let paths: string[]
 const canary = 'synthetic-vault-ciphertext-canary'
@@ -30,7 +29,6 @@ beforeEach(async () => {
   paths = ['vault', 'key.material', 'recovery.material', 'audit', 'switch.json'].map(name => path.join(home, 'private', name))
   for (const file of paths.slice(0, -1)) fs.writeFileSync(file, canary)
   ;({ registerProtectedPrivateStorage: register } = await import('@gugu/core/local/state/protectedPrivateStorage'))
-  boundary = await import('@gugu/core/local/state/agentFileBoundary')
   register({ id: 'vault', paths })
   const { createFilesFamily } = await import('../../../../apps/desktop/electron/device-actions/families/files')
   const { createDeviceActionGrantsStore } = await import('../../../../apps/desktop/electron/device-actions/grants-store')
@@ -139,7 +137,7 @@ async function connected(mode: string) {
   let executions = 0
   const host = new GuguMcpHost<null>(() => {
     const server = new McpServer({ name: 'protected-file-fixture', version: '1' })
-    server.registerTool('device_call', { inputSchema: z.record(z.string(), z.unknown()) }, async args => {
+    server.registerTool('device_call', { inputSchema: z.object({ name: z.string(), args: z.record(z.string(), z.unknown()) }) }, async args => {
       executions++
       return { content: [{ type: 'text' as const, text: JSON.stringify(await run(String(args.name), args.args as Record<string, unknown>)) }] }
     })
@@ -161,6 +159,7 @@ it.each(['disabled', 'observe', 'policy unavailable'])('keeps direct/catalog MCP
   for (const name of ['device_call', 'catalog_call']) {
     const args = { name: 'fs.read', args: { path: paths[0] } }
     const result = await client.callTool({ name, arguments: name === 'catalog_call' ? { tool: 'device_call', args } : args })
+    expect(result.isError, JSON.stringify(result)).not.toBe(true)
     fs.appendFileSync(history, JSON.stringify({ type: 'response_item', payload: { type: 'function_call_output', call_id: name, output: JSON.stringify(result) } }) + '\n')
   }
   expect(executions()).toBe(2)
@@ -197,6 +196,7 @@ async function uploadReceiver() {
 }
 
 it.each(['chat bytes', 'session upload'])('refuses %s of private material and delivers zero bytes, including symbolic and hard links', async route => {
+  // @ts-expect-error -- injectable MCP implementation is an untyped ESM module.
   const { readUploadBytes } = await import('../../../../apps/desktop/electron/mcp/gugu-im-server.mjs')
   const { uploadSessionFile } = await import('@gugu/core/local/agent/sessionFileHandoff')
   const { endpoint, received } = await uploadReceiver()

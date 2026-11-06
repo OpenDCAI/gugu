@@ -1,3 +1,4 @@
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary';
 import { taskName } from './task-name';
 import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
 import { SessionArchivedError } from '@gugu/core/shared/sessionArchival';
@@ -1465,6 +1466,7 @@ async function openFileInTab(
   const absolutePath = isAbsoluteMachinePath(requestedPath)
     ? requestedPath
     : joinMachinePath(workspace.path, requestedPath);
+  await requireAgentFileAccess(absolutePath);
   const stat = await workspace.fileSystem.stat(absolutePath);
   signal?.throwIfAborted();
   if (!stat.success) {

@@ -66,3 +66,18 @@ it('rechecks storage instead of retaining a stale ready result', async () => {
   await symlink(root, root)
   expect(await protectedPrivateStorageStatus('vault')).toEqual({ status: 'unavailable', reason: 'protection_unavailable' })
 })
+
+it('cannot register new locations after a file gateway has started using an earlier boundary', async () => {
+  const { registerProtectedPrivateStorage } = await import('@gugu/core/local/state/protectedPrivateStorage')
+  const { requireAgentFileAccess, protectedPrivateStorageStatus } = await import('@gugu/core/local/state/agentFileBoundary')
+  await requireAgentFileAccess(join(directory, 'ordinary'))
+  expect(() => registerProtectedPrivateStorage({ id: 'late', paths: [join(directory, 'late-private')] })).toThrow('before Agent file gateways start')
+  expect(await protectedPrivateStorageStatus('late')).toEqual({ status: 'unavailable', reason: 'not_registered' })
+})
+
+it('protects the default vault root before initialization creates any files', async () => {
+  const { PASSWORD_VAULT_STORAGE, privatePasswordVaultDirectory } = await import('@gugu/core/local/state/protectedPrivateStorage')
+  const { protectedPrivateStorageStatus, requireAgentFileAccess } = await import('@gugu/core/local/state/agentFileBoundary')
+  expect(await protectedPrivateStorageStatus(PASSWORD_VAULT_STORAGE)).toEqual({ status: 'ready' })
+  await expect(requireAgentFileAccess(join(privatePasswordVaultDirectory(), 'future-control.json'))).rejects.toThrow()
+})

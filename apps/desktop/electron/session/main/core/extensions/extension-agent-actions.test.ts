@@ -421,16 +421,10 @@ describe('reinstalling its own folder extension (quiet upgrade)', () => {
     expect(refused.installed).toBe(true);
     expect(refused.next?.startsWith(note)).toBe(true);
 
-    vi.useFakeTimers();
-    try {
-      const silent = run(() => new Promise<void>(() => {}));
-      await vi.advanceTimersByTimeAsync(1500);
-      const answer = await silent;
-      expect(answer.installed).toBe(true);
-      expect(answer.next?.startsWith(note)).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+    // File-boundary verification does real asynchronous filesystem work before the notification deadline starts.
+    const answer = await run(() => new Promise<void>(() => {}));
+    expect(answer.installed).toBe(true);
+    expect(answer.next?.startsWith(note)).toBe(true);
 
     // Control: a window that confirms adds nothing.
     const shown = await run(() => Promise.resolve());

@@ -22,10 +22,10 @@ it('refuses a real hard-linked journal in the chat attachment byte gateway', asy
   const alias = join(home, 'ordinary.txt')
   await writeFile(file, 'private-hard-link-canary')
   await link(file, alias)
-  await expect(readUploadBytes('message_send_file', { file_path: alias }, 1024)).rejects.toThrow('private permission state')
+  await expect(readUploadBytes('message_send_file', { file_path: alias }, 1024)).rejects.toThrow('protected private storage')
   const fetch = vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error('must not upload'))
   await expect(uploadSessionFile({ supabaseUrl: 'https://example.invalid', anonKey: '', token: '', fetch }, { file_path: alias },
-    { agentId: 'agent', sessionId: 'session', recipients: [] })).rejects.toThrow('private permission state')
+    { agentId: 'agent', sessionId: 'session', recipients: [] })).rejects.toThrow('protected private storage')
   expect(fetch).not.toHaveBeenCalled()
 })
 
@@ -41,9 +41,9 @@ it('refuses private state through chat upload bytes and session attachments, inc
   await symlink(file, alias)
   const fetch = vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error('must not upload'))
   for (const file_path of [file, alias]) {
-    await expect(readUploadBytes('message_send_file', { file_path }, 1024)).rejects.toThrow('private permission state')
+    await expect(readUploadBytes('message_send_file', { file_path }, 1024)).rejects.toThrow('protected private storage')
     await expect(uploadSessionFile({ supabaseUrl: 'https://example.invalid', anonKey: '', token: '', fetch }, { file_path },
-      { agentId: 'agent', sessionId: 'session', recipients: [] })).rejects.toThrow('private permission state')
+      { agentId: 'agent', sessionId: 'session', recipients: [] })).rejects.toThrow('protected private storage')
   }
   expect(fetch).not.toHaveBeenCalled()
 })

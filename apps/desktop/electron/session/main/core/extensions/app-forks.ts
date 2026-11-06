@@ -1,3 +1,4 @@
+import { requireAgentFileAccess, requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary';
 import { execFile } from '@gugu/core/local/childProcess';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -83,6 +84,8 @@ export async function createAppFork(id: string, requestedName?: string) {
   checkedSource(source);
   const root = path.join(appSourcesRoot(), `${id}@${name}`);
   const sourceDir = path.join(root, source.path);
+  await requireAgentFileTreeAccess(root);
+  await requireAgentFileAccess(path.join(root, '.git', 'gugu-fork.json'));
   const branch = isGuguOwnApp(source) ? `fork/${id}/${name}` : `gugu-fork/${name}`;
   const [{ githubAccountService }, { githubApiAuthService }, { getOctokit }] = await Promise.all([
     import('../github/accounts/github-account-service-instance'), import('../github/services/github-api-auth-service-instance'), import('../github/services/octokit-provider'),
@@ -103,6 +106,7 @@ export async function createAppFork(id: string, requestedName?: string) {
       if (isGuguOwnApp(source)) await git(root, ['sparse-checkout', 'set', '--', `sources/${id}`], token);
       await git(root, ['fetch', 'upstream', source.commit], token);
       await git(root, ['checkout', '-b', branch, source.commit], token);
+      await requireAgentFileAccess(path.join(sourceDir, 'manifest.json'));
       const manifest = service.inspectDirectory(sourceDir).manifest;
       if (manifest.id !== id || manifest.version !== version) throw new Error(`The indexed source does not contain ${id}@${version}; ask the publisher to correct its source record.`);
       const record: ForkRecord = { id, name, base: version, source };
@@ -150,6 +154,8 @@ export async function createAppFork(id: string, requestedName?: string) {
 }
 
 export async function prepareForkVariant(sourceDir: string): Promise<ExtensionVariant | undefined> {
+  await requireAgentFileTreeAccess(sourceDir);
+  await requireAgentFileAccess(path.join(sourceDir, '.git', 'gugu-fork.json'));
   const fork = forkOfDirectory(sourceDir);
   if (!fork) return undefined;
   const service = extensionsService();
