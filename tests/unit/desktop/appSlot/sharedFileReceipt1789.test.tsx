@@ -6,7 +6,8 @@ import { until } from '../../../support/awaitCondition'
 import { useLinkNavigation } from '../../../../apps/desktop/src/hooks/useLinkNavigation'
 import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 import { useChatOpener } from '../../../../apps/desktop/src/components/appSlot/useChatOpener'
-import { askChatFile, panelTabsOf } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { askChat, askChatFile, panelTabsOf } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import type { AppOpenWithDetail } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 
 const state = vi.hoisted(() => ({ chat: '', resolve: vi.fn(), note: vi.fn(), local: vi.fn() }))
@@ -68,12 +69,12 @@ it('keeps the real link pending until its file is resolved and its native panel 
   await until('the accepted file is recorded as opened', () => state.note.mock.calls.length === 1)
 })
 
-it.each(['refused', 'transport rejection'])('returns a file %s to the original link and shows the existing failure surface', async mode => {
+it.each(['refused', 'transport rejection'])('returns a file %s to the original link without a duplicate failure surface', async mode => {
   if (mode === 'refused') state.resolve.mockResolvedValue({ success: false, error: 'file disappeared' })
   else state.resolve.mockRejectedValue(new Error('file host disconnected'))
   await harness.render(<Entry />)
   await act(async () => { await expect(link()).rejects.toThrow() })
-  expect(harness.container.querySelector('[data-testid="group-app-slot-unopened"]')).not.toBeNull()
+  expect(harness.container.querySelector('[data-testid="group-app-slot-unopened"]')).toBeNull()
   expect(panelTabsOf(state.chat)).toHaveLength(0)
   expect(onShow).not.toHaveBeenCalled()
   expect(state.note).not.toHaveBeenCalled()
@@ -84,8 +85,19 @@ it('propagates native placement rejection instead of recording the file as opene
   onShow.mockRejectedValue(new Error('native resource host unavailable'))
   await harness.render(<Entry />)
   await act(async () => { await expect(link()).rejects.toThrow() })
-  expect(harness.container.querySelector('[data-testid="group-app-slot-unopened"]')).not.toBeNull()
+  expect(harness.container.querySelector('[data-testid="group-app-slot-unopened"]')).toBeNull()
   expect(state.note).not.toHaveBeenCalled()
+})
+
+it('keeps the inline failure surface for a direct folder request without a link caller', async () => {
+  state.resolve.mockResolvedValue({ success: false, error: 'file disappeared' })
+  await harness.render(<Entry />)
+  await act(async () => {
+    askChat(state.chat, { itemId: 'file' })
+    window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: state.chat } }))
+  })
+  expect(harness.container.querySelector('[data-testid="group-app-slot-unopened"]')).not.toBeNull()
+  expect(panelTabsOf(state.chat)).toHaveLength(0)
 })
 
 it('takes a cold file request when its consumer mounts without acknowledging the mailbox alone', async () => {

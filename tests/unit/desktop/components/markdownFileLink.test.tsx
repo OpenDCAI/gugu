@@ -32,7 +32,7 @@ const asked: unknown[] = []
 const noop = () => undefined
 function Shell() {
   useLinkNavigation({ ownerId: 'owner', chats: [...new Set(readable.values())].map((id) => ({ id, kind: 'group' })) as never, contacts: [],
-    openChat: noop, openFile: (chatId, target) => asked.push({ chatId, ...target }), openApp: noop, openOwnApp: noop, openProject: noop, openAssistant: noop })
+    openChat: noop, openFile: (chatId, target) => { asked.push({ chatId, ...target }) }, openApp: noop, openOwnApp: noop, openProject: noop, openAssistant: noop })
   return null
 }
 function Document(props: ComponentProps<typeof Markdown>) { return createElement(Fragment, null, createElement(Shell), createElement(Markdown, props)) }

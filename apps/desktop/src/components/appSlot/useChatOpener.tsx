@@ -120,6 +120,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
         return
       }
       const asked = ++asking.current
+      setUnopened(null)
       try {
         // `at`: the App that opens it gets the place as a `link` event, from the host that resolves who opens it.
         const result = await appsHere.groupFileOpener({ chatId, itemId, ...(at ? { at } : {}) })
@@ -131,7 +132,9 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
         if (asked !== asking.current) throw new Error('The file opening was superseded')
         from.receipt?.resolve()
       } catch (error) {
-        if (asked === asking.current) setUnopened(String(error) || 'no answer')
+        // Links report failure to their caller; direct folder clicks retain the
+        // inline failure surface without producing a second notice.
+        if (asked === asking.current && !from.receipt) setUnopened(String(error) || 'no answer')
         from.receipt?.reject(error)
       } finally {
         if (from.receipt) receipts.current.delete(from.receipt)
@@ -163,7 +166,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
           } else window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail: ask.opener }))
         } else if (ask.opener) {
           asking.current += 1
-          void Promise.resolve(openResolved(ask.opener, from)).then(() => ask.receipt?.resolve(), error => { setUnopened(String(error)); ask.receipt?.reject(error) }).finally(() => { if (ask.receipt) receipts.current.delete(ask.receipt) })
+          void Promise.resolve(openResolved(ask.opener, from)).then(() => ask.receipt?.resolve(), error => { if (!ask.receipt) setUnopened(String(error)); ask.receipt?.reject(error) }).finally(() => { if (ask.receipt) receipts.current.delete(ask.receipt) })
         } else void openGroupFile(ask.itemId, ask.at, from)
         return
       }
