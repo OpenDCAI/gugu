@@ -1,7 +1,7 @@
 import { workspaceSession } from '@shared/extensions/app-runtime-protocol';
 import { useEffect, useState } from 'react';
 import type { PeekTarget } from '@shared/extensions/app-runtime-protocol';
-import { OpenWithSystemButton } from '@renderer/features/sessions/editor/file-content-types';
+import { OpenWithSystemButton } from '@renderer/features/sessions/file-view/open-with-system-button';
 import { rpc } from '@renderer/lib/ipc';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
 import { WorkspaceFileView } from '@renderer/features/sessions/file-view/workspace-file-view';

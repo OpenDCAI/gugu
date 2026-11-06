@@ -25,6 +25,7 @@ import { Button } from '@renderer/lib/ui/button';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { workspaceBackend } from '../workspace-backend/workspace-backend';
 import { openPathWithFailureToast } from '../stores/open-file-in-file-editor';
+import { OpenWithSystemButton } from '../file-view/open-with-system-button';
 import { resolveWorkspacePath } from '../stores/workspace-path';
 import type { FileContentType } from './stores/file-tab-resource';
 import type { FileTabResource } from './stores/file-tab-resource';
@@ -114,16 +115,6 @@ function OpenOrDownload({ tab, ctx }: { tab: FileTabResource; ctx: SessionTabCon
 }
 
 type FileWorkspace = { projectId: string; workspaceId: string };
-
-/** 这台电脑上的文件交给系统默认程序。新建任务的草稿文件面板也用这一个(那里只有本机文件)。 */
-export function OpenWithSystemButton({ absolutePath, workspace }: { absolutePath: string; workspace?: FileWorkspace }) {
-  const { translate } = useSessionMessages();
-  return (
-    <Button size="sm" variant="outline" className="mt-4" onClick={() => void openPathWithFailureToast(absolutePath, workspace)}>
-      {translate('file.openWithSystem')}
-    </Button>
-  );
-}
 
 /**
  * 看不了 / 太大的文件,在别的机器上时照 VS Code 远程给「下载到这台电脑」(❌ 只说一句不支持就完)。
