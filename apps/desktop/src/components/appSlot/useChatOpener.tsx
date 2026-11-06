@@ -146,6 +146,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
   useEffect(() => {
     if (!chatId || !appsHere) return undefined
     let live = true
+    const pendingReceipts = receipts.current
     const take = () => {
       if (canTakeRef.current && !canTakeRef.current()) return
       const ask = takeChatAsk(chatId)
@@ -206,8 +207,8 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
     return () => {
       live = false
       ++asking.current
-      for (const receipt of receipts.current) receipt.reject(new Error('The file opener was closed'))
-      receipts.current.clear()
+      for (const receipt of pendingReceipts) receipt.reject(new Error('The file opener was closed'))
+      pendingReceipts.clear()
       window.removeEventListener(UI_EVENTS.chatAsked, take)
     }
   }, [chatId, openGroupFile, openResolved, show])
