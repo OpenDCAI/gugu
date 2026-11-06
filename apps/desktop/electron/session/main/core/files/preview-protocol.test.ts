@@ -425,13 +425,19 @@ it('keeps a served baseline when another request begins during a dependency chec
   const preview = (await createPreview('p', 'w', '/w/index.html', 'page'))!;
   let finishScan!: (value: typeof old) => void;
   let finishRefetch!: (value: typeof old) => void;
+  let scanStarted!: () => void;
+  let refetchStarted!: () => void;
+  const scanning = new Promise<void>(resolve => { scanStarted = resolve; });
+  const refetching = new Promise<void>(resolve => { refetchStarted = resolve; });
   let refetch: Promise<Response> | undefined;
   try {
     await handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
-    readBytes.mockImplementationOnce(() => new Promise<typeof old>(resolve => { finishScan = resolve; }))
-      .mockImplementationOnce(() => new Promise<typeof old>(resolve => { finishRefetch = resolve; }));
+    readBytes.mockImplementationOnce(() => new Promise<typeof old>(resolve => { finishScan = resolve; scanStarted(); }))
+      .mockImplementationOnce(() => new Promise<typeof old>(resolve => { finishRefetch = resolve; refetchStarted(); }));
     const scan = previewAssetsChanged(preview.previewId);
+    await scanning;
     refetch = handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+    await refetching;
     finishScan(next);
     expect(await scan).toBe(true);
     finishRefetch(next);
