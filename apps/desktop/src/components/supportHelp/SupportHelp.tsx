@@ -25,7 +25,7 @@ export function SupportHelp({ helpOpen, openedAt, onCloseMenu, onOpenGroup, chil
     staleTime: 0, gcTime: 0, refetchOnMount: 'always', refetchInterval: 30_000, retry: false,
   }, queryClient)
   const snapshot = query.data
-  const info = snapshot?.support_help_entry_enabled === true ? snapshot : null
+  const info = snapshot?.support_help_entry_enabled === true && 'group' in snapshot ? snapshot : null
   // Server revocation closes the surface and stops polling when the menu is also closed.
   useEffect(() => { if (query.isSuccess && !query.data.support_help_entry_enabled) setDialog(false) }, [query.data, query.isSuccess])
   const visible = info !== null && !query.isError && query.dataUpdatedAt >= openedAt
