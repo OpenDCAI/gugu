@@ -203,7 +203,7 @@ export function AgentTurnFailureBar({
       <TurnFailureCard reason={failure.reason} placement="composer"
         agentId={failure.agentUserId} displayName={displayName} avatar={avatar}
         createdAt={new Date(failure.at).toISOString()} onDismiss={onDismiss} onOpenSettings={onOpenModel}
-        onRetry={() => void handleRetry()} retrying={retrying} />
+        onRetry={failure.departed ? undefined : () => void handleRetry()} retrying={retrying} />
     </div>
   )
 }
