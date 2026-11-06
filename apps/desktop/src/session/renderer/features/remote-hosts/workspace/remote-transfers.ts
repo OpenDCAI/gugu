@@ -20,7 +20,7 @@ import {
   type SessionpageWorkspaceReadRequest,
   type SessionpageWorkspaceWriteRequest,
 } from '@gugu/session-core/session-record/contract';
-import { base64ToBytes, bytesToBase64 } from '@renderer/lib/base64';
+import { base64ToBytes, bytesToBase64 } from '@shared/lib/base64';
 
 /** 文件夹下载最多这么多个文件(再多先停下说一句,❌ 无声地一直列下去)。 */
 export const REMOTE_DOWNLOAD_MAX_FILES = 10_000;
