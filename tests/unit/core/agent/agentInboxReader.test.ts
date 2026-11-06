@@ -403,6 +403,10 @@ describe('an enqueuing host (session-life)', () => {
       postDisclosure: async () => { throw new Error('HTTP 403') },
       markRead: async () => { throw new Error('not authorized to mark read') },
     })
+    let marks = 0
+    const counting = makeDeps(cloud, { postDisclosure: async () => {}, markRead: async () => { marks += 1 } })
+    await discloseInboxRowsFailed(AGENT, [source(2, false)], counting.deps, { kind: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } })
+    expect(marks).toBe(0) // A failed row never reached the agent: it is not an agent read.
     await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], removed.deps, { kind: 'failed', cause: { name: 'SessionArchived', message: 'Session is archived' } }))
       .resolves.toEqual({ said: false, reason: 'deliveryRejected' })
     await expect(discloseInboxRowsFailed(AGENT, [source(2, false)], removed.deps, { kind: 'unknown' }))

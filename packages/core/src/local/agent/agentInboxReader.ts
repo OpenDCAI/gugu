@@ -373,7 +373,7 @@ const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
   timeout: 'The model service did not respond in time; this reply could not be completed.',
   generic: 'This reply could not be completed. Please try again later.',
   notAdmitted: '消息已保留，助理就绪后回复。',
-  deliveryRejected: 'This message was not delivered to the assistant. Resend to try again.',
+  deliveryRejected: 'This message did not reach the assistant and will not be resent automatically.',
   outcomeUnknown: 'Delivery result unknown: the message may have reached the assistant, and it was not resent.',
   undelivered: 'Not delivered yet: no running Gugu instance on this device holds this agent. The message stays unread until that instance is open.',
   appUnavailable: 'Not delivered: this came from an App that cannot run where this agent lives.',
@@ -1065,13 +1065,14 @@ export async function discloseInboxRowsFailed(agentUserId: string, sources: read
   deps.onOutcome?.({ agentUserId, ok: false })
   // A start that failed keeps its rows queued for the retry: said as retained, left unread for that delivery.
   if (outcome.kind === 'retained') return discloseBatchFailure(agentUserId, sources, deps, undefined, 'notAdmitted')
-  // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
-  const said = outcome.kind === 'failed'
-    // A failed row never reached the agent: said as not delivered, unless the cause names something the person can act on.
-    ? await discloseBatchFailure(agentUserId, sources, deps, outcome.cause, agentFailureReason(errorText(outcome.cause)) ?? 'deliveryRejected', true)
-    : await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown')
-  // Final either way: a read marker that cannot land (an identity removed by the archive may not mark read) was logged and
-  // leaves the row unread; it must not stop the unit from settling. The host's claimed source keeps it from being resent.
+  // A failed row never reached the agent, so it is not an agent read: it stays unread, and the host's failed source membership
+  // keeps it from being resent. Said as not delivered, unless the cause names something the person can act on.
+  if (outcome.kind === 'failed') {
+    return discloseBatchFailure(agentUserId, sources, deps, outcome.cause, agentFailureReason(errorText(outcome.cause)) ?? 'deliveryRejected', true)
+  }
+  // Handed over, never resent, outcome unknown: said truthfully, then settled. A read marker that cannot land (an identity
+  // removed by the archive may not mark read) was logged and must not stop the unit from settling.
+  const said = await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown')
   await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps).catch((error: unknown) => {
     if (isSqliteBusy(error)) throw error
   })

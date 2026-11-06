@@ -61,3 +61,28 @@ it('persists one rejected item, discloses a terminal failure, and admits the fol
   await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 0 });
   expect(postDisclosure).toHaveBeenCalledTimes(1);
 });
+
+it('an archived queue row stays unread and is not delivered again after a restart and a restore', async () => {
+  const cloudRows = [row(3)]; const read = new Set<string>();
+  const reportFailure = vi.fn(async () => {});
+  const life = new SessionLife({ logger: { info: () => {} }, sessions: () => ['s'], store: () => lifeStore, adapter: () => { throw new Error('Must not start a provider'); },
+    forks: () => [], allForks: () => [], parentOf: () => null, ownedBy: async () => true, markRead: async () => {}, reportFailure,
+    publish: vi.fn(), removed: vi.fn(), failed: vi.fn(), now: Date.now });
+  const inject = vi.fn(async () => 'enqueued' as const);
+  const deps: AgentInboxReaderDeps = {
+    accessToken: 'fixture', groupRulesLedger: memoryGroupRulesLedger(), deliveryTiming: () => 'next-tool-call',
+    fetchUnread: async () => cloudRows.filter(message => !read.has(message.id)),
+    claimedSources: (_agent, ids) => claimedSessionSources('s', ids),
+    queuesInbox: () => true, inject,
+    markRead: async input => { read.add(input.messageId); }, postDisclosure: vi.fn(async () => {}),
+  };
+  enqueuePending({ sessionId: 's', text: 'queued', kind: 'inbox-batch', sources: [{ row: cloudRows[0]!, agentUserId: AGENT }] });
+  await life.interrupt('s', { k: 'interrupt', reason: 'archive' });
+  expect(reportFailure).toHaveBeenCalledOnce();
+  expect(lifeStore.pending('s').queued).toEqual([]);
+  life.restore('s'); await life.quiescent('s');
+  resetAgentInboxReaderStateForTests();
+  await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 1, injected: 0 });
+  expect(inject).not.toHaveBeenCalled();
+  expect(read.size).toBe(0);
+});
