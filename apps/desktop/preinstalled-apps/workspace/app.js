@@ -41,7 +41,7 @@ const STRINGS = {
     confirmRemoveCopy: '永久删除「{name}」？',
     uploading: '正在上传 {name} · {done} / {total} · {speed}/s',
     uploaded: '已上传 {name}',
-    saving: '正在下载 {name}…',
+    downloading: '正在下载 {name} · {done} / {total} · {speed}/s',
     saved: '已下载 {name}',
     replaceAsk: '「{name}」已存在',
     replaceAll: '替换同名文件',
@@ -249,7 +249,7 @@ const STRINGS = {
     confirmRemoveCopy: 'Permanently delete "{name}"?',
     uploading: 'Uploading {name} · {done} / {total} · {speed}/s',
     uploaded: 'Uploaded {name}',
-    saving: 'Downloading {name}…',
+    downloading: 'Downloading {name} · {done} / {total} · {speed}/s',
     saved: 'Downloaded {name}',
     replaceAsk: '"{name}" already exists',
     replaceAll: 'Replace files of the same name',
@@ -1865,16 +1865,40 @@ async function forwardEntries(entries, then) {
 }
 
 async function downloadEntry(entry) {
+  hideBanner()
+  const row = inCopy(entry) ? transferRow(state.t.downloading, entry.name) : null
   try {
-    // A working copy's file may be far away, and a folder holds many: said while it is on its way, and when it is there.
-    if (inCopy(entry)) showBanner(fmt(state.t.saving, { name: entry.name }), 'info')
-    const saved = await gugu.files.download(entry) // false: the person cancelled the save dialog, nothing to say
-    if (inCopy(entry)) {
-      hideBanner()
-      if (saved) showBanner(fmt(state.t.saved, { name: entry.name }), 'info')
-    }
+    const saved = await (row ? gugu.files.download(entry, { onProgress: row.progress, signal: row.signal }) : gugu.files.download(entry)) // false: the person cancelled the save dialog, nothing to say
+    if (row && saved) showBanner(fmt(state.t.saved, { name: entry.name }), 'info')
   } catch (error) {
-    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+    if (!row?.signal.aborted) showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  } finally {
+    row?.done()
+  }
+}
+
+// One line under the list per transfer of a working copy's: real progress, and a way to stop it. Drawn at its first progress
+// (a download waits on the person's save dialog first).
+function transferRow(template, name) {
+  const stop = new AbortController()
+  const started = Date.now()
+  const li = Object.assign(document.createElement('div'), { className: 'transfer-row' })
+  const text = document.createElement('span')
+  const cancel = Object.assign(document.createElement('button'), { type: 'button', textContent: state.t.cancel, onclick: () => stop.abort() })
+  li.append(text, ' ', cancel)
+  return {
+    signal: stop.signal,
+    progress(done, total, shown = name) {
+      if (!li.isConnected) {
+        $('transfer').append(li)
+        $('transfer').hidden = false
+      }
+      text.textContent = fmt(template, { name: shown, done: sizeOf(done) || '0', total: sizeOf(total) || '0', speed: sizeOf(Math.round(done / Math.max((Date.now() - started) / 1000, 0.001))) || '0' })
+    },
+    done() {
+      li.remove()
+      $('transfer').hidden = !$('transfer').childElementCount
+    },
   }
 }
 
@@ -2059,17 +2083,13 @@ function uploadDropped(transfer, folder) {
 async function uploadToCopy(files, folder, folders = []) {
   const t = state.t
   const workspace = state.ctx.workspace.id
-  const row = $('transfer')
-  const stop = new AbortController()
+  const row = transferRow(t.uploading, '')
   const under = (path) => (folder ? `${folder}/${path}` : path)
   const total = files.reduce((sum, { file }) => sum + file.size, 0)
-  const started = Date.now()
   let sentBefore = 0
   let answer = null
   hideBanner()
   $('upload').disabled = true
-  $('transfer-cancel').textContent = t.cancel
-  $('transfer-cancel').onclick = () => stop.abort()
   try {
     for (const path of folders) {
       await gugu.files.mkdir({ workspace, path: under(path) }).catch((error) => { if (error.code !== 'name-taken') throw error })
@@ -2079,12 +2099,8 @@ async function uploadToCopy(files, folder, folders = []) {
       const dir = under(path).split('/').slice(0, -1).join('/')
       const send = (replace) => gugu.files.upload({ workspace, ...(dir ? { folder: dir } : {}) }, named, {
         replace,
-        signal: stop.signal,
-        onProgress: (sent) => {
-          row.hidden = false
-          const done = sentBefore + sent
-          $('transfer-text').textContent = fmt(t.uploading, { name: path, done: sizeOf(done) || '0', total: sizeOf(total) || '0', speed: sizeOf(Math.round(done / Math.max((Date.now() - started) / 1000, 0.001))) || '0' })
-        },
+        signal: row.signal,
+        onProgress: (sent) => row.progress(sentBefore + sent, total, path),
       })
       try {
         await send(answer === 'replace')
@@ -2095,11 +2111,11 @@ async function uploadToCopy(files, folder, folders = []) {
       }
       sentBefore += file.size
     }
-    if (!stop.signal.aborted) showBanner(fmt(t.uploaded, { name: files.length === 1 ? files[0].path : String(files.length) }), 'info')
+    if (!row.signal.aborted) showBanner(fmt(t.uploaded, { name: files.length === 1 ? files[0].path : String(files.length) }), 'info')
   } catch (error) {
-    if (!stop.signal.aborted) showBanner(fmt(t.failed, { e: error.message }), 'error')
+    if (!row.signal.aborted) showBanner(fmt(t.failed, { e: error.message }), 'error')
   } finally {
-    row.hidden = true
+    row.done()
     $('upload').disabled = false
     await refreshList()
   }

@@ -99,6 +99,7 @@ export const HOST_CALLS = {
   'appFiles.move': { verb: 'filesMove' },
   'appFiles.writeChunk': { verb: 'filesWriteChunk' },
   'appFiles.reveal': { verb: 'filesReveal' },
+  'appFiles.downloadStop': { verb: 'filesDownloadStop' },
   'appFiles.watch': { verb: 'filesWatch' },
   'appFiles.replace': { verb: 'filesReplace' },
   'appFiles.canDelete': { verb: 'filesCanDelete' },
@@ -136,6 +137,8 @@ export const HOST_EVENTS = {
   onContextChanged: { event: 'context', pick: (event: Event<'context'>) => [event.context] },
   /** `gugu.files.onChanged(place, fn)` rides on it; it says files moved, never who moved them. */
   onFilesChanged: { event: 'filesChanged', pick: (event: Event<'filesChanged'>) => [event.watchId, event.change] },
+  /** `gugu.files.download(file, { onProgress })` rides on it. */
+  onDownloadProgress: { event: 'downloadProgress', only: 'page', pick: (event: Event<'downloadProgress'>) => [event.transferId, event.done, event.total] },
   onAppStateChanged: { event: 'appState', pick: (event: Event<'appState'>) => [event.state] },
   onAgentsChanged: { event: 'agentsChanged', pick: (event: Event<'agentsChanged'>) => [event.agentIds] },
   onForumChanged: { event: 'forumChanged', only: 'page', pick: (event: Event<'forumChanged'>) => [event.target, event.change] },

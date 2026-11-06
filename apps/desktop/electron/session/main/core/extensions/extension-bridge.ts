@@ -1938,7 +1938,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesMkdir':
     case 'filesMove':
     case 'filesWriteChunk':
-    case 'filesReveal': {
+    case 'filesReveal':
+    case 'filesDownloadStop': {
       const files = await import('@main/core/extensions/app-files');
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
@@ -1972,6 +1973,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesMove: 'moveAppFile',
         filesWriteChunk: 'writeAppFileChunk',
         filesReveal: 'revealAppFile',
+        filesDownloadStop: 'stopAppFileDownload',
         filesReplace: 'replaceAppFile',
         filesCanDelete: 'appFilesCanDelete',
         filesVersions: 'appFileVersions',
@@ -2021,7 +2023,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const page = method === 'showMessage' ? caller.filePage(args) : await caller.resourcePage(args);
       // The window the page is drawn in: dialogs sit on it, and it is the one that shows chats.
       const owner = shown.embedderId === null ? null : (webContents.fromId(shown.embedderId) ?? null);
-      if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner);
+      if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner, (transferId, done, total) => caller.hear({ type: 'downloadProgress', transferId, done, total }));
       // 「转发」: the window that shows chats draws its forward page for them (the chats picked are the person's, not the page's).
       if (method === 'filesForward') return void (await deliver(shown, { kind: 'forwardFiles', detail: await files.forwardTargets(page, args) }));
       if (method === 'filesOpenWith') {

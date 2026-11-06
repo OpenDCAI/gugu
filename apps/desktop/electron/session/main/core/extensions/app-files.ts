@@ -728,27 +728,32 @@ export async function pickFilesToUpload(owner: WebContents | null): Promise<AppF
  * copy's, as the call names it. Gated like opening it read-only — checked before the dialog shows. Cancelled is `false`,
  * not an error.
  */
-type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: string; bytes: Uint8Array | Buffer; kind: 'bytes' } | { name: string; ref: AppFileRef; page: DesktopFilePage; kind: 'pieces' };
+type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: string; ref: AppFileRef; page: DesktopFilePage; kind: 'pieces' };
 
 async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<SaveSource> {
   const ref = fileRefOf(given);
   if (isChat(ref)) return await files.downloadSource(chatSurface(page), { ref });
-  if (await elsewhereGated(page, ref)) {
-    return { name: path.posix.basename(pathOfRef(ref)), ref, page, kind: 'pieces' as const };
-  }
-  return { ...local.downloadSource(await localFolder(page, ref), { ref: ref as WorkspaceFileRef }), kind: 'bytes' as const };
+  // A working copy's file, wherever it is, one piece after another. Gated like opening it (this computer's), or by `elsewhereGated`.
+  if (!(await elsewhereGated(page, ref))) local.openTarget(await localFolder(page, ref), { ref: ref as WorkspaceFileRef });
+  return { name: path.posix.basename(pathOfRef(ref)), ref, page, kind: 'pieces' as const };
 }
 
-/** Another machine's file: its pieces, one after another, each on the disk as it comes — half of one is not left behind. */
-async function savePieces(page: DesktopFilePage, ref: AppFileRef, filePath: string): Promise<void> {
+/** What a download under way reports, and what stops it. */
+type Saving = { signal?: AbortSignal; saved?: (bytes: number, size: number) => void };
+const stopped = () => new AppFileError('invalid', 'The download was stopped');
+
+/** A working copy's file: its pieces, each on the disk as it comes — half of one is not left behind. */
+async function savePieces(page: DesktopFilePage, ref: AppFileRef, filePath: string, saving: Saving = {}): Promise<void> {
   const out = await fs.open(filePath, 'w');
   try {
     for (let offset = 0, size = Infinity; offset < size;) {
+      if (saving.signal?.aborted) throw stopped();
       const chunk = await readAppFile(page, { ref, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
       size = chunk.size;
       if (chunk.data.byteLength === 0) break;
       await out.write(chunk.data);
       offset += chunk.data.byteLength;
+      saving.saved?.(chunk.data.byteLength, size);
     }
   } catch (error) {
     await out.close();
@@ -761,25 +766,42 @@ async function savePieces(page: DesktopFilePage, ref: AppFileRef, filePath: stri
 /** At most this many files in a folder saved at once: past it, said, never a list that goes on without end. */
 const FOLDER_DOWNLOAD_MAX_FILES = 10_000;
 
-/** A working copy's folder saved under `target`, all in it, wherever the working copy is: read one folder and one piece at a time. */
-async function saveFolder(page: DesktopFilePage, place: WorkspacePlace, folder: string, target: string): Promise<void> {
-  let saved = 0;
+/** A working copy's folder saved under `target`, wherever the working copy is: listed first (how much there is), then one piece at a time. */
+async function saveFolder(page: DesktopFilePage, place: WorkspacePlace, folder: string, target: string, report: (done: number, total: number) => void, signal: AbortSignal): Promise<void> {
+  const found: { id: string; to: string; size: number }[] = [];
   const walk = async (from: string, to: string): Promise<void> => {
+    if (signal.aborted) throw stopped();
     await fs.mkdir(to, { recursive: true });
     for (const entry of await listAppFiles(page, { place, folder: from })) {
-      const into = path.join(to, entry.name);
-      if (entry.type === 'folder') { await walk(entry.id, into); continue; }
-      if (++saved > FOLDER_DOWNLOAD_MAX_FILES) throw new AppFileError('too-large', `More than ${FOLDER_DOWNLOAD_MAX_FILES} files in this folder`);
-      await savePieces(page, { workspace: place.workspace, id: entry.id }, into);
+      if (entry.type === 'folder') { await walk(entry.id, path.join(to, entry.name)); continue; }
+      found.push({ id: entry.id, to: path.join(to, entry.name), size: entry.size ?? 0 });
+      if (found.length > FOLDER_DOWNLOAD_MAX_FILES) throw new AppFileError('too-large', `More than ${FOLDER_DOWNLOAD_MAX_FILES} files in this folder`);
     }
   };
-  await walk(folder, target);
+  try {
+    await walk(folder, target);
+    const total = found.reduce((sum, file) => sum + file.size, 0);
+    let done = 0;
+    for (const file of found) {
+      await savePieces(page, { workspace: place.workspace, id: file.id }, file.to, { signal, saved: (bytes) => report(done += bytes, total) });
+    }
+  } catch (error) {
+    await fs.rm(target, { recursive: true, force: true });
+    throw error;
+  }
 }
 
-async function saveTo(source: SaveSource, filePath: string): Promise<void> {
+const downloads = new Map<string, AbortController>();
+const downloadKey = (page: DesktopFilePage, transferId: unknown) => `${page.pageId}/${String(transferId)}`;
+
+/** Stops a `files.download` of this page's that is under way. */
+export function stopAppFileDownload(page: DesktopFilePage, args: { transferId?: unknown }): void {
+  downloads.get(downloadKey(page, args.transferId))?.abort();
+}
+
+async function saveTo(source: SaveSource, filePath: string, saving?: Saving): Promise<void> {
   if (source.kind === 'text') return fs.writeFile(filePath, source.text, 'utf8');
-  if (source.kind === 'bytes') return fs.writeFile(filePath, source.bytes);
-  if (source.kind === 'pieces') return savePieces(source.page, source.ref, filePath);
+  if (source.kind === 'pieces') return savePieces(source.page, source.ref, filePath, saving);
   await writeFileHandle(source.file, filePath);
 }
 
@@ -796,8 +818,21 @@ async function freePath(folder: string, name: string): Promise<string> {
  * One file: where to save it, asked (`true` saved). Several (API 20): one folder asked for them all, each saved there under
  * its own name — how many were saved; `0` when the person cancelled.
  */
-export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unknown; refs?: unknown; folder?: unknown }, owner: WebContents | null): Promise<boolean | number> {
+export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unknown; refs?: unknown; folder?: unknown; transferId?: unknown }, owner: WebContents | null, report?: (transferId: string, done: number, total: number) => void): Promise<boolean | number> {
   const window = owner ? BrowserWindow.fromWebContents(owner) : null;
+  // A transfer the page follows: what stops it is kept for as long as it runs.
+  const transferId = typeof args.transferId === 'string' ? args.transferId : null;
+  const stop = new AbortController();
+  const told = (done: number, total: number) => { if (transferId) report?.(transferId, done, total); };
+  const following = async <T>(run: () => Promise<T>): Promise<T> => {
+    const key = downloadKey(page, transferId);
+    downloads.set(key, stop);
+    try {
+      return await run();
+    } finally {
+      downloads.delete(key);
+    }
+  };
   if (args.folder === true) {
     const ref = fileRefOf(args.ref);
     if (isChat(ref)) throw new AppFileError('invalid', "Only a working copy's folder is saved whole");
@@ -805,7 +840,8 @@ export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unkno
     const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
     const into = picked.canceled ? null : picked.filePaths[0];
     if (!into) return false;
-    await saveFolder(page, ref as WorkspacePlace, pathOfRef(ref), await freePath(into, path.posix.basename(pathOfRef(ref))));
+    const target = await freePath(into, path.posix.basename(pathOfRef(ref)));
+    await following(() => saveFolder(page, ref as WorkspacePlace, pathOfRef(ref), target, told, stop.signal));
     return true;
   }
   if (Array.isArray(args.refs)) {
@@ -826,6 +862,7 @@ export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unkno
   const options = { defaultPath: source.name };
   const target = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
   if (target.canceled || !target.filePath) { if (source.kind === 'file') await source.file.dispose(); return false; }
-  await saveTo(source, target.filePath);
+  let done = 0;
+  await following(() => saveTo(source, target.filePath as string, { signal: stop.signal, saved: (bytes, size) => told(done += bytes, size) }));
   return true;
 }
