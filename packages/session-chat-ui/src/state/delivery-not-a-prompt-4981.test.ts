@@ -108,5 +108,11 @@ describe('viewer-owned cross-client delivery pins', () => {
       const items = [normalized ? normalizeMessage(input) : input, message('reply', 'assistant', 'The original answer')];
       expect(collectUserTurnUnits([turnOf(items)], unitsOf(items), { viewerId })).toEqual(expected);
     }
+    const scheduled = '<gugu_delivery route="scheduled" from_id="system:gugu" schedule="Check results"><![CDATA[Review the results]]></gugu_delivery>';
+    for (const input of [message('scheduled', 'user', scheduled),
+      { ...message('steered', 'user', 'Delivered while the owner turn is active'), _meta: { guguOwnerInput: false } }]) {
+      const item = normalized ? normalizeMessage(input) : input;
+      expect(collectUserTurnUnits([turnOf([item])], unitsOf([item]), { viewerId })).toEqual([]);
+    }
   });
 });
