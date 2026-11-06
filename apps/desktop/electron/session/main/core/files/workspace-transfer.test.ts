@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -69,6 +69,27 @@ describe('按块写,按「打开时那一版」核对', () => {
     const done = await uploads.write(root, { ...part, offset: 3, data: b64('def'), final: true });
     expect(done.committed?.size).toBe(6);
     expect(readFileSync(path.join(root, 'new.txt'), 'utf8')).toBe('abcdef');
+  });
+
+  it('收到的字节边收边落在目标旁边,收齐才搬过去;拒了不留半截', async () => {
+    const uploads = createWorkspaceUploads();
+    const part = { path: 'big.bin', uploadId: 't1', total: 6, expectedEtag: null };
+    await uploads.write(root, { ...part, offset: 0, data: b64('abc'), final: false });
+    expect(readdirSync(root).filter((name) => name.endsWith('.gugu-tmp'))).toHaveLength(1);
+    await uploads.write(root, { ...part, offset: 3, data: b64('def'), final: true });
+    expect(readdirSync(root).filter((name) => name.endsWith('.gugu-tmp'))).toEqual([]);
+    writeFileSync(path.join(root, 'kept.txt'), 'x');
+    await expect(uploads.write(root, { path: 'kept.txt', uploadId: 't2', offset: 0, data: b64('y'), total: 1, final: true, expectedEtag: null }))
+      .rejects.toMatchObject({ code: WORKSPACE_CONFLICT_CODE });
+    expect(readdirSync(root).filter((name) => name.endsWith('.gugu-tmp'))).toEqual([]);
+  });
+
+  it('写回已有的文件是就地写:权限不变', async () => {
+    const file = path.join(root, 'run.sh');
+    writeFileSync(file, 'old', { mode: 0o755 });
+    const uploads = createWorkspaceUploads();
+    await uploads.write(root, { path: 'run.sh', uploadId: 't3', offset: 0, data: b64('new'), total: 3, final: true, expectedEtag: WORKSPACE_WRITE_FORCE });
+    expect([readFileSync(file, 'utf8'), statSync(file).mode & 0o777]).toEqual(['new', 0o755]);
   });
 
   it('agent 在人打开之后改过这个文件 ⇒ 拒(冲突),❌ 静默盖掉;人确认覆盖才写', async () => {
