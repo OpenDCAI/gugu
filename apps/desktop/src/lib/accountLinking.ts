@@ -1,7 +1,7 @@
 import type { User, UserIdentity } from '@supabase/supabase-js'
 
 export const ACCOUNT_REVERIFICATION_MS = 10 * 60_000
-export type LoginMethodChange = 'google-linked' | 'email-changed' | 'google-unlinked'
+export type LoginMethodChange = 'google-linked' | 'google-unlinked'
 export type LoginMethodNotice = { id: string; kind: LoginMethodChange; at: string }
 export const LOGIN_METHOD_NOTICE_KEY = 'gugu_login_method_change'
 
@@ -29,7 +29,7 @@ export function loginMethodNotice(user: User): LoginMethodNotice | null {
   if (!value || typeof value !== 'object') return null
   const notice = value as Partial<LoginMethodNotice>
   return typeof notice.id === 'string' && typeof notice.at === 'string' && Number.isFinite(Date.parse(notice.at))
-    && ['google-linked', 'email-changed', 'google-unlinked'].includes(notice.kind ?? '') ? notice as LoginMethodNotice : null
+    && ['google-linked', 'google-unlinked'].includes(notice.kind ?? '') ? notice as LoginMethodNotice : null
 }
 
 export interface AccountLinkingDeps {
@@ -117,7 +117,7 @@ export class AccountLinking {
     this.assertOwner(changed)
     const complete = changed.email?.toLowerCase() === email
     if (complete) this.proof = null
-    return { email, complete, noticeSaved: complete ? await this.deps.recordChange('email-changed') : true }
+    return { email, complete, noticeSaved: true }
   }
   async confirmEmail(email: string, token: string, sourceEmail = email): Promise<{ complete: boolean; noticeSaved: boolean }> {
     const user = await this.verified()
@@ -126,7 +126,7 @@ export class AccountLinking {
     this.assertOwner(changed ?? undefined)
     if (!changed || changed.email?.toLowerCase() !== email.toLowerCase()) return { complete: false, noticeSaved: true }
     this.proof = null
-    return { complete: true, noticeSaved: await this.deps.recordChange('email-changed') }
+    return { complete: true, noticeSaved: true }
   }
   async unlinkGoogle(): Promise<void> {
     const { email, emailIdentity, google, googleEmail } = loginMethods(await this.verified())

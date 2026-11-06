@@ -56,7 +56,6 @@ export default {
     "noticeFailed": "Sign-in methods updated, but the account notice could not be synced.",
     "notices": {
       "google-linked": "Google was linked to your account. You can sign in with email or Google.",
-      "email-changed": "Your sign-in email was changed. Make sure you made this change.",
       "google-unlinked": "Google was unlinked. All devices must sign in again with email."
     },
     "errors": {

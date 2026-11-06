@@ -56,7 +56,6 @@ export default {
     "noticeFailed": "登录方式已更新，但账号提示未能同步。",
     "notices": {
       "google-linked": "你的账号已绑定 Google，可使用邮箱或 Google 登录。",
-      "email-changed": "你的登录邮箱已更换，请确认这是你本人的操作。",
       "google-unlinked": "你的账号已解绑 Google，所有设备需要使用邮箱重新登录。"
     },
     "errors": {

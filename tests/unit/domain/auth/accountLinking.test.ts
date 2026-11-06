@@ -128,7 +128,7 @@ describe('account linking workflow', () => {
     expect(h.deps.unlinkGoogle).not.toHaveBeenCalled()
     expect(h.deps.signOutAll).not.toHaveBeenCalled()
   })
-  it('waits for both secure-email confirmations and records only the completed change', async () => {
+  it('waits for both secure-email confirmations without creating a defensive notice', async () => {
     const h = harness()
     await h.flow.verifyEmail('123456')
     await expect(h.flow.changeEmail(' New@example.test ')).resolves.toMatchObject({ email: 'new@example.test', complete: false })
@@ -137,7 +137,7 @@ describe('account linking workflow', () => {
     vi.mocked(h.deps.confirmEmail).mockResolvedValue(user({ email: 'new@example.test' }))
     await expect(h.flow.confirmEmail('new@example.test', '222222', 'alice@example.test')).resolves.toMatchObject({ complete: true })
     expect(h.deps.confirmEmail).toHaveBeenLastCalledWith('alice@example.test', '222222')
-    expect(h.deps.recordChange).toHaveBeenCalledExactlyOnceWith('email-changed')
+    expect(h.deps.recordChange).not.toHaveBeenCalled()
   })
   it('revokes all devices after unlinking, even when saving the notice fails', async () => {
     const h = harness(user({ identities: [emailIdentity, google] }))
@@ -178,6 +178,7 @@ describe('account linking workflow', () => {
     const valid = { id: 'change', kind: 'google-unlinked', at: '2026-11-06T12:00:00Z' }
     expect(loginMethodNotice(user({ user_metadata: { gugu_login_method_change: valid } }))).toEqual(valid)
     expect(loginMethodNotice(user({ user_metadata: { gugu_login_method_change: { ...valid, kind: 'invented' } } }))).toBeNull()
+    expect(loginMethodNotice(user({ user_metadata: { gugu_login_method_change: { ...valid, kind: 'email-changed' } } }))).toBeNull()
   })
 })
 
