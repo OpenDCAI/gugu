@@ -245,7 +245,9 @@ export function createRemoteLibraryHost(
     authorize: async (id, includeAccountId) => {
       const acquired = await rpc.integrations.acquireAuthorization(id);
       if (!acquired.success) return acquired;
-      return there.integrations.connect(id, acquired.credentials, undefined, includeAccountId);
+      return includeAccountId
+        ? there.integrations.connect(id, acquired.credentials, undefined, true)
+        : there.integrations.connect(id, acquired.credentials);
     },
     /**
      * 浏览器授权的那一跳之外还要撤掉那台机器上的命令行登录(它在那台机器上跑)。本机这一跳照旧:

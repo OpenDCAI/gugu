@@ -121,6 +121,17 @@ describe('资源库的取数对象(#6264 一套工作台:同一套控制器,rpc 
     expect(local.cancelAuthorization).toHaveBeenCalledWith('linear');
   });
 
+  it('owner 授权明确要求返回账号标识，旧版授权保持原有两参数请求', async () => {
+    d22.calls.length = 0;
+    const host = createRemoteLibraryHost(device);
+    await host.integrations.authorize('linear', true);
+    await host.integrations.authorize('linear', false);
+    expect(d22.calls).toEqual([
+      ['integrations.connect', ['linear', { accessToken: 'tok' }, undefined, true]],
+      ['integrations.connect', ['linear', { accessToken: 'tok' }]],
+    ]);
+  });
+
   it('集成连没连上问那台机器的 integrations.*:覆盖每一家,不只 issue 系统(#7210)', async () => {
     d22.calls.length = 0;
     const host = createRemoteLibraryHost(device);
