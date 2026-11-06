@@ -53,7 +53,10 @@ const cells = () => [...$('file-list').querySelectorAll<HTMLElement>('li.file.ce
 const row = (id: string) => document.querySelector(`[data-id="${id}"]`) as HTMLElement
 const kind = (name: string) => $('kinds').querySelector<HTMLButtonElement>(`[data-kind="${name}"]`)!
 const view = (name: string) => $('views').querySelector<HTMLButtonElement>(`[data-view="${name}"]`)!
-const chip = (name: string) => $('chips').querySelector<HTMLButtonElement>(`[data-filter="${name}"]`)
+// The filters are submenus of the order's menu (owner 11-06: no chips over the list): 「上传者 ›」, set: 「上传者: 小雨 ›」.
+const filters = () => { $('sort').click(); const names = [...$('menu').querySelectorAll<HTMLButtonElement>('[aria-haspopup="menu"]')].map((b) => b.textContent); pressEscape(); return names }
+const filter = (label: string) => { $('sort').click(); [...$('menu').querySelectorAll<HTMLButtonElement>('[aria-haspopup="menu"]')].find((b) => b.textContent!.startsWith(label))!.click() }
+const clearFilters = () => { $('sort').click(); item('清除筛选').click() }
 const item = (text: string) => [...$('menu').querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!
 const pressEscape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
 const facts = () => Object.fromEntries([...$('details').querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling!.textContent]))
@@ -78,7 +81,7 @@ afterAll(() => vi.restoreAllMocks())
 beforeEach(() => {
   pressEscape()
   pressEscape()
-  if ($('chips').querySelector('.chips-clear')) $('chips').querySelector<HTMLButtonElement>('.chips-clear')!.click()
+  if ($('sort').getAttribute('aria-pressed') === 'true') clearFilters()
   kind('all').click()
 })
 
@@ -103,34 +106,37 @@ describe('the grid', () => {
 })
 
 describe('filters', () => {
-  test('a chip only where there is something to pick by; picking narrows the list, filters add up, one press clears them', () => {
-    expect([...$('chips').querySelectorAll('.chip')].map((c) => (c as HTMLElement).dataset.filter)).toEqual(['who', 'where', 'keep'])
-    chip('who')!.click()
-    expect([...$('menu').querySelectorAll('[role="menuitemradio"]')].map((b) => b.textContent)).toEqual(['全部', '张三', '小雨'])
+  test('in the order\'s menu, a filter only where there is something to pick by; picking narrows the list, filters add up, one press clears them', () => {
+    expect(filters()).toEqual(['上传者 ›', '存放 ›', '保留方式 ›'])
+    filter('上传者')
+    expect([...$('menu').querySelectorAll('.menu-submenu [role="menuitemradio"]')].map((b) => b.textContent)).toEqual(['全部', '张三', '小雨'])
     item('小雨').click()
     expect(ids()).toEqual(['clip'])
-    expect(chip('who')!.textContent).toBe('上传者: 小雨')
-    expect(chip('who')!.getAttribute('aria-pressed')).toBe('true')
-    chip('who')!.click()
+    expect(filters()).toContain('上传者: 小雨 ›')
+    expect($('sort').getAttribute('aria-pressed'), 'a set filter shows on the order\'s button').toBe('true')
+    expect($('sort-label').textContent).toBe('最近 · 已筛选')
+    filter('上传者')
     item('全部').click()
-    chip('keep')!.click()
+    filter('保留方式')
     item('临时').click()
     expect(ids()).toEqual(['spec', 'poster'])
-    chip('where')!.click()
+    filter('存放')
     item('GF server').click()
     expect(ids()).toEqual(['poster'])
-    chip('who')!.click()
+    filter('上传者')
     item('小雨').click()
     expect(ids()).toEqual([])
     expect($('files-empty-message').textContent).toBe('没有符合条件的文件。')
-    $('chips').querySelector<HTMLButtonElement>('.chips-clear')!.click()
+    clearFilters()
     expect(ids()).toEqual(['spec', 'shot', 'clip', 'poster', 'ckpt'])
+    expect($('sort').getAttribute('aria-pressed')).toBe('false')
+    expect(document.getElementById('chips'), 'no row of chips over the list').toBe(null)
   })
 
-  test('in a kind without the choice, its chip is not there', () => {
+  test('in a kind without the choice, its filter is not there', () => {
     kind('docs').click()
-    expect(chip('where'), 'no document of this list stays on a machine').toBe(null)
-    expect(chip('who'), 'one uploader: nothing to pick between').toBe(null)
+    expect(filters().some((name) => name!.startsWith('存放')), 'no document of this list stays on a machine').toBe(false)
+    expect(filters().some((name) => name!.startsWith('上传者')), 'one uploader: nothing to pick between').toBe(false)
   })
 })
 
