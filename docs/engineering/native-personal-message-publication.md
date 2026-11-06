@@ -1,0 +1,17 @@
+# Native personal-message publication
+
+Refs #1924. Depends on shared visibility #1965 and community backend #201; desktop and phone must ship together.
+
+Native transcript bodies remain in the existing session store. The publication journal records only a stable UUID, original message time, captured owner/device/Agent coordinates, destination and acknowledgement. Personal input writes its journal entry in the same SQLite transaction as its durable message admission. A live personal reply or explicit owner notification writes its entry beside the transcript bytes. Files without text are visible messages too; background delivery, historical import/replay and `NO_REPLY` replies do not create entries.
+
+The input admission ID (`guguClientMessageId`) points to its original publication UUID. Its transcript echo does not create another publication. Replies receive UUIDs at first durable live admission. A saved turn record indexes aliases by its immutable reference and reducer message sequence; neither is a publication ID. Provider ID replacement, storage renumbering, edits and later revisions preserve the saved UUID and original timestamp. A genuinely appended visible message gets a new UUID. Historical rows have no live admission record, so revising or reading them cannot create an outbox item.
+
+The journal has a durable admission order. Startup drains only its explicit pending entries. Before an HTTP attempt, the host saves the full Agent/chat destination; a lost response or process restart retries the exact original tuple. Acknowledgements remain in the journal so an input echo or same admission retry cannot recreate debt after a later hide. A successful HTTP response must name the requested chat and provide a boolean `already` plus a decimal-string account revision.
+
+Owner coordinates are captured before local admission. Registered offline devices use the existing owner/tier-scoped device cache. A current login for another owner cannot publish or adopt older debt. The transport rechecks the current owner, device and bound Agent before addressing and again before publishing. A restored Agent cannot inherit a pending entry already bound to its predecessor. The server independently validates every request; identifiers and retained receipts grant no authority.
+
+Desktop main and headless session hosts use the same transport and journal host. The old first-conversation inbox helper remains responsible for its existing explicit address requests; it starts and disposes the publication host with the same lifetime. This change never scans old transcripts, schedules or cached previews to manufacture messages.
+
+The server orders first publication against hide in its transaction. A live message created offline may arrive for the first time after hide and restore the row. A retry of an already published message does not restore it. Message time remains its original time and is not used to infer publication order. Tabs, drafts, read positions and the full addressable chat directory are retained.
+
+Validation covers atomic rollback, real lifecycle admission, input/transcript aliasing, provider aliases and late messages, lost acknowledgements, restart, account switching, historical silence, and the actual host transport tuple. It does not substitute for same-head canonical CI, real-window hide/new-message/unread acceptance, or the coordinated desktop/phone staging window. Backend deployment requires the independent review and release line.

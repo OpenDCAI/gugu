@@ -1,35 +1,22 @@
-import { beforeEach, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ kind: 'dm', readError: null as {message:string} | null,
-  reply: {data: {chat_id:'dm',deleted_at:'2026-11-03T03:48:01Z'} as unknown,error:null as {message:string} | null},
-  archive: vi.fn(), rpc: vi.fn(), from: vi.fn(), select: vi.fn(), eq: vi.fn(), single: vi.fn() }));
-vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ chatDb: { from: state.from, rpc: state.rpc } }));
-vi.mock('../../../../apps/desktop/src/lib/groupAdmin', () => ({ currentGroupAdmin: async () => ({archive:state.archive}) }));
-import { deleteListedConversation } from '../../../../apps/desktop/src/lib/deleteListedConversation';
-beforeEach(() => {
-  vi.clearAllMocks(); state.kind='dm'; state.readError=null; state.reply={data:{chat_id:'dm',deleted_at:'2026-11-03T03:48:01Z'},error:null};
-  state.from.mockReturnValue({select:state.select}); state.select.mockReturnValue({eq:state.eq}); state.eq.mockReturnValue({single:state.single});
-  state.single.mockImplementation(async () => ({data:{kind:state.kind},error:state.readError})); state.rpc.mockImplementation(async () => state.reply);
-});
-it('uses the personal DM RPC and never the group archive path', async () => {
-  expect(await deleteListedConversation('dm')).toEqual({chat_id:'dm',deleted_at:'2026-11-03T03:48:01Z'});
-  expect(state.rpc).toHaveBeenCalledExactlyOnceWith('delete_my_dm_conversation',{p_chat_id:'dm'});
-  expect(state.archive).not.toHaveBeenCalled();
-});
-it('requires the persisted deletion receipt before the caller removes its row', async () => {
-  state.reply.data={chat_id:'somewhere-else',deleted_at:'2026-11-03T03:48:01Z'};
-  await expect(deleteListedConversation('dm')).rejects.toThrow('Conversation deletion was not confirmed');
-});
-it('preserves active-agent denial so the row stays and the UI explains why', async () => {
-  state.reply.error={message:'conversation_agent_in_use'};
-  await expect(deleteListedConversation('dm')).rejects.toThrow('conversation_agent_in_use');
-  expect(state.archive).not.toHaveBeenCalled();
-});
-it('keeps group deletion on its existing management RPC', async () => {
-  state.kind='group'; await deleteListedConversation('group');
-  expect(state.archive).toHaveBeenCalledExactlyOnceWith('group'); expect(state.rpc).not.toHaveBeenCalled();
-});
-it('does not mutate after a failed kind read or for an unsupported conversation kind', async () => {
-  state.readError={message:'permission denied'}; await expect(deleteListedConversation('dm')).rejects.toThrow('permission denied');
-  state.readError=null; state.kind='ai'; await expect(deleteListedConversation('dm')).rejects.toThrow('conversation_dm_identity_unverified');
-  expect(state.rpc).not.toHaveBeenCalled(); expect(state.archive).not.toHaveBeenCalled();
-});
+import { beforeEach, expect, it, vi } from 'vitest'
+const state = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn(), archive: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ chatDb: { from: state.from, rpc: state.rpc } }))
+vi.mock('../../../../apps/desktop/src/lib/groupAdmin', () => ({ currentGroupAdmin: async () => ({ archive: state.archive }) }))
+import { hideListedConversation } from '../../../../apps/desktop/src/lib/hideListedConversation'
+const receipt = { chat_id: 'group', operation_id: 'operation', hidden_at: '2026-11-06T17:00:00Z', account_revision: '9007199254740993' }
+beforeEach(() => { vi.clearAllMocks(); state.rpc.mockResolvedValue({ data: receipt, error: null }) })
+it('uses only the personal RPC and preserves its exact decimal revision', async () => {
+  expect(await hideListedConversation('group', 'operation')).toEqual(receipt)
+  expect(state.rpc).toHaveBeenCalledExactlyOnceWith('hide_my_conversation', { p_chat_id: 'group', p_operation_id: 'operation' })
+  expect(state.from).not.toHaveBeenCalled()
+  expect(state.archive).not.toHaveBeenCalled()
+})
+it.each([{ chat_id: 'other' }, { operation_id: 'other' }, { account_revision: 42 }, { account_revision: '1e4' }, { hidden_at: 'invalid' }])('rejects an unconfirmed receipt %j', async (patch) => {
+  state.rpc.mockResolvedValue({ data: { ...receipt, ...patch }, error: null })
+  await expect(hideListedConversation('group', 'operation')).rejects.toThrow('Conversation hiding was not confirmed')
+})
+it('propagates server denial without invoking group management', async () => {
+  state.rpc.mockResolvedValue({ data: null, error: { message: 'conversation_hide_membership_required' } })
+  await expect(hideListedConversation('group', 'operation')).rejects.toThrow('conversation_hide_membership_required')
+  expect(state.archive).not.toHaveBeenCalled()
+})

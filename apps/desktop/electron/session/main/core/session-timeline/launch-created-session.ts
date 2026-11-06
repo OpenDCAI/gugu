@@ -40,7 +40,7 @@ export async function launchCreatedSession(input: {
     // session-life starts it: the creation turns are its first pending rows; startup progress and failure are
     // the session's own lifecycle facts from here on.
     try {
-      admitCreationTurns(session);
+      await admitCreationTurns(session);
     } catch (error) {
       return { ok: false, code: 'session_start_failed', detail: (error as Error)?.message ?? String(error) };
     }

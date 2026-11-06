@@ -167,7 +167,7 @@ export interface ChatRowActions {
   toggleTopics: (chatId: string) => void
   pin: (chat: ChatItem) => void
   setNotificationLevel: (chatId: string, level: NotificationLevel) => void
-  remove: (chatId: string) => void
+  remove: (chatId: string) => Promise<void>
   focus: (chatId: string) => void
   keyDown: (event: Parameters<KeyboardEventHandler<HTMLDivElement>>[0], chat: ChatItem) => void
 }
@@ -251,7 +251,7 @@ export const TopicSubRow = memo(function TopicSubRow({ topic, mobile, isActive, 
         onClose={menu.closeMenu}
         onPin={() => actions.pin(topic)}
         onSetNotificationLevel={(level) => actions.setNotificationLevel(topic.id, level)}
-        onDelete={() => actions.remove(topic.id)}
+        onHide={() => actions.remove(topic.id)}
       />
     )}
     </>
@@ -392,7 +392,7 @@ const ChatRow = memo(function ChatRow({ chat, unreadCount, agentStatus, isActive
           onClose={menu.closeMenu}
           onPin={() => actions.pin(chat)}
           onSetNotificationLevel={(level) => actions.setNotificationLevel(chat.id, level)}
-          onDelete={() => actions.remove(chat.id)}
+          onHide={() => actions.remove(chat.id)}
         />
       )}
     </>
@@ -541,7 +541,7 @@ export function ChatListPanel({
   const { t } = useTranslation('messaging')
   const { t: tMain } = useTranslation('main')
   const assistantShell = useAssistantShell()
-  const { chats: imChats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, deleteChat, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'deleteChat', 'setChatNotificationLevel', 'drafts')
+  const { chats: imChats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, hideConversation, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'hideConversation', 'setChatNotificationLevel', 'drafts')
   const chats = useNativeAgentChats(imChats)
   useOwnedAgentEntries()
   const projectGroupChats = useProjectGroupChats()
@@ -682,7 +682,7 @@ export function ChatListPanel({
   const toggle = useStableHandler((chatId: string) => toggleTopics(chatId))
   const pin = useStableHandler((chat: ChatItem) => pinChat(chat.id, !chat.is_pinned))
   const setLevel = useStableHandler((chatId: string, level: NotificationLevel) => setChatNotificationLevel(chatId, level))
-  const remove = useStableHandler((chatId: string) => deleteChat(chatId, true))
+  const remove = useStableHandler((chatId: string) => hideConversation(chatId))
   const keyDown = useStableHandler((event: Parameters<KeyboardEventHandler<HTMLDivElement>>[0], chat: ChatItem) => handleChatKeyDown(event, chat))
   const rowActions = useMemo<ChatRowActions>(() => ({ activate, openTopic, toggleTopics: toggle, pin, setNotificationLevel: setLevel, remove, focus: setFocusedChatId, keyDown }),
     [activate, openTopic, toggle, pin, setLevel, remove, keyDown])

@@ -266,6 +266,14 @@ export default {
     }
   },
   "chatList": {
+    "hideFailed": "Could not remove this conversation from the list",
+    "removeFromList": "Remove from list",
+    "hideAgentDescription": "This conversation will leave your list and return when a new message arrives.",
+    "alsoRemoveAgent": "Also delete this Agent",
+    "hiddenAgentDeleteFailed": "Removed from list, but could not delete the Agent",
+    "retryAgentDelete": "Retry deleting Agent",
+    "agentDeleted": "Agent deleted",
+    "hiddenRefreshFailed": "Removed from list, but the list could not refresh. Please retry.",
     "addContact": "Add contact",
     "clearSearch": "Clear search",
     "create": "New",

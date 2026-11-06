@@ -4,6 +4,8 @@ import { sessions } from '@main/db/schema';
 import type { Session } from '@shared/core/sessions/sessions';
 import { sessionLife } from './session-life';
 import { mapSessionRowToSession } from './utils';
+import { nativePublicationContext } from './native-publication-host';
+import type { NativePublicationContext } from './native-publication-journal';
 
 /**
  * A new ACP session's creation turns are admitted at its launch, once per creation entry: the launch of a session made
@@ -15,8 +17,10 @@ import { mapSessionRowToSession } from './utils';
  * They become its first pending rows, so the first start carries no queue of its own. The first turn of a chat-page / dispatched task is typed so its gugu message lands before it is sent.
  * Without any turn the person opened an empty task: that is an explicit start.
  */
-export function admitCreationTurns(session: CreationTurns): void {
-  if (!enqueueCreationTurns(session)) sessionLife().start(session.id, 'user-open');
+export async function admitCreationTurns(session: CreationTurns): Promise<void> {
+  const personal = session.initialQueue?.some(turn => !turn.kind && (!turn.origin || turn.origin === 'manual'));
+  const context = personal ? await nativePublicationContext(session.id) : null;
+  if (!enqueueCreationTurns(session, context)) sessionLife().start(session.id, 'user-open');
 }
 
 type CreationTurns = Pick<Session, 'id' | 'initialQueue' | 'initialMessageId' | 'startupOrigin' | 'taskChatId'>;
@@ -30,14 +34,14 @@ export async function admitFirstMessages(sessionId: string): Promise<void> {
   const [row] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
   if (!row) throw new Error(`Session not found: ${sessionId}`);
   const session = mapSessionRowToSession(row);
-  if (session.runtime === 'acp' && session.initialQueue?.length) enqueueCreationTurns(session);
+  if (session.runtime === 'acp' && session.initialQueue?.length) await admitCreationTurns(session);
 }
 
 /**
  * The creation turns as the session's first pending rows (idempotent: stable message ids). Returns how many there are;
  * a desktop task page that creates its own session starts an empty one itself (lifeStart on open).
  */
-export function enqueueCreationTurns(session: CreationTurns): number {
+export function enqueueCreationTurns(session: CreationTurns, context: NativePublicationContext | null = null): number {
   const queue = session.initialQueue ?? [];
   const life = sessionLife();
   const landsFirst = Boolean(session.initialMessageId && (session.startupOrigin === 'chat-page' || session.taskChatId));
@@ -46,6 +50,7 @@ export function enqueueCreationTurns(session: CreationTurns): number {
     const messageId = index === 0 && session.initialMessageId ? session.initialMessageId : `${session.id}:creation:${index}`;
     life.enqueue({
       sessionId: session.id, messageId, text: turn.text, kind: turn.kind ?? 'ordinary',
+      ...(context && !landsFirst && !turn.kind && (!turn.origin || turn.origin === 'manual') ? { personalPublication: context } : {}),
       ...(turn.files?.length ? { delivery: { queue: true, files: turn.files } } : {}),
       turn: index === 0 && landsFirst ? { kind: 'chat-page-first-turn' }
         : { kind: 'prompt', origin: turn.origin, ...(turn.hiddenContext ? { hiddenContext: turn.hiddenContext } : {}) },

@@ -98,8 +98,9 @@ beforeEach(async () => {
     bodyPresentAtNotification.push(repository.snapshot().message.some(row => row.id === MESSAGE))
     return { success: true, displayed: false }
   })
-  cloudRows.set('active_members', [{ chat_id: GROUP, user_id: ACCOUNT, last_read_seq: 0, is_marked_unread: false,
+  cloudRows.set('rpc:list_conversation_memberships', [{ chat_id: GROUP, user_id: ACCOUNT, last_read_seq: 0, is_marked_unread: false,
     version: 1, notification_level: 'all', is_pinned: false, role: 'member', updated_at: AT, joined_at: AT, inbox_published_at: AT }])
+  cloudRows.set('active_members', cloudRows.get('rpc:list_conversation_memberships')!)
   cloudRows.set('chats', [{ id: GROUP, public_id: null, kind: 'group', status: 'active', name: 'Fixture group', avatar_url: null,
     created_at: AT, last_message_at: null, last_message_preview: null, next_message_seq: 1, pinned_message_id: null }])
   cloudRows.set('messages_view', []); cloudRows.set('rpc:list_unread_locators', []); cloudRows.set('contact_overrides', [])

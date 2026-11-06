@@ -5,6 +5,7 @@ import { db } from '@main/db/client';
 import { messages, sessionPending, sessionPendingSource, sessions } from '@main/db/schema';
 import type { LifeStore } from './session-life';
 import type { PendingRow, PendingSource, PendingTurn } from './session-life-adapter';
+import { queueNativeInput, type NativePublicationContext } from './native-publication-journal';
 
 interface PendingMetadata {
   kind: string;
@@ -21,6 +22,7 @@ interface PendingInput {
   readonly turn?: PendingTurn;
   /** A rejected inbox item is durable and visible, but must never enter provider admission. */
   readonly failure?: SerializedError;
+  readonly personalPublication?: NativePublicationContext;
 }
 export type EnqueuePending = PendingInput & (
   | { readonly kind: 'inbox-batch'; readonly sources: readonly PendingSource[]; readonly messageId?: never }
@@ -96,6 +98,7 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
       state: input.failure ? 'failed' : 'queued', failure: input.failure ? JSON.stringify(input.failure) : null,
       settledAt: input.failure ? new Date().toISOString() : null, enqueuedAt: new Date().toISOString() }).returning().get();
     for (const source of input.sources ?? []) tx.insert(sessionPendingSource).values({ seq: pending.seq, sessionId: input.sessionId, sourceMessageId: source.row.id }).run();
+    if (input.personalPublication && (input.kind === 'ordinary' || input.kind === 'session-direct' && input.delivery?.origin === 'manual') && !input.failure) queueNativeInput(input.personalPublication, input.sessionId, messageId, pending.enqueuedAt, tx);
     return { inserted: true, seq: pending.seq as Seq, state: pending.state };
   }, { behavior: 'immediate' });
 }

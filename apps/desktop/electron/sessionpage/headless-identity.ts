@@ -94,7 +94,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     renameBound: (sessionId, agentUserId, name) => identity.renameBound(sessionId, agentUserId, name),
   })
   const nativeInbox = startNativeConversationInboxHost({
-    open: async target => (await identity.ensureAgentAddress(target)).chatId,
+    open: async target => (await identity.ensureAgentAddress(target)).chatId, publication: identity.nativePublication,
     failed: error => log.warn('Personal conversation address remains pending', error),
   })
   // 自营模型这一套:与桌面主进程共用的实现,只喂它这个宿主的三样(登录态 / 身份供给 / 文案)。
