@@ -1689,6 +1689,11 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       await sayAboutPage(thePage(caller), { kind: 'setTabTitle', title: pageArgument('setTabTitle', args) });
       return undefined;
 
+    case 'setTabDirty':
+      if (typeof args.tabId !== 'string' || typeof args.dirty !== 'boolean') throw new Error('setTabDirty(tabId, dirty)');
+      await sayAboutPage(thePage(caller), { kind: 'setTabDirty', tabId: args.tabId, dirty: args.dirty, webContentsId: caller.pageId });
+      return undefined;
+
     case 'setTabBadge':
       await sayAboutPage(thePage(caller), { kind: 'setTabBadge', badge: pageArgument('setTabBadge', args) });
       return undefined;

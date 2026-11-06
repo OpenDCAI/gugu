@@ -373,3 +373,19 @@ body[data-mode='edit'] .editor .cm-content { padding-top: 4px; }
   /* 只读 (#doc-status) and the save controls stay: a narrow head drops only what it can do without. */
   .doc-actions .doc-info, .doc-actions .peers { display: none; }
 }
+
+/* The source of a file that has no preview: the host's code colours (lib/codemirror/theme.ts), on this page's palette. */
+.editor .code-view {
+  --foreground: var(--em-foreground); --foreground-muted: var(--em-foreground-muted); --border: var(--em-border);
+  --background-2: var(--em-hover); --shadow-popover: var(--em-shadow-lift);
+  --code-bg: var(--em-background); --code-fg: var(--em-foreground); --code-gutter: var(--em-background);
+  --code-line-number: var(--em-foreground-passive); --code-selection-bg: var(--em-selected); --code-line-highlight: var(--em-hover);
+  --blue-11: color(display-p3 0.15 0.44 0.84); --red-11: color(display-p3 0.744 0.234 0.222);
+  --green-11: color(display-p3 0.263 0.488 0.261); --cyan-11: color(display-p3 0.08 0.48 0.63);
+}
+[data-gugu-theme='dark'] .editor .code-view {
+  --blue-11: color(display-p3 0.49 0.72 1); --red-11: color(display-p3 1 0.57 0.55);
+  --green-11: color(display-p3 0.535 0.807 0.542); --cyan-11: color(display-p3 0.446 0.79 0.887);
+}
+body .editor .code-view .cm-content { max-width: none; margin: 0; padding: 16px 0; }
+.editor .code-view .cm-line { padding: 0 16px; }

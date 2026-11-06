@@ -711,6 +711,8 @@ export const BRIDGE_VERBS = {
   setTabTitle: { needs: null, only: 'page' },
   /** Mark this tab as having something new (its own tab only). */
   setTabBadge: { needs: null, only: 'page' },
+  /** Say whether a tab this page drew has edits not yet saved: the host's dot, and its question before closing. */
+  setTabDirty: { needs: null, only: 'page' },
   /** Ask the host to open a URL: a browser tab in the page's session, else the person's browser. */
   openBrowserTab: { needs: null, toAgent: { answer: undefined } },
   /** Say something went wrong, loudly, where the user can see it. */

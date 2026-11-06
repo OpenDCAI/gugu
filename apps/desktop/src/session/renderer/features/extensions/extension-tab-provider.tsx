@@ -1,3 +1,4 @@
+import { when } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { useContext, useMemo } from 'react';
 import { PaneContext } from '@renderer/features/tabs/pane-context';
@@ -28,6 +29,8 @@ import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { openFileInBuiltInEditor } from '@renderer/features/sessions/stores/open-file-in-file-editor';
 import { fileTabLabels } from '@renderer/features/sessions/editor/file-tab-label';
 import { fileBaseName, filePathKey } from '@renderer/features/sessions/stores/workspace-path';
+import { showModal } from '@renderer/lib/modal/modal-provider';
+import { rpc } from '@renderer/lib/ipc';
 import { Folder } from '@/lib/icons';
 import { WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 
@@ -63,7 +66,12 @@ export class ExtensionTabResource implements TabResource {
     /** The claimed file this tab was opened for, if it was opened for one. */
     readonly filePath: string | undefined = undefined,
     private readonly readTitle?: () => string,
+    private readonly readHoldsUnsaved?: () => boolean,
   ) {}
+
+  get holdsUnsaved(): boolean {
+    return this.readHoldsUnsaved?.() ?? false;
+  }
 
   get title(): string | undefined {
     return this.readTitle?.();
@@ -79,6 +87,28 @@ export class ExtensionTabResource implements TabResource {
 /** The tab is one per task (manifest `perSession`, #7317): every task keeps its own, none is moved from another. */
 function isPerSession(kind: string): boolean {
   return installedExtensionsStore.allTabContributions.find((entry) => entry.kind === kind)?.perSession === true;
+}
+
+/**
+ * A tab with unsaved edits asks before it goes, the same question for any file: save, drop, or stay. Only its page can do
+ * either, and it answers by saying again whether anything is unsaved. Not saved (the disk or the machine out of reach): it stays.
+ */
+async function confirmCloseOfUnsaved(sessionId: string | null, tabId: string, filePath?: string): Promise<boolean> {
+  const { dirtyIn, dirtyReports } = extensionSurfaceStore.state(sessionId, tabId);
+  if (dirtyIn === null) return true;
+  const choice = await new Promise<'save' | 'discard' | null>((resolve) =>
+    showModal('unsavedChangesModal', {
+      fileName: fileBaseName(filePath ?? ''),
+      onSuccess: (result) => resolve(result === 'save' ? 'save' : 'discard'),
+      onClose: () => resolve(null),
+    })
+  );
+  if (!choice) return false;
+  const told = await rpc.extensions.invokeCommand({ webContentsId: dirtyIn, commandId: `gugu.file.${choice}:${tabId}` });
+  // The page is gone: its edits wait in their draft, and come back when the file opens again.
+  if (!told.success) return true;
+  await when(() => extensionSurfaceStore.state(sessionId, tabId).dirtyReports > dirtyReports);
+  return extensionSurfaceStore.state(sessionId, tabId).dirtyIn === null;
 }
 
 function createExtensionTabContent(extensionId: string, kind: string) {
@@ -165,7 +195,7 @@ export function createExtensionTabProvider(
       if (entry.state?.filePath) return fileBaseName(entry.state.filePath);
       const surface = extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ ...ctx.place, tabId: entry.tabId, perSession: isPerSession(kind) })));
       return extensionTabTitle(surface, titleOf()).label;
-    }),
+    }, () => extensionSurfaceStore.state(ctx.place?.kind === 'session' ? ctx.place.sessionId : null, entry.tabId).dirtyIn !== null),
     dispose: (entry, resource: ExtensionTabResource, ctx) => {
       // Drop what the extension said about this tab along with the tab. A
       // reopened tab is a new one and starts at its manifest title, not at the
@@ -174,6 +204,7 @@ export function createExtensionTabProvider(
       extensionSurfaceStore.forget(sessionId, entry.tabId);
       resource.dispose();
     },
+    onBeforeClose: (entry, _resource, ctx) => confirmCloseOfUnsaved(ctx.place?.kind === 'session' ? ctx.place.sessionId : null, entry.tabId, entry.state?.filePath),
     closed: (tabId, ctx) => extensionViewStore.closeSlot(ctx.place?.kind === 'session' ? ctx.place.sessionId : null, tabId),
 
     // Observers, because the title is read from the store: reinstalling an
@@ -265,7 +296,9 @@ export function createExtensionTabProvider(
           tooltip={presentation.tooltip}
           hasError={surface.error !== null}
           preSlot={<ExtensionTabIcon kind={kind} />}
-          statusSlot={<ExtensionTabBadge badge={surface.badge} />}
+          statusSlot={own.dirtyIn !== null
+            ? <div className="size-2 rounded-full bg-foreground" title={translateSessionMessage('task.unsavedChanges')} />
+            : <ExtensionTabBadge badge={surface.badge} />}
           // Declared entries sit after the engine's own (close, split, …): the
           // host's commands are the ones a user expects in a fixed place, and an
           // extension does not get to push them down.
