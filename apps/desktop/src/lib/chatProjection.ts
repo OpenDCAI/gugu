@@ -474,7 +474,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
 
   const owner: ChatProjection = {
     async confirmPersonalHiding(receipt, signal = new AbortController().signal) {
-      assertRevision(receipt.account_revision)
+      assertRevision(receipt.account_revision, 'hide receipt')
       const key = entityKey('membership', membershipId(receipt.chat_id, viewerId))
       const current = cache.get(key)
       if (current?.value) {
