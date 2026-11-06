@@ -7,15 +7,22 @@
  * 的 hasCompleteChatListIdentities),但只接在读取侧。这里把同一条判据接到写入侧,让契约从「靠人记」变成
  * 「忘了就在写入那一刻报」—— 报在 async 写路径里,是一条能定位的错误,不是某个 render 里的白屏。
  */
+const identityIds = new WeakMap<readonly unknown[], ReadonlySet<string>>()
+
 export function assertIdentityClosure(
   context: string,
   requiredIds: Iterable<string | null | undefined>,
   identities: readonly unknown[],
 ): void {
-  const present = new Set<string>()
-  for (const identity of identities) {
-    const id = (identity as { id?: unknown } | null)?.id
-    if (typeof id === 'string') present.add(id)
+  let present = identityIds.get(identities)
+  if (!present) {
+    const ids = new Set<string>()
+    for (const identity of identities) {
+      const id = (identity as { id?: unknown } | null)?.id
+      if (typeof id === 'string') ids.add(id)
+    }
+    present = ids
+    if (Object.isFrozen(identities)) identityIds.set(identities, present)
   }
   const missing = new Set<string>()
   for (const id of requiredIds) if (typeof id === 'string' && id !== '' && !present.has(id)) missing.add(id)
