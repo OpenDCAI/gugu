@@ -61,8 +61,6 @@
 
 .document-preview-toolbar button { width: 32px; height: 32px; }
 .document-preview-page-count { width: 56px; color: var(--text-secondary); font-size: var(--font-caption); text-align: center; }
-.document-preview-zoom { width: 42px; color: var(--text-tertiary); font-size: var(--font-caption); text-align: center; }
-.document-preview-toolbar-divider { width: 1px; height: 18px; margin: 0 4px; background: var(--border-subtle); }
 
 .document-preview-pdf-viewport {
   display: flex;
