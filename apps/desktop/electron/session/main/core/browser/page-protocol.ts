@@ -2,6 +2,7 @@ import type { WebContents } from 'electron';
 import { isSupportedBrowserNavigationUrl } from './browser-navigation';
 import { pageNetworkEvent } from './page-network-events';
 import { pageNavigationAccess } from './page-navigation-access';
+import { assertCredentialAgentContents } from './credential-isolation-registry';
 
 type PageEvent = (method: string, params: Record<string, unknown>, sessionId?: string) => void;
 type PageProtocolOptions = {
@@ -48,6 +49,7 @@ export interface PageProtocol {
  * Closing/cancelling a lease releases its debugger, never the person's page or site login.
  */
 export function createPageProtocol(contents: WebContents, options: PageProtocolOptions = {}): PageProtocol {
+  assertCredentialAgentContents(contents);
   const debuggerApi = contents.debugger;
   const lifetime = new AbortController();
   const messages = new Set<PageEvent>();
@@ -60,6 +62,7 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
 
   const assertLive = () => {
     if (closed || contents.isDestroyed()) throw new Error(closed ?? 'the browser tab was closed');
+    assertCredentialAgentContents(contents);
     options.signal?.throwIfAborted();
     navigation.assertCurrent();
   };

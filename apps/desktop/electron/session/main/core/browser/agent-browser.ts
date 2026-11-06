@@ -13,6 +13,7 @@ import {
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { acquireBrowserPage } from './browser-page-runtime';
 import { createPageProtocol } from './page-protocol';
+import { assertCredentialAgentContents } from './credential-isolation-registry';
 import type { ExtensionAgentStatus } from '@shared/extensions/agent-status';
 
 /**
@@ -249,6 +250,7 @@ export function createPaneTransport(
   signal?: AbortSignal,
 ): AgentBrowserTransport {
   signal?.throwIfAborted();
+  assertCredentialAgentContents(webContents);
   boundBrowserBySession.set(sessionId, browserId);
   const children = new Set<string>();
   let targetInfo: Record<string, unknown> | null = null;

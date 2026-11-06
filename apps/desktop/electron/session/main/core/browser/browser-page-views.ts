@@ -25,6 +25,7 @@ import {
 import { wirePageDialogs, type PageDialogs } from './browser-page-dialogs';
 import { BrowserPageRuntime } from './browser-page-runtime';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
+import { credentialAgentPartitionBlocked } from './credential-isolation-registry';
 import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
 
 /**
@@ -181,6 +182,7 @@ export function mountBrowserPage(args: {
   url: string;
   windowName: string;
 }): MountBrowserPageResult {
+  if (credentialAgentPartitionBlocked(args.partition)) return { success: false, error: 'credential-partition-isolated' };
   const validation = validateBrowserPageMount(
     { partition: args.partition, src: args.url },
     browserWebContentsRegistry.registeredPartitions
@@ -273,6 +275,7 @@ function moveToHost(page: BrowserPage, windowName: string): void {
 
 /** Browser Use can restore a saved tab without mounting its whole session UI or moving a live page to another window. */
 export function ensureAgentBrowserPage(args: { browserId: string; partition: string; url: string }): MountBrowserPageResult {
+  if (credentialAgentPartitionBlocked(args.partition)) return { success: false, error: 'credential-partition-isolated' };
   const page = livePage(args.browserId);
   if (page && page.partition === args.partition) {
     if (page.releaseTimer) clearTimeout(page.releaseTimer);

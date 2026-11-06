@@ -31,6 +31,7 @@ import { COMMANDS, type CommandId } from '@shared/commands';
 import { getElectronTabNavigationDirection, resolveDefaultHotkey,  } from '@shared/shortcuts';
 import { isGoogleAuthUrl, userAgentForBrowserUrl } from './browser-user-agent';
 import { isSupportedBrowserNavigationUrl } from './browser-navigation';
+import { assertCredentialAgentContents } from './credential-isolation-registry';
 
 type RegisteredBrowserSession = {
   browserId: string;
@@ -121,6 +122,11 @@ export class BrowserWebContentsRegistry {
     return this.sessionsByBrowserId.get(browserId)?.partition === partition;
   }
 
+  isRegisteredForSession(browserId: string, sessionId: string, partition: string): boolean {
+    const registered = this.sessionsByBrowserId.get(browserId);
+    return registered?.partition === partition && registered.sessionId === sessionId;
+  }
+
   /**
    * #7274 页签的网页(主进程建的 WebContentsView,见 browser-page-views.ts)建好了:收紧它、认作这个页签的网页。
    * `origin`:网页左上角在窗口内容区里的位置 —— 右键菜单的坐标是网页自己的,弹到窗口上要加上它。
@@ -130,6 +136,7 @@ export class BrowserWebContentsRegistry {
     webContents: WebContents,
     placement: { window: () => BrowserWindow | null; origin: () => { x: number; y: number } }
   ): void {
+    assertCredentialAgentContents(webContents);
     const webContentsId = webContents.id;
     this.hardenBrowserWebContents(webContents, placement);
 
