@@ -14,10 +14,11 @@ function fixture() {
   const approval = new CredentialApprovalState({ current, verifyLocalDecision: (_binding, evidence) => evidence === person,
     now: () => now, id: () => String(++next) });
   const cleanup = vi.fn(async (_binding: CredentialUseBinding): Promise<CredentialUseCleanup> => ({ status: 'cleaned' }));
-  const bridge = new CredentialUseAuthorityBridge({ approval, isolationCurrent: isolation, cleanup });
+  const register = vi.fn((_capability: VaultUseCapability, _binding: CredentialUseBinding, _revoked: AbortSignal): void => {});
+  const bridge = new CredentialUseAuthorityBridge({ approval, isolationCurrent: isolation, cleanup, registerUse: register });
   const request = approval.request(target, 'operation');
   const binding = { ...target, requestId: request.requestId, useId: request.useId };
-  return { approval, bridge, binding, request, current, isolation, cleanup,
+  return { approval, bridge, binding, request, current, isolation, cleanup, register,
     advance: (ms: number) => { now += ms; },
     approve: () => approval.decide(request.requestId, 'allow_once', person),
     issue: () => bridge.issue(request.requestId, binding) };
@@ -68,6 +69,35 @@ describe('host-only bridge to the unique credential approval authority', () => {
     expect(f.isolation.mock.calls.at(-1)?.[0].origin).toBe(original.origin);
   });
 
+  it('registers synchronously before the capability becomes claimable and passes a separate revocation signal', async () => {
+    const f = fixture(); f.approve();
+    f.register.mockImplementation((capability, binding) => {
+      expect(() => f.bridge.claimCredentialSink(capability, binding)).toThrow('capability_unavailable');
+    });
+    const capability = f.issue(), lease = f.bridge.claimCredentialSink(capability, f.binding);
+    const [registered, binding, revoked] = f.register.mock.calls[0]!;
+    expect(registered).toBe(capability); expect(binding).toEqual(f.binding);
+    await f.bridge.cleanup(f.binding.useId);
+    expect(lease.signal.aborted).toBe(true);
+    expect(revoked.aborted).toBe(false);
+    f.approval.cancel(f.request.requestId, f.binding);
+    expect(revoked.aborted).toBe(true);
+  });
+
+  it.each(['throw', 'async', 'revoke'])('never issues or revives a capability after a %s registration', kind => {
+    const f = fixture(); f.approve(); let captured!: VaultUseCapability;
+    f.register.mockImplementation((capability) => {
+      captured = capability;
+      if (kind === 'throw') throw new Error('private diagnostic');
+      if (kind === 'async') return Promise.reject(new Error('late private diagnostic')) as unknown as void;
+      f.bridge.invalidate(f.binding.accountId, 'lock');
+    });
+    expect(() => f.issue()).toThrow('capability_unavailable');
+    expect(() => f.bridge.claimCredentialSink(captured, f.binding)).toThrow('capability_unavailable');
+    expect(f.approval.status(f.request.requestId).effectPossible).toBe(false);
+    expect(f.register.mock.calls[0]![2].aborted).toBe(true);
+  });
+
   it.each(['false', 'throw'])('refuses an unavailable isolation guard (%s) before a start', kind => {
     const f = fixture(); f.approve();
     f.isolation.mockImplementation(() => { if (kind === 'throw') throw new Error('private diagnostic'); return false; });
@@ -80,6 +110,7 @@ describe('host-only bridge to the unique credential approval authority', () => {
     f.isolation.mockReturnValue(false);
     expect(() => lease.claimSubmission()).toThrow('isolation_unavailable');
     expect(lease.signal.aborted).toBe(true);
+    expect(f.register.mock.calls[0]![2].aborted).toBe(true);
     f.isolation.mockReturnValue(true);
     expect(() => lease.claimSubmission()).toThrow('capability_unavailable');
     expect(f.approval.status(f.request.requestId).effectPossible).toBe(false);

@@ -30,6 +30,12 @@ export class CredentialUseAuthorityBridge implements CredentialUseAuthority {
     approval: CredentialApprovalState;
     /** Checks the actual private surface identity, isolation readiness and caller binding. */
     isolationCurrent(binding: CredentialUseBinding): boolean;
+    /**
+     * Synchronously registers the original identity in the fixed handback lifecycle BEFORE issuance.
+     * This signal represents approval revocation only; proof-only cleanup does not abort it.
+     * A missing/async registration must never release a capability to storage.
+     */
+    registerUse(capability: VaultUseCapability, binding: CredentialUseBinding, revoked: AbortSignal): void;
     /** Proof only. The fixed coordinator owns audit/outcome decisions and any later handback. */
     cleanup(binding: CredentialUseBinding): Promise<CredentialUseCleanup>;
   }) {}
@@ -49,6 +55,19 @@ export class CredentialUseAuthorityBridge implements CredentialUseAuthority {
       throw new CredentialUseAuthorityError('capability_unavailable');
     }
     const capability = Object.freeze({}) as VaultUseCapability;
+    try {
+      const registered: unknown = this.host.registerUse(capability, use.binding, started.signal);
+      if (registered && (typeof registered === 'object' || typeof registered === 'function') && 'then' in registered) {
+        // Observe late rejection, but never accept async completion as registration proof.
+        void Promise.resolve(registered).catch(() => {});
+        throw new Error('async_registration');
+      }
+      this.assertCurrent(use);
+    } catch {
+      controller.abort();
+      this.host.approval.cancel(requestId, use.binding);
+      throw new CredentialUseAuthorityError('capability_unavailable');
+    }
     this.uses.set(binding.useId, use);
     this.capabilities.set(capability, use);
     return capability;
@@ -60,7 +79,7 @@ export class CredentialUseAuthorityBridge implements CredentialUseAuthority {
     // Consume the attempt before validation. Neither a mismatch nor an error can revive this capability.
     use.claimed = true;
     if (BINDING_KEYS.some(key => use.binding[key] !== current[key])) {
-      use.controller.abort();
+      this.revoke(use);
       throw new CredentialUseAuthorityError('binding_mismatch');
     }
     this.assertCurrent(use);
@@ -110,8 +129,14 @@ export class CredentialUseAuthorityBridge implements CredentialUseAuthority {
       this.host.approval.assertStarted(use.claim, use.binding);
       if (use.signal.aborted) throw new CredentialUseAuthorityError('capability_unavailable');
     } catch (error) {
-      use.controller.abort();
+      this.revoke(use);
       throw error;
     }
+  }
+
+  /** Fault revocation reaches the lifecycle; intentional proof-only cleanup uses only its local controller. */
+  private revoke(use: Use): void {
+    use.controller.abort();
+    this.host.approval.cancel(use.binding.requestId, use.binding);
   }
 }
