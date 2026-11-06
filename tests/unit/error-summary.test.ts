@@ -47,6 +47,21 @@ describe('outgoing error-summary allowlist', () => {
     expect(sanitizeErrorSummary({ ...summary, time: 'someone@example.test' })).toBeNull()
   })
 
+  it.each([new URIError('private'), new EvalError('private'), new AggregateError([new Error('private')], 'private')])('preserves the standard error category without its message or nested errors: %s', error => {
+    const result = errorSummaryFromError(error, summary)!
+    expect(result.type).toBe(error.constructor.name)
+    expect(JSON.stringify(result)).not.toContain('private')
+    expect(result).not.toHaveProperty('errors')
+  })
+
+  it('does not invoke custom stack accessors or accept locations from metadata', () => {
+    const getter = vi.fn(() => 'private stack')
+    const error = new Error('private')
+    Object.defineProperty(error, 'stack', { get: getter })
+    expect(errorSummaryFromError(error, summary)).toEqual({ ...summary, type: 'Error', locations: [] })
+    expect(getter).not.toHaveBeenCalled()
+  })
+
   it('constructs exactly the versioned JSON contract with no SDK event or user context', () => {
     const body = errorSummaryRequest({ ...summary, message: 'private', user: { id: 'private' }, event_id: 'private' })!
     expect(JSON.parse(body)).toEqual({ schemaVersion: 1, summary })

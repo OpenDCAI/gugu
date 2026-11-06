@@ -12,6 +12,7 @@ const SYSTEMS = new Set(['darwin', 'win32', 'linux'])
 const SECRET = /(?:\b(?:sk|pk|rk|ghp|gho|github_pat|xox[baprs]|AKIA|ASIA)[-_]?[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\b[A-Fa-f0-9]{24,}\b|[A-Za-z0-9_+-]{32,}={0,2})/i
 const EMAIL = /[^\s/@]+@[^\s/@]+\.[^\s/@]+/
 const PHONE = /(?:\+?\d[\d ().-]{7,}\d)/
+const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), 'stack')?.get
 
 /** A second pass checks values, including values under otherwise allowed keys. */
 export function redactErrorSummaryValue(value: unknown): string | null {
@@ -22,6 +23,16 @@ export function redactErrorSummaryValue(value: unknown): string | null {
 function own(input: object, key: string): unknown {
   // Do not execute accessors on arbitrary input while handling an error.
   return Object.getOwnPropertyDescriptor(input, key)?.value
+}
+
+function errorStack(input: object): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(input, 'stack')
+  // V8 exposes even assigned Error stacks through its shared native accessor.
+  // Only that captured accessor is callable; custom input getters stay unread.
+  if (descriptor?.get && descriptor.get === nativeStackGetter) {
+    try { return nativeStackGetter.call(input) } catch { return undefined }
+  }
+  return descriptor?.value
 }
 
 export function sanitizeErrorLocation(value: unknown): string | null {
@@ -69,7 +80,7 @@ export function sanitizeErrorSummary(input: unknown): ErrorSummary | null {
 export function errorSummaryFromError(error: unknown, metadata: Pick<ErrorSummary, 'version' | 'system' | 'time'>, type?: string): ErrorSummary | null {
   const value = error && typeof error === 'object' ? error : null
   const name = value ? own(value, 'name') : undefined
-  const stack = value ? own(value, 'stack') : undefined
+  const stack = value ? errorStack(value) : undefined
   const locations: string[] = []
   if (typeof stack === 'string' && stack.length <= 32_000) {
     // The first line is the free-text error message, never a location source.
@@ -82,6 +93,6 @@ export function errorSummaryFromError(error: unknown, metadata: Pick<ErrorSummar
     }
   }
   // Standard Error names live on prototypes, but no custom name or accessor is read.
-  const standardName = error instanceof TypeError ? 'TypeError' : error instanceof RangeError ? 'RangeError' : error instanceof ReferenceError ? 'ReferenceError' : error instanceof SyntaxError ? 'SyntaxError' : name
-  return sanitizeErrorSummary({ type: type ?? standardName, locations, ...metadata })
+  const standardName = error instanceof TypeError ? 'TypeError' : error instanceof RangeError ? 'RangeError' : error instanceof ReferenceError ? 'ReferenceError' : error instanceof SyntaxError ? 'SyntaxError' : error instanceof URIError ? 'URIError' : error instanceof EvalError ? 'EvalError' : error instanceof AggregateError ? 'AggregateError' : name
+  return sanitizeErrorSummary({ type: type ?? standardName, locations, version: own(metadata, 'version'), system: own(metadata, 'system'), time: own(metadata, 'time') })
 }
