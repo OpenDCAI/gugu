@@ -61,7 +61,7 @@ import { continuedActivityHeader, foldActivityUnits, hasUnconfirmedSend, incomin
  *                                 ChatRoot for the pinned-header overlay.
  */
 
-import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { isDeliveryEnvelope, readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { agentSendOf, replyItems } from '@gugu/session-core/session-record/reply-process';
 import { resolveSeamGap } from '@session-chat/core/spacing';
 import type { FoldGate, ItemSegmenter, Margin, RenderUnit, SegmentCtx } from '@session-chat/core/units';
@@ -92,6 +92,16 @@ export type { TurnFoldPlan, TurnFoldSegment } from '@session-chat/state/turn-fol
 export function isDeliveredFromAgent(item: ChatItem): boolean {
   if (item.kind !== 'message' || (item as ChatMessage).role !== 'user') return false;
   return isDeliveryEnvelope((item as ChatMessage).text);
+}
+
+/** The viewer's authenticated human delivery is their own input, including on another client. */
+export function isViewerInput(item: ChatItem, viewerId?: string): boolean {
+  if (!itemIsUser(item)) return false;
+  if (!isDeliveredFromAgent(item)) return true;
+  const self = viewerId?.replace(/^user:/, '');
+  const segments = readDeliveryEnvelope((item as ChatMessage).text)?.segments;
+  return !!self && !!segments?.length && segments.every(segment =>
+    segment.facts?.fromType === 'human' && segment.facts.fromId === `user:${self}`);
 }
 
 /**
@@ -718,14 +728,14 @@ export function makeUnitsView(committed: RenderUnit[], active: RenderUnit[]): Un
 export function collectUserTurnUnits(
   turns: readonly TranscriptTurn[],
   units: UnitsView,
-  options: { delivered?: boolean } = {}
+  options: { delivered?: boolean; viewerId?: string } = {}
 ): number[] {
   const userItemIds = new Set<string>();
   for (const turn of turns) {
     for (const item of turn.items) {
       // 投递进来的通知不进这个集合 —— 这个集合就是「钉到顶端」的名单。
       // `delivered`:要的是「钉顶在哪儿让位」,投递进来的那条也算(对话布局里它是右侧的一个气泡)。
-      if (itemIsUser(item) && (options.delivered || !isDeliveredFromAgent(item))) userItemIds.add(item.id);
+      if (itemIsUser(item) && (options.delivered || isViewerInput(item, options.viewerId))) userItemIds.add(item.id);
     }
   }
 

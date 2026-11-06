@@ -41,6 +41,65 @@ async function mount(width: number, records = [turn('in', [delivery('incoming')]
 }
 
 describe('approved A2A activity', () => {
+  it('combines tool-only incoming turns while preserving their original process on open', async () => {
+    const records = ['one', 'two'].map((id, seq): TranscriptTurn => ({ ...turn(id, [delivery(`${id}-input`)]), seq, items: [delivery(`${id}-input`),
+      { kind: 'mcp-tool-call', id: `${id}-read`, toolCallId: `${id}-read`, seq: 1, title: 'Read history', server: 'gugu', tool: 'message_history', status: 'done', rawInput: '{"chat_id":"group"}', outputText: '[]' }] }));
+    const t = await mount(800, records);
+    expect(t.host.querySelectorAll('[data-agent-activity]')).toHaveLength(1);
+    expect(t.head()!.textContent).toContain('Received 2 messages');
+    const before = t.scroll().scrollHeight;
+    t.button().click();
+    await until('both original inputs are visible', () => !!t.host.querySelector('[data-user-card="one-input"]') && !!t.host.querySelector('[data-user-card="two-input"]'));
+    expect(t.host.querySelectorAll('[data-slot="turn-process"]')).toHaveLength(2);
+    t.button().click();
+    await untilStable('one activity shrinks back', () => t.scroll().scrollHeight);
+    expect(t.scroll().scrollHeight).toBe(before);
+  });
+
+  it('never pins an activity header that has not been expanded, or has been collapsed again', async () => {
+    const records = [turn('own', [ordinary('Owner question', 'user')]), turn('incoming', [delivery('incoming')]),
+      ...Array.from({ length: 15 }, (_, i) => turn(`later${i}`, [ordinary(`Visible answer ${i}. `.repeat(35))]))];
+    const t = await mount(800, records);
+    const sticky = () => getComputedStyle(t.head()!.closest('[data-index]')!.firstElementChild!).position;
+    expect(sticky()).not.toBe('sticky');
+    const lane = () => t.head()!.closest<HTMLElement>('[data-index]')!;
+    for (const scrollTop of [80, 130, 180]) {
+      t.scroll().scrollTop = scrollTop;
+      await untilStable('closed row scrolling near the top', () => t.head()?.getBoundingClientRect().top);
+      expect(lane().querySelector('[data-chat-pin-backdrop]'), 'closed activity never paints the sticky divider').toBeNull();
+    }
+    t.view.scrollToTop();
+    t.button().click();
+    await until('opened activity is sticky eligible', () => sticky() === 'sticky');
+    t.button().click();
+    await untilStable('reclosed activity settled', () => t.scroll().scrollHeight);
+    expect(sticky()).not.toBe('sticky');
+    expect(lane().querySelector('[data-chat-pin-backdrop]')).toBeNull();
+  });
+  it('keeps the owner pinned while reading ordinary reply content beside a closed activity', async () => {
+    const t = await mount(800, [turn('own', [ordinary('Owner question', 'user'), delivery('incoming'),
+      ...Array.from({ length: 24 }, (_, i) => ordinary(`Reply ${i}. `.repeat(45)))]),
+      turn('next', [ordinary('Next owner question', 'user'), ordinary('Next answer')])]);
+    expect(t.button().getAttribute('aria-expanded')).toBe('false');
+    t.scroll().scrollTop = 850;
+    await untilStable('owner reading ordinary reply', () => t.host.querySelector('[data-agent-conversation-message="Owner question"]')?.getBoundingClientRect().top);
+    const row = t.host.querySelector<HTMLElement>('[data-agent-conversation-message="Owner question"]');
+    expect(row).not.toBeNull();
+    expect(row!.getBoundingClientRect().top).toBeCloseTo(t.scroll().getBoundingClientRect().top + 8, 0);
+  });
+  it('pins the viewer human delivery above its opened activity without treating other human deliveries as the viewer', async () => {
+    const own = delivery('Owner message', 'The question I sent from the phone', 'human');
+    const t = await mount(800, [turn('own', [own, ...Array.from({ length: 24 }, (_, i) => delivery(`a${i}`, `Update ${i}. `.repeat(45)))]),
+      turn('conclusion', [ordinary('Following conclusion')])]);
+    t.button().click();
+    await untilStable('human owner activity geometry', () => t.scroll().scrollHeight);
+    t.scroll().scrollTop = 850;
+    await untilStable('human owner sticky position', () => t.host.querySelector('[data-agent-conversation-message="Owner message"]')?.getBoundingClientRect().top);
+    const row = t.host.querySelector<HTMLElement>('[data-agent-conversation-message="Owner message"]');
+    expect(row, 'the viewer message must remain mounted while its activity is read').not.toBeNull();
+    expect(row!.getBoundingClientRect().top).toBeCloseTo(t.scroll().getBoundingClientRect().top + 8, 0);
+  });
+
   it.each([390, 1280])('defaults closed with centered 44px semantic action and original bubbles on manual open (%i)', async width => {
     const t = await mount(width);
     expect(t.head()!.textContent).toContain('Received 1 message from d3');
