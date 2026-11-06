@@ -91,21 +91,16 @@ export interface GuguHost extends ProjectionHost {
     list(): Promise<unknown>;
     members(args: Record<string, unknown>): Promise<unknown>;
   };
-  /** `gugu.forum` (9, `app-forum-core.ts`): a page's; `onChanged` is composed of subscribe and `onForumChanged`. */
-  readonly forum?: {
-    list(query?: Record<string, unknown>): Promise<unknown>;
-    read(postId: string): Promise<unknown>;
-    post(draft: Record<string, unknown>): Promise<unknown>;
-    reply(postId: string, text: string, options?: Record<string, unknown>): Promise<unknown>;
-    react(reaction: Record<string, unknown>): Promise<unknown>;
-    remove(what: Record<string, unknown>): Promise<unknown>;
-    block(userId: string, on: boolean): Promise<unknown>;
-    assign(postId: string, agentId?: string): Promise<unknown>;
-    award(postId: string, awards: unknown): Promise<unknown>;
-    subscribe(target: string): Promise<unknown>;
-    unsubscribe(target: string): Promise<unknown>;
+  /** `gugu.cloud` (31, `app-cloud-core.ts`): `on` is composed of subscribe and `onCloudHeard`; a program writes with `programWrite`. */
+  readonly cloud?: {
+    read(name: string, args?: Record<string, unknown>): Promise<unknown>;
+    write?(name: string, args?: Record<string, unknown>): Promise<unknown>;
+    programWrite?(name: string, args?: Record<string, unknown>): Promise<unknown>;
+    subscribe?(topic: string, event: string): Promise<unknown>;
+    unsubscribe?(topic: string, event: string): Promise<unknown>;
   };
-  onForumChanged?(handler: (target: string, change: { kind: string; seq?: number; entityId?: string }) => void): () => void;
+  onCloudHeard?(handler: (topic: string, event: string, heard: { subscribed: true } | { payload: Record<string, unknown> }) => void): () => void;
+  pickAgent?(ask: Record<string, unknown>): Promise<unknown>;
 }
 
 /**
