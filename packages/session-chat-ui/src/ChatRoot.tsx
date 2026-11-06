@@ -1260,9 +1260,9 @@ export function ChatRoot(props: ChatRootProps) {
         writeScrollTop(next);
         return;
       }
-      // Anchor item not found (transcript not yet loaded); fall through to tail.
+      return; // Reconciliation can temporarily hide a reading anchor; it cannot authorize following.
     }
-    // tail mode (or anchor item not found yet): re-pin to end.
+    // Tail intent alone authorizes following content growth.
     if (props.stickToBottom !== false) {
       writeScrollTop(maxScrollTop());
     }
@@ -1766,8 +1766,8 @@ export function ChatRoot(props: ChatRootProps) {
     const input = turn ? latestViewerInput([turn], props.context.selfIdentity()?.userId, committedViewerInput()) : committedViewerInput();
     untrack(() => {
       if (resetActivityOnInput(state(), input, viewState())) {
-        abortSmoothScroll();
-        setAnchor({ kind: 'tail' });
+        // Received/reconciled inputs may update folds, never the reader's scroll intent.
+        // The host's local send action selects its scroll mode before asynchronous work.
         needsProject = true;
         scheduler.request();
       }

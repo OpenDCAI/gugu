@@ -15,6 +15,8 @@
  * failing) product reading.
  */
 
+import { createComputed, createRoot } from 'solid-js';
+import { applyTranscriptSnapshot } from '../../../../apps/desktop/src/components/assistant-ui/transcript-sync';
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { STICK_THRESHOLD_PX } from '@session-chat/core/stick-to-bottom';
@@ -792,5 +794,61 @@ describe('the first projection onto a (re)attached conversation uses the geometr
       await settled(m.scrollEl);
       expect(m.scrollEl.scrollTop, 'the reader\'s own scroll was undone by a re-projection').toBeCloseTo(before + 200, 0);
     });
+  });
+});
+
+
+describe('native snapshots cannot authorize following the reader', () => {
+  const running = (): TranscriptTurn => ({ id: 'native-live', seq: 100, initiator: 'user', items: [
+    { kind: 'message', id: 'native-input', seq: 0, role: 'user', text: 'Existing local question' },
+    { kind: 'message', id: 'native-answer', seq: 1, role: 'assistant', text: 'Streaming answer paragraph.\n\n'.repeat(160) },
+  ] });
+
+  it('publishes the active turn atomically with a reseeded history snapshot', async () => {
+    const history = shortTurns('snapshot', 40), active = running();
+    const m = await mountTranscript(0, { turns: history, height: 600, agentConversation: true });
+    m.state.transcript.activeTurn.set(active, 'generating');
+    await settled(m.scrollEl);
+    const observed: Array<string | null> = [];
+    const dispose = createRoot(dispose => {
+      createComputed(() => { observed.push(m.state.transcript.state.activeTurnSnapshot?.id ?? null); });
+      return dispose;
+    });
+    try {
+      observed.length = 0;
+      applyTranscriptSnapshot(m.state.transcript, { op: 'seed', turns: structuredClone(history) }, structuredClone(active));
+      expect(observed, 'one network snapshot must not publish an artificial idle interval').not.toContain(null);
+    } finally { dispose(); }
+  });
+
+  it('keeps a large upward reading anchor across native history and active replacement', async () => {
+    const history = shortTurns('native-reader', 40), active = running();
+    const m = await mountTranscript(0, { turns: history, height: 600, agentConversation: true });
+    m.state.transcript.activeTurn.set(active, 'generating');
+    await settled(m.scrollEl); m.view.scrollToBottom(); await settled(m.scrollEl);
+    m.scrollEl.scrollTop -= 1400; await settled(m.scrollEl);
+    expect(distanceToBottom(m.scrollEl)).toBeGreaterThan(900);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    const seen = readerRow(m.scrollEl)!;
+    applyTranscriptSnapshot(m.state.transcript, { op: 'seed', turns: structuredClone(history) }, structuredClone(active));
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind, 'history polling is not a new send').toBe('anchor');
+    expect(rowOffset(m.scrollEl, seen.itemId)).toBeCloseTo(seen.offset, 0);
+  });
+
+  it.each(['another-viewer', 'same-viewer-other-device'])('does not follow an incoming input from %s', async source => {
+    const m = await mountTranscript(0, { turns: shortTurns('incoming', 80), height: 600, agentConversation: true });
+    m.view.scrollToBottom(); await settled(m.scrollEl); m.scrollEl.scrollTop -= 1400; await settled(m.scrollEl);
+    const seen = readerRow(m.scrollEl)!;
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    const text = source === 'another-viewer'
+      ? '<gugu_delivery from_id="user:11111111-1111-4111-8111-111111111111" from_type="human" msg="msg:22222222-2222-4222-8222-222222222222"><![CDATA[Remote message]]></gugu_delivery>'
+      : 'A user input received from a different device';
+    m.state.transcript.history.append([{ id: 'remote-new', seq: 100, initiator: 'user', outcome: { kind: 'done' }, items: [
+      { kind: 'message', id: 'remote-new-input', seq: 0, role: 'user', text },
+    ] }]);
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind, 'only an explicit local send or latest action may restore following').toBe('anchor');
+    expect(rowOffset(m.scrollEl, seen.itemId)).toBeCloseTo(seen.offset, 0);
   });
 });
