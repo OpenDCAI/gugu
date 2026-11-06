@@ -125,13 +125,13 @@ it('folds only the scheduled part of a mixed delivery batch', async () => {
     outcome: { kind: 'done' }, items: [{ kind: 'message', id: 'mixed-input', seq: 0, role: 'user',
       text: `${scheduled}\n${incoming}`, _meta: { guguOwnerInput: false } }] }]);
   await until('mixed scheduled disclosure mounts', () => !!host.querySelector('[data-scheduled-prompt]'));
-  const card = host.querySelector<HTMLElement>('[data-scheduled-prompt]')!;
-  expect(card.textContent).toBe('定时任务：三图 + 合并账 每小时整点更新 + 任务对账');
+  const card = () => host.querySelector<HTMLElement>('[data-scheduled-prompt]')!;
+  expect(card().textContent).toBe('定时任务：三图 + 合并账 每小时整点更新 + 任务对账');
   expect(host.textContent).toContain('预发云电脑控制器已恢复');
   expect(host.textContent).not.toContain('1. 先对账');
-  card.querySelector<HTMLButtonElement>('[data-collapse-id]')!.click();
-  await until('one mixed prompt expands', () => card.textContent!.includes('1. 先对账'));
-  expect(card.textContent).not.toContain('预发云电脑控制器已恢复');
+  card().querySelector<HTMLButtonElement>('[data-collapse-id]')!.click();
+  await until('one mixed prompt expands', () => card().textContent!.includes('1. 先对账'));
+  expect(card().textContent).not.toContain('预发云电脑控制器已恢复');
 });
 
 it('uses a generic schedule label when authentic older metadata has no title', async () => {

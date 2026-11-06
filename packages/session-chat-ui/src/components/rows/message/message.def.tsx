@@ -262,7 +262,8 @@ export function UserMessageRender(props: { data: ChatMessage; ctx: RenderCtx; va
  * assistant reply inside the user card it was born with.
  */
 function MessageUnitRender(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
-  const scheduled = () => props.ctx.measureCtx?.().theme.layout.agentConversation ? scheduledPromptParts(props.data) : [];
+  const deliveryParts = createMemo(() => scheduledPromptParts(props.data));
+  const scheduled = () => props.ctx.measureCtx?.().theme.layout.agentConversation ? deliveryParts() : [];
   return (
     <Show when={scheduled().length} fallback={
     <Show when={props.ctx.measureCtx && isConversationMessage(props.data, props.ctx.measureCtx())}
