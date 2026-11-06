@@ -134,8 +134,10 @@ it('keeps an installation failure inline, with its existing diagnostic folded', 
     vm({ lastInstallError: { message: 'Download was interrupted', diagnostic: 'ECONNRESET' } })
   );
   expect(container.querySelector('[data-testid="agent-installation-row"]')?.textContent).toContain(
-    'Download was interrupted'
+    'The download connection was interrupted'
   );
+  expect(container.querySelector('.text-foreground-destructive')?.textContent).not.toContain('ECONNRESET');
+  expect(container.querySelector('details')?.textContent).toContain('ECONNRESET');
   expect(container.querySelector('details')?.open).toBe(false);
   expect(button('Reinstall')).toBeDefined();
   expect(container.textContent).not.toContain('Retry');

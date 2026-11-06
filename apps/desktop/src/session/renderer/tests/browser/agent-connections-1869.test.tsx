@@ -168,3 +168,10 @@ it('saves an API connection without starting account authentication', async () =
   })
   expect(mocks.login).not.toHaveBeenCalled()
 })
+
+it('aligns the connection group heading with the card edge', async () => {
+  await until('connection section is mounted', () => !!host.querySelector('.gg-section-label span'))
+  const heading = host.querySelector('.gg-section-label span')!
+  const card = host.querySelector('.gg-settings-card')!
+  expect(heading.getBoundingClientRect().left).toBeCloseTo(card.getBoundingClientRect().left, 1)
+})

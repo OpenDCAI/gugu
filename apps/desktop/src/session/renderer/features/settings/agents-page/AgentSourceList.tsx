@@ -22,6 +22,7 @@ import type { HostDependencyInstallation } from '@renderer/lib/stores/use-agent-
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { AgentPayload, Installation } from '@shared/core/agents/agent-payload';
 import { InstallProgressRow } from './InstallProgressRow';
+import { installFailureSummary } from './install-failure-summary';
 
 export type SourceKind = 'local' | 'managed' | 'custom';
 export type AgentSourceListProps = {
@@ -60,7 +61,8 @@ export const AgentSourceList = observer(function AgentSourceList({
 }: AgentSourceListProps) {
   const { translate } = useSessionMessages();
   const busy = vm.isInstalling || vm.isUpdating || vm.isUninstalling;
-  const failure = vm.lastInstallError ?? vm.lastUpdateError;
+  const lastFailure = vm.lastInstallError ?? vm.lastUpdateError;
+  const failure = lastFailure && installFailureSummary(lastFailure, translate, !vm.lastInstallError);
   const active = inUse === 'managed' ? managed : inUse === 'custom' ? custom : local;
   const available = active?.status === 'available';
   const companions = vm.data?.programs?.slice(1) ?? [];
