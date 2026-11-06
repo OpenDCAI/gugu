@@ -234,7 +234,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         cursor: !isExpanded() && isOverflowing() ? 'pointer' : 'default',
       }}
     >
-      <div class={srOnly}>{plainText()}</div>
+      <div class={srOnly} role="note" aria-label={plainText()} />
       <div ref={setTextRoot} data-conversation-text={props.conversation ? props.data.id : undefined}
         style={destination() ? { height: `${Math.max(0, cardH() - 2 * vars().userCardPadY - 2 * vars().cardBorder)}px`, overflow: 'hidden' } : undefined}>
         <Show when={stack()}>{(s) => <BlockStackView node={s()} />}</Show>

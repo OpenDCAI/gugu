@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { afterEach, expect, it, vi } from 'vitest';
+import { page } from '@vitest/browser/context';
 import { createChatContext, createChatState, createChatView, buildChatTheme, DEFAULT_CONFIG } from '@gugu/session-chat-ui';
 import type { AcpChatStore } from '../../features/sessions/acp/acp-chat-store';
 import { useSessionMessageQuotes } from '../../features/sessions/acp/use-session-message-quotes';
@@ -37,8 +38,9 @@ it.each(['backward', 'forward', 'single'] as const)('copies exactly the painted 
   await until('both real message bodies mounted', () => !!harness.container.querySelector('[data-conversation-text="question"]') && !!harness.container.querySelector('[data-conversation-text="answer"]'));
   const before = harness.container.querySelector<HTMLElement>('[data-conversation-text="question"]')!;
   const answer = harness.container.querySelector<HTMLElement>('[data-conversation-text="answer"]')!;
-  // Keep the complete assistive copy available; it must not enter native text selection.
-  expect(answer.previousElementSibling!.textContent).toContain('UNSELECTED-END');
+  // The full assistive name remains available without putting a second copy in
+  // the DOM range. WebView 117 serializes user-select:none text; current Chromium
+  // skips it in Selection.toString(), which hid the original native regression.
   const walker = document.createTreeWalker(answer, NodeFilter.SHOW_TEXT);
   let node: Node | null; let paragraph: Text | undefined;
   while ((node = walker.nextNode())) if (node.textContent?.startsWith('The harbor')) { paragraph = node as Text; break; }
@@ -54,7 +56,9 @@ it.each(['backward', 'forward', 'single'] as const)('copies exactly the painted 
     if (direction === 'single') selection.setBaseAndExtent(paragraph!, 0, paragraph!, 18);
     else if (direction === 'backward') selection.setBaseAndExtent(paragraph!, 18, previous, 0);
     else selection.setBaseAndExtent(previous, 0, paragraph!, 18);
+    expect(selection.getRangeAt(0).toString()).not.toContain('UNSELECTED-END');
     expect(selection.toString()).not.toContain('UNSELECTED-END');
+    await expect.element(page.getByRole('note', { name: /UNSELECTED-END/ })).toBeInTheDocument();
     finishRendererContentMenu(menu.requestId, 'copy'); await Promise.resolve();
     const copied = vi.mocked(platform.writeClipboardText).mock.calls.at(-1)![0];
     expect(copied).toBe(direction === 'single' ? 'The harbor stirred' : 'Previous user message words\n\n\nAgent\n\nReply\nThe harbor stirred');
