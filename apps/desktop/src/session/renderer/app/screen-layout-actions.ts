@@ -14,6 +14,8 @@ import { readChatSummaries, subscribeChatSummaries } from '@/lib/chatSummariesBr
 import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession, type WindowableContent } from './screen-layout';
 import { groupParticipantPanes } from '@renderer/features/chats/group-participant-panes';
 import { tabFullscreen } from '@renderer/features/tabs/tab-fullscreen';
+import { chatWindowReads } from '@/lib/chatWindowReads';
+import { rendererLogger } from '@/lib/log';
 
 /**
  * 这一屏(screen-layout)和导航之间的那两根线(spec session-page「一屏几块」):
@@ -22,6 +24,28 @@ import { tabFullscreen } from '@renderer/features/tabs/tab-fullscreen';
  */
 
 let syncing = false;
+
+/**
+ * 一条对话要摆上这屏:先从本地库读它的消息窗,读到了才改布局(@@@chat-read-before-show),旧的那块留到那时,新的那块首帧就有行。
+ * 只认最近一次请求:读回来之前又有别的摆法,这次作废,读出的窗交还。
+ */
+let showRequest = 0;
+function whenChatWindowRead(content: ScreenBlockContent | undefined, apply: () => void): void {
+  const request = ++showRequest;
+  const read = content?.kind === 'chat' ? chatWindowReads.read(content.chatId) : null;
+  if (!read) {
+    apply();
+    return;
+  }
+  const chatId = (content as { chatId: string }).chatId;
+  void read.then(
+    () => (request === showRequest ? apply() : chatWindowReads.release(chatId)),
+    (error: unknown) => {
+      rendererLogger('chat/screen-layout').error({ error, chatId }, 'local window read before show failed');
+      if (request === showRequest) apply();
+    }
+  );
+}
 
 /** 这屏怎么摆存在本机(和 App 摆在哪同一处):重启之后几块并排照旧。 */
 const STORAGE_KEY = 'gugu.screen-layout.v1';
@@ -180,7 +204,7 @@ function showNavigationBlock(content: ScreenBlockContent | undefined): void {
   const windowed = content.kind === 'session' ? auxWindows.windowOfSession(content.sessionId) : undefined;
   if (windowed) {
     if (auxWindows.focusedWindowId !== windowed.id) windowed.handle?.focus();
-  } else screenLayout.show(content);
+  } else whenChatWindowRead(content, () => screenLayout.show(content));
 }
 
 /**
@@ -295,9 +319,11 @@ export function showSessionBeside(target: ScreenSession): void {
 
 /** 把一样东西摆到这屏上(项目、对话;会话走导航):它在哪组就整组回来,否则单独一屏。 */
 export function showOnScreen(content: ScreenBlockContent): void {
-  tabFullscreen.exit();
-  screenLayout.show(content);
-  followFocus();
+  whenChatWindowRead(content, () => {
+    tabFullscreen.exit();
+    screenLayout.show(content);
+    followFocus();
+  });
 }
 
 /** ⌘ 点左边一行(项目、对话、会话都一样):并排放在正看着那块右边;满了提示。 */
@@ -307,11 +333,13 @@ export function showBesideOnScreen(content: ScreenBlockContent): void {
     showSessionBeside(content);
     return;
   }
-  if (!screenLayout.showBeside(content, { even: halfWontFit(screenLayout.focusedBlockId, 'right') })) {
-    fullToast();
-    return;
-  }
-  followFocus();
+  whenChatWindowRead(content, () => {
+    if (!screenLayout.showBeside(content, { even: halfWontFit(screenLayout.focusedBlockId, 'right') })) {
+      fullToast();
+      return;
+    }
+    followFocus();
+  });
 }
 
 /** 贴着 `targetId` 那块的一条边分出一块放它(拖到边上松手、页签右键「单独一块」)。 */
@@ -326,11 +354,13 @@ export function placeOnScreen(content: ScreenBlockContent, targetId: string, edg
   // 从左边拖来一条不在屏上的会话 = 和点那一行一样:它的对话页签要打开(它的页签之前全关掉过,❌ 拖过来是一块空面板,
   // owner 10-10 实测)。已经在屏上、只是挪位置的不动它的页签。
   const arriving = content.kind === 'session' && !windowed && !blockOf(content) ? content : null;
-  screenLayout.placeAt(content, targetId, edge, { even: halfWontFit(targetId, edge) });
-  if (arriving) openSessionInSessionWhenReady({ projectId: arriving.projectId, sessionId: arriving.sessionId });
-  // 一个 App 只有一份:进了一块,原来摆着它的那条会话自己就不留了(app-placement-sync)。
-  if (content.kind === 'app') appPlacementStore.take(content.tabKind);
-  followFocus();
+  whenChatWindowRead(content, () => {
+    screenLayout.placeAt(content, targetId, edge, { even: halfWontFit(targetId, edge) });
+    if (arriving) openSessionInSessionWhenReady({ projectId: arriving.projectId, sessionId: arriving.sessionId });
+    // 一个 App 只有一份:进了一块,原来摆着它的那条会话自己就不留了(app-placement-sync)。
+    if (content.kind === 'app') appPlacementStore.take(content.tabKind);
+    followFocus();
+  });
   return true;
 }
 

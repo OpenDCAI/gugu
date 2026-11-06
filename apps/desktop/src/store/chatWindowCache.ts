@@ -14,6 +14,10 @@ export type ConversationSnapshot = {
 }
 export type ConversationViewport = { chatId?: string | null; owner?: ChatWindowCache; following?: boolean; window?: ChatHistoryWindow; snapshot?: ConversationSnapshot; shared?: ConversationSnapshot }
 type Listener = (rows: MessageItem[]) => void
+const UNHELD_VIEW: ConversationSnapshot = Object.freeze({
+  messageWindow: new ChatHistoryWindow().getSnapshot(), loading: false, memberReadSeqs: {},
+  activeThreadRootId: null, threadMessages: [], loadingThread: false,
+})
 
 /** Account data and receipts are shared; each presenter owns its history range and navigation. */
 export class ChatWindowCache extends Map<string, MessageItem[]> {
@@ -74,6 +78,17 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
   readReceipts(chatId: string): Set<string> { return this.histories.get(chatId)!.receipts }
   getHistory(chatId: string): ChatHistoryWindow | undefined { return this.histories.get(chatId)?.window }
   view(chatId: string, viewport?: ConversationViewport): ConversationSnapshot {
+    // Before its first viewport subscribes (or after the last left) a conversation has no shared entry: reading it does not
+    // create one (@@@resident-rows). A mounting viewport still gets its own window over the rows read for it.
+    if (this.residentOnly && !this.isObserved(chatId) && !this.histories.has(chatId)) {
+      if (!viewport) return UNHELD_VIEW
+      const window = this.viewportWindow(chatId, viewport)
+      if (viewport.shared !== UNHELD_VIEW || viewport.snapshot?.messageWindow !== window.getSnapshot()) {
+        viewport.shared = UNHELD_VIEW
+        viewport.snapshot = { ...UNHELD_VIEW, messageWindow: window.getSnapshot() }
+      }
+      return viewport.snapshot!
+    }
     const window = this.history(chatId, viewport), shared = this.histories.get(chatId)!.view
     if (!viewport) return shared
     if (viewport.shared !== shared || viewport.snapshot?.messageWindow !== window.getSnapshot()) {
@@ -88,15 +103,19 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     entry.view = { ...entry.view, ...patch }
     this.publish(chatId)
   }
+  private viewportWindow(chatId: string, viewport: ConversationViewport): ChatHistoryWindow {
+    if (viewport.owner !== this || !viewport.window) {
+      viewport.owner = this
+      viewport.window = new ChatHistoryWindow(this.accountId)
+      viewport.window.reset(chatId, this.get(chatId))
+    }
+    return viewport.window
+  }
   history(chatId: string, viewport?: ConversationViewport): ChatHistoryWindow {
     if (viewport) {
-      if (viewport.owner !== this || !viewport.window) {
-        viewport.owner = this
-        viewport.window = new ChatHistoryWindow(this.accountId)
-        viewport.window.reset(chatId, this.get(chatId))
-      }
+      const window = this.viewportWindow(chatId, viewport)
       this.history(chatId)
-      return viewport.window
+      return window
     }
     const existing = this.histories.get(chatId)
     if (existing) return existing.window
@@ -120,7 +139,9 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
   }
   readonly setFollowingTail = (chatId: string, viewport: ConversationViewport, following: boolean | undefined): void => {
     viewport.following = following
-    if (following !== undefined) this.history(chatId, viewport).setFollowingTail(following)
+    if (following === undefined) return
+    if (this.residentOnly && !this.isObserved(chatId)) this.viewportWindow(chatId, viewport).setFollowingTail(following)
+    else this.history(chatId, viewport).setFollowingTail(following)
   }
   readonly subscribe = (chatId: string, listener: Listener, start?: () => () => void, viewport: ConversationViewport = {}): (() => void) => {
     let listeners = this.listeners.get(chatId)

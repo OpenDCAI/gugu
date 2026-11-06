@@ -60,6 +60,7 @@ import { i18n } from '../i18n'
 import { rendererLogger } from '../lib/log'
 import { readMessageWindowFromStore } from '../lib/messageIngest'
 import { releaseMessageWindows } from '../lib/messageWindows'
+import { provideChatWindowReads } from '../lib/chatWindowReads'
 const revisionLog = rendererLogger('chat/account-revision')
 export function ChatProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
   const { user: authenticatedUser } = useAuth(), user = active ? authenticatedUser : null
@@ -608,6 +609,11 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!read) { commit(); return }
     void read.catch((error: unknown) => revisionLog.error({ error, chatId: id }, 'local window read before switch failed')).then(commit)
   }, [cache, readChatWindow, setActiveChatIdState, userId])
+
+  useEffect(() => userId ? provideChatWindowReads({
+    read: (chatId) => cache.isObserved(chatId) ? null : readMessageWindowFromStore(userId, chatId),
+    release: (chatId) => { if (!cache.isObserved(chatId)) { releaseMessageWindows(userId, chatId); cache.delete(chatId) } },
+  }) : undefined, [cache, userId])
 
   const unreadNavigation = useChatUnreadStreamNavigation({ user, chatsRef, activeChatIdRef, threadRootOf: (id) => cache.view(id).activeThreadRootId,
     getMessageSnapshotEpoch, setActiveChatId,

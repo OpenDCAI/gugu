@@ -28,7 +28,13 @@ describe('cached scoped history ownership', () => {
       stop()
       expect(cache.has('chat')).toBe(false)
       cache.update('chat', (rows) => [...rows, row(4)])
+      // A viewport that already left keeps reading and reporting its tail: neither recreates the conversation.
+      const viewport = {}
+      cache.view('chat', viewport)
+      cache.setFollowingTail('chat', viewport, false)
+      cache.view('chat')
       expect(cache.has('chat')).toBe(false)
+      expect(cache.getHistory('chat')).toBeUndefined()
     } finally { clearMessageWindows('desk') }
   })
   it('publishes history state even when the row reference stays the same', () => {
