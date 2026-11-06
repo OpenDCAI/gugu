@@ -75,10 +75,12 @@ beforeEach(async () => {
   vi.spyOn(chatService, 'getOrCreateDM').mockResolvedValue('fixture-dm')
   harness = createReactHarness()
   harness.container.setAttribute('data-phone-shell', '')
-  harness.container.style.cssText = 'width:390px;min-height:440px;background:var(--bg);color:var(--text-primary);display:flex;flex-direction:column'
+  document.body.style.margin = '0'
+  harness.container.style.cssText = 'width:390px;height:760px;background:var(--bg);color:var(--text-primary);display:flex;flex-direction:column'
 })
 afterEach(() => {
   harness.cleanup()
+  document.body.style.removeProperty('margin')
   document.documentElement.removeAttribute('data-theme')
 })
 
@@ -92,6 +94,7 @@ async function pick(count: number) {
 
 it.each(cases)('$surface/$theme/$count: pending files stay above the editor', async ({ surface, theme, count }) => {
   fixture.theme = theme
+  document.documentElement.dataset.theme = theme
   await renderWithAppProviders(harness, <>
     <header style={{ padding: 12, overflowWrap: 'anywhere', fontSize: 12 }}>
       390px 模拟截图 · {labels[surface]} · {theme === 'light' ? '浅色' : '深色'} · {count} 个附件
@@ -110,6 +113,8 @@ it.each(cases)('$surface/$theme/$count: pending files stay above the editor', as
   await pick(count)
   const row = harness.container.querySelector<HTMLElement>('[data-slot="composer-attachments"]')!
   const input = harness.container.querySelector<HTMLElement>('[data-slot="composer-input"]')!
+  await until('the complete editor is visible within the phone screenshot', () =>
+    input.getBoundingClientRect().bottom <= harness.container.getBoundingClientRect().bottom + 1)
   if (screenshotHead) {
     expect(screenshotHead).toMatch(/^[a-f0-9]{40}$/)
     await page.screenshot({ element: harness.container, path: `__screenshots__/attachment-position-1945/${surface}-${theme}-${count}-${screenshotHead.slice(0, 8)}.png` })
