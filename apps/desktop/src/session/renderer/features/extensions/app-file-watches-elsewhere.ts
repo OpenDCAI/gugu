@@ -17,8 +17,6 @@ export type AppFileWatchDeps = {
   /** The session's working copy as this window has it; null: this window does not hold it. */
   locate: (sessionId: string) => WatchedWorkspace | null;
   onFileChanges: (handler: (event: FileChangesEvent) => void) => () => void;
-  /** The session's workspace mounted on its machine: at once when it already is. */
-  mount: (sessionId: string, workspace: WatchedWorkspace) => Promise<void>;
   /** Resolves to letting go of the watch. */
   watchDirectory: (workspace: WatchedWorkspace, directory: string) => Promise<() => void>;
   /** That machine reachable again: what changed meanwhile was told to no one, and what it was watching went with it. */
@@ -26,17 +24,16 @@ export type AppFileWatchDeps = {
   warn: (message: string, data: Record<string, unknown>) => void;
 };
 
-const separators = /[\\/]/;
 const isAbsolute = (file: string) => file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file);
 const directoryOf = (file: string) => file.slice(0, Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')));
 
-/** What a watch of one file hears, by the name it asked with, and the folder to watch for it (none: the top, or outside). */
+/** What a watch of one file hears, by the name it asked with, and the folder to watch for it (none: outside the working copy). */
 function ofFile(root: string, file: string) {
   const absolute = isAbsolute(file) ? file : `${root}/${file}`;
   const inside = absolute.startsWith(`${root}/`) || absolute.startsWith(`${root}\\`);
   return {
     nameOf: (path: string) => (path === absolute ? file : null),
-    directory: inside && separators.test(absolute.slice(root.length + 1)) ? directoryOf(absolute) : null,
+    directory: inside ? directoryOf(absolute) : null,
   };
 }
 
@@ -49,7 +46,7 @@ function ofFolder(root: string, folder: string) {
       const name = path.slice(root.length + 1).replaceAll('\\', '/');
       return /(^|\/)(\.git|node_modules)\//.test(name) ? null : name;
     },
-    directory: folder ? base : null,
+    directory: base,
   };
 }
 
@@ -75,10 +72,8 @@ export function answerAppFileWatches(deps: AppFileWatchDeps): () => void {
     let stopped = false;
     let release: (() => void) | null = null;
     const attach = () => {
-      // A machine just back has not mounted the workspace again, and its feed and folder watches need that: mount it, then ask once.
-      void deps.mount(sessionId, workspace).then(async () => {
-        if (stopped || !directory) return;
-        const letGo = await deps.watchDirectory(workspace, directory);
+      if (!directory) return;
+      deps.watchDirectory(workspace, directory).then((letGo) => {
         if (stopped) letGo(); else { release?.(); release = letGo; }
       }).catch((error: unknown) => deps.warn('A file or folder could not be watched on its machine', { sessionId, error: String(error) }));
     };

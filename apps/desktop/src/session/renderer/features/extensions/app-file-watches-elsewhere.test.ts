@@ -11,21 +11,19 @@ function rig(located = true) {
   const heard: AppFileHeard[] = [];
   const letGo = vi.fn();
   const watchDirectory = vi.fn(async () => letGo);
-  const mount = vi.fn(async () => {});
   const warn = vi.fn();
   answerAppFileWatches({
     onRequest: (handler) => { request = handler; return () => {}; },
     reply: (one) => heard.push(one),
     locate: () => (located ? { projectId: 'remote:d', workspaceId: 'w', root: '/srv/a' } : null),
     onFileChanges: (handler) => { feeds.add(handler); return () => feeds.delete(handler); },
-    mount,
     watchDirectory,
     onMachineBack: (_workspace, handler) => { back = handler; return () => { back = () => {}; }; },
     warn,
   });
   const fire = (update: FileChangesEvent['update'], workspaceId = 'w') => feeds.forEach((feed) => feed({ projectId: 'remote:d', workspaceId, update }));
   const change = (kind: 'create' | 'update' | 'delete', path: string) => ({ kind: 'changes' as const, changes: [{ kind, path, entryType: 'file' as const }] });
-  return { machineBack: () => back(), request: (r: AppFileWatchRequest) => request(r), heard, fire, change, letGo, mount, watchDirectory, feeds, warn };
+  return { machineBack: () => back(), request: (r: AppFileWatchRequest) => request(r), heard, fire, change, letGo, watchDirectory, feeds, warn };
 }
 
 describe('a page hearing one folder on another machine', () => {
@@ -58,7 +56,7 @@ describe('a page hearing one folder on another machine', () => {
     r.machineBack();
     await flush();
     expect(r.heard).toEqual([{ key: 'k', change: { kind: 'resync' } }]);
-    expect(r.mount).toHaveBeenCalledTimes(2);
+    expect(r.watchDirectory).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -98,17 +96,15 @@ describe('a page hearing one file on another machine', () => {
     expect(r.heard).toHaveLength(1);
   });
 
-  it('mounts the workspace before it asks for the folder, and says so when that fails, once', async () => {
+  it('says when the folder could not be watched, and asks again when that machine is back', async () => {
     const r = rig();
-    r.mount.mockRejectedValueOnce(new Error('offline'));
+    r.watchDirectory.mockRejectedValueOnce(new Error('offline'));
     r.request({ key: 'k', sessionId: 's', file: 'docs/a.md', on: true });
     await flush();
-    expect(r.watchDirectory).not.toHaveBeenCalled();
     expect(r.warn).toHaveBeenCalledTimes(1);
     r.machineBack();
     await flush();
-    expect(r.mount).toHaveBeenCalledTimes(2);
-    expect(r.watchDirectory).toHaveBeenCalledTimes(1);
+    expect(r.watchDirectory).toHaveBeenCalledTimes(2);
   });
 
   it('says a folder its machine would not watch, and does not ask again by itself', async () => {
@@ -120,18 +116,21 @@ describe('a page hearing one file on another machine', () => {
     expect(r.warn).toHaveBeenCalledTimes(1);
   });
 
-  it('asks for nothing more when the watch stopped meanwhile', async () => {
+  it('lets go at once of a watch that answers after it stopped', async () => {
     const r = rig();
     r.request({ key: 'k', sessionId: 's', file: 'docs/a.md', on: true });
     r.request({ key: 'k', sessionId: 's', file: 'docs/a.md', on: false });
     await flush();
-    expect(r.watchDirectory).not.toHaveBeenCalled();
+    expect(r.letGo).toHaveBeenCalledTimes(1);
   });
 
-  it('watches no folder for a file at the top, or outside the working copy', async () => {
+  it('watches the top for a file there, and no folder for one outside the working copy', async () => {
     const r = rig();
-    r.request({ key: 'a', sessionId: 's', file: 'a.md', on: true });
-    r.request({ key: 'b', sessionId: 's', file: '/etc/hosts', on: true });
+    r.request({ key: 'k', sessionId: 's', file: 'a.md', on: true });
+    await flush();
+    expect(r.watchDirectory).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'w' }), '/srv/a');
+    r.watchDirectory.mockClear();
+    r.request({ key: 'o', sessionId: 's', file: '/tmp/outside.md', on: true });
     await flush();
     expect(r.watchDirectory).not.toHaveBeenCalled();
   });
