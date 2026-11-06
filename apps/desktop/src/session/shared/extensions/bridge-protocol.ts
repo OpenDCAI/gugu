@@ -86,7 +86,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 /** Tools modules opt into host confinement from this API. Final numbering follows dev at merge. */
 export const EXTENSION_TOOL_CONFINEMENT_API_VERSION = 29;
 // 30: source-aware page history; navigation.go(-1|1) and context navigation availability.
-export const EXTENSION_API_VERSION = 30;
+// 31: account-bound, single-conversation unread grants. No content or Agent authority.
+export const EXTENSION_API_VERSION = 31;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -737,6 +738,7 @@ export const BRIDGE_VERBS = {
    * A chat's messages, as whoever reads sees them (`app-messages-core.ts`): a stretch of its timeline or one thread, and the
    * ones holding a piece of text or naming a file — the doors an agent's `message_history` / `message_search` take.
    */
+  bindingsGet: { needs: 'chat:unread', only: 'page' },
   messagesHistory: { needs: 'chat:read' },
   messagesSearch: { needs: 'chat:read' },
   /**

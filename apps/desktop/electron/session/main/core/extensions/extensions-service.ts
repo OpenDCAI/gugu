@@ -22,6 +22,7 @@ import { requireAppPlatform } from '@shared/extensions/app-platforms';
 import { assertConfinedProgramBundle } from './extension-validate';
 
 import { z } from 'zod';
+import { readUnreadBindings, unreadBindingKey, type StoredUnreadBinding } from '@shared/extensions/unread-binding';
 import { BUNDLE_SKIP_NAMES } from '@shared/extensions/market';
 import { appVariantsSchema, type AppVariants, type ExtensionVariant } from '@shared/extensions/variants';
 
@@ -165,8 +166,10 @@ export class ExtensionsService {
   private readonly originsFile: JsonFile<Record<string, ExtensionOrigin>>;
   private readonly publishersFile: JsonFile<Record<string, ExtensionPublisher>>;
   private readonly openWithFile: JsonFile<Record<string, string>>;
+  private readonly unreadBindingsFile: JsonFile<Record<string, import('@shared/extensions/unread-binding').StoredUnreadBinding>>;
 
   constructor(private readonly rootDir: string) {
+    this.unreadBindingsFile = jsonFile(rootDir, '.conversation-unread-bindings.json', '{}', readUnreadBindings, 0o600);
     this.variantsFile = jsonFile(rootDir, '.variants.json', '{}', (value) => Object.assign(Object.create(null) as Record<string, AppVariants>, z.record(z.string(), appVariantsSchema).parse(value)));
     this.grantsFile = jsonFile(rootDir, '.granted-permissions.json', '{}', (value) => z.record(z.string(), z.object({ capabilities: z.array(z.string()), network: z.array(z.string()) })).parse(value) as Record<string, NonNullable<ExtensionManifest['permissions']>>);
     this.settingsFile = jsonFile(rootDir, SETTINGS_FILENAME, '{}', (value) => {
@@ -187,6 +190,39 @@ export class ExtensionsService {
         ['string', 'undefined'].includes(typeof (value as ExtensionPublisher).name)));
     this.openWithFile = jsonFile(rootDir, OPEN_WITH_FILENAME, '{}', mapOf<string>(OPEN_WITH_FILENAME, 'file kinds to tabs',
       (tabKind) => typeof tabKind === 'string'));
+  }
+
+  /** Host-only scope. A handle is a reference, never a bearer credential. */
+  conversationUnreadBinding(ownerId: string, extensionId: string, name: string): StoredUnreadBinding | null {
+    const declaration = this.get(extensionId).manifest.permissions?.bindings?.[0];
+    if (!this.isEnabled(extensionId) || !this.hasCapability(extensionId, 'chat:unread') || declaration?.name !== name) {
+      throw Object.assign(new Error('This App has no unread grant for this binding'), { code: 'denied' });
+    }
+    const identity = this.identityOf(extensionId);
+    if (!identity) throw Object.assign(new Error('The installed App has no verified publisher'), { code: 'denied' });
+    const key = unreadBindingKey(ownerId, appKey(identity));
+    const stored = this.unreadBindingsFile.read();
+    const binding = Object.hasOwn(stored, key) ? stored[key]! : null;
+    return binding?.name === name ? binding : null;
+  }
+
+  /** Only the host's common permission UI calls this, after validating current membership. */
+  setConversationUnreadBinding(ownerId: string, extensionId: string, name: string, chatId: string | null): void {
+    this.conversationUnreadBinding(ownerId, extensionId, name);
+    const key = unreadBindingKey(ownerId, appKey(this.identityOf(extensionId)!));
+    const stored = this.unreadBindingsFile.read();
+    if (chatId === null) delete stored[key];
+    else stored[key] = { ownerId, name, chatId: z.string().uuid().parse(chatId), handle: randomUUID() };
+    this.unreadBindingsFile.write(readUnreadBindings(stored));
+  }
+
+  private forgetConversationUnreadBindings(extensionId: string): void {
+    const identity = this.identityOf(extensionId);
+    if (!identity) return;
+    const suffix = `/${extensionId}`;
+    const stored = this.unreadBindingsFile.read();
+    for (const key of Object.keys(stored)) if (key.endsWith(suffix)) delete stored[key];
+    this.unreadBindingsFile.write(stored);
   }
 
   settings(extensionId: string): AppSettings {
@@ -272,6 +308,9 @@ export class ExtensionsService {
     const identity = appIdentityOf({ manifest, origin, publisher });
     const grants = this.grantsFile.read();
     const previousIdentity = this.identityOf(manifest.id);
+    const previousBinding = this.list().extensions.find((entry) => entry.manifest.id === manifest.id)?.manifest.permissions?.bindings;
+    const resetUnreadBinding = !identity || !previousIdentity || appKey(identity) !== appKey(previousIdentity)
+      || JSON.stringify(previousBinding) !== JSON.stringify(manifest.permissions?.bindings);
     const previous = previousIdentity && identity && appKey(previousIdentity) === appKey(identity)
       ? grants[appKey(identity)] ?? this.list().extensions.find((entry) => entry.manifest.id === manifest.id)?.manifest.permissions
       : undefined;
@@ -390,6 +429,7 @@ export class ExtensionsService {
       }
     }
     const installed = this.get(manifest.id);
+    if (resetUnreadBinding) this.forgetConversationUnreadBindings(manifest.id);
     if (origin !== 'preinstalled') activitySignal({ event_id: randomUUID(), kind: firstInstall ? 'app.installed' : 'app.replaced',
       object_id: manifest.id, app_version: manifest.version, occurred_at: Date.now() });
     return installed;
@@ -707,6 +747,7 @@ export class ExtensionsService {
     else current.add(permission);
     if (current.size === 0) delete revocations[extensionId];
     else revocations[extensionId] = [...current];
+    if (!granted && permission === 'chat:unread') this.forgetConversationUnreadBindings(extensionId);
     this.revocationsFile.write(revocations);
   }
 
@@ -728,6 +769,7 @@ export class ExtensionsService {
     // caller sees a failure and skips the rest of its teardown — its cookies and
     // localStorage would outlive it. Nothing is destroyed until every step that
     // can fail has succeeded.
+    this.forgetConversationUnreadBindings(extensionId);
     this.forgetRevocations(extensionId);
     const settings = this.settingsFile.read();
     if (Object.hasOwn(settings, extensionId)) {

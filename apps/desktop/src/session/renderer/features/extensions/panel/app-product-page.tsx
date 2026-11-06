@@ -83,7 +83,9 @@ export interface ExtensionDetailSubject {
 
 type Loadable<T> = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; data: T } | { status: 'error' };
 
-export type ProductPageApi = Pick<typeof rpc.extensions, 'marketListing' | 'marketHistory'> &
+import { AppUnreadBindingSection, type UnreadBindingApi } from './app-unread-binding-section';
+
+export type ProductPageApi = Partial<UnreadBindingApi> & Pick<typeof rpc.extensions, 'marketListing' | 'marketHistory'> &
   Partial<Pick<ExtensionsApi, 'agentTools' | 'marketRead'>>;
 
 /**
@@ -567,6 +569,10 @@ export function AppProductPage({
                 {permission.kind === 'network'
                   ? translate('extensions.permissionsNetwork', { hosts: permission.host })
                   : describeCapability(permission.key, installed ?? manifest, translate, machine)}
+                {permission.key === 'chat:unread' && installed?.permissions?.bindings?.[0] && api.unreadBindingChoices && api.setUnreadBinding ?
+                  <AppUnreadBindingSection extensionId={installed.id} name={installed.permissions.bindings[0].name}
+                    api={{ unreadBindingChoices: api.unreadBindingChoices, setUnreadBinding: api.setUnreadBinding }} translate={translate}
+                    disabled={readOnly || !enabled || off || pending !== undefined} /> : null}
                 {commands ? <pre>{`${commands.caption}\n${commands.lines.join('\n')}`}</pre> : null}
               </span>
               {installed && onTogglePermission ? (

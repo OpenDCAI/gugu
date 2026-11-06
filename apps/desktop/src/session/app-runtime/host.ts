@@ -11,6 +11,7 @@ import type { ProjectionHost } from './projection-source';
  * `window.gugu` verbatim (`gugu-entry.ts`), so the v1 verbs keep their preload-side types.
  */
 export interface GuguHost extends ProjectionHost {
+  readonly bindings?: { get(name: string): Promise<import('@shared/extensions/unread-binding').AppUnreadBinding> };
   readonly sessions?: {
     index(options?: AppSessionIndexOptions): Promise<AppSessionIndex>;
     read(options: AppSessionReadOptions): Promise<AppSessionRead>;

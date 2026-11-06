@@ -747,6 +747,22 @@ export const extensionsController = createRPCController({
     }
   },
 
+  unreadBindingChoices: async (args: { extensionId: string; name: string }) => {
+    try {
+      const { unreadBindingChoices } = await import('./app-unread-bindings');
+      return { success: true as const, data: await unreadBindingChoices(args.extensionId, args.name) };
+    } catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
+
+  setUnreadBinding: async (args: { extensionId: string; name: string; ownerId: string; chatId: string | null }) => {
+    try {
+      const { setUnreadBinding } = await import('./app-unread-bindings');
+      await setUnreadBinding(args);
+      void notifyInstalledAppsChanged();
+      return { success: true as const };
+    } catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
+
   /** D-30 「给哪些 agent」 on an App's row in 「App」: the places it can be given at, ticked where it is now. */
   appPlaces: async (args: { extensionId: string }) => {
     try {
