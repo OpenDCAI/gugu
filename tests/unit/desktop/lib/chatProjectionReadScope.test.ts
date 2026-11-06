@@ -15,7 +15,7 @@ function builder(key: string, args?: unknown): unknown {
           const chatId = (args as { p_chat_ids?: string[] } | undefined)?.p_chat_ids?.[0]
           const result: Response = chatId && refuse.has(chatId)
             ? { data: null, error: { message: `not authorized to read unread locator for chat ${chatId}` } }
-            : { data: rowsByKey.get(key) ?? [], error: null }
+            : { data: rowsByKey.get(key === 'rpc:list_conversation_memberships' ? 'active_members' : key) ?? [], error: null }
           return Promise.resolve(result).then(onFulfilled, onRejected)
         }
       }

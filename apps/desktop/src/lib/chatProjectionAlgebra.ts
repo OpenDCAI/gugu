@@ -116,6 +116,8 @@ export type MembershipValue = {
   joined_at: string
   inbox_published: boolean
   conversation_deleted_at?: string | null
+  conversation_hidden_at?: string | null
+  historical_only?: boolean
   role: GroupMemberRole | null
 }
 
@@ -533,6 +535,12 @@ export function assemble(cache: ProjectionCache, viewerId: string): ChatItem[] {
       my_role: isRoomChat(chat.kind) ? own.role : undefined,
       source_chat_id: chat.source_chat_id,
       source_message_id: chat.source_message_id,
+      conversation_hidden_at: own.conversation_hidden_at ?? null,
+      conversation_visibility_revision: cache.get(entityKey('membership', membershipId(chat.id, viewerId)))?.stamp,
+      source_conversation_hidden_at: chat.source_chat_id
+        ? memberships.get(membershipId(chat.source_chat_id, viewerId))?.conversation_hidden_at ?? null : null,
+      source_conversation_visibility_revision: chat.source_chat_id
+        ? cache.get(entityKey('membership', membershipId(chat.source_chat_id, viewerId)))?.stamp : undefined,
     })
   }
   rows.sort(compareChatsByActivityDesc)
