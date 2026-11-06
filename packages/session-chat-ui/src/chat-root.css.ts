@@ -114,6 +114,9 @@ export const pinLane = style({
   pointerEvents: 'none',
 });
 
+/** The semantic strip reaches the scroller edges, outside the centered text column. */
+export const activityPinLane = style({ contain: 'layout style' });
+
 /** The user row inside its lane; its backdrop is opaque only while stuck. */
 export const pinSticky = style({
   // `top` is per row (ChatRoot): the card lands on the pin line whatever the row's collapsed top gap.
@@ -131,6 +134,12 @@ export const pinBackdrop = style({
   // The frame scheduler supplies this state from existing lane geometry. Older
   // Android WebViews cannot evaluate scroll-state container queries.
   selectors: { '[data-pin-stuck="true"] &': { opacity: 1 } },
+});
+
+/** Page-colored, square strip, including its seam so body text cannot peek between the two pins. */
+export const activityPinBackdrop = style({
+  left: 'calc(50% - 50vw)', right: 'auto', width: '100vw',
+  borderBottom: `1px solid color-mix(in srgb, ${vars.fgMuted} 16%, transparent)`,
 });
 
 /** 16px fade under the stuck row: signals that rows scroll beneath it. Not drawn at rest. */

@@ -7,13 +7,11 @@ export const row = style({
 });
 export const toggle = style({
   position: 'absolute', inset: 0, border: 0, background: 'transparent', color: 'inherit', cursor: 'pointer',
-  borderRadius: 4,
   ':focus-visible': { outline: `2px solid ${vars.fgMuted}`, outlineOffset: -2 },
 });
 export const inline = style({
   position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%',
-  pointerEvents: 'none', borderRadius: 4, padding: '3px 5px',
-  selectors: { [`${row}:hover &`]: { background: vars.bgHover, color: vars.fg } },
+  pointerEvents: 'none', padding: '3px 5px',
 });
 export const label = style({ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 export const name = style({

@@ -7,6 +7,7 @@ import { createChatState } from '../state/chat-state';
 import { createChatView } from '../chat-view';
 import type { ChatMessage, TranscriptTurn } from '../model';
 import { until, untilStable } from '../../../../tests/support/awaitCondition';
+import { pinFade } from '../chat-root.css';
 
 const peer = 'user:11111111-1111-4111-8111-111111111111';
 const me = '22222222-2222-4222-8222-222222222222';
@@ -300,6 +301,49 @@ describe('approved A2A activity', () => {
     t.scroll().scrollTop = 0;
     await untilStable('opaque lanes return to ordinary bubbles', () => t.head()?.getBoundingClientRect().top);
     for (const mask of masks()) expect(getComputedStyle(mask).opacity).toBe('0');
+  });
+  it.each([
+    { width: 360, background: '#ffffff' }, { width: 1280, background: '#ffffff' },
+    { width: 360, background: '#212121' }, { width: 1280, background: '#212121' },
+  ])('keeps the pinned semantic line quiet and its page-colored strip inside the row ($width/$background)', async ({ width, background }) => {
+    const question = 'A longer owner question above the agent exchange. '.repeat(3);
+    const t = await mount(width, [turn('own', [ordinary(question, 'user'),
+      ...Array.from({ length: 20 }, (_, i) => delivery(`quiet${i}`, `Long underlying message ${i}. `.repeat(45)))]),
+      turn('conclusion', [ordinary('Following conclusion. '.repeat(60))])]);
+    if (background === '#212121') t.host.classList.add('emdark');
+    t.host.style.setProperty('--chat-bg', background);
+    const label = () => t.head()!.lastElementChild as HTMLElement;
+    const typography = () => { const s = getComputedStyle(label()); return [s.fontSize, s.lineHeight, s.fontWeight, s.color]; };
+    const before = typography();
+    t.button().click();
+    await untilStable('long messages expanded', () => t.scroll().scrollHeight);
+    t.scroll().scrollTop = 850;
+    await untilStable('long message scrolls under both pins', () => t.head()?.getBoundingClientRect().top);
+    const row = t.head()!.getBoundingClientRect();
+    await cdp().send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: row.left + row.width / 2, y: row.top + row.height / 2 });
+    const inlineStyle = getComputedStyle(label());
+    expect(typography(), 'pinning or touch hover must not promote the text').toEqual(before);
+    expect(inlineStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(inlineStyle.borderRadius).toBe('0px');
+    expect(inlineStyle.borderWidth).toBe('0px');
+    const lane = t.head()!.closest<HTMLElement>('[data-index]')!;
+    const backdrop = lane.querySelector<HTMLElement>('[data-chat-pin-backdrop]')!;
+    const paint = backdrop.getBoundingClientRect(), viewport = t.scroll().getBoundingClientRect();
+    const style = getComputedStyle(backdrop);
+    expect(style.opacity).toBe('1');
+    expect(style.backgroundColor).toBe(background === '#ffffff' ? 'rgb(255, 255, 255)' : 'rgb(33, 33, 33)');
+    const own = t.host.querySelector('[data-agent-conversation-message]')!.getBoundingClientRect();
+    expect(Math.abs(paint.top - own.bottom), 'the two page-colored pins meet without exposing half a body line in their seam').toBeLessThan(1);
+    expect(Math.abs(paint.bottom - row.bottom), 'no opaque band below the semantic row').toBeLessThan(1);
+    expect(paint.left).toBeLessThanOrEqual(viewport.left);
+    expect(paint.right).toBeGreaterThanOrEqual(viewport.right - 1);
+    expect(getComputedStyle(lane).contain.split(' ')).not.toContain('paint');
+    expect(style.borderTopWidth).toBe('0px');
+    expect(style.borderLeftWidth).toBe('0px');
+    expect(style.borderRightWidth).toBe('0px');
+    expect(style.borderBottomWidth).toBe('1px');
+    const fadeSelector = pinFade.split(/\s+/).map(name => `.${name}`).join('');
+    expect(t.host.querySelectorAll(fadeSelector), 'neither pin may paint a fade across the preceding message').toHaveLength(0);
   });
   it('snaps the pinned exit and manual collapse when reduced motion is enabled', async () => {
     await cdp().send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });

@@ -92,6 +92,8 @@ import { segmentCtxFor } from './state/segment-ctx';
 import type { LayoutSnapshot } from './state/geometry';
 import { sameRange } from './state/geometry';
 import {
+  activityPinBackdrop,
+  activityPinLane,
   canvas,
   composerSlotAnimatingClass,
   composerSlotCenteredClass,
@@ -2239,7 +2241,7 @@ export function ChatRoot(props: ChatRootProps) {
                           <Show when={u()}>
                             <div
                               class={unitRowWrapper}
-                              classList={{ [pinLane]: isPinAnchor() }}
+                              classList={{ [pinLane]: isPinAnchor(), [activityPinLane]: activityLaneByIndex().has(unitIndex) }}
                               ref={(el) => {
                                 rowEls.set(unitIndex, el);
                                 // Seed the placement; commit() reconciles on each frame.
@@ -2256,7 +2258,10 @@ export function ChatRoot(props: ChatRootProps) {
                                 classList={{ [pinSticky]: isPinAnchor() }}
                                 style={isPinAnchor() ? { top: `${userTopGap + activityPinOffset(unitIndex) - (u()?.gapBefore ?? 0)}px` } : undefined}
                               >
-                              <Show when={isPinAnchor()}><div class={pinBackdrop} data-chat-pin-backdrop="" aria-hidden="true" /></Show>
+                              <Show when={isPinAnchor()}><div class={pinBackdrop}
+                                classList={{ [activityPinBackdrop]: activityLaneByIndex().has(unitIndex) }}
+                                style={activityLaneByIndex().has(unitIndex) && activityPinOffset(unitIndex) > 0 ? { top: `${-userTopGap}px` } : undefined}
+                                data-chat-pin-backdrop="" aria-hidden="true" /></Show>
                               <UnitRow
                                 unit={u()!}
                                 index={unitIndex}
@@ -2276,7 +2281,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 latestConversationMessageId={latestConversationMessageId()}
                                 background={backgroundAttachment()}
                               />
-                              <Show when={isPinAnchor()}>
+                              <Show when={isPinAnchor() && !theme().layout.agentConversation}>
                                 {/* Signals that rows scroll beneath the stuck message; drawn only while stuck. */}
                                 <div class={pinFade} aria-hidden="true" />
                               </Show>
