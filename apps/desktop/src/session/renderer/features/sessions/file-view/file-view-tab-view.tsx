@@ -15,6 +15,7 @@ export const TabContent = observer(function FileViewTabContent({ host, ctx }: Ta
       {tabs.filter((t) => retained.has(t.tabId)).map((t) => (
         <RetainedTabContent key={t.tabId} className="absolute inset-0 flex min-h-0 min-w-0 flex-col" visible={t.isActive}>
           <WorkspaceFileView
+            tabId={t.tabId}
             projectId={projectId}
             workspaceId={workspaceId}
             sessionId={sessionId}
