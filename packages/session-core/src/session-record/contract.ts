@@ -142,8 +142,8 @@ export type RecordBoundary = { messageId?: string } & (
   | { kind: 'turn_end'; stopReason?: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' }
   /** 被打断（用户 ESC、进程被杀）。 */
   | { kind: 'turn_aborted' }
-  /** 没做完：harness 自己记下的报错（claude 的 `isApiErrorMessage` 行）。 */
-  | { kind: 'turn_failed'; creditExhausted?: true });
+  /** 没做完：harness 自己记下的报错（claude 的 `isApiErrorMessage` 行）。`detail` = what the failing side recorded it said. */
+  | { kind: 'turn_failed'; creditExhausted?: true; detail?: string });
 
 /**
  * 一条解码后的记录。`key` 是跨来源身份键：同一件事从两个来源各报一次也只算一次。

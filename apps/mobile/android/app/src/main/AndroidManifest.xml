@@ -171,6 +171,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- long-press haptic tick: the WebView ignores navigator.vibrate() without it -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- @@@scan (#537-A) - native QR scan to add friend / join group -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -244,6 +246,10 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <!-- 聊天「+」里的「拍摄」(file input 的 capture):看不见相机 App,WebView 就退回成文件选择器。 -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
     </queries>
 

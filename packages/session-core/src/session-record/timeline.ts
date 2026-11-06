@@ -7,6 +7,8 @@ import { toolCallName, type ToolImage, type ToolImageLookup, type ToolImageRef }
 import type { TranscriptItem, TranscriptTurn, TranscriptTurnOutcome } from '../acp/models/turns/turn';
 import { RECENT_ACTION_MAX_ENTRIES, RECENT_ACTION_WINDOW_MS, recentActionName } from '../acp/recent-actions';
 import { AcpTranscriptParser } from '../acp/reducer';
+import { upstreamSaid } from '../acp/upstream-said';
+import { redactSecrets } from '@gugu/session-shared/logger';
 import type { ParserState } from '../acp/reducer/reducer';
 import type {
   PendingRequest,
@@ -1021,9 +1023,13 @@ function sameImage(ref: RecordImageRef, data: string): boolean {
 
 function outcomeOf(boundary: RecordBoundary): TranscriptTurnOutcome {
   if (boundary.kind === 'turn_aborted') return { kind: 'cancelled', reason: 'cancelled' };
-  if (boundary.kind === 'turn_failed') return {
-    kind: 'error', reason: 'prompt_failed',
-    ...(boundary.creditExhausted ? { detail: '{"error":{"code":"credits_exhausted","message":"Gugu credits"}}' } : {}),
-  };
+  if (boundary.kind === 'turn_failed') {
+    // A rebuilt transcript says the same as the live one: the recorded words, read by the one shared parser.
+    const detail = boundary.creditExhausted
+      ? '{"error":{"code":"credits_exhausted","message":"Gugu credits"}}'
+      : boundary.detail && redactSecrets(boundary.detail);
+    const said = boundary.detail ? upstreamSaid(boundary.detail) : undefined;
+    return { kind: 'error', reason: 'prompt_failed', ...(detail ? { detail } : {}), ...(said ? { said } : {}) };
+  }
   return { kind: 'done', reason: boundary.stopReason ?? 'end_turn' };
 }

@@ -126,7 +126,7 @@ export default {
     "backToList": "Back to chats",
     "conversationProfile": "View chat details",
     "downloadFailed": "Could not download the file",
-    "filePreview": { "close": "Close file preview", "download": "Download", "openExternal": "Open externally", "loading": "Reading file…", "rendering": "Rendering preview…", "renderFailed": "Could not render this file", "sheetTruncated": "This spreadsheet is too large, so only the first part is shown. Open it in an Office app to see everything.", "openInOffice": "Open in Office app", "previewLimits": "This document is too large or complex to preview safely.", "unsupported": "This file type cannot be previewed here. Download or open it externally.", "readFailed": "Could not read the file ({{status}})", "pdfControls": "PDF controls", "previousPage": "Previous page", "nextPage": "Next page", "zoomOut": "Zoom out", "zoomIn": "Zoom in", "fitWidth": "Fit width", "pdfPage": "PDF page {{page}}" },
+    "filePreview": { "close": "Close file preview", "download": "Download", "openExternal": "Open externally", "loading": "Reading file…", "rendering": "Rendering preview…", "renderFailed": "Could not render this file", "sheetTruncated": "This spreadsheet is too large, so only the first part is shown. Open it in an Office app to see everything.", "openInOffice": "Open in Office app", "previewLimits": "This document is too large or complex to preview safely.", "unsupported": "This file type cannot be previewed here. Download or open it externally.", "readFailed": "Could not read the file ({{status}})", "pdfControls": "PDF controls", "previousPage": "Previous page", "nextPage": "Next page", "zoomOut": "Zoom out", "zoomIn": "Zoom in", "zoom": "Zoom", "zoomReset": "Reset to 100%", "pdfPage": "PDF page {{page}}" },
     "empty": {
       "chats": "Select a chat to start chatting",
       "contacts": "Select a contact to view details"
@@ -429,6 +429,13 @@ export default {
     "exitWhisper": "Exit whisper mode",
     "replyUnavailable": "The original message is unavailable. Cancel the reply to send a new message.",
     "file": "File",
+    "photos": "Photos",
+    "camera": "Camera",
+    "photoCaption": "Add a caption",
+    "originalPhoto": "Original",
+    "cancelPhotos": "Cancel",
+    "sendPhotos_one": "Send",
+    "sendPhotos_other": "Send ({{count}})",
     "memberType": {
       "agent": "Agent",
       "all": "Everyone",

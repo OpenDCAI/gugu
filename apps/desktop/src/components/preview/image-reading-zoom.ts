@@ -18,7 +18,7 @@ export function wireReadingZoom(pswp: PhotoSwipe): () => void {
     if (!initialized || applyingZoom || slide !== pswp.currSlide || !(slide.zoomLevels.initial > 0)) return
     const ratio = Math.max(1, slide.currZoomLevel / slide.zoomLevels.initial)
     if (slide.currZoomLevel >= slide.zoomLevels.max - 0.000001 && readFileZoom('image') >= ratio) return
-    writeFileZoom('image', ratio)
+    writeFileZoom('image', ratio, pswp.element)
   })
   pswp.on('afterInit', () => {
     initialized = true
@@ -27,7 +27,7 @@ export function wireReadingZoom(pswp: PhotoSwipe): () => void {
     const offCommand = bindFileZoom(pswp.element, command => {
       const slide = pswp.currSlide
       const shown = slide && slide.zoomLevels.initial > 0 ? slide.currZoomLevel / slide.zoomLevels.initial : readFileZoom('image')
-      writeFileZoom('image', Math.max(1, zoomForCommand(shown, command)))
+      writeFileZoom('image', Math.max(1, zoomForCommand(shown, command)), pswp.element)
       applyReadingZoom()
     })
     const offPreference = subscribeFileZoom(applyReadingZoom)

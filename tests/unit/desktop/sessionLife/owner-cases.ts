@@ -90,7 +90,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
           }
           const lease = { at, gen: ctx.gen, timing: 'next-tool-call' };
           if (at !== 'identity' && at !== 'channel') active.add(lease);
-          return (at === 'identity' ? { kind: 'bound', agentUserId: 'agent' } : lease) as StageOut[K];
+          return (at === 'identity' ? { kind: 'bound', agentUserId: 'agent' } : at === 'channel' ? { ...lease, nativeSession: 'preserved' } : lease) as StageOut[K];
         },
         async dispatch(_have, row) { dispatched.push(row.seq); dispatchStarted.resolve();
           if (options.rejectDispatch) return { result: 'rejected-before-admission', cause: { name: 'Refused', message: 'not admitted' } };
@@ -265,6 +265,16 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     assert.equal(r.owner.read('s').kind, 'dormant');
     r.owner.start('s', 'reconfigure'); await r.owner.quiescent('s');
     assert.equal(r.owner.read('s').kind, 'ready'); assert.equal(r.rows.get(row)!.state, 'accepted');
+  } },
+  { name: 'a reconfigure says whether the conversation continued until the next turn goes out, then the notice retires', async run() {
+    const r = rig(); r.session(); await r.owner.signIn('A'); await r.owner.quiescent('s');
+    assert.equal(r.owner.read('s').nativeSession, null);
+    await r.owner.interrupt('s', { k: 'interrupt', reason: 'reconfigure' });
+    r.owner.start('s', 'reconfigure'); await r.owner.quiescent('s');
+    assert.equal(r.owner.read('s').nativeSession, 'preserved');
+    r.send(); await r.owner.quiescent('s');
+    assert.equal(r.owner.read('s').nativeSession, null);
+    assert.equal(r.views.at(-1)!.nativeSession, null);
   } },
   { name: 'a start failure only the person resolves: later deliveries queue without starting it; an explicit start does', async run() {
     const r = rig({ failAt: 'channel', failAwaitsPerson: true }); r.session(); await r.owner.signIn('A');

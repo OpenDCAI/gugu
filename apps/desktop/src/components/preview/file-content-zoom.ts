@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useSyncExternalStore, type RefObject } 
 import { clampZoom, DOCUMENT_MAX_ZOOM, DOCUMENT_MIN_ZOOM, isPinchWheel, pinchZoom } from '@/session/shared/preview/pinch-zoom';
 import { FILE_ZOOM_ATTRIBUTE, FILE_ZOOM_EVENT, isFileZoomCommand, type FileZoomCommand } from '@/session/shared/preview/file-zoom';
 
-export type FileZoomKind = 'markdown' | 'text-code' | 'html' | 'pdf' | 'image';
+/** A file type's reading zoom, or an App page's (`app:<id>`: the host zooms the App's whole page, as a browser tab). */
+export type FileZoomKind = 'markdown' | 'text-code' | 'html' | 'pdf' | 'image' | 'docx' | `app:${string}`;
 const CHANGED = 'gugu:file-zoom-preference';
 const keyOf = (kind: FileZoomKind) => `gugu.file-content-zoom.${kind}`;
 
@@ -12,10 +13,38 @@ export function readFileZoom(kind: FileZoomKind): number {
   if (!Number.isFinite(value) || value <= 0) return 1;
   return kind === 'image' ? Math.max(1, value) : clampZoom(value, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM);
 }
-export function writeFileZoom(kind: FileZoomKind, value: number): void {
+/** `shownOn`: the view the person zoomed — the new ratio floats over it for a moment (zoom B: no lasting control). */
+export function writeFileZoom(kind: FileZoomKind, value: number, shownOn?: Element | null): void {
   if (!Number.isFinite(value) || value <= 0 || value === readFileZoom(kind)) return;
   localStorage.setItem(keyOf(kind), String(value));
   window.dispatchEvent(new Event(CHANGED));
+  if (shownOn) showZoomRatio(shownOn, readFileZoom(kind));
+}
+
+// @@@zoom-b — owner 11-05 picked B: a readable view has no lasting zoom control; the ratio shows up, centered near the
+// top of the view that changed, only while it changes. One element per document, reused; it never takes a pointer.
+const ratioShown = new WeakMap<Document, { element: HTMLElement; timer: number }>();
+function showZoomRatio(on: Element, value: number) {
+  const doc = on.ownerDocument;
+  let shown = ratioShown.get(doc);
+  if (!shown) {
+    const element = doc.createElement('div');
+    element.className = 'pointer-events-none fixed z-50 -translate-x-1/2 rounded-surface bg-foreground px-3 py-1 text-sm font-medium tabular-nums text-background shadow-lift transition-opacity duration-[var(--dur-fast)] data-[shown=false]:opacity-0';
+    element.setAttribute('role', 'status');
+    element.setAttribute('data-occludes-browser-page', '');
+    shown = { element, timer: 0 };
+    ratioShown.set(doc, shown);
+  }
+  const { element } = shown;
+  if (!element.isConnected) doc.body.append(element);
+  const box = on.getBoundingClientRect();
+  element.style.left = `${box.left + box.width / 2}px`;
+  element.style.top = `${box.top + 16}px`;
+  element.textContent = `${Math.round(value * 100)}%`;
+  element.dataset.shown = 'true';
+  const view = doc.defaultView ?? window;
+  view.clearTimeout(shown.timer);
+  shown.timer = view.setTimeout(() => { element.dataset.shown = 'false'; }, 900);
 }
 export const subscribeFileZoom = (listener: () => void) => {
   window.addEventListener(CHANGED, listener);
@@ -70,12 +99,12 @@ export function zoomForCommand(current: number, command: FileZoomCommand): numbe
 export function bindEditorFileZoom(container: HTMLElement, setFontSize: (px: number) => void, baseFontSize: number): () => void {
   const apply = () => setFontSize(baseFontSize * readFileZoom('text-code'));
   const offPreference = subscribeFileZoom(apply);
-  const offCommand = bindFileZoom(container, command => writeFileZoom('text-code', clampZoom(zoomForCommand(readFileZoom('text-code'), command), DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM)));
+  const offCommand = bindFileZoom(container, command => writeFileZoom('text-code', clampZoom(zoomForCommand(readFileZoom('text-code'), command), DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM), container));
   let pendingDeltaY = 0;
   let frame = 0;
   const flush = () => {
     frame = 0;
-    writeFileZoom('text-code', pinchZoom(readFileZoom('text-code'), pendingDeltaY, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM));
+    writeFileZoom('text-code', pinchZoom(readFileZoom('text-code'), pendingDeltaY, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM), container);
     pendingDeltaY = 0;
   };
   const wheel = (event: WheelEvent) => {
@@ -110,11 +139,29 @@ export function useFileZoom(kind: FileZoomKind, ref: RefObject<HTMLElement | nul
       kind,
       off: element ? bindFileZoom(element, command => {
         if (applyRef.current) return applyRef.current(command);
-        writeFileZoom(kind, clampZoom(zoomForCommand(readFileZoom(kind), command), DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM));
+        writeFileZoom(kind, clampZoom(zoomForCommand(readFileZoom(kind), command), DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM), element);
       }) : undefined,
     };
   });
   useEffect(() => () => { bound.current?.off?.(); bound.current = undefined; }, []);
-  const setZoom = useCallback((value: number | ((current: number) => number)) => writeFileZoom(kind, typeof value === 'function' ? value(readFileZoom(kind)) : value), [kind]);
+  const setZoom = useCallback((value: number | ((current: number) => number)) => writeFileZoom(kind, typeof value === 'function' ? value(readFileZoom(kind)) : value, ref.current), [kind, ref]);
   return { zoom, setZoom };
+}
+
+/**
+ * An App's page: the host zooms the whole page (the App writes no zoom code), remembered per App. The page's box is the
+ * zoom target — a focused <webview> is the document's active element inside it, so the window's zoom keys reach it.
+ */
+export function bindAppPageZoom(box: HTMLElement, page: HTMLElement & { setZoomFactor(factor: number): void }, appId: string): () => void {
+  const kind: FileZoomKind = `app:${appId}`;
+  const apply = () => page.setZoomFactor(readFileZoom(kind));
+  const offCommand = bindFileZoom(box, command => writeFileZoom(kind, clampZoom(zoomForCommand(readFileZoom(kind), command), DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM), box));
+  const offPreference = subscribeFileZoom(apply);
+  // A page applies its zoom once it can (and again after it loads anew: a navigation starts it at 100%).
+  page.addEventListener('dom-ready', apply);
+  return () => {
+    offCommand();
+    offPreference();
+    page.removeEventListener('dom-ready', apply);
+  };
 }

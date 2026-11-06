@@ -10,6 +10,7 @@ import { log } from '@renderer/utils/logger';
 import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
 import { extensionSurfaceStore } from './extension-surface-store';
 import { ExtensionTabToolbar } from './extension-tab-toolbar';
+import { bindAppPageZoom } from '@/components/preview/file-content-zoom';
 
 /**
  * Renders one extension's surface: a <webview> on the extension's own
@@ -88,6 +89,7 @@ export function ExtensionTabPane({
   shownRef.current = shown;
   const reportLayoutRef = useRef<(() => void) | null>(null);
   const webviewRef = useRef<BrowserWebviewElement | null>(null);
+  const zoomTeardownRef = useRef<(() => void) | null>(null);
   /** Stops the size/visibility reports when the surface goes away. */
   const layoutTeardownRef = useRef<(() => void) | null>(null);
 
@@ -205,8 +207,12 @@ export function ExtensionTabPane({
       webviewRef.current = element;
       layoutTeardownRef.current?.();
       layoutTeardownRef.current = null;
+      zoomTeardownRef.current?.();
+      zoomTeardownRef.current = null;
       extensionSurfaceStore.setWebContentsId(slotRef.current.sessionId, slotRef.current.tabId, null);
       if (!element) { guestBinding.reset(); return; }
+      // The page is zoomed by the host, remembered per App (zoom B).
+      if (element.parentElement) zoomTeardownRef.current = bindAppPageZoom(element.parentElement, element, extensionId);
       element.addEventListener('dom-ready', () => {
         // Bind before the surface can call anything: until main knows which task
         // this webContents is showing, every bridge call is refused. Done on
@@ -223,7 +229,7 @@ export function ExtensionTabPane({
         });
       });
     },
-    [guestBinding, aim, startLayoutReports]
+    [guestBinding, aim, startLayoutReports, extensionId]
   );
 
   const failureText =

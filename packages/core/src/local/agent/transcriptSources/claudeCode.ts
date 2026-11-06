@@ -70,6 +70,8 @@ export interface ClaudeRecord {
   steering?: boolean
   items: ClaudeRecordItem[]
   end: ClaudeRecordEnd | null
+  /** What the API said when `end` is `error`: claude's `errorDetails` (the HTTP body), else the line's own text. */
+  failure?: string
 }
 
 /**
@@ -228,7 +230,11 @@ export function readClaudeRecord(entry: Record<string, unknown>): ClaudeRecord {
     record.items = readItems(message.content, 'assistant', false)
     record.end = readStopReason(message.stop_reason)
     // 被拒那一行也带 isApiErrorMessage:先认 refusal,其余带它的才是报错(claude 合成那一行,stop_reason 是 stop_sequence)。
-    if (record.end !== 'refusal' && entry.isApiErrorMessage === true) record.end = 'error'
+    if (record.end !== 'refusal' && entry.isApiErrorMessage === true) {
+      record.end = 'error'
+      const said = record.items.find((item) => item.kind === 'text')
+      record.failure = nonEmptyString(entry.errorDetails) ?? (said?.kind === 'text' ? said.text : undefined)
+    }
   } else if (isInterruptMarker(message.content)) {
     record.end = 'aborted'
   } else {

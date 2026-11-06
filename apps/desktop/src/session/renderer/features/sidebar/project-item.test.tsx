@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const state = vi.hoisted(() => ({ navigate: vi.fn(), expand: vi.fn(), toggle: vi.fn(), beside: vi.fn(), screen: false }));
+const state = vi.hoisted(() => ({ navigate: vi.fn(), expand: vi.fn(), toggle: vi.fn(), beside: vi.fn(), show: vi.fn(), screen: false }));
 vi.mock('@renderer/features/projects/hooks/use-confirm-delete-project', () => ({ useConfirmDeleteProject: () => vi.fn() }));
 vi.mock('@renderer/features/projects/stores/project', () => ({ isUnregisteredProject: () => false }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
@@ -13,7 +13,7 @@ vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getGitRepositoryStore: () => null, projectViewKind: () => 'idle_unmounted',
 }));
 vi.mock('@renderer/lib/layout/navigation-provider', () => ({
-  useNavigate: () => ({ navigate: state.navigate }), useParams: () => ({ params: {} }),
+  useNavigate: () => ({ navigate: state.navigate }),
   useWorkspaceSlots: () => ({ currentView: 'new-session' }),
 }));
 vi.mock('@renderer/lib/stores/app-state', () => ({
@@ -22,7 +22,8 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
     needsYouCountForProject: () => 0, projectMembersOf: () => ['business'], hasNameTwin: () => false, rowProjectIdOf: (id: string) => id,
     ensureProjectExpanded: state.expand, toggleProjectExpanded: state.toggle },
 }));
-vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => state.screen, showBesideOnScreen: state.beside }));
+vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => state.screen, showBesideOnScreen: state.beside, showOnScreen: state.show }));
+vi.mock('@renderer/app/screen-layout', () => ({ screenLayout: { focusedBlockId: null, blocks: new Map() } }));
 vi.mock('@/lib/composerVerbBridge', () => ({ readComposerVerb: () => null, setComposerVerb: vi.fn() }));
 vi.mock('@renderer/features/projects/project-task-entry', () => ({ prepareProjectTask: vi.fn() }));
 vi.mock('@renderer/features/sessions/composer-drafts', () => ({ composerDrafts: { get: () => '' }, projectDraftKey: () => '' }));
@@ -54,13 +55,13 @@ it('opens an actual project on the assistant device and retains its project cont
     expect(host.querySelector('[data-context-disabled="false"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="sidebar.newSessionIn"]')).not.toBeNull();
     await act(async () => (host.querySelector('[data-project-row="business"]') as HTMLElement).click());
-    expect(state.navigate).toHaveBeenCalledWith('project', { projectId: 'business' });
+    expect(state.show).toHaveBeenCalledWith({ kind: 'project', projectId: 'business' });
     expect(state.expand).not.toHaveBeenCalled();
     expect(state.toggle).not.toHaveBeenCalled();
     state.screen = true;
     await act(async () => host.querySelector('[data-project-row="business"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })));
     expect(state.beside).toHaveBeenCalledWith({ kind: 'project', projectId: 'business' });
-    expect(state.navigate).toHaveBeenCalledTimes(1);
+    expect(state.show).toHaveBeenCalledTimes(1);
     await act(async () => (host.querySelector('[aria-label="sidebar.newSessionIn"]') as HTMLElement).click());
     expect(state.expand).not.toHaveBeenCalled();
     expect(state.toggle).not.toHaveBeenCalled();

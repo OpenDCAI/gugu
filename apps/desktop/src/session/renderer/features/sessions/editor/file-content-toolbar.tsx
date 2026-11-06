@@ -9,7 +9,13 @@ import type { FileTabResource } from './stores/file-tab-resource';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { FileToolbar } from './file-toolbar';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu';
+import { ZoomMenuRow } from '@/components/preview/ZoomMenuRow';
+import type { FileZoomKind } from '@/components/preview/file-content-zoom';
+import type { ManagedFileKind } from '@renderer/lib/editor/types';
+
+/** The reading zoom a previewed file keeps; its source is always text-code. */
+const PREVIEW_ZOOM: Partial<Record<ManagedFileKind, FileZoomKind>> = { text: 'text-code', csv: 'text-code', markdown: 'markdown', html: 'html', svg: 'image', image: 'image', pdf: 'pdf', docx: 'docx' };
 
 interface FileContentToolbarProps {
   tab: FileTabResource;
@@ -37,6 +43,7 @@ export const FileContentToolbar = observer(function FileContentToolbar({
   const { projectId } = useSessionViewContext();
   const canOpenLocally = tab.isExternal || workspaceBackend(projectId).tree.canReveal;
   const fileTreeToggleLabel = translate(treeVisible ? 'task.hideFileTree' : 'task.showFileTree');
+  const zoomKind = tab.viewMode === 'source' ? 'text-code' : PREVIEW_ZOOM[tab.fileKind];
   // #6950: in a narrow pane (the right pane opens 320px wide) the Source / Preview words become icons, so the bar keeps
   // room for the file's name; the words stay the buttons' names and tooltips.
   return (
@@ -45,6 +52,7 @@ export const FileContentToolbar = observer(function FileContentToolbar({
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => onTreeVisibleChange(!treeVisible)}>{treeVisible ? <PanelRightClose /> : <PanelRightOpen />}{fileTreeToggleLabel}</DropdownMenuItem>
             {canOpenLocally && <div className="px-2 py-1"><OpenInMenu path={tab.path} className="bg-transparent" borderless /></div>}
+            {zoomKind ? <><DropdownMenuSeparator /><ZoomMenuRow kind={zoomKind} /></> : null}
           </DropdownMenuContent>
         </DropdownMenu>} />
   );

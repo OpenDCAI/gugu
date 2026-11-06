@@ -61,8 +61,6 @@
 
 .document-preview-toolbar button { width: 32px; height: 32px; }
 .document-preview-page-count { width: 56px; color: var(--text-secondary); font-size: var(--font-caption); text-align: center; }
-.document-preview-zoom { width: 42px; color: var(--text-tertiary); font-size: var(--font-caption); text-align: center; }
-.document-preview-toolbar-divider { width: 1px; height: 18px; margin: 0 4px; background: var(--border-subtle); }
 
 .document-preview-pdf-viewport {
   display: flex;
@@ -86,7 +84,44 @@
 
 .document-preview-pdf-page { --scale-round-x: 1px; --scale-round-y: 1px; position: relative; flex-shrink: 0; }
 
-.document-preview-pdf-page .textLayer { inset: 1px; }
+/* @@@pdf-text-layer - pdf.js TextLayer's contract (pdfjs-dist 5.6.205 web/pdf_viewer.css, Apache-2.0):
+   transparent, absolutely positioned spans over the canvas, sized by the custom properties TextLayer sets.
+   Plain selectors on purpose: the Android shell's WebView may predate @scope / CSS nesting, and an
+   unsupported wrapper drops every rule, so the text flows below the page as visible text. */
+.document-preview-pdf-page .textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 1px;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.document-preview-pdf-page .textLayer span,
+.document-preview-pdf-page .textLayer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+.document-preview-pdf-page .textLayer > :not(.markedContent),
+.document-preview-pdf-page .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.document-preview-pdf-page .textLayer .markedContent { display: contents; }
+.document-preview-pdf-page .textLayer span[role="img"] { user-select: none; cursor: default; }
+.document-preview-pdf-page .textLayer ::selection { background: var(--text-selection); }
+.document-preview-pdf-page .textLayer br::selection { background: transparent; }
+/* TextLayer measures glyphs on canvases it appends to <body>. */
+.hiddenCanvasElement { display: none; }
 
 .document-preview-pptx-shell { position: relative; min-height: 100%; background: var(--bg-secondary); }
 .document-preview-pptx-shell > .document-preview-status { position: absolute; inset: 0; z-index: 2; }

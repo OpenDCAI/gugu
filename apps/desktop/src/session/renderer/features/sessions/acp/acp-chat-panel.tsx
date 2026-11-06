@@ -1469,15 +1469,11 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
-      {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
-      {life && lifeIsStarting(life) && !store.transcriptPendingId && !store.chatState.session.state.pendingMessages.length ? (
+      {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. One loading
+          state at a time: while the history overlay is up it is the one shown (a side chat starts both at once). */}
+      {life && lifeIsStarting(life) && !store.showHistoryLoading && !store.transcriptPendingId && !store.chatState.session.state.pendingMessages.length ? (
         <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
           <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
-        </div>
-      ) : null}
-      {life?.nativeSession ? (
-        <div className="px-3 py-1 text-center text-xs text-foreground-muted" role="status" data-native-session={life.nativeSession}>
-          {translate(life.nativeSession === 'preserved' ? 'chat.reloadPreserved' : 'chat.reloadReplaced')}
         </div>
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
