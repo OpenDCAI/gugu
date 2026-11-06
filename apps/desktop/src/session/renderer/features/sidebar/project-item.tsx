@@ -11,13 +11,10 @@ import {
   getGitRepositoryStore,
   projectViewKind,
 } from '@renderer/features/projects/stores/project-selectors';
-import {
-  useNavigate,
-  useParams,
-  useWorkspaceSlots,
-} from '@renderer/lib/layout/navigation-provider';
+import { useNavigate, useWorkspaceSlots } from '@renderer/lib/layout/navigation-provider';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
-import { isScreenView, showBesideOnScreen } from '@renderer/app/screen-layout-actions';
+import { isScreenView, showBesideOnScreen, showOnScreen } from '@renderer/app/screen-layout-actions';
+import { screenLayout } from '@renderer/app/screen-layout';
 import { readComposerVerb, setComposerVerb } from '@/lib/composerVerbBridge';
 import { prepareProjectTask } from '@renderer/features/projects/project-task-entry';
 import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
@@ -69,8 +66,6 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
 }) {
   const { navigate } = useNavigate();
   const { currentView } = useWorkspaceSlots();
-  const { params: projectParams } = useParams('project');
-  const { params: sessionParams } = useParams('session');
   const confirmDeleteProject = useConfirmDeleteProject();
   const { translate } = useSessionMessages();
 
@@ -82,15 +77,12 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
     void repo?.remoteData.load();
   }, [projectId]);
 
-  const currentProjectId =
-    currentView === 'session'
-      ? sessionParams.projectId
-      : currentView === 'project'
-        ? projectParams.projectId
-        : null;
-  const currentSessionId = currentView === 'session' ? sessionParams.sessionId : null;
-
-  const isProjectActive = currentProjectId === projectId && !currentSessionId;
+  // This row is the one being looked at when the screen's focused block is this project's block. Navigation follows the
+  // screen (followFocus) and can lag it; judging from navigation let a click on this row do nothing while a session
+  // block filled the screen.
+  const rowId = sidebarStore.rowProjectIdOf(projectId);
+  const focusedBlock = screenLayout.focusedBlockId ? screenLayout.blocks.get(screenLayout.focusedBlockId) : undefined;
+  const isProjectActive = isScreenView(currentView) && focusedBlock?.kind === 'project' && focusedBlock.projectId === rowId;
 
   useEffect(() => {
     if (isProjectActive) prefetchRepository();
@@ -128,19 +120,17 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     // ⌘ 点 = 项目块拼到正看着那块右边(gugu-dev#181:项目是一块,和会话行同一个手势)。
     if (beside && isScreenView(appState.navigation.currentViewId)) {
-      showBesideOnScreen({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
+      showBesideOnScreen({ kind: 'project', projectId: rowId });
       return;
     }
     if (isProjectActive) {
       // gugu-dev#181 正在开新任务时点这一行 = 回到群聊:还没打字,「新任务」一起撤掉;打了字就留着。
-      const chatId = projectGroupsStore.chatIdOf(sidebarStore.rowProjectIdOf(projectId));
-      if (chatId && readComposerVerb(chatId) === 'task') {
-        if (!composerDrafts.get(projectDraftKey(projectId)).trim()) setComposerVerb(chatId, null);
-        return;
-      }
+      const chatId = projectGroupsStore.chatIdOf(rowId);
+      if (chatId && readComposerVerb(chatId) === 'task' && !composerDrafts.get(projectDraftKey(projectId)).trim()) setComposerVerb(chatId, null);
       return;
     }
-    navigate('project', { projectId });
+    // The project's block (its group) goes on screen; navigation follows it.
+    showOnScreen({ kind: 'project', projectId: rowId });
   };
 
   // The project-row action opens the existing project-scoped composer. It must not eagerly
@@ -149,7 +139,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     // gugu-dev#181 悬停的「+」= 在这个项目里开新任务。
     prepareProjectTask(projectId);
-    if (!isProjectActive) navigate('project', { projectId });
+    if (!isProjectActive) showOnScreen({ kind: 'project', projectId: rowId });
   };
 
   const projectCursor = sessionKeyboardNav.cursor;
