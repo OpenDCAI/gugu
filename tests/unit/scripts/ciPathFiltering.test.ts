@@ -99,7 +99,10 @@ describe('documentation/mobile filtering with immutable Mac calls', () => {
     const commands = collectAutomaticRunnerCommands({ workflows: entries, changedPaths: ['tests/integration/next.test.ts'], packageScripts: {} })
     expect(commands.some(command => command.job === 'session-db/session' && command.args.includes('tooling'))).toBe(true)
     expect(commands.some(command => command.job === 'web-smoke')).toBe(true)
-    expect(commands.filter(command => command.job === 'unit')).toHaveLength(4)
+    const units = commands.filter(command => command.job === 'unit')
+    expect(units).toHaveLength(6)
+    expect(units.map(command => command.args.find(arg => arg.startsWith('--shard='))).sort())
+      .toEqual(Array.from({ length: 6 }, (_, i) => `--shard=${i + 1}/6`))
   })
   it.each(['constant-false', 'missing-step', 'wrong-event', 'wrong-checkout', 'wrong-output', 'workflow-bash-env', 'job-bash-env', 'job-container', 'workflow-path', 'workflow-loader', 'job-services', 'job-defaults', 'workflow-defaults'])('rejects %s classifiers in both coverage and canonical', mutation => {
     const entry = structuredClone(entries[0])
