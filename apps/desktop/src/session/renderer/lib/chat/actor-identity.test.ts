@@ -18,8 +18,10 @@ describe('host activity identity', () => {
     for (const address of [`user:${agent}`, `aid:${agent}`, 'gugu:20']) expect(chatActor(address, bridge)).toEqual(result);
     expect(chatActor('gugu:10', bridge)?.type).toBe('human');
   });
-  it('uses the actual session owner and never guesses an unbound session', () => {
+  it('uses the actual session owner when known and preserves the session identity otherwise', () => {
     expect(chatActor('session:local', bridge, () => agent)?.id).toBe(`user:${agent}`);
+    const session = 'session:505adac7-1905-473b-8d2f-d574b6892518';
+    expect(chatActor(session, bridge, () => undefined)).toEqual({ id: session, type: 'agent', name: '' });
     expect(chatActor('session:unknown', bridge, () => undefined)).toBeNull();
   });
   it('keeps unknown/malformed/system addresses unclassified without throwing', () => {
