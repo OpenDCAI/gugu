@@ -108,6 +108,33 @@ describe('normalizeLatexMathDelimiters', () => {
     expect(segments.map((segment) => segment.raw).join('')).toBe(markdown)
     expect(cpuMs).toBeLessThan(2_000)
   })
+  // 一个 fence 回溯它上面的每一行 = 行数 × fence 数:这份文档未修复 ~16s(ThinkPad),修复后 ~20ms。
+  it('does not walk every line above each fence of a long document', { timeout: 120_000 }, () => {
+    const block = [
+      '## Section',
+      '',
+      'Some text with `code`.',
+      '',
+      '- one',
+      '- two',
+      '',
+      '```js',
+      'const value = 1',
+      '```',
+      '',
+    ].join('\n')
+    const markdown = block.repeat(6_000)
+    const { result: segments, cpuMs } = cpuMsOf(() => tokenizeMarkdownMath(markdown))
+    expect(segments.filter((segment) => segment.kind === 'code').length).toBe(12_000)
+    expect(segments.map((segment) => segment.raw).join('')).toBe(markdown)
+    expect(cpuMs).toBeLessThan(2_000)
+  })
+  it('keeps a fence in the list it is indented under, not past a line at the first column', () => {
+    const inList = '- item\n\n  ```\n  \\(fenced\\)\n  ```\n'
+    expect(tokenizeMarkdownMath(inList).filter((segment) => segment.kind === 'code').map((segment) => segment.raw)).toEqual(['```\n  \\(fenced\\)\n  ```\n'])
+    const pastIt = '- item\n\ntext\n\n     ```\n     \\(indented\\)\n'
+    expect(tokenizeMarkdownMath(pastIt).filter((segment) => segment.kind === 'code')).toEqual([])
+  })
   it('does not backtrack through every prose backtick in nested containers', () => {
     const markdown = Array.from({ length: 48 }, (_, index) =>
       `> > > routing row ${index} contains \`\`\` an inline fence marker`,
