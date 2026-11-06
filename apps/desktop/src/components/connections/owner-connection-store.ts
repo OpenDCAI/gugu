@@ -64,7 +64,7 @@ export function createOwnerConnectionStore(input: {
       if (!Array.isArray(source) || source.length !== 2 || source.some(value => typeof value !== 'string')) throw new ConnectionError('invalid-resource','CONNECTION_RESOURCE_INVALID')
       const { publicMetadata: _publicMetadata,...data } = change.data ?? {}
       return input.client.commit({ operationId: change.operationId,scopeKey: source[0],resourceKey: source[1],expectedRevision: change.expectedRevision,
-        operation: change.operation,data,deviceId: change.deviceId ?? input.deviceId })
+        operation: change.operation,data,deviceId: source[0] === 'platform' ? null : change.deviceId ?? input.deviceId })
     },
     readBody: async item => {
       if (!item.source) throw new ConnectionError('invalid-resource','CONNECTION_RESOURCE_INVALID')
