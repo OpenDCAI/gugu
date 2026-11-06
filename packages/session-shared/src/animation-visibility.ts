@@ -82,7 +82,7 @@ export function observeAnimationViewport(element: HTMLElement, changed: (visible
 /** Every looping animation keeps the document clock, so stepped motion changes on one shared beat: a frame per beat
  *  however many are on screen, where independent clocks would each add their own. Stepping the clock with
  *  `currentTime` leaves `animation-play-state` in charge of pausing, which `startTime` would take over. */
-function joinSharedBeat(element: HTMLElement): void {
+export function joinSharedBeat(element: HTMLElement): void {
   for (const animation of element.getAnimations?.({ subtree: true }) ?? []) {
     const now = animation.timeline?.currentTime
     if (now != null && animation.effect?.getComputedTiming().iterations === Infinity) animation.currentTime = now
