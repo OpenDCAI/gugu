@@ -7,7 +7,7 @@ import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { downloadBlob } from '../../lib/download'
-import { attachmentBytes, attachmentPreview, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
+import { attachmentBytes, attachmentImageItem, attachmentPreview, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
 import { rendererLogger } from '../../lib/log'
 import { offlineHolder } from '../../lib/fileHost'
 import { useDevicesStore } from '../../store/devicesContext'
@@ -62,10 +62,6 @@ async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promis
     try { return { content: null, ...await renew(), renew, release } } catch (error) { await release(); throw error }
   }
   const blob = await previewBytes(file)
-  if (kind === 'image') {
-    const content = URL.createObjectURL(blob)
-    return { content, release: async () => URL.revokeObjectURL(content) }
-  }
   return { content: kind === 'text' || kind === 'markdown' || kind === 'html' ? await blob.text() : await blob.arrayBuffer() }
 }
 
@@ -120,7 +116,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     let live = true, release: PreviewRead['release']
     setRead(null)
     const source = file.source
-    if (kind !== 'unsupported') void readPreview(file, kind).then(
+    if (kind !== 'unsupported' && kind !== 'image') void readPreview(file, kind).then(
       (done) => { release = done.release; if (!live) { void release?.(); return } setRead(done) },
       async (error) => {
         // A project file kept on a machine that is off now says so, from a fresh read of where it is kept.
@@ -172,5 +168,6 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: !readOnly && message && onForward ? () => onForward(message) : undefined, onDownload: missing ? undefined : download }, t)
   const notice = besideOffline ? t('attachmentView.besideOfflineNotice', { machine: besideOffline.machine || t('attachmentView.holderMachine') }) : undefined
   // `key`: a read again (the machine back) gives the HTML preview a new registration, so its files are asked for again.
-  return <MessageFilePreviewPanel key={attempt} notice={notice} registerHtml={registerHtml} viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />
+  const imageItem = useMemo(() => kind === 'image' ? attachmentImageItem(file.source, file.fileName) : undefined, [kind, key, file.fileName]) // eslint-disable-line react-hooks/exhaustive-deps
+  return <MessageFilePreviewPanel key={attempt} imageItem={imageItem} notice={notice} registerHtml={registerHtml} viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && kind !== 'image' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

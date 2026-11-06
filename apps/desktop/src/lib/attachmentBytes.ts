@@ -124,6 +124,10 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
 
 /** Open the shared viewer now; use the bubble's thumbnail cache and verified lazy original. */
 export function openAttachmentImage(source: AttachmentSource, fileName: string, origin?: ImageViewerItem['source']): void {
+  openImageViewer([attachmentImageItem(source, fileName, origin)])
+}
+
+export function attachmentImageItem(source: AttachmentSource, fileName: string, origin?: ImageViewerItem['source']): ImageViewerItem {
   const file: NonNullable<ImageViewerItem['file']> = { name: fileName }
   const urls: string[] = []
   let released = false, preview: Promise<string> | undefined, full: Promise<string> | undefined
@@ -135,12 +139,12 @@ export function openAttachmentImage(source: AttachmentSource, fileName: string, 
     if (released) URL.revokeObjectURL(url); else urls.push(url)
     return url
   }
-  openImageViewer([{
+  return {
     url: '', alt: fileName, file, source: origin,
     preview: () => preview ??= read('thumb'), full: () => full ??= read('full'),
     release: () => { released = true; urls.splice(0).forEach(url => URL.revokeObjectURL(url)) },
     resource: source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: source.itemId, version: source.version } } : undefined,
-  }])
+  }
 }
 
 /** 下载一个附件(同一份缓存);条目删了就抛。 */

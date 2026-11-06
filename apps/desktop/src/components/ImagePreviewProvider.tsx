@@ -149,7 +149,7 @@ function viewerOptions(request: ImageViewerRequest, mobile: boolean, errorMsg: s
   }
 }
 
-function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: ImageViewerItem, error: unknown) => void): void {
+function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: ImageViewerItem, error: unknown) => void, box?: HTMLElement): void {
   const applyReadingZoom = wireReadingZoom(pswp)
   // 缩略图打开的那几张:翻到哪张,取哪张的原图,换上(取不到就留着缩略图;item.full 自己记着结果,不重复下)。
   const upgrade = (index: number) => {
@@ -232,7 +232,10 @@ function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: I
 
   // 指针点 = pageY - offset.y:根下移了,offset 也跟着下移。PhotoSwipe 的 init 在派发 updateScrollOffset 之后
   // 又直写了一次 offset.y(不派发),所以在紧跟着的 initialLayout 里再对齐一次。
-  const alignPointerOffset = () => { pswp.offset.y = window.pageYOffset + viewerTop() }
+  const alignPointerOffset = () => {
+    if (box) { const rect = box.getBoundingClientRect(); pswp.offset.x = rect.left; pswp.offset.y = rect.top; return }
+    pswp.offset.y = window.pageYOffset + viewerTop()
+  }
   pswp.on('updateScrollOffset', alignPointerOffset)
   pswp.on('initialLayout', alignPointerOffset)
 
@@ -309,7 +312,7 @@ function ViewerButton({ label, testId, className, side, onClick, children }: {
   )
 }
 
-function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mobile: boolean; onEdit: () => void }) {
+function ImageViewerChrome({ viewer, mobile, onEdit, inline = false }: { viewer: OpenViewer; mobile: boolean; onEdit: () => void; inline?: boolean }) {
   const { t } = useTranslation('main')
   const { toast } = useToast()
   const [copying, setCopying] = useState(false)
@@ -345,7 +348,7 @@ function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mob
   }, [copying, current, t, toast])
 
   // 手机的出口是左上返回箭头,桌面是右上 ✕;手机上滑动切图,不画箭头
-  const close = (
+  const close = inline ? null : (
     <ViewerButton label={t('shell.imagePreview.close')} testId={AUTOMATION_TEST_IDS.imagePreviewClose} onClick={() => pswp.close()}>
       {mobile ? <ChevronLeft /> : <X />}
     </ViewerButton>
@@ -377,6 +380,51 @@ function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mob
       {items.length > 1 ? <div className="gg-image-viewer__counter">{index + 1} / {items.length}</div> : null}
     </div>
   )
+}
+
+/** The same viewer (slides, zoom, chrome, annotate) held in a box instead of over the window. */
+export function InlineImageViewer({ item }: { item: ImageViewerItem }) {
+  const { t } = useTranslation('main')
+  const mobile = useMobileShell()
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [viewer, setViewer] = useState<OpenViewer | null>(null)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    const box = boxRef.current
+    if (!box) return undefined
+    let pswp: PhotoSwipe | null = null, gone = false, observer: ResizeObserver | null = null
+    void import('photoswipe').then(({ default: PhotoSwipeCtor }) => {
+      if (gone) return
+      pswp = new PhotoSwipeCtor({
+        ...viewerOptions({ items: [item], index: 0 }, mobile, t('shell.imagePreview.loadFailed')),
+        appendToEl: box,
+        mainClass: 'gg-image-viewer gg-image-viewer--inline',
+        showHideAnimationType: 'none',
+        bgOpacity: 1,
+        tapAction: false,
+        bgClickAction: false,
+        closeOnVerticalDrag: false,
+        pinchToClose: false,
+        trapFocus: false,
+        returnFocus: false,
+        padding: { top: 56, bottom: 16, left: 8, right: 8 },
+        getViewportSizeFn: () => ({ x: box.clientWidth, y: box.clientHeight }),
+      })
+      wireViewer(pswp, t('shell.imagePreview.dialog'), (_item, error) => log.warn({ error: String(error) }, 'image bytes unavailable'), box)
+      pswp.init()
+      observer = new ResizeObserver(() => pswp?.updateSize(true))
+      observer.observe(box)
+      setViewer({ pswp, root: pswp.element!, items: [item], index: 0 })
+    })
+    return () => { gone = true; observer?.disconnect(); pswp?.destroy(); item.release?.(); setViewer(null) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one viewer for this file
+  }, [item])
+  const imageBounds = useCallback(() => viewer?.pswp.currSlide?.content.element?.getBoundingClientRect(), [viewer])
+  return <div ref={boxRef} data-testid="inline-image-viewer" style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
+    {viewer ? createPortal(editing ? <Suspense fallback={null}>
+      <UiPortalContainerProvider value={viewer.root}><AnnotateEditor item={item} imageBounds={imageBounds} mobile={mobile} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} /></UiPortalContainerProvider>
+    </Suspense> : <ImageViewerChrome inline viewer={viewer} mobile={mobile} onEdit={() => setEditing(true)} />, viewer.root) : null}
+  </div>
 }
 
 export function ImagePreviewProvider({ children }: { children: ReactNode }) {
