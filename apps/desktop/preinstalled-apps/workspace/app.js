@@ -2415,7 +2415,7 @@ let handleBlock = null
 let handleFrame = null
 let handleTarget = null
 let handleHideTimer = null
-let blockPointerMenu = false
+let blockMenuOpen = false
 let blockControlsListening = false
 
 function cancelBlockHandleHide() {
@@ -2434,13 +2434,12 @@ function scheduleBlockHandleHideUnlessHovered() {
 
 function hideBlockHandle(force = false) {
   if (force) {
-    if ($('block-controls').contains(state.menuAnchor)) closeMenu()
     if (handleFrame !== null) cancelAnimationFrame(handleFrame)
     handleFrame = handleTarget = null
   }
   cancelBlockHandleHide()
   if (!force && $('block-controls').contains(document.activeElement)) return
-  if (force || $('menu').hidden || !$('block-controls').contains(state.menuAnchor)) {
+  if (force || !blockMenuOpen) {
     if ($('block-controls').contains(document.activeElement)) $('preview').focus({ preventScroll: true })
     handleBlock = null
     $('block-controls').hidden = true
@@ -2554,9 +2553,32 @@ function blockAction(run) {
   }
 }
 
-function openBlockMenu(event, run) {
-  blockPointerMenu = event.detail > 0
-  void blockAction(run)()
+// A block's actions are in the host's shared menu, the same one as the page's other right-clicks (Base UI: one submenu
+// open at a time, hover intent, flipping at the window's edge, the keyboard). The handle stays while its menu is open.
+// A pointer's press leaves the focus on the page, not on the handle (a keyboard's stays on the handle).
+async function openBlockMenu(event) {
+  const box = $('block-handle').getBoundingClientRect()
+  blockMenuOpen = true
+  try { await blockAction(() => blockMenu(box))() } finally {
+    blockMenuOpen = false
+    if (event.detail > 0 && $('block-controls').contains(document.activeElement)) $('preview').focus({ preventScroll: true })
+    scheduleBlockHandleHideUnlessHovered()
+  }
+}
+
+// The host's shared menu at an App-local point, items as toggleMenu's (`[text, run]` or `{ text, run, disabled,
+// children }`, `{ separator: true }`); `children` open beside their row. Resolves after the picked item has run.
+async function sharedMenu(x, y, items) {
+  const runs = []
+  const entries = (list) => list.map((given) => {
+    const { text, run, disabled, separator, children } = Array.isArray(given) ? { text: given[0], run: given[1] } : given
+    if (separator) return { type: 'separator' }
+    const id = String(runs.push(run) - 1)
+    const nested = typeof children === 'function' ? children() : children
+    return { id, label: text, ...(disabled ? { enabled: false } : {}), ...(nested ? { items: entries(nested) } : {}) }
+  })
+  const picked = await gugu.showContextMenu({ x, y, items: entries(items) })
+  if (picked !== null) await runs[Number(picked)]?.()
 }
 
 function changeBlock(current, range, change, userEvent = 'input.complete') {
@@ -2598,7 +2620,7 @@ function insertionItems(current, range, below = true) {
   }))
 }
 
-function blockMenu() {
+function blockMenu(box) {
   const current = state.current, block = handleBlock
   const span = block?.span
   if (!current?.view || current.previewPending || !span) return
@@ -2631,7 +2653,7 @@ function blockMenu() {
     }, 'delete')],
     { separator: true },
   ]
-  toggleMenu($('block-handle'), [
+  return sharedMenu(box.left, box.bottom + 4, [
     ...(!current.file.readOnly && !current.view.state.readOnly ? edits : []),
     ...blockLinks(current, pick),
   ])
@@ -2664,7 +2686,7 @@ function readBlockMenu(event) {
   const pick = () => ({ text: lines.slice(span[0] - 1, span[1]).join('\n'), lines: span })
   event.preventDefault()
   event.stopPropagation()
-  toggleMenu(block, blockLinks(captured, pick), { point: { x: event.clientX, y: event.clientY } })
+  void blockAction(() => sharedMenu(event.clientX, event.clientY, blockLinks(captured, pick)))()
 }
 
 function blockCompletions(current, cm) {
@@ -2917,6 +2939,7 @@ function renderDocInfo(entry) {
     })
     parts.push(box)
   }
+  $('doc-title').title = activity
   $('doc-info').replaceChildren(...parts)
   $('doc-info').hidden = parts.length === 0
 }
@@ -3321,13 +3344,10 @@ function closeDetails() {
 }
 
 function closeMenu() {
-  const blockControls = $('block-controls').contains(state.menuAnchor)
   if ($('menu').contains(document.activeElement)) state.menuAnchor?.focus({ preventScroll: true })
-  if (blockControls && blockPointerMenu && $('block-controls').contains(document.activeElement)) $('preview').focus({ preventScroll: true })
   state.menuAnchor?.setAttribute('aria-expanded', 'false')
   state.menuAnchor = null
   $('menu').hidden = true
-  if (blockControls) scheduleBlockHandleHideUnlessHovered()
 }
 
 // ─── start ──────────────────────────────────────────────────────────────────
@@ -3428,7 +3448,7 @@ function start() {
   $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
   $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
   $('block-controls').addEventListener('focusout', scheduleBlockHandleHideUnlessHovered)
-  $('block-handle').onclick = (event) => openBlockMenu(event, blockMenu)
+  $('block-handle').onclick = (event) => void openBlockMenu(event)
   $('preview').addEventListener('change', tickTask)
   $('empty-write').onclick = () => {
     setMode(state.mode === 'split' && !narrowPane?.matches ? 'split' : 'edit')

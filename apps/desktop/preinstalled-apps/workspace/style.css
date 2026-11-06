@@ -321,16 +321,22 @@ body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 .files-toolbar:has(.filter:not([hidden])) > .kinds { display: none; }
 .files.has-picks .files-toolbar { display: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.doc-head { height: 41px; box-sizing: border-box; flex-wrap: nowrap; padding: 2px 8px; gap: 6px; }
-.doc-actions { flex-wrap: nowrap; gap: 4px; }
-.doc-title { font-size: var(--em-font-caption); font-weight: 400; flex: 1; }
+/* One row by priority: the way back, the name, Read/Edit and ⋯ keep their room (the name shrinks to an ellipsis, the
+   actions never below their own width); who and when give theirs up first, and go when there is no room for them to
+   read (their line is also the name's tooltip). */
+.doc-head { container: doc-head / inline-size; height: 41px; box-sizing: border-box; flex-wrap: nowrap; padding: 2px 8px; gap: 6px; }
+.doc-actions { flex: 0 1 auto; min-width: auto; flex-wrap: nowrap; gap: 4px; }
+.doc-actions > :not(.doc-info, .status, .peers) { flex: none; }
+.doc-title { font-size: var(--em-font-caption); font-weight: 400; flex: 1 1 0; min-width: 4em; }
 .host-opened .doc-title:not(:has(.rename-input)) { display: block; }
 .page-navigation { display: flex; align-items: center; flex: none; gap: 2px; }
 .page-navigation button { min-height: 28px; padding: 2px 4px; }
 .page-navigation gugu-icon { width: 14px; height: 14px; }
 .doc-actions .status { font-size: var(--em-font-caption); max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 .doc-actions .peers { max-width: 64px; padding: 0; }
-.doc-actions .doc-info, body[data-mode='preview'] .doc-actions .doc-info { width: auto; max-width: 150px; margin: 0; padding: 0; overflow: hidden; }
+.doc-actions .doc-info, body[data-mode='preview'] .doc-actions .doc-info { flex: 0 1 auto; width: auto; max-width: 24em; margin: 0; padding: 0; overflow: hidden; }
+.doc-info > .sources { flex: none; flex-wrap: nowrap; }
+@container doc-head (max-width: 760px) { .doc-actions .doc-info { display: none; } }
 .preview, body[data-mode='split'] .preview { padding-top: 4px; }
 .preview > .gg-md > :first-child { margin-block-start: 0; }
 body[data-mode='edit'] .editor .cm-content { padding-top: 4px; }
