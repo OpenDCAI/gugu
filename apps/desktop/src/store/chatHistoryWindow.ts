@@ -153,8 +153,9 @@ export class ChatHistoryWindow {
     const lower = oldestSeq(previous.messages)
     const pending = incoming.filter((row) => row.seq < 1
       && (previous.loading === 'latest' || previous.messages.some((existing) => existing.id === row.id)))
-    // C3 — 窗口含尾(无 hasNewer)时,seq 越过上界的行就是尾巴在继续长:接上(按头部封顶,读者看的那段
-    // 不动;超出容量才截尾并亮 hasNewer)。从前一律丢弃,自己刚发的消息确认后从屏上消失、新消息「不来」。
+    // C3 — 窗口含尾(无 hasNewer)时,seq 越过上界的行就是尾巴在继续长:接上。满了从头部裁,窗口仍含尾 ⇒
+    // 提示里算到的每一行都在窗口里(从前裁掉刚到的尾行并亮 hasNewer:提示和红点先出,气泡等翻回底部再读一次)。
+    // 读者贴近窗口头部时头部已在往旧翻或即将翻(onStartReached),翻页期间仍按头部封顶,否则旧页接不上。
     // 窗口是离尾的历史段时不接(会在窗口里留洞,增量游标会跳过洞里的行);唯一例外是正在拉最新页时
     // 自己发的行 —— 它马上并入最新页(load('latest') 保留比页尾更新的行),不该先消失再出现。
     const beyondUpper = (row: MessageItem) =>
@@ -162,7 +163,7 @@ export class ChatHistoryWindow {
     const settled = incoming.filter((row) => row.seq >= 1
       && (Number.isFinite(lower) ? row.seq >= lower : true)
       && (row.seq <= upper || beyondUpper(row)))
-    const messages = boundRows([...settled, ...pending], MAX_WINDOW, 'head')
+    const messages = boundRows([...settled, ...pending], MAX_WINDOW, previous.hasNewer || previous.loading === 'older' ? 'head' : 'tail')
     const received = incoming.filter((row) => row.seq > previous.latestSeen && !row.is_mine).length
     this.commit(messages, { latestSeen, change: 'update', hasNewer: previous.hasNewer || latestSeen > maxMainlineSeq(messages),
       newMessageCount: previous.newMessageCount + received })

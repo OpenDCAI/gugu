@@ -1,7 +1,7 @@
 /**
  * C3 — 读者不在跟尾状态时,窗口对「越过上界的行」的处理。
  * 不变量:
- * - 窗口含尾(无 hasNewer):越过上界的行就是尾巴在长,接上(自己刚发的确认行不消失、新消息照常进来);
+ * - 窗口含尾(无 hasNewer):越过上界的行就是尾巴在长,接上(自己刚发的确认行不消失、新消息照常进来);满了从头部裁,窗口仍含尾;
  * - 窗口是离尾历史段(hasNewer):不接(否则窗口里留洞),例外是拉最新页期间自己发的行;
  * - 加载中收到的「钉底」意图不被吞掉,加载结束后恢复跟尾;
  * - 发送动作把窗口钉回底部。
@@ -79,6 +79,45 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
     expect(matches).toHaveLength(1)
     expect(matches[0]).toMatchObject({ seq: 41, local_send_state: null })
     expect(new Set(w.getSnapshot().messages.map((message) => message.id)).size).toBe(w.getSnapshot().messages.length)
+  })
+
+  it('窗口满时读者离开底部:新行进窗口、提示和行同一次提交,不亮 hasNewer,从头部裁', () => {
+    const w = new ChatHistoryWindow('owner')
+    w.reset('chat-1', range(61, 100))
+    w.update((prev) => [...prev, ...range(101, 180)])
+    expect(w.getSnapshot().messages).toHaveLength(120)
+    w.setFollowingTail(false)
+    const index = w.getSnapshot().firstItemIndex
+
+    w.update((prev) => [...prev, row(181), row(182)])
+
+    expect(seqs(w).slice(-2)).toEqual([181, 182])
+    expect(w.getSnapshot()).toMatchObject({ newMessageCount: 2, hasNewer: false })
+    expect(w.getSnapshot().messages).toHaveLength(120)
+    expect(seqs(w)[0]).toBe(63)
+    expect(w.getSnapshot().firstItemIndex, '留下的行虚拟下标不变').toBe(index + 2)
+    expect(w.setFollowingTail(true)).toBe(true)
+    expect(w.getSnapshot().newMessageCount).toBe(0)
+  })
+
+  it('往旧翻在途时新行不裁头部:旧页要接得上,窗口按头部封顶并亮 hasNewer', async () => {
+    const w = new ChatHistoryWindow('owner')
+    w.reset('chat-1', range(61, 100))
+    w.update((prev) => [...prev, ...range(101, 180)])
+    w.setFollowingTail(false)
+    const page = deferred<MessageItem[]>()
+    const loading = w.load('older', () => page.promise)
+
+    w.update((prev) => [...prev, row(181)])
+    expect(seqs(w)[0]).toBe(61)
+    expect(w.getSnapshot().hasNewer).toBe(true)
+
+    page.resolve(range(1, 60))
+    await loading
+    const after = seqs(w)
+    expect(after[0]).toBe(1)
+    expect(after).toEqual(range(1, 120).map((m) => m.seq))
+    expect(w.getSnapshot().hasNewer).toBe(true)
   })
 
   it('阴控:离尾的历史段不接越过上界的别人消息(不在窗口里留洞),只亮 hasNewer', async () => {
