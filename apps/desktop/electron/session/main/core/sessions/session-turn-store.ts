@@ -7,7 +7,7 @@ import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
 import { randomUUID } from 'node:crypto';
 import { activitySignal } from '../activity/signals';
-import { noteNativeConversationReplies, truncateNativeConversationRead } from './session-conversation-read';
+import { noteNativeConversationReplies, noteNativeConversationHistory, truncateNativeConversationRead } from './session-conversation-read';
 import { nativeConversationActivity } from './session-conversation-activity';
 import { publishNativeConversationInbox, queueNativeConversationInbox } from './native-conversation-inbox';
 import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
@@ -109,7 +109,9 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
     })
     .onConflictDoNothing()
     .returning({ seq: sessionTurns.seq }).all();
-    const publish = input.source === 'live' && result.length ? noteNativeConversationReplies(input.sessionId, turn, input.turn, tx) : undefined;
+    const publish = !result.length ? undefined : input.source === 'live'
+      ? noteNativeConversationReplies(input.sessionId, turn, input.turn, tx)
+      : noteNativeConversationHistory(input.sessionId, turn, tx);
     const inbox = input.source === 'live' && result.length > 0 && nativeConversationActivity(input.sessionId, tx)?.turnSeq === turn.seq
       ? queueNativeConversationInbox(input.sessionId, tx) : false;
     return { rows: result, publish, inbox };
@@ -170,22 +172,26 @@ export async function reviseRecordTurnNow(sessionId: string, seq: number, turn: 
     .from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.seq, seq), like(sessionTurns.turnId, 'record:%'))).limit(1);
   if (!stored) throw new Error(`Cannot revise missing record turn: sessionId=${sessionId} seq=${seq}`);
   const data = JSON.stringify(renumberStoredTurn(turn, sessionId, stored.seq));
-  if (stored.data !== data) db.update(sessionTurns).set({ data }).where(eq(sessionTurns.id, stored.id)).run();
+  if (stored.data !== data) {
+    const publish = db.transaction(tx => {
+      tx.update(sessionTurns).set({ data }).where(eq(sessionTurns.id, stored.id)).run();
+      return noteNativeConversationHistory(sessionId, JSON.parse(data) as TranscriptTurn, tx);
+    });
+    publish?.();
+  }
 }
 
 /** Append only a missing record turn, inside `withStoredTurns`. */
 export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTurn): Promise<void> {
   const next = await nextSeq(sessionId);
-  await db
-    .insert(sessionTurns)
-    .values({
-      id: `${sessionId}:${next}`,
-      sessionId,
-      seq: next,
-      turnId: `record:${turn.id}`,
-      data: JSON.stringify(renumberStoredTurn(turn, sessionId, next)),
-    })
-    .onConflictDoNothing();
+  const stored = renumberStoredTurn(turn, sessionId, next);
+  const publish = db.transaction(tx => {
+    const inserted = tx.insert(sessionTurns).values({
+      id: `${sessionId}:${next}`, sessionId, seq: next, turnId: `record:${turn.id}`, data: JSON.stringify(stored),
+    }).onConflictDoNothing().returning({ seq: sessionTurns.seq }).all();
+    return inserted.length ? noteNativeConversationHistory(sessionId, stored, tx) : undefined;
+  });
+  publish?.();
 }
 
 /**

@@ -201,6 +201,14 @@ export const acpRuntimeApiContract = defineContract({
    *   - `replay` → 只有当这条会话在库里一行都没有时才落盘(为本改动之前就存在的老会话做一次回填)。
    *     否则丢弃:库里那份才是完整的,重放只含压缩边界之后的一段,落进去就是把同一句话写两遍。
    */
+  /** Private, bounded personal preview; never part of the global runtime status/observation feed. */
+  conversationActivity: eventStream({
+    key: z.void(),
+    event: z.object({
+      sessionId: z.string().min(1),
+      preview: z.object({ text: z.string().min(1).max(180), at: z.number().finite() }).nullable(),
+    }),
+  }),
   turnCommitted: eventStream({
     key: z.void(),
     event: z.object({

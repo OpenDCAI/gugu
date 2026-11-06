@@ -9,7 +9,7 @@ import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/age
 import { nativeConversationAliases, nativeConversationUnread, nativeOwnerNotificationUnread } from '../sessions/session-conversation-read';
 import { ownerNotificationHead, ownerNotificationFile } from '../sessions/owner-notifications';
 import { ownerNotificationEpoch } from '../sessions/owner-notification-state';
-import { nativeConversationActivity } from '../sessions/session-conversation-activity';
+import { nativeConversationListActivity } from '../sessions/session-conversation-live';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
 import { and, eq, isNull } from 'drizzle-orm';
 import { readProjects } from '@main/core/projects/operations/getProjects';
@@ -755,7 +755,7 @@ function summaryOf(
     supported: location.supported,
     nativeInputVersion: 2,
     ...(session.runtime === 'acp' ? { nativeInputIdentity: true as const, nativeInputSteering: true as const } : {}),
-    nativeLastMessage: nativeConversationActivity(session.id),
+    nativeLastMessage: nativeConversationListActivity(session.id),
     nativeUnreadKeys: nativeConversationUnread(session.id),
     nativeOwnerNotificationUnreadCount: nativeOwnerNotificationUnread(session.id).length,
     nativeOwnerNotificationSeq: ownerNotificationHead(session.id) ?? -1,

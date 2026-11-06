@@ -26,6 +26,7 @@ export interface PromptQueueStore {
 export type AcpRuntimeProcessHost = Omit<AcpProcessHost, 'resolveSpawnContext'>;
 
 export interface AcpRuntimeDeps {
+  onConversationActivity?: (event: { sessionId: string; preview: import('@gugu/session-core/session-record/personal-conversation').PersonalConversationPreview | null }) => void;
   onPromptSteered?: (sessionId: string) => void;
   /** Every acquired connection reports whether its `initialize` advertised `sessionCapabilities.fork`. */
   onForkHandshake?: (providerId: string, fork: boolean) => void;

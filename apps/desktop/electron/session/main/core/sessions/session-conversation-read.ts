@@ -42,9 +42,14 @@ function update(sessionId: string, change: (journal: NativeReadJournal) => Nativ
   return { unread: result.unread, publish };
 }
 
-function publishActivity(sessionId: string): void {
+export function publishConversationActivity(sessionId: string): void {
   const session = db.select({ projectId: sessions.projectId }).from(sessions).where(eq(sessions.id, sessionId)).get();
   if (session) events.emit(sessionChangedChannel, { sessionId, projectId: session.projectId, changes: { nativeLastMessage: true } });
+}
+
+/** Historical imports repair the preview only; they do not create unread/live-message side effects. */
+export function noteNativeConversationHistory(sessionId: string, turn: TranscriptTurn, transaction?: JournalDb): (() => void) | undefined {
+  return noteNativeConversationActivity(sessionId, turn, transaction ?? db) ? () => publishConversationActivity(sessionId) : undefined;
 }
 
 /** Delivery-envelope conversations retain IM read ownership. Raw personal inputs use the native journal. */
@@ -59,7 +64,7 @@ export function noteNativeConversationReplies(sessionId: string, turn: Transcrip
   const publish = keys.length ? update(sessionId, journal => addNativeReplies(journal, keys, aliases, notifications), transaction).publish : undefined;
   if (activity || publish) return () => {
     publish?.();
-    if (activity) publishActivity(sessionId);
+    if (activity) publishConversationActivity(sessionId);
   };
 }
 export function markNativeConversationVisible(sessionId: string, itemIds: readonly string[]): string[] {
@@ -74,5 +79,5 @@ export function truncateNativeConversationRead(sessionId: string, fromSeq: numbe
     const seq = key.startsWith(prefix) ? /^(\d+):/.exec(key.slice(prefix.length))?.[1] : undefined;
     return seq === undefined || (Number(seq) < fromSeq && !removed.has(Number(seq)));
   })), transaction).publish;
-  return () => { publish(); if (activity) publishActivity(sessionId); };
+  return () => { publish(); if (activity) publishConversationActivity(sessionId); };
 }

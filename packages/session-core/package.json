@@ -23,6 +23,7 @@
     "./acp/client": "./src/acp/client.ts",
     "./acp/hermes-prompt": "./src/acp/hermes-prompt.ts",
     "./session-record/contract": "./src/session-record/contract.ts",
+    "./session-record/personal-conversation": "./src/session-record/personal-conversation.ts",
     "./session-record/native-read": "./src/session-record/native-read.ts",
     "./session-record/owner-notifications": "./src/session-record/owner-notifications.ts",
     "./session-record/tool-image": "./src/session-record/tool-image.ts",

@@ -1,3 +1,4 @@
+import { personalConversationPreview } from '@gugu/session-core/session-record/personal-conversation';
 import type { SessionCommandDefinition } from '@gugu/session-core/acp';
 import type { AcpPermissionParams } from '@gugu/session-core/agents/plugins';
 import { findToolImage, trimItemsForTransport, type ToolImageLookup } from '@gugu/session-core/session-record';
@@ -350,6 +351,7 @@ export class SessionManager implements InboundRouter {
   readonly sessionHost: AcpSessionLiveHost = createAcpSessionLiveHost();
   readonly sessionsHost: AcpSessionsLiveHost = createAcpSessionsLiveHost();
   readonly sessionsList: SessionsListModel = createSessionsListModel(this.sessionsHost);
+  private readonly conversationPreviews = new WeakMap<SessionCell, string>();
   private readonly cells = new Map<string, SessionRecord>();
   private readonly recentActions = new Map<string, RecentActionState>();
   private readonly routes = new Map<string, Map<string, string>>();
@@ -2295,6 +2297,7 @@ export class SessionManager implements InboundRouter {
   private disposeLostRecord(record: Extract<SessionRecord, { phase: 'lost' }>): void {
     record.idleCompaction?.close();
     this.closedSessionHistories.set(record.input.sessionId, structuredClone(record.cell.history().committed));
+    this.publishConversationActivity(record, true);
     record.cell.dispose();
     if (this.cells.get(record.input.sessionId) === record) {
       this.cells.delete(record.input.sessionId);
@@ -2614,8 +2617,19 @@ export class SessionManager implements InboundRouter {
     record.lastSynced.draft = draft;
 
     this.syncTerminals(record.input.sessionId);
+    this.publishConversationActivity(record);
 
     this.upsertSessionSummary(record.input, record.cell, state);
+  }
+
+  private publishConversationActivity(record: SessionRecord, closed = false): void {
+    if (record.input.sourceSessionId || !this.deps.onConversationActivity) return;
+    const turn = !closed && !record.replaying ? record.cell.transcript.activeTurn : null;
+    const preview = turn ? personalConversationPreview(turn) : null;
+    const value = JSON.stringify(preview);
+    if ((this.conversationPreviews.get(record.cell) ?? 'null') === value) return;
+    this.conversationPreviews.set(record.cell, value);
+    this.deps.onConversationActivity({ sessionId: record.input.sessionId, preview });
   }
 
   private upsertSessionSummary(
@@ -2730,6 +2744,7 @@ export class SessionManager implements InboundRouter {
     record.cell.dispose();
     if (record.transcriptTick) clearTimeout(record.transcriptTick);
     this.emitCommittedTurns(record);
+    this.publishConversationActivity(record, true);
     if (record.processKey) this.unregisterRoutes(record.processKey, sessionId);
     this.cells.delete(sessionId);
     this.terminals.disposeSession(sessionId);

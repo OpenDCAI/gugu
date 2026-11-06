@@ -71,3 +71,20 @@ it('on the phone, keeps the agent row listed from the heartbeat summary while it
   await harness.render(<Fixture />)
   expect(harness.container.textContent, 'its session page would wait without a word: the row would do nothing').toBe('')
 })
+
+it.each([false, true])("uses the newest actual reply across an agent's tasks (mobile=%s)", async mobile => {
+  shell.mobile = mobile
+  remove = installOwnedAgentEntry({ open: () => true, owns: id => id === 'own-agent' })
+  publishDirectoryDevices([{ device_id: 'host', is_online: true, capabilities: {} } as Device])
+  const chats = [{ id: 'dm', kind: 'dm', peer_user_id: 'own-agent', unread_count: 0,
+    last_message_at: '2026-11-06T04:49:00Z', last_message_preview: 'Owner input' }] as ChatItem[]
+  updateDeviceSessions('host', { cached: false, sessions: [
+    { conversationId: 'new-task', agent: { userId: 'own-agent' }, lastInteractedAt: '2026-11-06T05:00:00Z',
+      nativeLastMessage: { text: 'First reply', at: '2026-11-06T05:01:00Z' } },
+    { conversationId: 'older-task', agent: { userId: 'own-agent' }, lastInteractedAt: '2026-11-06T04:49:00Z',
+      nativeLastMessage: { text: 'Last independent reply', at: '2026-11-06T05:12:00Z' } },
+  ] as never })
+  function Fixture() { const row = useNativeAgentChats(chats)[0]!; return <div>{chatPreviewText(row)}|{row.last_message_at}</div> }
+  await harness.render(<Fixture />)
+  expect(harness.container.textContent).toBe('Last independent reply|2026-11-06T05:12:00Z')
+})

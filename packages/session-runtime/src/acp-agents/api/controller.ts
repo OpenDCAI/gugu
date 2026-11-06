@@ -15,6 +15,7 @@ export function createAcpRuntimeController(
   runtime: AcpRuntime,
   platformSessionClosed: EventStreamHost<typeof acpRuntimeApiContract.platformSessionClosed>,
   turnCommitted: EventStreamHost<typeof acpRuntimeApiContract.turnCommitted>,
+  conversationActivity: EventStreamHost<typeof acpRuntimeApiContract.conversationActivity>,
   promptSteered: EventStreamHost<typeof acpRuntimeApiContract.promptSteered>,
   forkHandshake: EventStreamHost<typeof acpRuntimeApiContract.forkHandshake>,
   preparation: {
@@ -30,6 +31,7 @@ export function createAcpRuntimeController(
     session: runtime.sessionLiveHost(),
     platformSessionClosed,
     turnCommitted,
+    conversationActivity,
     promptSteered,
     forkHandshake,
     nativePromptPreparationRequested: preparation.requested,
