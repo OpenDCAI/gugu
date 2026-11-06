@@ -359,9 +359,10 @@ function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mob
         {mobile ? close : null}
         <div className="gg-image-viewer__spacer" />
         <ViewerButton label={t('imageAnnotate.edit')} testId="image-preview-edit" onClick={onEdit}><Pencil /></ViewerButton>
-        <ViewerButton label={t('shell.imagePreview.copy')} testId={AUTOMATION_TEST_IDS.imagePreviewCopy} onClick={() => void handleCopy()}>
+        <ViewerButton label={t(mobile && copied ? 'shell.imagePreview.copied' : 'shell.imagePreview.copy')} testId={AUTOMATION_TEST_IDS.imagePreviewCopy} onClick={() => void handleCopy()}>
           {mobile && copied ? <Check /> : <Copy />}
         </ViewerButton>
+        <output aria-live="polite" className="sr-only">{mobile && copied ? t('shell.imagePreview.copied') : ''}</output>
         <ViewerButton label={t('shell.imagePreview.download')} testId={AUTOMATION_TEST_IDS.imagePreviewDownload} onClick={() => void handleDownload()}>
           <Download />
         </ViewerButton>

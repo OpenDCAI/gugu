@@ -22,6 +22,7 @@ export function AnnotateDoneMenu({ actions, mobile }: { actions: Actions; mobile
     {open && mobile ? <Sheet onClose={() => setOpen(false)} mobileFitContent ariaLabel={t('export')} zIndex="var(--z-overlay)">
       <div className="ia-completion-sheet">
         <Button disabled={actions.busy} onClick={() => void actions.copy()} aria-label={actions.copied ? t('copied') : undefined}>{actions.copied ? <Check size={16} /> : t('copy')}</Button>
+        <output aria-live="polite" className="sr-only">{actions.copied ? t('copied') : ''}</output>
         <Button disabled={actions.busy} onClick={() => void actions.save()}>{t('save')}</Button>
         {actions.canCompose ? <Button disabled={actions.busy} onClick={() => void actions.saveToFolder()}>{t('saveFolder')}</Button> : null}
       </div>
