@@ -76,6 +76,18 @@ it('says text in another encoding is not exact', async () => {
   expect(await readAppFileText(page(), { ref: { workspace, id: 'gbk.md' } })).toMatchObject({ content: '中文', exact: false });
 });
 
+it('says how far it has read, to whoever asked by a transfer id', async () => {
+  f.capabilities.add('files:read');
+  await fsp.writeFile(path.join(f.root, 'long.txt'), 'x'.repeat(200 * 1024));
+  const heard: [string, number, number][] = [];
+  await readAppFileText(page(), { ref: { workspace, id: 'long.txt' }, transferId: 't' }, (...said) => heard.push(said));
+  expect(heard.length).toBeGreaterThan(1);
+  expect(heard.at(-1)).toEqual(['t', 200 * 1024, 200 * 1024]);
+  heard.length = 0;
+  await readAppFileText(page(), { ref: { workspace, id: 'long.txt' } }, (...said) => heard.push(said));
+  expect(heard).toEqual([]);
+});
+
 it('reads across pieces', async () => {
   f.capabilities.add('files:read');
   const long = 'é'.repeat(400 * 1024);

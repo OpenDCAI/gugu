@@ -109,7 +109,14 @@ export function createGugu(
     viewPreferences: (place: unknown, options?: { showAppData?: boolean }) => withPlace(place, (where) => host.appFiles.viewPreferences({ place: where, ...options })),
     replace,
     /** A working copy's text whole, where the page holds it and no live document does; and whether it is there. */
-    readText: (file: unknown, options?: { maxBytes?: number }) => withRef(file, (ref) => host.appFiles.readText({ ref, ...(options?.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }) })),
+    readText: (file: unknown, options?: { maxBytes?: number; onProgress?: (done: number, total: number) => void }) => withRef(file, (ref) => {
+      const read = { ref, ...(options?.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }) };
+      const hearing = options?.onProgress && (raw.onDownloadProgress as ((hear: (id: string, done: number, total: number) => void) => () => void) | undefined);
+      if (!hearing) return host.appFiles.readText(read);
+      const transferId = crypto.randomUUID();
+      const off = hearing((id, done, total) => { if (id === transferId) options!.onProgress!(done, total); });
+      return host.appFiles.readText({ ...read, transferId }).finally(off);
+    }),
     exists: (file: unknown) => withRef(file, (ref) => host.appFiles.exists({ ref })),
     /** A file's unsaved edits, kept on its machine for after a crash: read (no `text`), kept, dropped (`null`). */
     draft: (file: unknown, text?: string | null) => withRef(file, (ref) => host.appFiles.draft({ ref, ...(text === undefined ? {} : { text }) })),

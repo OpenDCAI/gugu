@@ -1960,13 +1960,14 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       }
       const listsWorkingCopy = method === 'filesList' && Boolean((args.place as { workspace?: unknown } | null)?.workspace);
       if (listsWorkingCopy || method === 'filesReadText' || method === 'filesWriteText') workingCopyPages.add(caller.pageId);
+      // Its pieces said as a download's are: a file on another machine can take a while.
+      if (method === 'filesReadText') return await files.readAppFileText(page, args as never, (transferId, done, total) => caller.hear({ type: 'downloadProgress', transferId, done, total }));
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
         filesClose: 'closeAppFile',
         filesList: 'listAppFiles',
         filesRead: 'readAppFile',
-        filesReadText: 'readAppFileText',
         filesExists: 'appFileExists',
         filesDraft: 'appFileDraft',
         filesWriteText: 'writeAppFileText',

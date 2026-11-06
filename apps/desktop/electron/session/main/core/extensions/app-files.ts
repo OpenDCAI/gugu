@@ -377,7 +377,7 @@ const versionKey = (ref: WorkspaceFileRef & { id: string }) => `${ref.workspace}
  * `files.readText(file, { maxBytes })`: a working copy's text whole, in the file panel's pieces, on the machine it is on.
  * What it holds is the one answer to "is this text" (`workspaceFileText`); over `maxBytes` it is not read, only sized.
  */
-export async function readAppFileText(page: DesktopFilePage, args: { ref?: unknown; maxBytes?: unknown }): Promise<AppFileText> {
+export async function readAppFileText(page: DesktopFilePage, args: { ref?: unknown; maxBytes?: unknown; transferId?: unknown }, onProgress?: (transferId: string, done: number, total: number) => void): Promise<AppFileText> {
   const ref = wholeFileRef(page, args.ref, 'files:read', 'readText');
   const { readVersions } = await import('./working-copy-files');
   const maxBytes = typeof args.maxBytes === 'number' ? Math.min(args.maxBytes, REMOTE_WORKSPACE_MAX_FILE_BYTES) : DEFAULT_TEXT_MAX_BYTES;
@@ -395,6 +395,7 @@ export async function readAppFileText(page: DesktopFilePage, args: { ref?: unkno
       const bytes = workspaceAppFileChunk(first).data;
       pieces.push(bytes);
       at += bytes.byteLength;
+      if (typeof args.transferId === 'string') onProgress?.(args.transferId, at, size);
       if (at >= size || bytes.byteLength === 0) break;
       part = nextPartBytes(part, Date.now() - started);
       started = Date.now();

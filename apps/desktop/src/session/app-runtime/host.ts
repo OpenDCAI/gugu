@@ -68,7 +68,7 @@ export interface GuguHost extends ProjectionHost {
     keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
     watch(args: { watchId: string; place: AppPlace & { folder?: string; id?: string }; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
-    readText(args: { ref: AppFileRef; maxBytes?: number }): Promise<AppFileText>;
+    readText(args: { ref: AppFileRef; maxBytes?: number; transferId?: string }): Promise<AppFileText>;
     exists(args: { ref: AppFileRef }): Promise<boolean>;
     draft(args: { ref: AppFileRef; text?: string | null }): Promise<string | null>;
     writeText(args: { ref: AppFileRef; text: string }): Promise<{ entry: AppFileEntry }>;
