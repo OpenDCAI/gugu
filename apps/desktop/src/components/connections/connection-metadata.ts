@@ -1,0 +1,33 @@
+import type { AssistantPanelItem, AssistantPanelReceipt, AssistantPanelSnapshot } from '@gugu/core/cloud/assistantPanel'
+
+/** Public integration metadata shared by the owner service and legacy panel
+ * readers. An assistant identity is never required by a connection consumer. */
+export type ConnectionMetadataItem = Omit<AssistantPanelItem, 'assistant_user_id'> & {
+  source?: { scopeKey: string; resourceKey: string }
+}
+export type ConnectionMetadataSnapshot = Omit<AssistantPanelSnapshot, 'items'> & { items: ConnectionMetadataItem[] }
+
+export interface ConnectionMetadataStore {
+  ownerId: string
+  deviceId?: string
+  /** Legacy readers keep their own cache namespace while they still exist. */
+  assistantId?: string
+  snapshot(): Promise<ConnectionMetadataSnapshot>
+  peekSnapshot?(): ConnectionMetadataSnapshot | undefined
+  collection(domain: 'integrations'): Promise<ConnectionMetadataItem[]>
+  body(item: ConnectionMetadataItem): Promise<Uint8Array>
+  peekBody?(item: ConnectionMetadataItem): Uint8Array | undefined
+  assertCurrent(): void | Promise<void>
+  invalidate(): void
+  change(item: ConnectionMetadataItem, operation: 'remove' | 'enable' | 'disable'): Promise<AssistantPanelReceipt>
+  save(item: ConnectionMetadataItem, data: Record<string, unknown>): Promise<AssistantPanelReceipt>
+}
+
+export const connectionMetadataKey = (store: ConnectionMetadataStore) =>
+  JSON.stringify([store.ownerId, store.assistantId ?? 'owner-connections', store.deviceId ?? null])
+
+export function connectionMetadataCollection(snapshot: ConnectionMetadataSnapshot, deviceId?: string) {
+  return snapshot.items.filter(row => row.domain === 'integrations' && !row.deleted_at
+    && row.resource_key !== '__collection__' && !row.resource_key.startsWith('__collection__:')
+    && (!deviceId || row.device_id === deviceId))
+}

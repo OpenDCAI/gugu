@@ -1,5 +1,5 @@
 import { useCallback,useEffect,useSyncExternalStore } from 'react'
-import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
+import { connectionMetadataKey, type ConnectionMetadataStore } from '../connections/connection-metadata'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 import { builtinIntegrationSummary } from '@gugu/session-plugins/integration-summaries'
 import { enrichAssistantPanelIntegrations,integrationListCopy } from './assistant-panel-integrations'
@@ -9,13 +9,13 @@ type Summary = Pick<IntegrationMetadata,'name' | 'description'>
 const summaryKey = (item: IntegrationMetadata) => `${item.id}|${item.catalogVersion ?? ''}`
 type SummaryCache = { summaries: Map<string,Summary>; pending: Set<string>; revision: number; listeners: Set<() => void> }
 const caches = new Map<string,SummaryCache>()
-function summaryCache(panel: AssistantPanelFiles | undefined,locale: string): SummaryCache {
-  const key = JSON.stringify([panel?.ownerId,panel?.assistantId,locale])
+function summaryCache(panel: ConnectionMetadataStore | undefined,locale: string): SummaryCache {
+  const key = JSON.stringify([panel?.ownerId,panel ? connectionMetadataKey(panel) : null,locale])
   let cache = caches.get(key)
   if (!cache) { cache = { summaries: new Map(),pending: new Set(),revision: 0,listeners: new Set() }; caches.set(key,cache) }
   return cache
 }
-export function useAssistantIntegrationSummaries(panel: AssistantPanelFiles | undefined,items: IntegrationMetadata[],locale: string): IntegrationMetadata[] {
+export function useAssistantIntegrationSummaries(panel: ConnectionMetadataStore | undefined,items: IntegrationMetadata[],locale: string): IntegrationMetadata[] {
   const cache = summaryCache(panel,locale)
   const subscribe = useCallback((listener: () => void) => { cache.listeners.add(listener); return () => { cache.listeners.delete(listener) } },[cache])
   const snapshot = useCallback(() => cache.revision,[cache])

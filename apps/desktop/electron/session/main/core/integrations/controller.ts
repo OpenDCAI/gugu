@@ -13,6 +13,8 @@ import {
 } from './integration-move';
 import { buildIntegrationListPayload } from './integration-payload-builder';
 import { platformCredentials } from './platform-credentials-instance';
+import { ownerConnectionControl } from './owner-connection-control';
+import type { NativeConnectionAuthorization,NativeConnectionAuthorizationBatch } from '@gugu/core/cloud/connections';
 
 const moveDeps: IntegrationMoveDeps = {
   // #921 平台保管的那几家不随助理搬:平台是按人存的,新家本来就连着。存在这台电脑上的(没有平台服务的安装)照旧搬。
@@ -29,6 +31,23 @@ const moveDeps: IntegrationMoveDeps = {
 };
 
 export const integrationsController = createRPCController({
+  /** Public metadata only, from the existing registry beside its secret store. */
+  ownerAccounts: async (providerId: string) => {
+    const { providerAccountRegistry } = await import('../provider-accounts/provider-account-registry-instance');
+    return (await providerAccountRegistry.listAccounts(providerId)).map(row => ({
+    providerId,accountId: row.accountId,isDefault: row.isDefault,configured: true,displayName: row.meta?.displayName ?? row.meta?.login,
+    publicMetadata: { version: 1,providerId,accountId: row.accountId,isDefault: row.isDefault,connectedAt: row.createdAt,updatedAt: row.updatedAt,
+      host: row.meta?.host,login: row.meta?.login,avatarUrl: row.meta?.avatarUrl,credentialSource: row.meta?.credentialSource,displayName: row.meta?.displayName },
+    }));
+  },
+  ownerAuthorizationBegin: async (providerId: string,operationId: string) => {
+    if (!integrationPluginRegistry.get(providerId) || !/^[0-9a-f-]{36}$/i.test(operationId)) throw new Error('CONNECTION_AUTHORIZATION_INVALID');
+    await ownerConnectionControl().prepare();
+    await ownerConnectionControl().hold(providerId,operationId);
+  },
+  ownerAuthorizationComplete: async (providerId: string,operationId: string) => ownerConnectionControl().release(providerId,operationId),
+  ownerAuthorizationCommit: async (input: NativeConnectionAuthorization) => ownerConnectionControl().commitAuthorization(input),
+  ownerAuthorizationCommitBatch: async (input: NativeConnectionAuthorizationBatch) => ownerConnectionControl().commitAuthorizationBatch(input),
   /** `locale` = 请求方的界面语言(插件的中英两份在这里解析成字符串);老桌面不传 ⇒ en。 */
   list: async (locale?: string) => {
     // #921 连接页要说凭据在哪保管:还不知道这个安装有没有平台服务就先问一次。
@@ -42,8 +61,8 @@ export const integrationsController = createRPCController({
   checkConfiguredConnections: async () => checkConfiguredIntegrations(),
 
   /** `editAccountId`(#7240「编辑凭据」):改的是哪个已存账号,留空的授权码沿用存着的。老桌面不传。 */
-  connect: async (integrationId: string, credentials: IntegrationCredentials, editAccountId?: string) =>
-    integrationConnectionService.connect(integrationId, credentials, editAccountId),
+  connect: async (integrationId: string, credentials: IntegrationCredentials, editAccountId?: string, includeAccountId?: boolean) =>
+    integrationConnectionService.connect(integrationId, credentials, editAccountId, includeAccountId),
 
   /** `accountId`(#7240):多账号里只断开这一个;不传 = 整家断开(老桌面)。 */
   disconnect: async (integrationId: string, accountId?: string) =>
@@ -55,7 +74,7 @@ export const integrationsController = createRPCController({
   /** #7240 每个账号各查一次还连不连得上。 */
   checkAccounts: async (integrationId: string) => integrationConnectionService.checkAccounts(integrationId),
 
-  authorize: async (integrationId: string) => integrationConnectionService.authorize(integrationId),
+  authorize: async (integrationId: string, includeAccountId?: boolean) => integrationConnectionService.authorize(integrationId, includeAccountId),
   /** A phone opens the broker's URL itself; the headless host never opens a browser. */
   platformOAuthStart: async (integrationId: string) => platformCredentials.beginOAuth(integrationId),
   platformOAuthStatus: async (integrationId: string, attemptId: string) => platformCredentials.oauthStatus(integrationId, attemptId),
@@ -75,7 +94,7 @@ export const integrationsController = createRPCController({
    * #7210 官方命令行(钉钉 dws、企业微信 wecom-cli):在**这台**机器上装好工具、起它自带的登录,回给人看的
    * 授权链接 / 二维码;之后 `cliLoginWait` 一问一答等它登上(每问最多 20 秒)。远程机器上也是那台机器自己跑。
    */
-  cliLoginStart: async (integrationId: string) => integrationConnectionService.cliLoginStart(integrationId),
+  cliLoginStart: async (integrationId: string, includeAccountId?: boolean) => integrationConnectionService.cliLoginStart(integrationId, includeAccountId),
   /** 起登录前先装好工具:一问最多 20 秒,装得慢(远程机器上十来分钟)也不绑在一次调用上。 */
   cliToolPrepare: async (integrationId: string) => integrationConnectionService.cliToolPrepare(integrationId),
 

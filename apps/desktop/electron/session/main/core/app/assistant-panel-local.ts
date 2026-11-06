@@ -13,6 +13,7 @@ import { providerAccountRegistry } from '@main/core/provider-accounts/provider-a
 import { integrationPluginRegistry } from '@gugu/session-plugins/integrations'
 import { buildIntegrationListPayload } from '@main/core/integrations/integration-payload-builder'
 import { integrationConnectionService } from '@main/core/integrations/integration-connection-service'
+import { setOwnerConnectionControl } from '@main/core/integrations/owner-connection-control'
 import { platformCredentials } from '@main/core/integrations/platform-credentials-instance'
 import { listAgents } from '@gugu/core'
 import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
@@ -22,7 +23,9 @@ import { readUserLibraryVolume, readUserLibraryEntry, writeUserLibraryEntry, rem
 /** This bridge lives in the embedded module, beside the actual registries and
  * scheduler. The Electron host must not construct a second copy of either. */
 export const assistantPanelLocal = {
+  setOwnerConnectionControl,
   integrationIndex: configuredIntegrationIndex,
+  integrationCustody(providerId: string) { return platformCredentials.custody(providerId) },
   onLibraryChanged: onUserLibraryChanged,
   onIntegrationsChanged(listener: () => void) { return providerAccountRegistry.onChanged(listener) },
   onSchedulesChanged(listener: () => void) {
@@ -85,6 +88,22 @@ export const assistantPanelLocal = {
     const custodyOf = (id: string) => platformCredentials.custody(id)
     const en = buildIntegrationListPayload('en-US',custodyOf), zh = buildIntegrationListPayload('zh-CN',custodyOf)
     return en.map(item => ({ id: item.id,en: item,zh: zh.find(row => row.id === item.id)! }))
+  },
+  /** Owner device-scope effects never revoke the separate platform credential.
+   * The runtime checks owner/device admission before entering this bridge. */
+  async applyConnection(input: { operation: string; data: Record<string, unknown> }) {
+    const { data,operation } = input
+    const refuse = (code: string): never => { throw Object.assign(new Error(code),{ code,knownNoEffect: true }) }
+    if (typeof data.providerId !== 'string' || typeof data.accountId !== 'string') refuse('CONNECTION_DATA_INVALID')
+    const providerId = data.providerId as string,accountId = data.accountId as string
+    if (!integrationPluginRegistry.get(providerId)) refuse('CONNECTION_PROVIDER_UNSUPPORTED')
+    if (operation === 'remove') { await integrationConnectionService.disconnectLocalAccount(providerId,accountId); return }
+    if (operation === 'save') {
+      if (!(await providerAccountRegistry.listAccounts(providerId)).some(row => row.accountId === accountId)) refuse('CONNECTION_AUTHORIZATION_REQUIRED')
+      if (data.isDefault === true) await providerAccountRegistry.setDefaultAccount(providerId,accountId)
+      return
+    }
+    refuse('CONNECTION_OPERATION_UNSUPPORTED')
   },
   async apply(change: AssistantPanelChange, body: Uint8Array | null, sessionIds: readonly string[], ownerId: string) {
     const removed = change.operation === 'remove'
