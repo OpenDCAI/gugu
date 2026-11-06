@@ -365,11 +365,21 @@ describe('#6418 群聊设置 —— 二级页', () => {
   })
 })
 
-describe('群信息页签从成员钮进:落在那一页,返回回到一级页', () => {
-  it.each(['members', 'announcement'] as const)('initialPage=%s', async (initialPage) => {
+describe('群信息页签直接开在某一页:那一页没有上一层', () => {
+  it.each(['members', 'announcement'] as const)('桌面 initialPage=%s:没有返回', async (initialPage) => {
     await renderDrawer('member-1', { initialPage }, false)
     await waitForCondition(() => page() === initialPage, 'opened at its page')
+    expect(q('[aria-label="返回"]')).toBeNull()
+  })
+
+  it.each(['members', 'announcement'] as const)('手机 initialPage=%s:左上返回与安卓返回键都关掉这一页,❌ 进一级页', async (initialPage) => {
+    shell.mobile = true
+    const props = await renderDrawer('member-1', { initialPage }, false)
+    await waitForCondition(() => page() === initialPage, 'opened at its page')
     await click(q('[aria-label="返回"]'))
-    expect(page()).toBe('main')
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+    await act(async () => { window.dispatchEvent(new CustomEvent(NATIVE_BACK_EVENT)) })
+    expect(props.onClose).toHaveBeenCalledTimes(2)
+    expect(page()).toBe(initialPage)
   })
 })
