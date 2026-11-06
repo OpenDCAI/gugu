@@ -50,11 +50,13 @@ export function createPhoneConversationPublisher({ store, cloud, isReady, author
     timer.unref?.()
   }
   const run = async () => {
+    const attempted = new Set()
     do {
       rerun = false
       for (const entry of Object.values(store.state.conversationOutbox ?? {})) {
         if (!current()) return
-        if (entry.status !== 'pending') continue
+        if (entry.status !== 'pending' || attempted.has(entry.id)) continue
+        attempted.add(entry.id)
         try {
           await store.save()
           if (!current()) return
@@ -68,7 +70,7 @@ export function createPhoneConversationPublisher({ store, cloud, isReady, author
             p_device_id: entry.deviceId, p_agent_user_id: entry.agentUserId, p_session_id: entry.sessionId,
             p_message_id: entry.id, p_chat_id: entry.chatId, p_occurred_at: entry.occurredAt,
           })
-          if (receipt?.chat_id !== entry.chatId || typeof receipt.already !== 'boolean' || typeof receipt.account_revision !== 'string' || !/^\d+$/.test(receipt.account_revision)) throw new Error('invalid personal conversation publication receipt')
+          if (receipt?.chat_id !== entry.chatId || typeof receipt.already !== 'boolean' || typeof receipt.account_revision !== 'string' || !/^(0|[1-9][0-9]*)$/.test(receipt.account_revision)) throw new Error('invalid personal conversation publication receipt')
           entry.status = 'published'; entry.receipt = receipt; delete entry.errorCode
           await store.save()
         } catch (error) {
@@ -77,7 +79,8 @@ export function createPhoneConversationPublisher({ store, cloud, isReady, author
           entry.errorCode = error.code ?? 'publication_unavailable'
           warn({ code: entry.errorCode, messageId: entry.id })
           retry()
-          return
+          // A revoked/removed Agent must not block another task's later real message.
+          // Each pending item is attempted at most once in this pump invocation.
         }
       }
     } while (rerun && current())

@@ -216,3 +216,25 @@ test('a transient publication failure schedules its own retry without waiting fo
     assert.equal(calls, 2)
   } finally { await pump.close() }
 }))
+
+test('a denied old reply cannot block later inputs, including admissions while that attempt is in flight', () => fixture(async store => {
+  const job = await admitPhoneJob(store, input(), context)
+  job.status = 'running'; job.usedGroups = ['contacts']
+  recordPhonePersonalReply(store, job, agent, deviceId, complete('revoked-reply'))
+  await store.save()
+  const later = await admitPhoneJob(store, input(), context)
+  const published = [], denied = []
+  const pump = publisher(store, async (_schema, _name, args) => { published.push(args.p_message_id); return receipt(args) }, { authorize: async () => {
+    denied.push(true)
+    await admitPhoneJob(store, input(), context)
+    void pump.kick()
+    throw Object.assign(new Error('permission revoked'), { code: 'revoked' })
+  } })
+  try {
+    await pump.kick()
+    assert.equal(denied.length, 1)
+    assert.ok(published.includes(later.personalMessages.input.publicationId))
+    assert.equal(published.length, 3)
+    assert.equal(store.state.conversationOutbox[job.personalMessages['revoked-reply'].publicationId].status, 'pending')
+  } finally { await pump.close() }
+}))
