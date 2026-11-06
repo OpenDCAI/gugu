@@ -9,14 +9,14 @@ const snapshot = (tabs: unknown[]): TabGroupsSnapshot =>
 const tabsOf = (result: TabGroupsSnapshot) => result.groups[0]!.tabManager.tabs;
 
 describe('a saved layout keeps its file tabs', () => {
-  it('a non-text file tab becomes the file preview tab, same tab id; text stays', () => {
+  it('a non-text file tab becomes the file preview tab, a text one the folder App tab, same tab id', () => {
     const result = normalizeTabGroupsSnapshot(snapshot([
       { kind: 'file', tabId: 'pdf', path: 'docs/a.pdf' },
       { kind: 'file', tabId: 'ts', path: 'src/a.ts' },
     ]), '/repo');
     expect(tabsOf(result)).toEqual([
       { kind: 'file-view', tabId: 'pdf', path: '/repo/docs/a.pdf' },
-      { kind: 'file', tabId: 'ts', path: '/repo/src/a.ts' },
+      { kind: 'extension', extensionKind: 'workspace.file', tabId: 'ts', state: { filePath: '/repo/src/a.ts' } },
     ]);
   });
 

@@ -73,7 +73,7 @@ export const HtmlContentRenderer = observer(function HtmlContentRenderer({
       // 任何本机文件都开 —— 标签页自己会挑渲染器(图片/PDF/CSV/文本)。
       surface.openFile(target);
     },
-    [filePath, workspacePath, pane, projectId]
+    [filePath, workspacePath, pane, projectId, surface]
   );
 
   return (

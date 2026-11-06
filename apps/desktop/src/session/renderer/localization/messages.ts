@@ -501,8 +501,6 @@ const enUSCoreMessages = {
   'tabs.read': 'Read',
   'tabs.edit': 'Edit',
   'tabs.more': 'More',
-  'tabs.openNew': 'Open in new tab',
-  'tabs.openBeside': 'Open beside',
   // 页签右键(spec session-page「一屏几块」):关一枚 / 关一排,照 VS Code、Chrome;分隔线下面是分格。
   'tabs.close': 'Close tab',
   'tabs.closeOthers': 'Close other tabs',
@@ -1558,8 +1556,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'tabs.read': '阅读',
   'tabs.edit': '编辑',
   'tabs.more': '更多',
-  'tabs.openNew': '在新页签打开',
-  'tabs.openBeside': '在旁边打开',
   'tabs.close': '关闭页签',
   'tabs.closeOthers': '关闭其他页签',
   'tabs.closeRight': '关闭右侧页签',

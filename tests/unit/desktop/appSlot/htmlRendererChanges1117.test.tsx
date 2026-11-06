@@ -10,10 +10,7 @@ const state = vi.hoisted(() => ({
 vi.mock('@/components/preview/HtmlPreviewFrame', () => ({ HtmlPreviewFrame: (props: typeof state.frame) => { state.frame = props; return null; } }));
 vi.mock('@/components/preview/html-preview-registration', () => ({ registerHtmlPreview: vi.fn() }));
 vi.mock('@renderer/features/tabs/pane-context', () => ({ usePaneContext: () => ({ pane: { open: vi.fn() } }) }));
-vi.mock('@renderer/features/sessions/session-view-context', () => ({ useSessionViewContext: () => ({ projectId: 'p' }), useWorkspaceId: () => 'w', useWorkspace: () => ({ path: '/w' }) }));
-vi.mock('@renderer/lib/text-model/model-status-overlay', () => ({ ModelStatusOverlay: () => null }));
-vi.mock('@renderer/lib/text-model/model-registry', () => ({ modelRegistry: { bufferVersions: new Map() } }));
-vi.mock('@renderer/lib/text-model/use-model', () => ({ useModelStatus: () => 'ready' }));
+vi.mock('@renderer/features/sessions/session-view-context', () => ({ useSessionViewContext: () => ({ projectId: 'p' }), useWorkspaceSurface: () => ({ openFile: vi.fn() }), useWorkspaceId: () => 'w', useWorkspace: () => ({ path: '/w' }) }));
 vi.mock('@renderer/features/browser/browser-toolbar-actions', () => ({ openBrowserUrlExternally: vi.fn() }));
 vi.mock('@renderer/features/sessions/workspace-backend/workspace-backend', () => ({ workspaceEvents: { on: (_channel: unknown, callback: typeof state.event) => { state.event = callback; return vi.fn(); } }, workspaceRpc: vi.fn(), workspaceBackend: vi.fn() }));
 import { HtmlContentRenderer } from '@renderer/lib/editor/html-renderer';
