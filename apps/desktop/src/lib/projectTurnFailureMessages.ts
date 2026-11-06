@@ -15,13 +15,15 @@ export function projectTurnFailureMessages(messages: readonly MessageItem[]): Tu
     const key = JSON.stringify([line, message.sender_user_id])
     const reason = message.retracted_at ? null : turnFailureReason(message)
     if (reason && !agentFailureNeedsModelChoice(reason) && reason !== 'notAdmitted' && reason !== 'undelivered') {
-      const previous = consecutive.get(key)
+      // Failed turns merge under the newest cause. What happened to a delivery is a fact about those messages: its own card.
+      const groupKey = JSON.stringify([key, reason === 'deliveryRejected' || reason === 'outcomeUnknown' ? reason : 'turn'])
+      const previous = consecutive.get(groupKey)
       if (previous) {
         rows[previous.index] = { ...message, turnFailure: { count: rows[previous.index].turnFailure!.count + 1, recovered: false } }
       } else {
         const index = rows.length
         rows.push({ ...message, turnFailure: { count: 1, recovered: false } })
-        consecutive.set(key, { line, index })
+        consecutive.set(groupKey, { line, index })
         pending.set(key, [...(pending.get(key) ?? []), index])
       }
       continue
