@@ -9,7 +9,9 @@ export function readMobileListGeometry(root: HTMLElement): ShellListGeometry {
     if (!element) return null
     const rect = element.getBoundingClientRect(), style = win.getComputedStyle(element)
     return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height),
-      display: style.display, visibility: style.visibility, contentVisibility: style.contentVisibility ?? '',
+      display: style.display === 'none' ? 'none' : style.display === 'contents' ? 'contents' : 'box',
+      visibility: style.visibility === 'hidden' ? 'hidden' : style.visibility === 'collapse' ? 'collapse' : 'visible',
+      contentVisibility: style.contentVisibility === 'hidden' ? 'hidden' : style.contentVisibility === 'auto' ? 'auto' : 'visible',
       inert: !!element.closest('[inert]') }
   }
   const pager = root.querySelector<HTMLElement>('[data-mobile-tab-pager]')
