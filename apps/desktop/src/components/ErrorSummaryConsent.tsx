@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { setErrorSummaryConsent, useErrorSummaryConsent } from '@/lib/errorSummaryConsent'
+import { cn } from '@/lib/cn'
 import { Dialog } from './ui/Dialog'
 import { Sheet } from './ui/Sheet'
 import { Button } from './ui/Button'
@@ -28,7 +29,7 @@ export function ErrorSummaryConsentDialog() {
     >
       <div className="p-6" aria-busy={saving}>
         <div className="flex flex-col gap-[var(--spacing-md)]">
-          <Dialog.Title id="error-summary-consent-title" className="text-[length:var(--font-title)] leading-[var(--lh-title)] font-semibold" style={{ fontVariantEastAsian: i18n.resolvedLanguage?.startsWith('zh') ? 'full-width' : undefined }}>{t('errorSummary.title')}</Dialog.Title>
+          <Dialog.Title id="error-summary-consent-title" className={cn('text-[length:var(--font-title)] leading-[var(--lh-title)] font-semibold', i18n.resolvedLanguage?.startsWith('zh') && '[font-variant-east-asian:full-width]')}>{t('errorSummary.title')}</Dialog.Title>
           <Dialog.Description className="text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-secondary)]">{t('errorSummary.body')}</Dialog.Description>
           <p className="text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-secondary)]">{t('errorSummary.details')}</p>
         </div>
