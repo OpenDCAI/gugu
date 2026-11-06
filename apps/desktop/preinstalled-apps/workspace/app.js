@@ -789,8 +789,9 @@ async function listFolder(folder, again = false) {
 const heardIn = (root) => (change) => {
   if (state.root !== root) return
   if (root === 'chat') return heard(change)
-  const folders = change.kind === 'resync' ? [...state.listed]
-    : (change.changes ?? []).map((c) => (c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''))
+  // The folder on screen too: one its machine was too far away to list is in no list yet.
+  if (change.kind === 'resync') return void new Set([...state.listed, state.folder ?? '']).forEach((folder) => listFolder(folder, true))
+  const folders = (change.changes ?? []).map((c) => (c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''))
   for (const folder of new Set(folders)) if (state.listed.has(folder)) void listFolder(folder, true)
 }
 
