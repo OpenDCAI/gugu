@@ -15,6 +15,7 @@ import { probeDeviceProjection } from './projection-device-electron';
 import { projectionSources, type ProjectionHost } from '../../../../../../src/session/app-runtime/projection-source';
 import { openMediaProcess } from '../../../../../../native/projection-media/node/host.mjs';
 import { ProjectionSignals } from '../../../../../../native/projection-media/node/signaling.mjs';
+import { withFixtureCleanup } from '../../test-support/fixture-failure';
 
 if (!process.env.GUGU_HOME || !process.env.GUGU_USER_DATA_DIR) throw new Error('Pipeline fixture needs isolated paths');
 app.setPath('userData', process.env.GUGU_USER_DATA_DIR);
@@ -89,7 +90,8 @@ void app.whenReady().then(async () => {
   });
   let server: ReturnType<typeof createServer> | undefined, browser: ReturnType<typeof spawn> | undefined;
   let browserExit = Promise.resolve(), exited = false;
-  try {
+  let phase = 'setup';
+  await withFixtureCleanup(() => phase, async () => {
     const opened = await signals.receive(context, { type: 'open', requestId: 'fixture-open', sourceId: publisher.id }) as { id: string; offer: { type: 'offer'; sdp: string } };
     assert.ok(opened?.offer);
     server = createServer(async (request, response) => {
@@ -120,6 +122,7 @@ void app.whenReady().then(async () => {
       while (!condition()) { if (fault) throw fault; if (exited) throw new Error('Chromium exited: ' + stderr);
         if (Date.now() > deadline) throw new Error('Pipeline timed out: ' + stderr); await pause(20); }
     };
+    phase = 'first-paint';
     await until(() => paints.some(paint => paint.sequence === 1) && outcomes.length > 0);
     const first = paints.find(paint => paint.sequence === 1)!;
     for (const [channel, wanted] of [26, 96, 190].entries()) assert.ok(Math.abs(first.rgb[channel]! - wanted) < 12, JSON.stringify(first));
@@ -131,6 +134,7 @@ void app.whenReady().then(async () => {
     // JS completion can precede compositor capture; witness the new paint first.
     await source.webContents.executeJavaScript('document.body.style.background="rgb(190,40,26)"; new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.equal(await capture(), 2);
+    phase = 'second-paint';
     await until(() => paints.some(paint => paint.sequence === 2));
     const second = paints.find(paint => paint.sequence === 2)!;
     for (const [channel, wanted] of [190, 40, 26].entries()) assert.ok(Math.abs(second.rgb[channel]! - wanted) < 12, JSON.stringify({ second, decoded }));
@@ -141,16 +145,18 @@ void app.whenReady().then(async () => {
       { width: 128, height: 96, mime: 'image/png', data: ownershipPicture.toPNG().toString('base64') },
       () => openMediaProcess({ executable: process.env.GUGU_TEST_MEDIA_HELPER!, ffmpeg: process.env.GUGU_PROJECTION_FFMPEG!,
         width: 128, height: 96, fps: 10, bitrate: 500000, signal: new AbortController().signal }));
+    phase = 'device-projection';
     const device = await probeDeviceProjection(id);
     service.setPermissionGranted(id, 'agents:tools', false);
     await assert.rejects(publisher.publish({ width: 128, height: 96, mime: 'image/png', data: 'YQ==' }), /revoked/);
     revokeExtensionProgramAccess(id);
+    phase = 'revocation-drain';
     await until(() => stopped && [...feeds.values()][0]!.lease.signal.aborted);
     await signals.dispose();
     assert.ok(disconnected > 0); assert.equal(inputCalls, 1);
     process.stdout.write('PROJECTION_PIPELINE_RESULT=' + JSON.stringify({ passed: true, ownership, device, paints, decoded, inputCalls, reused: pixels[0] === pixels[1],
       home: process.env.GUGU_HOME, userData: app.getPath('userData'), electron: process.versions.electron }) + '\n');
-  } finally {
+  }, async () => {
     try { await signals.dispose(); }
     finally {
       if (!exited) browser?.kill('SIGTERM'); await browserExit;
@@ -158,7 +164,7 @@ void app.whenReady().then(async () => {
         await new Promise<void>(resolve => currentServer.close(() => resolve())); }
       bridge.closePage(page.pageId); bridge.closePage(program.pageId); source.destroy(); appPage.destroy();
     }
-  }
+  });
   app.quit();
 }).catch(error => { process.stderr.write(String(error) + '\n'); app.exit(1); });
 
