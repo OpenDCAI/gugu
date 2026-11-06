@@ -179,7 +179,7 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() =>
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-        'file',
+        'file-view',
         { path: '/Volumes/SSD/report.pdf', external: true },
         { from: null, intent: 'navigate' }
       )
@@ -320,7 +320,7 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() =>
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-        'file',
+        'file-view',
         { path: '/Volumes/SSD/report.pdf', external: true },
         { from: null, intent: 'navigate' }
       )
