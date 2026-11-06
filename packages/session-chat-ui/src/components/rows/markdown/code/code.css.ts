@@ -1,10 +1,7 @@
 /**
  * code.css.ts — styles for Code.tsx.
  *
- * The complex patterns replaced here:
- *   [&_span]:text-(--shiki-light)         → globalStyle for spans inside wrapper
- *   emdark:[&_span]:text-(--shiki-dark)   → globalStyle with .emdark ancestor
- *   scrollbar-thin                         → custom scrollbar styles
+ * Code uses the nearest surface's color-scheme, including inverted message bubbles.
  */
 
 import { globalStyle, style } from '@vanilla-extract/css';
@@ -24,14 +21,14 @@ export const codeWrapper = style({
   scrollbarWidth: 'thin',
 });
 
-/** Shiki token color: light mode — spans inside the wrapper. */
+/** Both palettes are emitted by Shiki; the painted surface chooses between them. */
 globalStyle(`${codeWrapper} span`, {
-  color: 'var(--shiki-light)',
+  color: 'light-dark(var(--shiki-light), var(--shiki-dark))',
 });
 
-/** Shiki token color: dark mode — when .emdark is an ancestor. */
-globalStyle(`.emdark ${codeWrapper} span`, {
-  color: 'var(--shiki-dark)',
+// Fences nested in lists/quotes use the shared HTML renderer instead of Code.tsx.
+globalStyle(`[data-chat-root] .gg-md--transcript pre code span[style*="--shiki-light"]`, {
+  color: 'light-dark(var(--shiki-light), var(--shiki-dark))',
 });
 
 /** Each code line div — font metrics come from --chat-type-code-* variables. */
@@ -42,5 +39,5 @@ export const codeLine = style({
   fontSize: vars.typeCodeFontSize,
   lineHeight: vars.typeCodeLineHeight,
   fontWeight: vars.typeCodeFontWeight,
-  color: vars.fg,
+  color: 'inherit',
 });
