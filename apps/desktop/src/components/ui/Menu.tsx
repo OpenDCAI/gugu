@@ -10,6 +10,7 @@
  * Collision handling is Base UI's alone (flip the side, shift along it); ❌ pre-flip by hand-estimated heights.
  */
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
+import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { cn } from '@/lib/cn'
 import { ChevronRight } from '@/lib/icons'
@@ -114,9 +115,10 @@ export function Menu({
   useBackLayer(onClose)
 
   return (
-    <MenuPrimitive.Root
+    // @@@menu-root-node - a menu without its own Trigger is Base UI's context-menu root: only that root (or a Trigger)
+    // registers the menu's floating node, and without it a MenuSubmenu opening reads as a sibling and closes the menu.
+    <ContextMenuPrimitive.Root
       open
-      modal={false}
       onOpenChange={(open) => {
         if (!open) onClose?.()
       }}
@@ -146,7 +148,7 @@ export function Menu({
           </MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>
-    </MenuPrimitive.Root>
+    </ContextMenuPrimitive.Root>
   )
 }
 

@@ -59,7 +59,29 @@ const md = {
     element.innerHTML = `<div class="gg-md"><h1 data-line="1-1">计划</h1><ul data-line="3-4">${task(3)}${task(4)}</ul><p data-line="6-6">${lines[5]}</p></div>`
   }),
 }
+// The host's menu (showContextMenu): it takes the App's rows and answers with the picked one's id, or null.
+type Row = { id: string; label: string; enabled?: boolean; items?: Row[] } | { type: 'separator' }
+let shown: { items: Row[]; answer: (id: string | null) => void } | null = null
+const rowsOf = (items: Row[] = shown?.items ?? []) => items.filter((row): row is Exclude<Row, { type: 'separator' }> => !('type' in row))
+const labels = (items?: Row[]) => rowsOf(items).map((row) => row.label)
+const rowNamed = (label: string, items?: Row[]) => rowsOf(items).find((row) => row.label === label)!
+const answered = () => new Promise<void>((done) => setTimeout(done, 0))
+async function pick(label: string, within?: string) {
+  const row = rowNamed(label, within ? rowNamed(within).items : undefined)
+  expect(row.items, label).toBeUndefined()
+  const open = shown!
+  shown = null
+  open.answer(row.id)
+  await answered()
+}
+function dismiss() {
+  const open = shown
+  shown = null
+  open?.answer(null)
+}
+const menuItems = () => [...$('menu').querySelectorAll('button')]
 const gugu = {
+  showContextMenu: vi.fn(({ items }: { items: Row[] }) => new Promise<string | null>((answer) => { shown?.answer(null); shown = { items, answer } })),
   navigation: { go: vi.fn(async (_delta: number) => true) },
   linkTo: vi.fn(async ({ file, at }: { file: { id: string }; at?: { lines: string } }) => `gugu-file://${file.id}${at ? `#${at.lines}` : ''}`),
   setTabTitle: vi.fn(async () => {}),
@@ -90,7 +112,6 @@ const $ = (id: string) => document.getElementById(id) as HTMLElement
 const view = () => EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!
 const line = (n: number) => view().state.doc.line(n)
 const select = (from: number, to: number) => view().dispatch({ selection: EditorSelection.single(from, to) })
-const menuItems = () => [...$('menu').querySelectorAll('button')]
 function hoverBlock(block: Element) {
   vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(new DOMRect(56, 100, 600, 30))
   block.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 110 }))
@@ -132,7 +153,7 @@ beforeEach(() => {
 describe('markdown redesign: the real document page', () => {
   const frame = () => new Promise<void>((done) => requestAnimationFrame(() => done()))
   const paragraph = () => $('preview').querySelector('p[data-line="6-6"]')!
-  const close = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  const close = () => { dismiss(); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) }
 
   beforeEach(async () => {
     file.readOnly = false
@@ -173,24 +194,25 @@ describe('markdown redesign: the real document page', () => {
     hoverBlock(paragraph())
     await frame()
     $('block-handle').click()
-    const first = $('menu').querySelector('button')!
-    expect(first.textContent).toBe('Insert below this paragraph ›')
-    expect($('menu').querySelectorAll(':scope > .menu-separator')).toHaveLength(1)
-    expect($('menu').querySelectorAll('.menu-submenu button')).toHaveLength(0)
-    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-    expect([...$('menu').querySelectorAll('.menu-submenu button')].map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
+    await until('the block menu is in the host', () => shown !== null)
+    expect(labels()[0]).toBe('Insert below this paragraph')
+    expect(shown!.items.filter((row) => 'type' in row)).toHaveLength(1)
+    expect(labels(rowNamed('Insert below this paragraph').items)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
     close()
   })
 
   test('M5 reading right-click offers only block links and citing, with the original line fingerprint', async () => {
     const block = paragraph()
     block.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 80, clientY: 110 }))
-    expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite'])
-    menuItems()[0]!.click()
+    await until('the block links are in the host menu', () => shown !== null)
+    expect(gugu.showContextMenu).toHaveBeenLastCalledWith(expect.objectContaining({ x: 80, y: 110 }))
+    expect(labels()).toEqual(['Copy link to block', 'Cite'])
+    await pick('Copy link to block')
     await until('the block link is copied', () => gugu.clipboard.writeText.mock.calls.length > 0)
     expect(gugu.linkTo).toHaveBeenLastCalledWith(expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '6' }) }))
     block.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
-    menuItems()[1]!.click()
+    await until('the block links are in the host menu again', () => shown !== null)
+    await pick('Cite')
     await until('the block is cited', () => gugu.dispatch.mock.calls.length > 0)
     expect(gugu.dispatch).toHaveBeenLastCalledWith('', { draft: true, refs: [expect.objectContaining({ file: entry, at: expect.objectContaining({ lines: '6', h: expect.any(String) }) })] })
   })
@@ -251,7 +273,8 @@ describe('markdown redesign: the real document page', () => {
     expect(coords).toHaveBeenCalledWith(line(6).from)
     expect($('block-controls').hidden).toBe(false)
     $('block-handle').click()
-    expect($('menu').querySelector('button')!.textContent).toBe('Insert below this paragraph ›')
+    await until('the same block menu is in the host', () => shown !== null)
+    expect(labels()[0]).toBe('Insert below this paragraph')
     close()
     coords.mockRestore()
   })
@@ -289,10 +312,9 @@ describe('folder documents: reading', () => {
     await new Promise<void>((done) => requestAnimationFrame(() => done()))
     expect($('block-controls').hidden).toBe(false)
     $('block-handle').click()
-    $('menu').querySelector('button')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-    const insertions = [...$('menu').querySelectorAll<HTMLButtonElement>('.menu-submenu button')]
-    expect(insertions.map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
-    insertions.find((item) => item.textContent === label)!.click()
+    await until('the block menu is in the host', () => shown !== null)
+    expect(labels(rowNamed('Insert below this paragraph').items)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
+    await pick(label, 'Insert below this paragraph')
     const at = TEXT.indexOf('- [x] 定了') + '- [x] 定了'.length
     const prefix = label === 'To-do' ? '\n' : '\n\n'
     expect(view().state.doc.toString()).toBe(`${TEXT.slice(0, at)}${prefix}${text}${TEXT.slice(at)}`)
@@ -310,8 +332,8 @@ describe('folder documents: reading', () => {
       hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
       expect($('block-controls').hidden).toBe(true)
       $('preview').querySelector('p[data-line="6-6"]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
-      expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite'])
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect(labels()).toEqual(['Copy link to block', 'Cite'])
+      dismiss()
       view().focus()
     } finally {
       file.readOnly = false
@@ -349,16 +371,21 @@ describe('folder documents: reading', () => {
     }
   })
 
-  test('Escape keeps a focused handle through the hide grace; focus leaving hides it', () => {
+  test('Escape keeps a focused handle through the hide grace; focus leaving hides it', async () => {
     vi.useFakeTimers()
     try {
       $('mode-split').click()
       hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
       vi.advanceTimersToNextFrame()
-      $('block-handle').click()
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      // Enter on the focused handle: a click with no pointer (detail 0), so the focus stays on the handle.
+      $('block-handle').focus()
+      $('block-handle').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
+      expect(shown).not.toBeNull()
+      dismiss()
+      await vi.advanceTimersByTimeAsync(0)
       expect(document.activeElement).toBe($('block-handle'))
       $('block-controls').dispatchEvent(new MouseEvent('pointerleave'))
+      $('doc-title').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
       vi.advanceTimersByTime(150)
       expect($('block-controls').hidden).toBe(false)
       $('mode-edit').focus()

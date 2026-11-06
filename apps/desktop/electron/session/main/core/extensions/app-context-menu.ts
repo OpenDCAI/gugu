@@ -1,6 +1,7 @@
 import { BrowserWindow, webContents } from 'electron';
 import { showContentContextMenu } from '../../../../content-context-menu';
 import { appContextMenuOf } from '@shared/extensions/app-context-menu';
+import type { ContentMenuEntry, ContentMenuItem } from '@shared/content-context-menu';
 
 /** Show an App's actions in the host's shared content menu, at the App-local point. */
 export async function showAppContextMenu(pageId: number, args: Record<string, unknown>): Promise<string | null> {
@@ -15,7 +16,9 @@ export async function showAppContextMenu(pageId: number, args: Record<string, un
     return view?.getBoundingClientRect().toJSON();
   })()`) as { x: number; y: number } | undefined;
   if (!offset) throw new Error('App menu page is no longer attached');
-  return new Promise(resolve => showContentContextMenu(menu.items.map(item => item.type === 'separator' ? item : {
-    ...item, click: () => resolve(item.id),
-  }), { window, x: offset.x + menu.x, y: offset.y + menu.y }, () => resolve(null)));
+  return new Promise(resolve => {
+    const entries = (items: ContentMenuItem[]): ContentMenuEntry[] => items.map(item => item.type === 'separator' ? item
+      : item.items ? { ...item, items: entries(item.items) } : { ...item, click: () => resolve(item.id) });
+    showContentContextMenu(entries(menu.items), { window, x: offset.x + menu.x, y: offset.y + menu.y }, () => resolve(null));
+  });
 }

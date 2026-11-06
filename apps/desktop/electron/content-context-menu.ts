@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, IpcMain, WebContents } from 'electron';
-import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentContextMenu, type ContentMenuAction, type ContentMenuEntry } from '../src/session/shared/content-context-menu';
+import { CONTENT_CONTEXT_MENU_ACTION, CONTENT_CONTEXT_MENU_OPEN, type ContentContextMenu, type ContentMenuAction, type ContentMenuEntry, type ContentMenuItem, findContentMenuItem } from '../src/session/shared/content-context-menu';
 
 const pending = new WeakMap<WebContents, { requestId: string; items: ContentMenuEntry[]; onClose?: () => void }>();
 const observed = new WeakSet<WebContents>();
@@ -24,10 +24,16 @@ export function showContentContextMenu(items: ContentMenuEntry[], position: { wi
   target.setIgnoreMenuShortcuts(true);
   const model: ContentContextMenu = {
     requestId, x: position.x, y: position.y,
-    items: items.map(({ click: _click, ...item }) => item),
+    items: presentation(items),
   };
   target.send(CONTENT_CONTEXT_MENU_OPEN, model);
 }
+
+const presentation = (items: ContentMenuEntry[]): ContentMenuItem[] => items.map(entry => {
+  if (entry.type === 'separator') return entry;
+  const { click: _click, items: nested, ...item } = entry;
+  return nested ? { ...item, items: presentation(nested) } : item;
+});
 
 export function registerContentContextMenus(ipc: IpcMain): void {
   ipc.handle(CONTENT_CONTEXT_MENU_ACTION, async (event, input: ContentMenuAction) => {
@@ -37,8 +43,8 @@ export function registerContentContextMenus(ipc: IpcMain): void {
     event.sender.setIgnoreMenuShortcuts(false);
     try {
       if (!input.actionId) return;
-      const item = menu.items.find(item => item.type !== 'separator' && item.id === input.actionId);
-      if (item?.type !== 'separator' && item?.enabled !== false) await item?.click?.();
+      const item = findContentMenuItem(menu.items, input.actionId);
+      if (item?.enabled !== false) await item?.click?.();
     } finally {
       menu.onClose?.();
     }
