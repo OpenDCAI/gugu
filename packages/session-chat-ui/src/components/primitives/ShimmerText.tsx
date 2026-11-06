@@ -50,10 +50,10 @@ export function ShimmerText(props: JSX.HTMLAttributes<HTMLSpanElement> & { activ
       {local.children}
       <Show when={active()}>
         <span ref={clip} aria-hidden="true" class={textShimmerClip}>
-          <span class={textShimmerBaseSweep} onAnimationEnd={sweepEnded}>
+          <span class={textShimmerBaseSweep}>
             <span class={textShimmerInk} data-shimmer-text={text()} />
           </span>
-          <span class={textShimmerSweep}>
+          <span class={textShimmerSweep} onAnimationEnd={sweepEnded}>
             <span class={`${textShimmerInk} ${textShimmerLightInk}`} data-shimmer-text={text()} />
           </span>
         </span>

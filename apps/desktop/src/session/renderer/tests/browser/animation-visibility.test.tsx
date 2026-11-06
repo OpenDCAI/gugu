@@ -34,10 +34,10 @@ async function mount(doc = document) {
     }]} />
     <Avatar name="Running agent" seed="animation-agent" avatarUrl={avatar} isAgent agentStatus="working" harnessBadge={false} />
   </>);
-  await until('the real running highlight and two avatar pulse rings animate', () => host.getAnimations({ subtree: true }).length === 6 && host.querySelector<HTMLElement>('.rtb-state')?.style.getPropertyValue('--gugu-animation-viewport-paused') === '');
+  await until('the real running highlight and two avatar pulse rings animate', () => host.getAnimations({ subtree: true }).length === 4 && host.querySelector<HTMLElement>('.rtb-state')?.style.getPropertyValue('--gugu-animation-viewport-paused') === '');
   const animations = host.getAnimations({ subtree: true });
   expect(animations.filter((animation) => (animation as CSSAnimation).animationName === 'av-status-pulse')).toHaveLength(2);
-  expect(host.querySelector('.rtb-state')!.getAnimations({ subtree: true })).toHaveLength(4);
+  expect(host.querySelector('.rtb-state')!.getAnimations({ subtree: true })).toHaveLength(2);
   expect(animations.every((animation) => animation.playState === 'running')).toBe(true);
   return { host, animations };
 }
@@ -73,7 +73,7 @@ it('keeps one semantic running label and stationary glyphs throughout the compos
 it('pauses and resumes the running highlight and avatar pulses on the shared native signal', async () => {
   const { host, animations } = await mount();
   window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }));
-  await until('all six CSS animation clocks pause', () => animations.every((animation) => animation.playState === 'paused'));
+  await until('all four CSS animation clocks pause', () => animations.every((animation) => animation.playState === 'paused'));
   expect(document.hidden).toBe(false);
   expect(getComputedStyle(host.querySelector('.rtb-state')!).animationPlayState).toBe('paused');
   window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }));

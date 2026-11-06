@@ -79,33 +79,30 @@ export const textShimmerClip = style({
   '@media': { '(prefers-reduced-motion: reduce)': { display: 'none' } },
 });
 
-// Each sweep moves one repeat in one second at 20 steps. It then finishes;
-// ShimmerText waits one second before rewinding the same animations.
-// Opposite glyph transforms keep text still.
-// Complementary masks plus additive blending preserve glyph alpha, so the
-// moving light does not double the antialiased edges or make the text bolder.
+// The base glyphs sit still and unmasked; only the light layer moves. It
+// sweeps one repeat in one second at 20 steps, then finishes; ShimmerText
+// waits one second before rewinding the same animations. Opposite glyph
+// transforms keep its text still. One masked layer per label: each masked
+// layer is composited on every frame while anything on screen animates, so
+// masking the base glyphs as well cost about a third of the GPU time.
 const sweep = {
   position: 'absolute',
   top: 0,
   bottom: 0,
   left: 'var(--text-shimmer-left, -200%)',
   width: 'var(--text-shimmer-width, 400%)',
-  maskSize: 'var(--text-shimmer-mask-size, 50% 100%)',
   transform: 'translateX(var(--text-shimmer-idle-sweep, 0%))',
-  maskRepeat: 'repeat',
-  animation: `${shimmerSweep} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
-  animationDelay: 'inherit',
 } as const;
 
-export const textShimmerBaseSweep = style({
-  ...sweep,
-  maskImage: 'var(--text-shimmer-base-mask, linear-gradient(90deg, white 30%, transparent 50%, white 70%))',
-});
+export const textShimmerBaseSweep = style(sweep);
 
 export const textShimmerSweep = style({
   ...sweep,
   maskImage: 'var(--text-shimmer-light-mask, linear-gradient(90deg, transparent 30%, white 50%, transparent 70%))',
-  mixBlendMode: 'plus-lighter',
+  maskSize: 'var(--text-shimmer-mask-size, 50% 100%)',
+  maskRepeat: 'repeat',
+  animation: `${shimmerSweep} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
+  animationDelay: 'inherit',
 });
 
 export const textShimmerInk = style({
@@ -118,14 +115,14 @@ export const textShimmerInk = style({
   whiteSpace: 'nowrap',
   color: `var(--text-shimmer-base, ${vars.fgPassive})`,
   WebkitTextFillColor: `var(--text-shimmer-base, ${vars.fgPassive})`,
-  animation: `${shimmerInk} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
-  animationDelay: 'inherit',
   '::before': { content: 'attr(data-shimmer-text)' },
 });
 
 export const textShimmerLightInk = style({
   color: `var(--text-shimmer-light, ${vars.fgMuted})`,
   WebkitTextFillColor: `var(--text-shimmer-light, ${vars.fgMuted})`,
+  animation: `${shimmerInk} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
+  animationDelay: 'inherit',
 });
 
 /** Shared with the host message viewport; paint only, never intercept selection or scrolling. */
