@@ -1,4 +1,3 @@
-import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { ChatListPanel } from '@/components/ChatListPanel'
@@ -14,7 +13,7 @@ import '@/styles/tokens.css'
 import '@renderer/index.css'
 import '@/mobile/phone-shell.css'
 
-const state = vi.hoisted(() => ({ mobile: false, error: false }))
+const state = vi.hoisted(() => ({ mobile: false }))
 const markSeen = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('@gugu/core/cloud/config', async original => ({ ...await original<object>(), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }))
 vi.mock('@/platform', async original => {
@@ -29,15 +28,15 @@ vi.mock('@renderer/lib/layout/layout-provider', () => ({ useWorkspaceLayoutConte
 // The unit integration covers the real directory. These layout cases keep all 100 pending tasks stable.
 vi.mock('@/components/needsYou/useNeedsYouTasks', () => ({
   markNeedsYouTaskSeen: markSeen,
-  useNeedsYouTasks: () => ({ attention: 'approval', error: null, tasks: Array.from({ length: state.error ? 1 : 100 }, (_, index) => ({
+  useNeedsYouTasks: () => ({ attention: 'approval', error: null, count: 100, tasks: Array.from({ length: 100 }, (_, index) => ({
     deviceId: 'host', machine: 'Host', local: false, phoneHost: false,
-    session: { conversationId: `task-${index}`, title: `Task ${index}`, status: { status: state.error ? 'error' : 'needs_user', detail: state.error ? null : 'approval' }, agentStatus: state.error ? 'error' : 'needs_user', unseen: true },
+    session: { conversationId: `task-${index}`, title: `Task ${index}`, status: { status: 'needs_user', detail: 'approval' }, agentStatus: 'needs_user', unseen: true },
   })) }),
 }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(async () => {
-  vi.clearAllMocks(); state.error = false
+  vi.clearAllMocks()
   await i18n.changeLanguage('en-US')
   delete (window as unknown as Record<string, unknown>).__GUGU_SIDEBAR_NOTIFICATIONS_OPEN__
   installShellSlots()
@@ -90,27 +89,4 @@ it('the desktop workspace titlebar keeps the bell badge inside the window', asyn
   expect(box.left).toBeGreaterThanOrEqual(0)
   expect(box.top).toBeGreaterThanOrEqual(0)
   expect(box.right).toBeLessThanOrEqual(1000)
-})
-
-it('an ancestor clipping the notification pane prevents error reads until it is visible again', async () => {
-  state.mobile = true; state.error = true
-  await page.viewport(390, 844)
-  harness.container.style.cssText = 'width:320px;height:700px;display:flex'
-  await renderWithAppProviders(harness,
-    <><div data-clipped-pane="" style={{ width: 1, height: 700, overflow: 'hidden' }}>
-      <div style={{ width: 320, height: 700, display: 'flex' }}><ChatListPanel mobile /></div>
-    </div><NeedsYouHost /></>,
-  )
-  // A controlled delivery during sidebar collapse: the source action precedes visibility delivery.
-  await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="notification-toggle"]')!.click())
-  const row = harness.container.querySelector<HTMLElement>('[data-session-line="task-0"]')!
-  const clipped = await new Promise<IntersectionObserverEntry>(resolve => {
-    const observer = new IntersectionObserver(([entry]) => { observer.disconnect(); resolve(entry) })
-    observer.observe(row)
-  })
-  expect(clipped.intersectionRatio, 'the real viewport clips this row').toBe(0)
-  expect(markSeen, 'a row hidden above its own scroller is unread').not.toHaveBeenCalled()
-  harness.container.querySelector<HTMLElement>('[data-clipped-pane]')!.style.width = '320px'
-  await until('the now visible error is acknowledged', () => markSeen.mock.calls.length > 0)
-  expect(markSeen).toHaveBeenCalledTimes(1)
 })

@@ -58,17 +58,22 @@ import { usePendingDeliveryHistory } from './usePendingDeliveryHistory'
 import type { LifeView } from '@/session/shared/core/sessions/session-life'
 import type { PendingPrompt } from '@gugu/session-chat-ui'
 import { pendingPromptLanded } from '@session-chat/state/pending-prompt'
+import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown'
+import { markNeedsYouTaskSeen } from '@/components/needsYou/useNeedsYouTasks'
+import { rendererLogger } from '@/lib/log'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
 export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, harness, draft, onDraftApplied, startupPrompt, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
   machineLabel, sessionRuntime, respondingItemId, onRespond, onSend, pendingSends, sending, agentWorking,
   onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote, onBeforeSend,
-  historyReady = true, historyCursor, queueReady = false,
+  historyReady = true, historyCursor, queueReady = false, unseen = false,
 }: {
   timeline: AgentWatchTimeline; deviceId: string; sessionId: string; agentName: string; agentUserId?: string | null
   /** 这条会话的 harness(claude-code / codex …):输入框里模型左边那颗锁着的标,同桌面会话页。 */
   harness?: string
   draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean
+  /** The host's read bit for this task; showing the task clears it, as on the desktop task page. */
+  unseen?: boolean
   /** The session is on this computer: read it over IPC (see `machineRpc`). */
   local?: boolean; nativeRecord?: boolean; hostReachable?: boolean; machineLabel?: string
   startupPrompt?: import('@gugu/session-chat-ui').PendingPrompt | null
@@ -88,6 +93,14 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const visibility = useConversationVisibility(true)
   const localClient = local ? assistantTimelineClient(true) : null
   const reading = useNativeConversationRead(deviceId, phoneHost ? undefined : sessionId, visibility.shown, () => timeline.turns)
+  useMarkSeenWhenShown(useMemo(() => ({
+    seen: !unseen,
+    markSeen: () => {
+      markNeedsYouTaskSeen({ deviceId, local, phoneHost, session: { conversationId: sessionId } }).catch((error: unknown) => {
+        rendererLogger('session/read').warn({ sessionId, error: String(error) }, 'The shown task could not be marked read')
+      })
+    },
+  }), [unseen, deviceId, local, phoneHost, sessionId]), visibility.shown)
   const view = useRef<ChatView | null>(null)
   const [dismissals, setDismissals] = useState(0)
   const [backgroundError, setBackgroundError] = useState<string | null>(null)

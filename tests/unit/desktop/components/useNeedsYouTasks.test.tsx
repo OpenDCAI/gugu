@@ -19,7 +19,7 @@ vi.mock('@/session/shared/remote-sessions/session-directory', () => ({ useLiveDe
 vi.mock('@/session/shared/remote-sessions/session-list-sync', () => ({ startSessionListSync: sync }))
 vi.mock('@/session/renderer/features/remote-hosts/machine-session-list', () => ({ machineSessionListClient: {} }))
 let harness: ReturnType<typeof createReactHarness>
-function Probe() { const { tasks, attention } = useNeedsYouTasks(); return <output data-attention={attention} data-phone-hosts={tasks.filter(task => task.phoneHost).map(task => task.deviceId).join(',')}>{tasks.map(task => `${task.deviceId}:${task.session.conversationId}`).join(',')}</output> }
+function Probe() { const { tasks, count, attention } = useNeedsYouTasks(); return <output data-attention={attention} data-count={count} data-phone-hosts={tasks.filter(task => task.phoneHost).map(task => task.deviceId).join(',')}>{tasks.map(task => `${task.deviceId}:${task.session.conversationId}`).join(',')}</output> }
 const pending = (id: string) => ({ conversationId: id, agentStatus: 'needs_approval', status: { status: 'needs_user', detail: 'approval' } })
 const failure = (id: string, extra: object = {}) => ({ ...pending(id), status: { status: 'error', detail: null }, unseen: true, ...extra })
 beforeEach(() => {
@@ -82,18 +82,20 @@ it('preserves native phone host identity from the existing device directory', as
   expect(sync).not.toHaveBeenCalled()
 })
 
-it('acknowledged errors (and errors from hosts without a read bit) leave attention; waits stay whatever their read bit', async () => {
+it('acknowledged errors (and errors from hosts without a read bit) stay listed but leave the count and attention; waits count whatever their read bit', async () => {
   state.directory = { server: { cached: false, error: null, sessions: [
     { ...pending('read-failure'), status: { status: 'error', detail: null }, unseen: false },
     { ...pending('unknown-read-failure'), status: { status: 'error', detail: null } },
     { ...pending('approval'), unseen: false },
   ] } }
   await renderWithAppProviders(harness, <Probe />)
-  expect(harness.container.textContent).toBe('server:approval')
+  expect(harness.container.textContent).toBe('server:read-failure,server:unknown-read-failure,server:approval')
+  expect(harness.container.querySelector('output')?.dataset.count).toBe('1')
   expect(harness.container.querySelector('output')?.dataset.attention).toBe('needs_user')
   state.directory = { server: { cached: false, error: null, sessions: [{ ...pending('read-failure'), status: { status: 'error', detail: null }, unseen: false }] } }
   await renderWithAppProviders(harness, <Probe />)
-  expect(harness.container.textContent).toBe('')
+  expect(harness.container.textContent).toBe('server:read-failure')
+  expect(harness.container.querySelector('output')?.dataset.count).toBe('0')
   expect(harness.container.querySelector('output')?.dataset.attention).toBeUndefined()
 })
 
@@ -111,7 +113,7 @@ it('uses the phone host route and propagates its error without acknowledging a t
   expect(markSeen).not.toHaveBeenCalled()
 })
 
-it('a month of read failures does not inflate the count; unread ones list newest first', async () => {
+it('a month of read failures does not inflate the count; everything lists newest first', async () => {
   const day = (n: number) => new Date(Date.UTC(2026, 9, n)).toISOString()
   const old = Array.from({ length: 40 }, (_, i) => failure(`old-${i}`, { unseen: false, lastInteractedAt: day(1 + (i % 28)) }))
   state.directory = { server: { cached: false, error: null, sessions: [
@@ -121,5 +123,7 @@ it('a month of read failures does not inflate the count; unread ones list newest
     failure('newer-unread', { lastInteractedAt: day(20) }),
   ] } }
   await renderWithAppProviders(harness, <Probe />)
-  expect(harness.container.textContent).toBe('server:newest-wait,server:newer-unread,server:older-unread')
+  expect(harness.container.querySelector('output')?.dataset.count).toBe('3')
+  expect(harness.container.textContent?.split(',').slice(0, 2)).toEqual(['server:newest-wait', 'server:old-27'])
+  expect(harness.container.textContent?.split(',')).toHaveLength(43)
 })

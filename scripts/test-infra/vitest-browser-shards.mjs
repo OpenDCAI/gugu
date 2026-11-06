@@ -15,35 +15,35 @@
 import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { createInterface } from 'node:readline'
+import { browserShardPlan } from './vitest-browser-shard-plan.mjs'
 
-const MAX_SHARDS = 16
-const args = process.argv.slice(2)
-const filtered = args.some((arg, i) => !arg.startsWith('-') && args[i - 1] !== '--project')
 const slots = Number(process.env.GUGU_CI_SLOT_COUNT)
 const cores = Math.floor(availableParallelism() / (process.env.GUGU_CI_SLOT_ID && slots >= 1 ? slots : 1))
-const total = filtered ? 1 : Math.max(1, Math.min(MAX_SHARDS, cores))
+// CI uses two groups, each with the same explicit process count: 1..4/8 and 5..8/8.
+// Fixing the denominator is required even if the two hosted runners report different CPU counts.
+const { args, total, shards } = browserShardPlan(process.argv.slice(2), cores)
 
 const children = []
-const run = index => new Promise(resolve => {
-  const shardArgs = total > 1 ? [`--shard=${index}/${total}`] : []
+const run = ({ index, total: globalTotal }) => new Promise(resolve => {
+  const shardArgs = globalTotal > 1 ? [`--shard=${index}/${globalTotal}`] : []
   const child = spawn(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', ...args, ...shardArgs], {
     stdio: total > 1 ? ['ignore', 'pipe', 'pipe'] : 'inherit',
   })
   children.push(child)
   if (total > 1) {
-    const tag = `[${index}/${total}] `
+    const tag = `[${index}/${globalTotal}] `
     createInterface({ input: child.stdout }).on('line', line => process.stdout.write(tag + line + '\n'))
     createInterface({ input: child.stderr }).on('line', line => process.stderr.write(tag + line + '\n'))
   }
-  child.on('exit', (code, signal) => resolve({ index, code: code ?? 1, signal }))
+  child.on('exit', (code, signal) => resolve({ index, total: globalTotal, code: code ?? 1, signal }))
 })
 
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => children.forEach(child => child.kill(signal)))
 
-const results = await Promise.all(Array.from({ length: total }, (_, i) => run(i + 1)))
+const results = await Promise.all(shards.map(run))
 const failed = results.filter(r => r.code !== 0)
 if (total > 1) {
   console.log(`\nbrowser shards: ${total - failed.length}/${total} passed` +
-    (failed.length ? ` — failed: ${failed.map(r => `${r.index}/${total}${r.signal ? ` (${r.signal})` : ''}`).join(', ')}` : ''))
+    (failed.length ? ` — failed: ${failed.map(r => `${r.index}/${r.total}${r.signal ? ` (${r.signal})` : ''}`).join(', ')}` : ''))
 }
 process.exit(failed.length ? 1 : 0)
