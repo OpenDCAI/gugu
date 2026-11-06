@@ -3161,12 +3161,14 @@ export class AcpChatStore {
     const cause = describeFailureCause(error);
     const errorType = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
     log.error('ACP chat action failed', { sessionId: this.sessionId, title, errorType, error: cause });
+    // Export/history/revert feedback is outside this input-surface batch.
+    const inputAction = title !== 'acpFailure.exportTranscript' && title !== 'acpFailure.refreshHistory' && title !== 'acpFailure.revert';
     toast({
-      key: `session-action:${this.sessionId}:${title}`,
+      key: inputAction ? `session-action:${this.sessionId}:${title}` : undefined,
       title: translateSessionMessage(title),
       description: errorType === 'conversation_not_found'
         ? translateSessionMessage('acpFailure.sessionUnavailable')
-        : failureReason(displayReason ?? cause ?? '')
+        : !inputAction || failureReason(displayReason ?? cause ?? '')
           ? failureText(displayReason ?? cause ?? '', translateSessionMessage)
           : translateSessionMessage('taskError.settingFailedRetry'),
       variant: 'destructive',
