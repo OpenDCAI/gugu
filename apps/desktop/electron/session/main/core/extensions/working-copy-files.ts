@@ -1,11 +1,12 @@
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import { isExpandableFileNode, type FileNode } from '@gugu/session-core/files';
-import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
+import { REMOTE_WORKSPACE_CHUNK_BYTES, WORKSPACE_CONFLICT_CODE } from '@gugu/session-core/session-record/contract';
 import { AppFileError } from '@shared/extensions/app-files-core';
 import { placeKey, workspaceSession, type AppFileEntry, type WorkspacePlace } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import type { FileTreeProjector } from '@main/core/files/file-tree/projector';
+import { createWorkspaceUploads, inWorkspace, WorkspaceTransferError, type WorkspaceWriteChunk } from '@main/core/files/workspace-transfer';
 import { workingCopyEntry } from './local-files';
 
 /**
@@ -114,6 +115,39 @@ export async function readWorkingCopy(place: WorkspacePlace, file: string, offse
   } catch (error) {
     if (error instanceof WorkspaceTransferError) throw new AppFileError(error.code === 'not_a_file' ? 'invalid' : 'not-found', error.message);
     throw error;
+  }
+}
+
+/** A file's size is the disk's to limit: the parts go to disk as they come, whatever the file's length. */
+const uploads = createWorkspaceUploads({ maxBytes: Number.MAX_SAFE_INTEGER });
+
+/**
+ * `files.upload` into a working copy, one part: at most 512 KB, so a call stays under what one call may carry across
+ * machines. `expectedEtag: null` is a new file: one already at that path is said at the first part, before any bytes go.
+ */
+export async function writeWorkingCopyChunk(place: WorkspacePlace, chunk: WorkspaceWriteChunk & { abort?: boolean }): Promise<{ received: number; entry?: AppFileEntry; etag?: string }> {
+  if (chunk.abort === true) {
+    await uploads.abort(chunk.uploadId);
+    return { received: 0 };
+  }
+  const found = await fileRootOf(place, chunk.path);
+  const taken = () => new AppFileError('name-taken', `${chunk.path} already exists`);
+  try {
+    if (chunk.offset === 0) {
+      // Its folders are made once the path is known to be inside; one already there is said before any bytes go.
+      const file = await inWorkspace(found.root, found.path);
+      if (chunk.expectedEtag === null && await fsp.lstat(file).then(() => true, () => false)) throw taken();
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+    }
+    const { received, committed } = await uploads.write(found.root, { ...chunk, path: found.path });
+    if (!committed) return { received };
+    const stat = await fsp.stat(path.resolve(found.root, found.path));
+    return { received, entry: workingCopyEntry(place, path.isAbsolute(chunk.path) ? chunk.path : relOf(found.root, path.resolve(found.root, found.path)), stat), etag: committed.etag };
+  } catch (error) {
+    if (!(error instanceof WorkspaceTransferError)) throw error;
+    // Saved over the version it read, and the disk has moved on: said as a stale `files.replace` is. No version named: the name is taken.
+    if (error.code === WORKSPACE_CONFLICT_CODE) throw chunk.expectedEtag === null ? taken() : new AppFileError('content-changed', `${chunk.path} changed on its computer since it was read: read it again`);
+    throw new AppFileError(error.code === 'outside_workspace' || error.code === 'invalid_payload' ? 'invalid' : 'failed', error.message);
   }
 }
 

@@ -193,6 +193,11 @@ const documentKind = (name: string, raw: Uint8Array) => workspaceUploadKind(name
  * A working copy's file (or folder: no `stat` read) as `gugu.files` shows it — the same shape as a chat file's. Its id is
  * its path; it names its folder (`place`).
  */
+/** A folder of a working copy, as a list names it. */
+export function workingCopyFolder(place: WorkspacePlace, rel: string): AppFileEntry {
+  return { ...workingCopyEntry(place, rel, null, 'inode/directory'), type: 'folder', suffix: '' };
+}
+
 export function workingCopyEntry(place: WorkspacePlace, rel: string, stat: fs.Stats | null, contentType = localContentType(rel)): AppFileEntry {
   const name = path.posix.basename(rel);
   const kind = /^text\//.test(contentType) || isJson(contentType) ? 'document' : 'file';
@@ -493,18 +498,23 @@ export function createLocalFileService(options: { warn: (message: string, data?:
 
     /** Renamed here: open pages keep their document, now written to the new path. */
     renamed(fromAbs: string, toAbs: string, toRel: string): void {
-      const reg = byPath.get(fromAbs);
-      if (!reg) return;
-      byPath.delete(fromAbs);
-      reg.abs = toAbs;
-      reg.rel = toRel;
-      byPath.set(toAbs, reg);
+      for (const [abs, reg] of [...byPath]) {
+        if (abs !== fromAbs && !abs.startsWith(fromAbs + path.sep)) continue;
+        const below = abs.slice(fromAbs.length);
+        byPath.delete(abs);
+        reg.abs = toAbs + below;
+        reg.rel = toRel + below.split(path.sep).join('/');
+        byPath.set(reg.abs, reg);
+      }
     },
 
     /** Deleted here: its pages are told now, not half a second later. */
-    removed(abs: string): void {
-      const l = loadedAt(abs);
-      if (l) markGone(l);
+    removed(gone: string): void {
+      for (const abs of [...byPath.keys()]) {
+        if (abs !== gone && !abs.startsWith(gone + path.sep)) continue;
+        const l = loadedAt(abs);
+        if (l) markGone(l);
+      }
     },
 
     /**
@@ -607,6 +617,37 @@ export function createLocalAppFiles(platform: {
   /** In a working copy a file's id and its name are the same thing: its path. */
   const pathOf = (ref: WorkspaceFileRef) => ('id' in ref ? ref.id : ref.name);
 
+  const nameTaken = (rel: string) => new AppFileError('name-taken', `${rel} already exists`);
+
+  /** What is at `rel` itself: a link stays the link, wherever it points. Its folder must be inside; the top is no entry to move or delete. */
+  function entryAt(root: string, rel: string): { abs: string; rel: string } {
+    const name = path.posix.basename(rel);
+    const folder = path.posix.dirname(rel);
+    const parent = folder === '.' ? { abs: fs.realpathSync(root), rel: '' } : inside(root, folder, 'existing');
+    const abs = path.join(parent.abs, name);
+    if (!name || name === '.' || name === '..' || !fs.lstatSync(abs, { throwIfNoEntry: false })) throw new AppFileError('not-found', `No file ${JSON.stringify(rel)} in this working copy`);
+    return { abs, rel: path.posix.join(parent.rel, name) };
+  }
+
+  function moveEntry(surface: LocalSurface, from: { abs: string; rel: string }, wanted: string): AppFileEntry {
+    makeFolderOf(surface.workspaceRoot, wanted);
+    const to = inside(surface.workspaceRoot, wanted, 'new');
+    if (to.abs === from.abs) throw new AppFileError('invalid', `${to.rel} is already there`);
+    if (to.abs.startsWith(from.abs + path.sep)) throw new AppFileError('invalid', `${from.rel} cannot go inside itself`);
+    // The same file under another case on a disk that does not tell them apart is a rename, not a clash.
+    const at = fs.lstatSync(to.abs, { throwIfNoEntry: false });
+    const was = fs.lstatSync(from.abs);
+    if (at && (at.ino !== was.ino || at.dev !== was.dev)) throw nameTaken(to.rel);
+    try {
+      fs.renameSync(from.abs, to.abs);
+    } catch (error) {
+      throw new AppFileError('failed', `${from.rel} was not moved: ${messageOf(error)}`);
+    }
+    service.renamed(from.abs, to.abs, to.rel);
+    const stat = fs.statSync(to.abs, { throwIfNoEntry: false }) ?? null;
+    return stat?.isDirectory() ? workingCopyFolder(surface.place, to.rel) : workingCopyEntry(surface.place, to.rel, stat);
+  }
+
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
   function readable(surface: LocalSurface, ref: WorkspaceFileRef, what: 'saving' | 'opening'): { abs: string; rel: string } {
     const found = inside(surface.workspaceRoot, pathOf(ref), 'existing');
@@ -681,24 +722,41 @@ export function createLocalAppFiles(platform: {
       try {
         fs.writeFileSync(target.abs, content, { flag: 'wx', mode: FRESH_MODE });
       } catch (error) {
-        if (code(error) === 'EEXIST') throw new AppFileError('invalid', `${target.rel} already exists`);
+        if (code(error) === 'EEXIST') throw nameTaken(target.rel);
         throw error;
       }
       return workingCopyEntry(surface.place, target.rel, fs.statSync(target.abs));
     },
 
+    /** A folder at `path`, made all the way down — refused when something is at that path already. */
+    mkdir(surface: LocalSurface, args: { path: string }): AppFileEntry {
+      const rel = String(args.path ?? '').trim();
+      if (!rel) throw new AppFileError('invalid', 'A folder needs its path');
+      makeFolderOf(surface.workspaceRoot, rel);
+      const target = inside(surface.workspaceRoot, rel, 'new');
+      try {
+        fs.mkdirSync(target.abs);
+      } catch (error) {
+        if (code(error) === 'EEXIST') throw nameTaken(target.rel);
+        throw new AppFileError('failed', `${target.rel} was not made: ${messageOf(error)}`);
+      }
+      return workingCopyFolder(surface.place, target.rel);
+    },
+
+    /** The entry itself moves or goes, never what a link points at: a link is named by its parent's real path and its own name. */
     rename(surface: LocalSurface, args: { ref: WorkspaceFileRef; name: string }): AppFileEntry {
-      const from = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
       const name = String(args.name ?? '').trim();
       if (!name) throw new AppFileError('invalid', 'A file needs a name');
+      const from = entryAt(surface.workspaceRoot, pathOf(args.ref));
       // A bare name stays in its folder, as renaming a group file does; a path moves it.
-      const wanted = name.includes('/') ? name : path.posix.join(path.posix.dirname(from.rel), name);
-      makeFolderOf(surface.workspaceRoot, wanted);
-      const to = inside(surface.workspaceRoot, wanted, 'new');
-      if (fs.existsSync(to.abs)) throw new AppFileError('invalid', `${to.rel} already exists`);
-      fs.renameSync(from.abs, to.abs);
-      service.renamed(from.abs, to.abs, to.rel);
-      return workingCopyEntry(surface.place, to.rel, fs.statSync(to.abs));
+      return moveEntry(surface, from, name.includes('/') ? name : path.posix.join(path.posix.dirname(from.rel), name));
+    },
+
+    /** Into `folder` ('' the top), under `name` when one is given. */
+    move(surface: LocalSurface, args: { ref: WorkspaceFileRef; folder?: string; name?: string }): AppFileEntry {
+      const from = entryAt(surface.workspaceRoot, pathOf(args.ref));
+      const folder = args.folder ?? path.posix.dirname(from.rel);
+      return moveEntry(surface, from, path.posix.join(folder, args.name ?? path.posix.basename(from.rel)));
     },
 
     /**
@@ -729,10 +787,14 @@ export function createLocalAppFiles(platform: {
       return workingCopyEntry(surface.place, found.rel, fs.statSync(found.abs));
     },
 
+    /** A file, a link (not what it points at) or a folder with all in it. */
     remove(surface: LocalSurface, args: { ref: WorkspaceFileRef }): void {
-      const found = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
-      if (!fs.statSync(found.abs).isFile()) throw new AppFileError('invalid', `${found.rel} is not a file`);
-      fs.rmSync(found.abs);
+      const found = entryAt(surface.workspaceRoot, pathOf(args.ref));
+      try {
+        fs.rmSync(found.abs, { recursive: true });
+      } catch (error) {
+        throw new AppFileError('failed', `${found.rel} was not deleted: ${messageOf(error)}`);
+      }
       service.removed(found.abs);
     },
 

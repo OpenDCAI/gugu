@@ -839,15 +839,17 @@ export const BRIDGE_VERBS = {
    */
   filesSearch: { needs: 'files:read' },
   filesRecent: { needs: 'files:read' },
-  filesCreate: { needs: 'files:write' },
+  filesCreate: { needs: 'files:write', machine: 'place' },
   filesViewPreferences: { needs: 'files:read', only: 'page' },
-  filesRemove: { needs: 'files:write' },
-  filesRename: { needs: 'files:write' },
+  filesRemove: { needs: 'files:write', machine: 'place' },
+  filesRename: { needs: 'files:write', machine: 'place' },
   /** 「设为临时 / 一直保留」: the person's own upload, from the page they act in (an App's program has no say in it). */
   filesKeep: { needs: 'files:write', only: 'page' },
   /** 子文件夹: a folder made (all the way down; one already there is answered), and a file or folder moved into another. */
-  filesMkdir: { needs: 'files:write' },
-  filesMove: { needs: 'files:write' },
+  filesMkdir: { needs: 'files:write', machine: 'place' },
+  filesMove: { needs: 'files:write', machine: 'place' },
+  /** One part of a file going into a working copy: where the working copy is, however large the file. */
+  filesWriteChunk: { needs: 'files:write', machine: 'place' },
   /**
    * A stored file's content replaced: the same file, its next version (G1), the one it had kept as history. Gated like
    * open read-write: the file the host handed this page needs nothing, any other `files:write` (checked in `app-files.ts`).
