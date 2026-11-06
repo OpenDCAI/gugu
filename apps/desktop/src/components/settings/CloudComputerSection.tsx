@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { cloudComputerFailureKind, type CloudComputerFailureKind, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
+import { cloudComputerFailureKind, cloudComputerSnapshotFailureKind, type CloudComputerFailureKind, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { Check, Circle, Plus, X } from '@/lib/icons'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
@@ -213,7 +213,7 @@ export function CloudComputerProvisionPanel({
       </ol>
       {failed && (
         <CloudComputerRefusal
-          failure={failure ?? { kind: 'failed' }}
+          failure={failure ?? { kind: cloudComputerSnapshotFailureKind(snapshot) }}
           prefixKey="devices.cloud.provisionFailed"
           onUpgrade={onUpgrade}
           onRetry={() => void retry()}
@@ -267,7 +267,7 @@ export function CloudComputerRowStatus({
   if (snapshot.state === 'error') {
     return (
       <span className="text-[var(--danger-fg)]" data-testid="settings-cloud-computer-status" data-status="error">
-        {t('devices.cloud.wakeFailed')}{tc('cloudComputer.reason.failed')}{' '}
+        {t('devices.cloud.wakeFailed')}{tc(`cloudComputer.reason.${cloudComputerSnapshotFailureKind(snapshot)}`)}{' '}
         <InlineAction onClick={() => void wake()} testId="settings-cloud-computer-wake-retry">{t('devices.retry')}</InlineAction>
       </span>
     )

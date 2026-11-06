@@ -28,6 +28,8 @@ export type CloudComputerSnapshot = {
   deviceId: string | null
   /** state = error 时管家给的、给人看的一句原因。 */
   error: string | null
+  /** state = error 时管家给的原因词(CloudComputerServiceReason);老管家不给 = null。 */
+  reason?: string | null
   /** 进入这个状态的时刻(ISO)。 */
   since: string | null
   /** 开通中、且是把一位已有的助理接过来(搬家),不是新建 —— 界面据此说「正在搬家」而不是「正在开通」。不带 = 不是。 */
@@ -83,6 +85,7 @@ export function parseCloudComputerSnapshot(value: unknown): CloudComputerSnapsho
     state: state as CloudComputerState,
     deviceId: text(record.deviceId),
     error: text(record.error),
+    reason: text(record.reason),
     since: text(record.since),
     adopting: record.adopting === true,
     adoptingFrom: text(record.adopting_from),
@@ -355,7 +358,7 @@ export async function wakeCloudComputerUntilOnline(input: {
   }
   const first = await read()
   if (first.deviceId !== input.deviceId) return 'not-cloud'
-  if (first.state === 'error') throw new CloudComputerWakeError('failed', first.error ?? 'cloud computer reported an error')
+  if (first.state === 'error') throw new CloudComputerWakeError('failed', first.error ?? 'cloud computer reported an error', first.reason ?? null)
   if (first.state === 'asleep' || first.state === 'waking') {
     try {
       input.signal?.throwIfAborted()
@@ -367,7 +370,7 @@ export async function wakeCloudComputerUntilOnline(input: {
   }
   for (let snapshot = first; ; snapshot = await read()) {
     input.signal?.throwIfAborted()
-    if (snapshot.state === 'error') throw new CloudComputerWakeError('failed', snapshot.error ?? 'cloud computer reported an error')
+    if (snapshot.state === 'error') throw new CloudComputerWakeError('failed', snapshot.error ?? 'cloud computer reported an error', snapshot.reason ?? null)
     if (snapshot.state === 'none') throw new CloudComputerWakeError('failed', 'cloud computer no longer exists', 'not_found')
     if (snapshot.state === 'awake' && (await input.isOnline(input.deviceId))) return 'online'
     if (now() >= deadline) {
@@ -377,14 +380,35 @@ export async function wakeCloudComputerUntilOnline(input: {
   }
 }
 
+/** 管家 /state 的 `reason` 词表,与 gugu-cloud 的 FcFailureReason 同一份。 */
+const CLOUD_COMPUTER_SERVICE_REASONS = [
+  'server_install_failed',
+  'server_start_failed',
+  'account_offline',
+  'package_update_pending',
+  'home_restore_failed',
+  'host_unconfirmed',
+  'assistant_create_failed',
+  'assistant_busy',
+  'login_expired',
+  'device_removed',
+  'provision_incomplete',
+  'wake_incomplete',
+  'sleep_incomplete',
+  'close_incomplete',
+] as const
+export type CloudComputerServiceReason = (typeof CLOUD_COMPUTER_SERVICE_REASONS)[number]
+
 /**
  * 给人看的原因只有这几类,各端用自己的文案说(common 词条 `cloudComputer.reason.*`);管家原话、异常原文只进日志 ——
  * 仓库的「文案泄漏」闸:原因进日志,文案只留用户能照做的下一步。规定草稿要的「醒不来就当场说原因」靠的是分得清这几类:
  *  · plan_required 免费档(去升级)· credits_exhausted 积分用完(去充值)· membership_expired 会员到期(去续费,或搬回自己的电脑)
  *  · timeout 两分钟没醒来 · network 连不上云电脑服务
  *  · signed_out 登录失效 · gone 云电脑已经不在了 · failed 云电脑那边出了问题(管家报错、5xx、别的码)
+ *  · CLOUD_COMPUTER_SERVICE_REASONS 管家在 /state 里说明的失败原因
  */
 export type CloudComputerFailureKind =
+  | CloudComputerServiceReason
   | 'plan_required'
   | 'credits_exhausted'
   | 'membership_expired'
@@ -395,6 +419,7 @@ export type CloudComputerFailureKind =
   | 'failed'
 
 function failureKindOfCode(code: string | null): CloudComputerFailureKind {
+  if ((CLOUD_COMPUTER_SERVICE_REASONS as readonly (string | null)[]).includes(code)) return code as CloudComputerServiceReason
   switch (code) {
     case 'plan_required':
     case 'credits_exhausted':
@@ -422,6 +447,11 @@ export function cloudComputerFailureKindOf(failure: { reason?: string | null; co
  */
 export function isCloudComputerNotOpen(error: unknown): boolean {
   return error instanceof CloudComputerError && error.code === 'not_open'
+}
+
+/** 管家报 state = error 的那份快照 → 给人看的那一类;没给或不认识的词 = failed。 */
+export function cloudComputerSnapshotFailureKind(snapshot: Pick<CloudComputerSnapshot, 'reason'>): CloudComputerFailureKind {
+  return failureKindOfCode(snapshot.reason ?? null)
 }
 
 /** 一次开通 / 叫醒 / 关掉 / 读状态没成 → 给人看的那一类。 */
