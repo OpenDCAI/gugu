@@ -4,7 +4,7 @@ import { ACTIVITY_METRICS as metrics } from './activity-metrics';
 
 export const row = style({
   position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  height: metrics.height, minWidth: 0, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px', color: vars.fgMuted,
+  minHeight: metrics.height, minWidth: 0, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px', color: vars.fgMuted,
 });
 export const toggle = style({
   position: 'absolute', inset: 0, border: 0, background: 'transparent', color: 'inherit', cursor: 'pointer',
@@ -12,9 +12,10 @@ export const toggle = style({
 });
 export const inline = style({
   position: 'relative', display: 'inline-flex', alignItems: 'center', gap: metrics.gap, maxWidth: '100%',
-  minWidth: 0, boxSizing: 'border-box', pointerEvents: 'none', padding: `3px ${metrics.paddingX}px`,
+  minWidth: 0, boxSizing: 'border-box', pointerEvents: 'none', padding: `${metrics.paddingY}px ${metrics.paddingX}px`,
 });
-export const label = style({ display: 'inline-flex', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap' });
+export const label = style({ display: 'block', flex: '0 1 auto', minWidth: 0, overflow: 'hidden' });
+export const line = style({ display: 'flex', height: metrics.lineHeight, whiteSpace: 'pre', alignItems: 'baseline' });
 export const word = style({ flexShrink: 0, whiteSpace: 'pre' });
 export const name = style({
   all: 'unset', flexShrink: 0, cursor: 'pointer', pointerEvents: 'auto', borderRadius: 2,

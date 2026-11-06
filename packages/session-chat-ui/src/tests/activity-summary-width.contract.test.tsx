@@ -4,6 +4,9 @@ import { createChatContext } from '../chat-context';
 import { createChatState } from '../state/chat-state';
 import { createChatView } from '../chat-view';
 import type { TranscriptTurn } from '../model';
+import { activityUnitDef } from '../components/rows/agent-activity/activity.def';
+import type { AgentActivityGroup } from '../state/agent-activity';
+import { makeContractCtx, renderAndMeasureUnit } from './contract';
 import { defaultChatTranslator } from '../localization';
 import { zhCNMessages } from '../../../../apps/desktop/src/session/renderer/localization/messages';
 import { until, untilStable } from '../../../../tests/support/awaitCondition';
@@ -39,5 +42,44 @@ describe('narrow activity summary', () => {
   expect(label.textContent).toContain('37 条消息');
   expect(label.textContent).toContain('云端');
   if(actorCount>1) expect(label.textContent).toContain('等 3 个');
+ });
+});
+
+
+const chinese = (key: string, values?: Readonly<Record<string, string | number>>) => {
+ const template = (zhCNMessages as Record<string, string>)[key];
+ return template ? template.replace(/\{(\w+)\}/g, (_, k) => String(values?.[k] ?? '')) : defaultChatTranslator(key, values);
+};
+
+describe.each([false, true])('three-line semantic summary (dark=%s)', dark => {
+ it.each([
+  { name: '云端与计费主管（Claude，负责云端账户及账本结算）', lines: 2, shortened: false },
+  { name: '云端与计费主管（Claude，负责所有云端账户、账本结算、服务部署、价格目录以及跨设备故障排查和维护）', lines: 3, shortened: false },
+  { name: '云端与计费主管（Claude，负责所有云端账户、账本结算、服务部署、价格目录以及跨设备故障排查和维护）'.repeat(3), lines: 3, shortened: true },
+ ])('wraps to $lines lines before truncating (shortened=$shortened)', async ({ name, lines, shortened }) => {
+  document.body.classList.toggle('emdark', dark);
+  const actor = { id: 'user:cloud', name, target: { kind: 'sender' as const, userId: 'cloud' } };
+  const group: AgentActivityGroup = { id: 'summary', events: [{ id: 'event', direction: 'received', actors: [actor], count: 37, live: false }], messageIds: [] };
+  const ctx = makeContractCtx({ width: 390 }); ctx.translate = chinese;
+  const reading = await renderAndMeasureUnit(activityUnitDef, group, ctx, host => {
+   const row = host.querySelector<HTMLElement>('[data-agent-activity]')!;
+   const label = row.lastElementChild!.children[1] as HTMLElement;
+   const tops = new Set<number>(); const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+   let node: Node | null;
+   while ((node = walker.nextNode())) for (let i = 0; i < (node.textContent?.length ?? 0); i++) {
+    const range = document.createRange(); range.setStart(node, i); range.setEnd(node, i + 1);
+    if (node.textContent![i].trim()) tops.add(Math.round(range.getBoundingClientRect().top));
+   }
+   expect(label.textContent).toContain('37 条消息');
+   expect(label.textContent).toContain('云端与计费主管');
+   expect(label.textContent!.includes('…')).toBe(shortened);
+   expect(row.querySelector('[data-activity-target]')?.getAttribute('aria-label')).toBe(name);
+   return { lines: tops.size, overflow: Math.max(0, label.scrollWidth - label.clientWidth) };
+  });
+  expect(reading.inspected.lines).toBe(lines);
+  expect(reading.computed).toBe(reading.dom);
+  expect(reading.inspected.overflow).toBe(0);
+  expect(reading.spill).toBe(0);
+  document.body.classList.remove('emdark');
  });
 });
