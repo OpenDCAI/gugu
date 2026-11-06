@@ -10,6 +10,7 @@ import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { AppSettingsPage } from './app-settings-page';
 import { ExtensionGuestBinding, type ExtensionGuestTarget } from './extension-guest-binding';
+import { bindAppPageZoom } from '@/components/preview/file-content-zoom';
 
 /**
  * 常驻扩展的页都住在这一层:每个 App 在每个地方(一个群、一个任务)一张,一生不换地方(摩擦单 F48,
@@ -340,13 +341,17 @@ export const ExtensionPage = observer(function ExtensionPage({
         }
       };
       element.addEventListener('ipc-message', wheel);
+      // A tab's page is zoomed by the host, remembered per App (zoom B); a widget in a message keeps the chat's size.
+      const box = inline ? null : element.closest<HTMLElement>('[data-extension-view]');
+      const offZoom = box ? bindAppPageZoom(box, element, extensionId) : null;
       guestTeardownRef.current = () => {
+        offZoom?.();
         element.removeEventListener('dom-ready', ready);
         element.removeEventListener('render-process-gone', gone);
         element.removeEventListener('ipc-message', wheel);
       };
     },
-    [aimAt, claimOf, guestBinding, kind, inline]
+    [aimAt, claimOf, guestBinding, kind, inline, extensionId]
   );
 
   // 认领方一换(切会话 / 换 tab / 聊天栏换会话)→ 重新指向 + 重新摆位。

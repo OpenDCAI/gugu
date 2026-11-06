@@ -7,6 +7,8 @@ import { HtmlPreviewSurface } from '../../../../apps/desktop/src/components/prev
 import { ImageRenderer } from '../../../../apps/desktop/src/session/renderer/lib/editor/image-renderer'
 import { DocumentPreviewContent } from '../../../../apps/desktop/src/components/chat/DocumentPreviewContent'
 import { runWindowMenuCommand, type WindowMenuCommandTarget } from '../../../../apps/desktop/electron/window-menu-commands'
+import { bindAppPageZoom } from '../../../../apps/desktop/src/components/preview/file-content-zoom'
+import { ZoomMenuRow } from '../../../../apps/desktop/src/components/preview/ZoomMenuRow'
 
 let harness: ReturnType<typeof createReactHarness>
 const originalVisibility = HTMLElement.prototype.checkVisibility
@@ -45,7 +47,7 @@ it('zooms the actual workspace image using its fitted geometry and retains the i
 // Installed only under apps/desktop: the bare name does not resolve from tests/, so a mock under it misses the product import.
 const PDFJS = '../../../../apps/desktop/node_modules/pdfjs-dist/legacy/build/pdf.mjs'
 
-it('keeps PDF zoom on its existing content control and leaves its toolbar unscaled', async () => {
+it('zooms PDF from keys with no lasting control (zoom B): the ratio floats up over the view and the toolbar stays unscaled', async () => {
   // Rendering is deliberately pending: zoom ownership must already work before the PDF library answers.
   vi.doMock(PDFJS, () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ promise: new Promise(() => {}), destroy() {} }) }))
   await harness.render(createElement(DocumentPreviewContent, { kind: 'pdf', content: new ArrayBuffer(0), title: 'report.pdf' }))
@@ -53,7 +55,8 @@ it('keeps PDF zoom on its existing content control and leaves its toolbar unscal
   viewport.tabIndex = -1; viewport.focus()
   const n = native()
   await act(async () => runWindowMenuCommand('zoomIn', n.target))
-  expect(harness.container.querySelector('.document-preview-zoom')!.textContent).toBe('120%')
+  expect(document.body.querySelector('[role="status"]')!.textContent).toBe('120%')
+  expect(harness.container.querySelector('.document-preview-toolbar')!.textContent).not.toContain('%')
   expect((harness.container.querySelector('.document-preview-toolbar') as HTMLElement).style.zoom).toBe('')
   expect(n.contents.setZoomLevel).not.toHaveBeenCalled()
   vi.doUnmock(PDFJS)
@@ -108,4 +111,51 @@ it('binds HTML zoom to the displayed iframe and refuses unrelated and hidden sou
   await act(async () => change(next.contentWindow))
   expect(Number(localStorage.getItem('gugu.file-content-zoom.html'))).toBeCloseTo(1.2)
   expect(frame.getAttribute('sandbox')).toBe('allow-scripts')
+})
+
+it('zooms a Word document from keys like every readable view, remembered for Word documents', async () => {
+  vi.doMock('docx-preview', () => ({ renderAsync: () => new Promise(() => {}) }))
+  await harness.render(createElement(DocumentPreviewContent, { kind: 'docx', content: new ArrayBuffer(0), title: 'doc.docx' }))
+  const root = harness.container.querySelector<HTMLElement>('[data-testid="docx-preview"]')!
+  root.tabIndex = -1; root.focus()
+  const n = native()
+  await act(async () => runWindowMenuCommand('zoomIn', n.target))
+  expect(Number(harness.container.querySelector<HTMLElement>('.document-preview-docx-body')!.style.zoom)).toBeCloseTo(1.2)
+  expect(Number(localStorage.getItem('gugu.file-content-zoom.docx'))).toBeCloseTo(1.2)
+  expect(n.contents.setZoomLevel).not.toHaveBeenCalled()
+  vi.doUnmock('docx-preview')
+})
+
+it('zooms an App page as a whole from the window keys while it has focus, remembered per App; the window stays at its scale', async () => {
+  const box = document.createElement('div')
+  const page = Object.assign(document.createElement('div'), { tabIndex: 0, setZoomFactor: vi.fn() })
+  box.append(page); document.body.append(box)
+  const off = bindAppPageZoom(box, page, 'office')
+  page.dispatchEvent(new Event('dom-ready'))
+  expect(page.setZoomFactor).toHaveBeenLastCalledWith(1)
+  page.focus()
+  const n = native()
+  await act(async () => runWindowMenuCommand('zoomIn', n.target))
+  expect(page.setZoomFactor).toHaveBeenLastCalledWith(1.2)
+  expect(Number(localStorage.getItem('gugu.file-content-zoom.app:office'))).toBeCloseTo(1.2)
+  expect(n.contents.setZoomLevel).not.toHaveBeenCalled()
+  // Another App keeps its own size; a page loaded anew is zoomed again.
+  expect(localStorage.getItem('gugu.file-content-zoom.app:kanban')).toBeNull()
+  page.setZoomFactor.mockClear()
+  page.dispatchEvent(new Event('dom-ready'))
+  expect(page.setZoomFactor).toHaveBeenLastCalledWith(1.2)
+  off(); box.remove()
+})
+
+it('the ⋯ menu row steps the same preference as the keys and resets it from its ratio', async () => {
+  await harness.render(createElement(ZoomMenuRow, { kind: 'markdown' }))
+  const [out, ratio, into] = Array.from(harness.container.querySelectorAll('button'))
+  expect(ratio!.textContent).toBe('100%')
+  await act(async () => into!.click())
+  expect(ratio!.textContent).toBe('120%')
+  expect(Number(localStorage.getItem('gugu.file-content-zoom.markdown'))).toBeCloseTo(1.2)
+  await act(async () => out!.click())
+  expect(Number(localStorage.getItem('gugu.file-content-zoom.markdown'))).toBeCloseTo(1)
+  await act(async () => { into!.click(); ratio!.click() })
+  expect(ratio!.textContent).toBe('100%')
 })
