@@ -10,21 +10,22 @@ import '@/styles/tokens.css'
 
 let root: Root | null = null
 let host: HTMLDivElement | null = null
-afterEach(() => { root?.unmount(); host?.remove(); root = host = null })
+afterEach(() => { root?.unmount(); host?.remove(); root = host = null; requestComposerEntryFocus(null) })
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 
-async function mount(active = true, mobile = false) {
+async function mount(active = true, mobile = false, surface: 'main' | 'aside' = 'main') {
   await page.viewport(mobile ? 390 : 1280, mobile ? 844 : 900)
   expect(window.innerWidth < 720).toBe(mobile)
   host = document.body.appendChild(document.createElement('div'))
   host.style.cssText = 'width:720px'
   root = createRoot(host)
-  const render = (entryActive: boolean) => root!.render(<LocalizationProvider><ChatMessageComposer chatId="entry-group" currentUserId="owner" onSend={vi.fn(async () => {})} isGroupChat entryActive={entryActive} /></LocalizationProvider>)
+  const render = (entryActive: boolean) => root!.render(<LocalizationProvider><ChatMessageComposer chatId="entry-group" currentUserId="owner" onSend={vi.fn(async () => {})} isGroupChat surface={surface} entryActive={entryActive} /></LocalizationProvider>)
   render(active)
-  await until('the actual group editor is mounted', () => !!host?.querySelector('[data-testid="chat-composer"]'))
+  const editorSelector = `[data-testid="${surface === 'aside' ? 'chat-composer-aside' : 'chat-composer'}"]`
+  await until('the actual group editor is mounted', () => !!host?.querySelector(editorSelector))
   const row = host.appendChild(document.createElement('button'))
   row.textContent = 'Conversation row'
-  const editor = host.querySelector<HTMLElement>('[data-testid="chat-composer"]')!
+  const editor = host.querySelector<HTMLElement>(editorSelector)!
   return { row, editor, render }
 }
 
@@ -88,6 +89,14 @@ it('a later resource opening cancels an entry whose composer has not appeared', 
   requestComposerEntryFocus('chat:entry-group')
   requestComposerEntryFocus(null)
   render(true)
+  await settle()
+  expect(document.activeElement).toBe(row)
+})
+
+it('a topic aside does not consume a main conversation entry', async () => {
+  const { row } = await mount(true, false, 'aside')
+  row.focus()
+  requestComposerEntryFocus('chat:entry-group')
   await settle()
   expect(document.activeElement).toBe(row)
 })
