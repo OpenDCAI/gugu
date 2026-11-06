@@ -1,5 +1,5 @@
 /**
- * B settlement integration contract v1. Host-only, not an MCP/UI payload.
+ * B settlement integration contract v1.1. Host-only, not an MCP/UI payload.
  * Existing v4 capability/claim remains the only approval/submission authority.
  * This file specifies adapters; it does not claim runtime implementation.
  */
@@ -51,7 +51,7 @@ export type CredentialCleanupReport =
   | Readonly<{
       status: 'isolated_login_retained';
       disposition: 'awaiting_person';
-      reason: 'person_interaction_required';
+      reason: 'person_interaction_required' | 'handoff_unconfirmed';
     }>
   | Readonly<{
       status: 'isolated_login_retained';
@@ -65,8 +65,9 @@ export type CredentialUseSettlement = UseOutcomeContext & Readonly<{
 
 /**
  * Fixed on VaultBrowserSink at trusted host construction.
- * Storage invokes it once for each actual outcome transition, after clearing Buffers
- * and attempting required cleanup/audit, including failure paths.
+ * Storage invokes it for each actual outcome transition AFTER a successful claim,
+ * after clearing Buffers and attempting required cleanup/audit, including failure.
+ * A forged/unclaimed capability must trigger neither cleanup nor settlement.
  * It is never supplied per call or reached through tools or the person UI.
  */
 export interface FixedVaultUseSettlementSink {
@@ -82,8 +83,9 @@ export interface CredentialHandoffCoordinator {
 
 /**
  * Required runtime rules:
- * - Match the original capability by object identity and the complete registered binding;
- *   do NOT claim the credential/submission a second time.
+ * - First identify an already-claimed registered use by original capability object identity,
+ *   then check the complete binding. Reject an unknown/forged capability without mutating
+ *   any use named by caller-controlled strings. Do NOT claim the credential/submission twice.
  * - Cleanup is proven by the coordinator's fixed adapters/state. No outcome/retain flag,
  *   settle field or recordId is accepted as a substitute.
  * - 'recorded' qualifies only with matches(recorded, exactContext) from the injected issuer,
@@ -92,7 +94,8 @@ export interface CredentialHandoffCoordinator {
  *   unavailable/uncertain/not_attempted never has proof.
  * - Audit/cleanup/settle errors latch a fault and prohibit handback. A later success,
  *   old receipt, duplicate notification or timeout cannot clear it.
- * - awaiting_person is NOT a fault. It requires actual requiresPersonInteraction,
+ * - awaiting_person is NOT a fault. It covers actual requiresPersonInteraction OR
+ *   insufficient current evidence to decide completion automatically, with
  *   verified field/artifact clearing and retention of the isolated page.
  *   Continue only re-evaluates; it grants no fill/submission.
  * - When person interaction changes the actual outcome, request a fresh appendOutcome and
@@ -102,6 +105,7 @@ export interface CredentialHandoffCoordinator {
  *   notification cannot advance the lifecycle.
  * - If settle rejects/throws, storage returns a safe retained/unavailable/uncertain result;
  *   it never falls back to a public result as handback permission.
- * - Faulted/unregistered/invalidated uses remain retained. No recovery of an approval or
+ * - Faulted/invalidated authenticated uses remain retained. Reject unregistered uses
+ *   without creating or disturbing another lifecycle. No recovery of an approval or
  *   secret across restart is introduced here.
  */
