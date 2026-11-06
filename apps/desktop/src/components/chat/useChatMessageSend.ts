@@ -21,7 +21,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const [sending, setSending] = useState(false)
-  const [sendFailure, setSendFailure] = useState<{ chatId: string | undefined; reason: string } | null>(null)
+  const [sendFailure, setSendFailure] = useState<{ chatId: string | null | undefined; reason: string } | null>(null)
   useSessionInputNotice(`chat-send:${chatId ?? 'new'}:${currentUserId ?? 'self'}`, sendFailure && sendFailure.chatId === chatId ? { title: t('composer.sendFailedRetry'), diagnostic: sendFailure.reason } : null)
   const sendingRef = useRef(false)
   const activeChatIdRef = useRef(chatId ?? null)
