@@ -311,7 +311,25 @@ describe('ImagePreviewProvider', () => {
       await pressClose(document.body)
       expect(tabs).toEqual(['conversation'])
     } finally {
-      dispose()
+      await act(async () => dispose())
+      if (previousPlatform === undefined) delete document.documentElement.dataset.platform
+      else document.documentElement.dataset.platform = previousPlatform
+    }
+  })
+
+  it.each(['mac', 'win'] as const)('closes the viewer with the %s platform shortcut', async (platform) => {
+    const previousPlatform = document.documentElement.dataset.platform
+    document.documentElement.dataset.platform = platform
+    try {
+      await openViewer()
+      const overlay = byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)!
+      const event = new KeyboardEvent('keydown', {
+        key: 'w', code: 'KeyW', metaKey: platform === 'mac', ctrlKey: platform === 'win', bubbles: true, cancelable: true,
+      })
+      await act(async () => { overlay.dispatchEvent(event) })
+      expect(event.defaultPrevented).toBe(true)
+      await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay) === null, 'platform shortcut did not remove the viewer')
+    } finally {
       if (previousPlatform === undefined) delete document.documentElement.dataset.platform
       else document.documentElement.dataset.platform = previousPlatform
     }
