@@ -1,6 +1,7 @@
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
 import { platform } from '../platform'
 import { googleAuthorizationUrl } from '../../shared/google-authorization-url'
+import { oauthHandoffRedirect } from '../../shared/oauth-attempt'
 import { authCallbacks } from './authCallbacks'
 import { mainAuthTemporaryStorage, supabase } from './supabase'
 import { sessionCoordinator } from './sessionCoordinator'
@@ -42,9 +43,9 @@ function prepare(): Promise<GoogleLoginFlow | null> {
     const flow = new GoogleLoginFlow({
       storage: mainAuthTemporaryStorage,
       redirectTo,
-      signIn: (callbackUrl) => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: callbackUrl, skipBrowserRedirect: true } }),
+      signIn: (callbackUrl) => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: oauthHandoffRedirect(callbackUrl), skipBrowserRedirect: true } }),
       exchange: (code) => supabase.auth.exchangeCodeForSession(code),
-      openBrowser: (url, callbackUrl) => browser.openBrowser(googleAuthorizationUrl(url, getSupabaseUrl(), callbackUrl)),
+      openBrowser: (url, callbackUrl) => browser.openBrowser(googleAuthorizationUrl(url, getSupabaseUrl(), oauthHandoffRedirect(callbackUrl))),
       begin: () => sessionCoordinator.beginInteractiveLogin(),
       accept: async (attempt, session) => {
         clearPendingReferrer()

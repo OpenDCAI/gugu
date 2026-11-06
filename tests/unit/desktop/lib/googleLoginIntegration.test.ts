@@ -58,12 +58,14 @@ it('waits for both native subscriptions, then exchanges into the existing coordi
   expect(m.signIn).not.toHaveBeenCalled()
   browserReady(() => {})
   await starting
-  expect(m.signIn).toHaveBeenCalledExactlyOnceWith({ provider: 'google', options: { redirectTo: expect.stringContaining('gugu-beta://auth/callback?gugu_oauth_attempt='), skipBrowserRedirect: true } })
+  expect(m.signIn).toHaveBeenCalledExactlyOnceWith({ provider: 'google', options: { redirectTo: expect.stringContaining('https://gugu.nextmind.space/zh/auth/callback/?scheme=gugu-beta&gugu_oauth_attempt='), skipBrowserRedirect: true } })
   expect(m.openBrowser).toHaveBeenCalledOnce()
+  expect(new URL(m.openBrowser.mock.calls[0]![0]).searchParams.get('redirect_to')).toBe(m.signIn.mock.calls[0]![0].options.redirectTo)
   const session = { user: { id: 'existing-email-user' }, access_token: 'access', refresh_token: 'refresh' } as Session
   m.exchange.mockResolvedValueOnce({ data: { session }, error: null })
   const incoming = m.subscribe.mock.calls[0]![0] as (url: string) => void
-  incoming(`${m.signIn.mock.calls[0]![0].options.redirectTo}&code=returned`)
+  const handoff = new URL(m.signIn.mock.calls[0]![0].options.redirectTo)
+  incoming(`gugu-beta://auth/callback?gugu_oauth_attempt=${handoff.searchParams.get('gugu_oauth_attempt')}&code=returned`)
   await vi.waitFor(() => expect(googleLogin.getSnapshot().phase).toBe('succeeded'))
   expect(m.exchange).toHaveBeenCalledExactlyOnceWith('returned')
   expect(m.begin).toHaveBeenCalledOnce()
