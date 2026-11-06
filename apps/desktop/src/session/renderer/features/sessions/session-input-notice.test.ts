@@ -61,6 +61,23 @@ describe('session input failure notices', () => {
     expect(h.dismiss).toHaveBeenCalledTimes(1);
   });
 
+  it('coalesces catalog and creation reports of the same failure without losing the repair action or repeating logs', () => {
+    const h = setup(), catalog = Symbol(), creation = Symbol(), retry = vi.fn();
+    const repair = { title: 'Update Codex, then retry.', diagnostic: raw, action: { label: 'Update Codex', onClick: retry } };
+    const failedCreate = { title: 'Update Codex, then retry.', diagnostic: { kind: 'raw', detail: raw } };
+    h.notices.attach('codex', catalog);h.notices.attach('codex', creation);
+    for (let i = 0; i < 4; i++) { h.notices.update('codex', catalog, repair);h.notices.update('codex', creation, failedCreate); }
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    expect(h.diagnostic).toHaveBeenCalledTimes(2);
+    h.notify.mock.calls[0]![0].action!.onClick();expect(retry).toHaveBeenCalledOnce();
+    h.notices.update('codex', catalog, null);
+    expect(h.notify.mock.calls.at(-1)![0].action).toBeUndefined();
+    h.notify.mock.calls.at(-1)![0].onDismiss!();
+    h.notices.update('codex', creation, failedCreate);
+    expect(h.notify).toHaveBeenCalledTimes(2);
+    h.notices.update('codex', creation, null);expect(h.dismiss).toHaveBeenCalledWith('codex');
+  });
+
   it('never renders unknown creation/setup diagnostic fields as product copy', () => {
     for (const failure of [{ kind: 'raw', detail: raw }, { kind: 'setup-step-failed', stepKind: 'spawn-process', stepErrorType: 'ENOENT', detail: raw }] as const) {
       const text = creationFailureCopy(failure, translateSessionMessage);

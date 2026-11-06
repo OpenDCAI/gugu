@@ -13,12 +13,26 @@ export function createSessionInputNotices(outlet: {
   dismiss: (key: string) => void;
   diagnostic: (key: string, reason: unknown) => void;
 }) {
-  type Entry = { owners: Map<symbol, SessionInputNotice | null>; closed: boolean; shown?: string; diagnostic?: string };
+  type Entry = { owners: Map<symbol, SessionInputNotice | null>; diagnostics: Map<symbol, string>; closed: boolean; shown?: string };
   const entries = new Map<string, Entry>();
   function entry(key: string): Entry {
     let value = entries.get(key);
-    if (!value) { value = { owners: new Map(), closed: false }; entries.set(key, value); }
+    if (!value) { value = { owners: new Map(), diagnostics: new Map(), closed: false }; entries.set(key, value); }
     return value;
+  }
+  function show(key: string, value: Entry): void {
+    const active = [...value.owners.values()].filter((spec): spec is SessionInputNotice => !!spec);
+    const spec = active.find(item => item.action) ?? active.at(-1);
+    if (!spec || value.closed) return;
+    const signature = JSON.stringify([spec.title, spec.description, spec.tier, spec.action?.label]);
+    if (value.shown === signature) return;
+    value.shown = signature;
+    outlet.notify({
+      key, title: spec.title, description: spec.description, tier: spec.tier ?? 'error',
+      action: spec.action && { label: spec.action.label, onClick: () => [...value.owners.values()].find(item => item?.action)?.action?.onClick() },
+      ongoing: true,
+      onDismiss: () => { value.closed = true; value.shown = undefined; },
+    });
   }
   return {
     attach(key: string, owner: symbol) {
@@ -26,38 +40,31 @@ export function createSessionInputNotices(outlet: {
       return () => {
         const value = entries.get(key);
         value?.owners.delete(owner);
+        value?.diagnostics.delete(owner);
         if (value && !value.owners.size) {
           outlet.dismiss(key);
           value.shown = undefined;
           // Unmounting is not recovery. Keep a dismissal across navigation/StrictMode.
-        }
+        } else if (value) show(key, value);
       };
     },
     update(key: string, owner: symbol, spec: SessionInputNotice | null | undefined) {
       if (spec === undefined) return; // A refresh in flight does not prove recovery.
       const value = entry(key);
       value.owners.set(owner, spec);
-      if (!spec) {
-        if ([...value.owners.values()].some(Boolean)) return;
+      if (!spec && ![...value.owners.values()].some(Boolean)) {
         outlet.dismiss(key);
         entries.delete(key);
         return;
       }
-      const diagnostic = JSON.stringify(spec.diagnostic);
-      if (diagnostic !== undefined && diagnostic !== value.diagnostic) {
-        value.diagnostic = diagnostic;
-        outlet.diagnostic(key, spec.diagnostic);
+      if (spec) {
+        const diagnostic = JSON.stringify(spec.diagnostic);
+        if (diagnostic !== undefined && diagnostic !== value.diagnostics.get(owner)) {
+          value.diagnostics.set(owner, diagnostic);
+          outlet.diagnostic(key, spec.diagnostic);
+        }
       }
-      const signature = JSON.stringify([spec.title, spec.description, spec.tier, spec.action?.label]);
-      if (value.closed || value.shown === signature) return;
-      value.shown = signature;
-      outlet.notify({
-        key, title: spec.title, description: spec.description, tier: spec.tier ?? 'error',
-        // Resolve actions from the current publisher, not a stale render closure.
-        action: spec.action && { label: spec.action.label, onClick: () => [...value.owners.values()].find(item => item?.action)?.action?.onClick() },
-        ongoing: true,
-        onDismiss: () => { value.closed = true; value.shown = undefined; },
-      });
+      show(key, value);
     },
   };
 }

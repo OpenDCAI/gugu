@@ -38,7 +38,7 @@ export type SessionFailure =
   | { kind: 'workspace-missing' }
   | { kind: 'setup-step-failed'; stepKind: string; stepErrorType: string; detail?: string }
   /** 未知失败：底层原始诊断，逐字保留、永不翻译。 */
-  | { kind: 'raw'; detail: string };
+  | { kind: 'raw'; detail: string; target?: { machineId: string | null; leg: 'acp' | 'tui' } };
 
 /**
  * @@@5173 建任务失败时抛给调用方的**类型化**错误。

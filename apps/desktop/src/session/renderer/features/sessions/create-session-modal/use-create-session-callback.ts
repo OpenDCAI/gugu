@@ -1,3 +1,5 @@
+import { codexNeedsUpgrade } from '../session-input-failure-copy';
+import { sessionpageLegOfView } from '@shared/core/sessions/sessions';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useRef, useState } from 'react';
@@ -106,9 +108,15 @@ export function useCreateSessionCallback({
   const [localDeliveryError, setLocalDeliveryError] = useState<SessionFailure | null>(null);
   const deliveryError = draft ? draft.deliveryError : localDeliveryError;
   const setDeliveryError = useCallback((failure: SessionFailure | null) => {
+    if (failure?.kind === 'raw' && codexNeedsUpgrade(failure.detail)) {
+      failure = { ...failure, target: {
+        machineId: selectedProjectId ? machineRegistry.machineOf(selectedProjectId) ?? null : null,
+        leg: sessionpageLegOfView(initialSession.sessionView),
+      } };
+    }
     if (draft) draft.setDeliveryError(failure);
     else setLocalDeliveryError(failure);
-  }, [draft]);
+  }, [draft, selectedProjectId, initialSession.sessionView]);
 
   const submittedText = initialSession.prompt.trim();
   // 首轮的投递通道:唯一定义在 firstTurnTransportOf。

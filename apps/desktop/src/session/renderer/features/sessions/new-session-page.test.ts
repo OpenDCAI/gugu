@@ -430,6 +430,13 @@ describe('NewSessionPage', () => {
     }));
   });
 
+  it('uses the original failed Codex target to share its catalog notice key', async () => {
+    mocks.deliveryError = { kind: 'raw', detail: 'local Codex app-server exited (code=1 signal=null)', target: { machineId: 'original-machine', leg: 'acp' } };
+    await renderPage();
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ key: 'session-catalog:original-machine:codex:acp' }));
+    expect(JSON.stringify(mocks.notify.mock.calls)).not.toMatch(/app-server|code=1|signal=null/);
+  });
+
   it('reports a delivery failure through the same outlet on the project composer', async () => {
     mocks.deliveryError = deliveryFailure;
     await renderProjectHome();
