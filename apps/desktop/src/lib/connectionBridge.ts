@@ -1,4 +1,7 @@
 import { useEffect,useMemo,useSyncExternalStore,useCallback,useRef,useState } from 'react'
+import { connectionReadDelay } from '@/components/connections/connection-read-policy'
+import { useConnectionReadNotice } from '@/components/connections/useConnectionReadNotice'
+import { rendererLogger } from '@/lib/log'
 import type { ConnectionClient } from '@gugu/core/cloud/connections'
 import { ConnectionError } from '@gugu/core/cloud/connections'
 import type { ConnectionMetadataStore } from '@/components/connections/connection-metadata'
@@ -26,24 +29,43 @@ const subscribeAccount = (listener: () => void) => typeof window === 'undefined'
 
 export function useConnectionAuthority() {
   const owner = useSyncExternalStore(subscribeAccount,accountId,() => null)
-  const [result,setResult] = useState<{ owner: string; route?: ConnectionRoute; error?: unknown }>(),request = useRef(0)
+  const [result,setResult] = useState<{ owner: string; route?: ConnectionRoute; error?: unknown; failures?: number }>(),request = useRef(0)
   const invalidate = useCallback(() => { request.current++ },[])
   const reload = useCallback(async () => {
     const current = ++request.current
     if (!owner) return
     try {
       const route = await connectionBridge().routing.read()
-      if (request.current === current && accountId() === owner) setResult({ owner,route })
-    } catch (error) { if (request.current === current && accountId() === owner) setResult({ owner,error }) }
+      if (request.current === current && accountId() === owner) setResult({ owner,route }); return true
+    } catch (error) {
+      rendererLogger('connections').warn({ code: (error as { code?: string } | null)?.code },'Authority read will retry')
+      if (request.current === current && accountId() === owner) setResult(previous => ({ owner,error,
+        route: previous?.owner === owner ? previous.route : undefined,failures: (previous?.owner === owner ? previous.failures ?? 0 : 0)+1 }))
+      return false
+    }
   },[owner])
+  const current = result?.owner === owner ? result : undefined
+  useConnectionReadNotice(`authority:${owner}`,!!current?.route,current?.failures ?? 0)
   useEffect(() => {
     if (!owner) return
-    const refresh = () => { void reload() }
-    const stop = connectionBridge().subscribeChanges(owner,refresh),timer = setInterval(refresh,15_000)
-    window.addEventListener('focus',refresh); refresh()
-    return () => { invalidate(); stop(); clearInterval(timer); window.removeEventListener('focus',refresh) }
+    let stopped = false,timer: ReturnType<typeof setTimeout> | undefined,failures = 0,running = false
+    const refresh = async () => {
+      if (running || stopped) return
+      running = true
+      clearTimeout(timer)
+      try {
+        const success = await reload()
+        failures = success ? 0 : failures + 1
+      } finally {
+        running = false
+        if (!stopped) timer = setTimeout(() => void refresh(),failures ? connectionReadDelay(failures-1) : 15_000)
+      }
+    }
+    const stop = connectionBridge().subscribeChanges(owner,() => { void refresh() })
+    const focus = () => { void refresh() }
+    window.addEventListener('focus',focus); void refresh()
+    return () => { stopped = true; invalidate(); stop(); clearTimeout(timer); window.removeEventListener('focus',focus) }
   },[owner,reload,invalidate])
-  const current = result?.owner === owner ? result : undefined
   return { owner,route: current?.route,error: current?.error,reload,loading: !current }
 }
 

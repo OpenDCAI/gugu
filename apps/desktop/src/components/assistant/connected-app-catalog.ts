@@ -32,6 +32,7 @@ export type CatalogApp = {
   name: string
   description: string
   saved: boolean
+  connectionStatus?: string
   state: ApplicationConnectionState
   catalog?: IntegrationCatalogMetadata
 }
@@ -101,7 +102,7 @@ function searchApps<T extends CatalogApp>(apps: readonly T[], query: string): T[
 }
 
 export function isMyConnection(app: CatalogApp): boolean {
-  return app.saved || app.state === 'connected'
+  return app.saved || app.state === 'connected' || !!app.connectionStatus
 }
 
 function featuredApps<T extends CatalogApp>(apps: readonly T[], locale: string): T[] {

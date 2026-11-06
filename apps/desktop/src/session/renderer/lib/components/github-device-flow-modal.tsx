@@ -1,3 +1,6 @@
+import { notify } from '@/lib/notices'
+import { i18n } from '@/i18n'
+import '@/components/connections/connection-copy'
 import { platform } from '@/platform';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { messageForUser } from '@/lib/userFacingError';
@@ -195,6 +198,10 @@ function GithubDeviceFlowModalBody({ onSuccess, onClose, onError }: Omit<GithubD
 
     // Auth error
     const cleanupError = events.onEvent(githubAuthErrorChannel, (data) => {
+      if (library.connectionMetadataExpected) {
+        notify({ key: `connections-action:${library.connectionMetadata?.ownerId}:github`,tier: 'error',title: i18n.t('connections:connectFailed',{ name: 'GitHub' }) });
+        onError?.(data.error); onClose(); return;
+      }
       setError(messageForUser(data.message || data.error));
 
       if (onError) {
@@ -214,7 +221,7 @@ function GithubDeviceFlowModalBody({ onSuccess, onClose, onError }: Omit<GithubD
       cleanupSuccess();
       cleanupError();
     };
-  }, [copyToClipboard, events, onError, onSuccess, toast]);
+  }, [copyToClipboard, events, onError, onSuccess, toast,library.connectionMetadataExpected,library.connectionMetadata?.ownerId,onClose]);
 
   const handleClose = () => {
     onClose();

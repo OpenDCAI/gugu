@@ -30,6 +30,11 @@ div.connected-app-search {
   padding: var(--spacing-xs) var(--spacing-sm);
   white-space: normal;
 }
+/* Touch WebViews can retain :hover after a tap; only selection paints a pill. */
+.connected-app-toolbar button.gg-segtab:not([data-selected]) { background: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  .connected-app-toolbar button.gg-segtab:not([data-selected]):hover { background: var(--hover); }
+}
 .connected-app-toolbar button.gg-segtab[data-selected] {
   background: color-mix(in oklab, var(--state-tint-selected) var(--state-selected-amount), var(--muted));
 }

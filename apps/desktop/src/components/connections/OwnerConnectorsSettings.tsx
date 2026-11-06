@@ -7,8 +7,7 @@ import { ConnectedAppsCatalog } from '@/components/assistant/ConnectedAppsCatalo
 import { assistantConnectedApps } from '@/components/assistant/assistant-app-connections'
 import { ChannelBrandIcon } from '@/components/settings/channels/ChannelBrandIcon'
 import { useChatChannels } from '@/components/settings/channels/useChatChannels'
-import { SettingsNote,SettingsPage } from '@/components/settings/SettingsPrimitives'
-import { Button } from '@/components/ui/Button'
+import { SettingsPage } from '@/components/settings/SettingsPrimitives'
 import { IntegrationIcon } from '@/session/renderer/features/integrations/integration-icon'
 import { IntegrationsProvider,useIntegrationsContext } from '@/session/renderer/features/integrations/integrations-provider'
 import { LibraryHostProvider,type LibraryHost } from '@/session/renderer/features/library/library-host'
@@ -18,8 +17,10 @@ import { connectorOrder } from '@/session/renderer/features/assistant/assistant-
 import { useAssistantPanelBack } from '@/lib/assistantPanelPage'
 import { useOwnerLibraryHost } from './useOwnerLibraryHost'
 import { OwnerConnectorDetail } from './OwnerConnectorDetail'
-import { ConnectionOperations } from './ConnectionOperations'
-import { connectionFailure } from './connection-copy'
+import './connection-copy'
+import { connectionApplicationStatus } from './connection-application-status'
+import { useConnectionRecovery } from './useConnectionRecovery'
+import { useConnectionMutationAllowed } from './connection-mutation-context'
 import type { ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 
 /** Both settings shells use the same controller without resolving an assistant. */
@@ -40,11 +41,15 @@ function OwnerConnectorList({ host,selectedDeviceId,panelNavigation,showDevicePi
   const data = useIntegrationsContext()
   const [openId,setOpenId] = useState<string | null>(initialConnectorId ?? null)
   useAssistantPanelBack(panelNavigation && openId ? `owner-connector:${openId}` : null,() => setOpenId(null))
+  const allowed = useConnectionMutationAllowed()
+  useConnectionRecovery(host.connectionMetadata,allowed)
   const apps = useMemo(() => assistantConnectedApps(connectorOrder(data.integrations,i18n.language),channels.list,
     id => settings(`channels.${id}`),t('connectors.wechatDescription'),
     id => connectorState(data.hasConfiguredConnections ? !!data.configuredConnections[id] : undefined,data.checkedConnections[id],
-      data.configuredConnectionsError ?? data.connectionCheckError,true),data.configuredConnections),[data,i18n.language,channels.list,settings,t])
-  const error = data.configuredConnectionsError ?? data.connectionCheckError
+      undefined,true),data.configuredConnections).map(app => {
+      const status = connectionApplicationStatus(host.connectionMetadata?.peekSnapshot?.(),app.id,data.connectionOperations)
+      return status ? { ...app,state: status.confirming ? 'checking' as const : 'needsReauth' as const,connectionStatus: copy(status.key) } : app
+    }),[data,host.connectionMetadata,i18n.language,channels.list,settings,t,copy])
   const selected = openId ? apps.find(app => app.id === openId) : null
   if (selected) return <OwnerConnectorDetail host={host} app={selected} deviceId={selectedDeviceId} panelNavigation={panelNavigation} onBack={() => setOpenId(null)} />
   return <SettingsPage data-testid="owner-connectors">
@@ -55,10 +60,8 @@ function OwnerConnectorList({ host,selectedDeviceId,panelNavigation,showDevicePi
         {devices.devices.map(device => <option key={device.device_id} value={device.device_id}>{device.label || device.hostname}</option>)}
       </select>
     </label> : null}
-    {error ? <SettingsNote role="alert">{connectionFailure(error,copy)} <Button size="sm" variant="ghost" onClick={data.reloadConnections}>{copy('retry')}</Button></SettingsNote> : null}
-    <ConnectionOperations operations={data.connectionOperations} store={host.connectionMetadata} />
     <ConnectedAppsCatalog apps={apps} scope={host.key} open={setOpenId} mobile={mobile} panelNavigation={panelNavigation}
-      connectionRead={data.hasConfiguredConnections ? 'ready' : error ? 'failed' : 'pending'} retryConnections={data.reloadConnections}
+      connectionRead={data.hasConfiguredConnections ? 'ready' : 'pending'}
       icon={(app,size) => app.integration ? <IntegrationIcon provider={app.id} icon={app.integration.icon} size={size} />
         : app.id === 'wechat' ? <ChannelBrandIcon kind="wechat" size={size} /> : null} />
   </SettingsPage>

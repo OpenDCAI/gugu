@@ -4,7 +4,8 @@ import type { ConnectionClient,NativeConnectionAuthorization } from '@gugu/core/
 import type { LibraryHost } from '@/session/renderer/features/library/library-host'
 import { githubAuthSuccessChannel } from '@/session/shared/events/githubEvents'
 
-const fixture = vi.hoisted(() => ({ bridge: {} as Record<string,unknown> }))
+const fixture = vi.hoisted(() => ({ bridge: {} as Record<string,unknown>,notify: vi.fn() }))
+vi.mock('@/lib/notices',() => ({ notify: fixture.notify }))
 vi.mock('@/lib/connectionBridge',() => ({ connectionBridge: () => fixture.bridge }))
 vi.mock('@/lib/platformIntegrations',() => ({ rendererPlatformIntegrationsClient: () => { throw new Error('Unexpected platform authorization') } }))
 vi.mock('@/lib/openAuthorizationLink',() => ({ openAuthorizationLink: vi.fn() }))
@@ -15,7 +16,7 @@ const operationId = '6c67af58-7190-4c6f-9d49-06d0f6f4865f',ticket = 'e8939ca7-ef
 const receipt = { operationId,scopeKey: 'device:device',resourceKey: 'original-key',revision: '2',status: 'applied' }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise,resolve } }
 let route: ConnectionRoute
-beforeEach(() => { route = { mode: 'owner',epoch: '1',phase: 'stable',acceptingNewOperations: true } })
+beforeEach(() => { fixture.notify.mockClear(); route = { mode: 'owner',epoch: '1',phase: 'stable',acceptingNewOperations: true } })
 function setup() {
   const authorization = deferred<{ success: true; account: { accountId: string }; user: { login: string } }>()
   const completion = deferred<typeof receipt>()
@@ -28,7 +29,7 @@ function setup() {
   const client = { snapshot: vi.fn(async () => ({ version: 1,state: 'ready',revision: '0',items: [],application: [] })),recreateBegin } as unknown as ConnectionClient
   fixture.bridge = { accountId: () => 'owner',client,routing: createConnectionRouting({ accountId: () => 'owner',read: async () => route,changed: () => {} }) }
   const base = { key: 'actual-device',integrations: native,github } as unknown as LibraryHost
-  const host = { ...base,connectionMetadata: { invalidate: vi.fn() },prepareAssistantAction: vi.fn(async () => {}) } as unknown as LibraryHost
+  const host = { ...base,connectionMetadata: { ownerId: 'owner',invalidate: vi.fn() },prepareAssistantAction: vi.fn(async () => {}) } as unknown as LibraryHost
   return { actions: ownerConnectionActions(base,host,'device',{ ...route }),native,github,recreateBegin,authorization,completion }
 }
 const authorized = { success: true as const,account: { accountId: 'actual' },user: { login: 'person' } }
@@ -54,6 +55,7 @@ describe('owner authorization retains the original route and reports only commit
     await test.actions.github.authCancel(); test.authorization.resolve(authorized); await refused
     expect(test.native.ownerAuthorizationCommit).not.toHaveBeenCalled()
     expect(test.recreateBegin).toHaveBeenCalledOnce()
+    expect(fixture.notify).not.toHaveBeenCalled()
   })
   it('never commits or reauthorizes an old-window result after the owner epoch changes', async () => {
     const test = setup(),running = test.actions.github.auth()
@@ -62,5 +64,6 @@ describe('owner authorization retains the original route and reports only commit
     route = { ...route,epoch: '2' }; test.authorization.resolve(authorized); await refused
     expect(test.native.ownerAuthorizationCommit).not.toHaveBeenCalled()
     expect(test.github.auth).toHaveBeenCalledOnce(); expect(test.recreateBegin).toHaveBeenCalledOnce()
+    expect(fixture.notify).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error',title: expect.stringMatching(/GitHub/) }))
   })
 })

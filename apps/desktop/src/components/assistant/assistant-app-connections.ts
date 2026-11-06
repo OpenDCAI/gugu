@@ -4,7 +4,7 @@ import type { ConnectorState } from '@/session/renderer/features/assistant/assis
 import type { IntegrationCatalogMetadata } from '@gugu/session-plugins/integration-summaries'
 
 export type ApplicationConnectionState = ConnectorState | 'paused' | 'retrying'
-export type AssistantConnectedApp = { id: string; name: string; description: string; integration?: IntegrationMetadata; state: ApplicationConnectionState; saved: boolean; catalog?: IntegrationCatalogMetadata }
+export type AssistantConnectedApp = { id: string; name: string; description: string; integration?: IntegrationMetadata; state: ApplicationConnectionState; saved: boolean; catalog?: IntegrationCatalogMetadata; connectionStatus?: string }
 
 /** Legacy snapshots used the internal default credential key as an account name. */
 export function assistantAccountDisplayName(value: unknown): string | null {

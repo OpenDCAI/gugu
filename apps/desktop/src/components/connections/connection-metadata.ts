@@ -1,3 +1,4 @@
+import type { ConnectionApplication } from '@gugu/core/cloud/connections'
 import type { AssistantPanelItem, AssistantPanelReceipt, AssistantPanelSnapshot } from '@gugu/core/cloud/assistantPanel'
 
 /** Public integration metadata shared by the owner service and legacy panel
@@ -5,7 +6,10 @@ import type { AssistantPanelItem, AssistantPanelReceipt, AssistantPanelSnapshot 
 export type ConnectionMetadataItem = Omit<AssistantPanelItem, 'assistant_user_id'> & {
   source?: { scopeKey: string; resourceKey: string }
 }
-export type ConnectionMetadataSnapshot = Omit<AssistantPanelSnapshot, 'items'> & { items: ConnectionMetadataItem[] }
+export type ConnectionMetadataSnapshot = Omit<AssistantPanelSnapshot, 'items' | 'application'> & {
+  items: ConnectionMetadataItem[]
+  application: (AssistantPanelSnapshot['application'][number] & Partial<Omit<ConnectionApplication,'status' | 'resourceKey'>> & { wireStatus?: ConnectionApplication['status'] })[]
+}
 
 export interface ConnectionMetadataStore {
   ownerId: string

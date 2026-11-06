@@ -24,7 +24,7 @@ async function executePlatformOperation(operationId: string,route: ConnectionRou
   const snapshot = await connectionClientForRoute(ownerConnectionClient,routing,route).snapshot()
   if (snapshot.state !== 'ready') throw new ConnectionError('not-ready','CONNECTION_NOT_READY')
   const operation = snapshot.application.find(change => change.operationId === operationId)
-  // The refreshed head no longer has an outstanding operation: its receipt is settled.
+  // No longer outstanding: stop executing without inferring an outcome from absence.
   if (!operation) return
   if (operation.scopeKey !== 'platform' || operation.operation !== 'remove' || operation.terminal)
     throw new ConnectionError('operation-refused','CONNECTION_OPERATION_UNSUPPORTED')

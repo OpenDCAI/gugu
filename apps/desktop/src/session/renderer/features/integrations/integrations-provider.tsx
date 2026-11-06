@@ -1,3 +1,6 @@
+import { connectionReadOptions } from '@/components/connections/connection-read-policy';
+import { useConnectionReadNotice } from '@/components/connections/useConnectionReadNotice';
+import { connectionNeedsConfirmation } from '@/components/connections/connection-application-status';
 import { CONNECTIONS_CHANGED, peekOwnerConnectionMetadata,ownerConnectionMetadataView } from '@/components/connections/owner-connection-metadata';
 import { builtinConnectionCatalog } from '@/components/connections/builtin-connection-catalog';
 import type { ConnectionMetadataSnapshot } from '@/components/connections/connection-metadata';
@@ -112,12 +115,13 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   // 插件的中英两份由那台机器的主进程按这台桌面的界面语言解析成字符串;换语言重取。
   const locale = useSyncExternalStore(subscribeSessionLocale, () => getSessionLocaleSnapshot().resolvedLocale);
   const initialMetadata = () => host.connectionMetadata ? peekOwnerConnectionMetadata(host.connectionMetadata,locale) : peekAssistantPanelIntegrations(host.assistantPanel,locale);
-  const { data: ownerSnapshot } = useQuery({
+  const { data: ownerSnapshot,failureCount: ownerReadFailures } = useQuery({
     queryKey: ['connections:snapshot', host.key], queryFn: () => host.connectionMetadata!.snapshot(),
     initialData: () => host.connectionMetadata?.peekSnapshot?.(), enabled: !!host.connectionMetadata,
-    staleTime: Infinity, refetchOnWindowFocus: true, retry: retryAssistantPanelRead,
-    refetchInterval: query => query.state.data?.application.some(operation => operation.status === 'pending' && !operation.terminal) ? 3000 : false,
+    staleTime: Infinity, refetchOnWindowFocus: true, ...connectionReadOptions,
+    refetchInterval: query => query.state.data?.application.some(connectionNeedsConfirmation) ? 3000 : 15_000,
   });
+  useConnectionReadNotice(`snapshot:${host.key}`,!!ownerSnapshot,host.connectionMetadataExpected ? ownerReadFailures : 0);
   const {
     data: listData,
     error: listError,
@@ -130,7 +134,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     refetchOnWindowFocus: false,
     enabled,
     refetchInterval: query => metadataExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
-    ...(metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
+    ...(host.connectionMetadataExpected ? connectionReadOptions : metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
 
   const ownerItems = useMemo(() => ownerSnapshot ? ownerConnectionMetadataView(ownerSnapshot,locale).items : undefined,[ownerSnapshot,locale]);
@@ -149,7 +153,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     refetchOnWindowFocus: true,
     enabled,
     refetchInterval: query => metadataExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
-    ...(metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
+    ...(host.connectionMetadataExpected ? connectionReadOptions : metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
 
   const { data: configuredData, error: configuredConnectionsError, isFetching: isCheckingConfiguredConnections } =
@@ -161,7 +165,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
       refetchOnWindowFocus: false,
       enabled,
     refetchInterval: query => metadataExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
-      ...(metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
+      ...(host.connectionMetadataExpected ? connectionReadOptions : metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
     });
   const configuredConnections = configuredData ?? {};
 

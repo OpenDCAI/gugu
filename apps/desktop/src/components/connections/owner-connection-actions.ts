@@ -10,7 +10,8 @@ import type { LibraryGithubRpc } from '@/session/renderer/features/library/libra
 import type { LibraryHost } from '@/session/renderer/features/library/library-host'
 import { builtinConnectionCatalog } from './builtin-connection-catalog'
 import { createConnectionAuthorization, type ConnectionAuthorizationIntent } from './connection-authorization'
-import { connectionFailure } from './connection-copy'
+import './connection-copy'
+import { notify } from '@/lib/notices'
 import { connectionClientForRoute,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 
 /** Existing credential services perform the authorization. Only their public
@@ -48,11 +49,20 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
     const stop = event.name === githubAuthErrorChannel.name ? host.github.onEvent(event,listener) : undefined
     return () => { listeners.delete(receive); stop?.() }
   }
-  const message = (error: unknown) => connectionFailure(error,key => i18n.t(`connections:${key}`))
-  function safe<Args extends unknown[],Result>(action: (...args: Args) => Promise<Result>) {
+  const providerName = (provider: string) => builtinConnectionCatalog(i18n.language).find(app => app.id === provider)?.name ?? provider
+  const message = (error: unknown,provider = 'github',failure = 'connectFailed') => i18n.t((error as { code?: string } | null)?.code === 'device-required' ? 'connections:chooseAppDevice' : `connections:${failure}`,{ name: providerName(provider) })
+  function safe<Args extends unknown[],Result>(action: (...args: Args) => Promise<Result>,fixedProvider?: string,failure = 'connectFailed') {
     return async (...args: Args) => {
-      try { await assertRoute(); const result = await action(...args); await assertRoute(); return result }
-      catch (error) { throw Object.assign(new Error(message(error),{ cause: error }),{ code: (error as { code?: string } | null)?.code }) }
+      const provider = fixedProvider ?? String(args[0])
+      const report = (error?: unknown) => { if (bridge.accountId() === store.ownerId) notify({ key: `connections-action:${store.ownerId}:${provider}`,tier: 'error',title: message(error,provider,failure) }) }
+      try {
+        await assertRoute(); const result = await action(...args); await assertRoute()
+        if (result && typeof result === 'object' && ('success' in result && result.success === false || 'status' in result && result.status === 'failed')) report()
+        return result
+      } catch (error) {
+        if (!['quiescing','intent-changed'].includes((error as { code?: string } | null)?.code ?? '') && !(error instanceof DOMException && error.name === 'AbortError')) report(error)
+        throw Object.assign(new Error(message(error,provider,failure),{ cause: error }),{ code: (error as { code?: string } | null)?.code })
+      }
     }
   }
   const cancel = (provider: string) => { generations.set(provider,(generations.get(provider) ?? 0)+1) }
@@ -168,7 +178,7 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
     }),
     async cancelAuthorization(provider) { cancel(provider); cli.delete(provider); browsers.get(provider)?.abort(); await host.integrations.cancelAuthorization(provider) },
   },github: { ...host.github,onEvent,
-    setDefaultAccount: safe(host.github.setDefaultAccount),removeAccount: safe(host.github.removeAccount),
+    setDefaultAccount: safe(host.github.setDefaultAccount,'github','defaultFailed'),removeAccount: safe(host.github.removeAccount,'github','disconnectFailed'),
     authCancel: async () => { cancel('github'); return host.github.authCancel() },
     importCliAccounts: safe(async () => {
       const intent = await beginNative('github')
@@ -188,7 +198,7 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
         await base.integrations.ownerAuthorizationComplete!('github',intent.operationId)
       }
       return result
-    }),
+    },'github'),
     auth: safe(async () => {
       try {
         const intent = await beginNative('github')
@@ -203,6 +213,6 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
         emitGithub(githubAuthErrorChannel.name,{ error: 'connection_commit_failed',message: message(error) })
         throw error
       }
-    }),
+    },'github'),
   } }
 }
