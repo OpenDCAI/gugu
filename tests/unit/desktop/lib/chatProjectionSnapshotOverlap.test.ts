@@ -48,7 +48,7 @@ function builder(table: string, args?: { p_chat_ids?: readonly string[] }) {
               return { data: [...members].map((chat_id) => ({ chat_id })), error: null }
             }
             const batch = requested ?? ids
-            if (table === 'active_members') return {
+            if (table === 'rpc:list_conversation_memberships') return {
               data: batch.filter((id) => members.has(id)).map((chat_id) => ({
                 chat_id, user_id: VIEWER, role: 'member', last_read_seq: 0,
                 is_marked_unread: false, version: 1, is_pinned: false,
