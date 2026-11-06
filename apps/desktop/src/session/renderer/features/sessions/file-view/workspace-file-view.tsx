@@ -38,7 +38,9 @@ async function readBytes(projectId: string, workspaceId: string, path: string, i
  * A file of a workspace in the preview a chat's file opens in: its bytes through that workspace (whichever machine it is
  * on), read again when the file changes there. A session's file tab and an App's peek both draw this.
  */
-export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, onClose }: {
+export function WorkspaceFileView({ tabId, projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, onClose }: {
+  /** The tab it is drawn in: editing goes to the folder App in this tab, and reading comes back to it. */
+  tabId?: string;
   projectId: string;
   workspaceId: string;
   /** Quoting a selection goes to this session's draft; none (a project's folder): nothing to quote into. */
@@ -85,10 +87,10 @@ export function WorkspaceFileView({ projectId, workspaceId, sessionId, path, abs
         unreadableAction: tree.download
           ? <Button size="sm" variant="outline" className="mt-4" onClick={download}>{translate('file.downloadInstead')}</Button>
           : <OpenWithSystemButton absolutePath={absolutePath} {...(inWorkspace ? { workspace: { projectId, workspaceId } } : {})} />,
-        ...(editable ? { edit: () => getSessionView(projectId, sessionId!)?.paneLayout.open(FOLDER_APP_FILE_TAB, { filePath: absolutePath }, { from: null, intent: 'navigate' }) } : {}),
+        ...(editable ? { edit: () => getSessionView(projectId, sessionId!)?.paneLayout.open(FOLDER_APP_FILE_TAB, { filePath: absolutePath }, { from: tabId ?? null, intent: 'navigate' }) } : {}),
         download,
       },
     };
-  }, [projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, revision, translate]);
+  }, [tabId, projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, revision, translate]);
   return <MessageFilePreview fill tabbed readOnly={!sessionId} file={file} onClose={onClose} />;
 }
