@@ -125,7 +125,7 @@ const phone: AppsHere = {
   openAppsPage: () => window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'apps' } })),
 }
 
-export const appsHere: AppsHere | null = platform.kind === 'electron' ? desktop : platform.kind === 'capacitor' ? phone : null
+export const appsHere: AppsHere | null = platform.kind === 'electron' ? desktop : platform.capabilities.mobileApps ? phone : null
 
 // The phone reads what it has installed once the page is up, so the cards and the panel know it from the start.
 if (appsHere === phone) {

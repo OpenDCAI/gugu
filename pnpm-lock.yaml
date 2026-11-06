@@ -149,6 +149,9 @@ importers:
       '@capacitor/core':
         specifier: ^8.3.3
         version: 8.3.3
+      '@capacitor/ios':
+        specifier: 8.3.3
+        version: 8.3.3(@capacitor/core@8.3.3)
       '@capacitor/local-notifications':
         specifier: ^8.3.1
         version: 8.3.1(@capacitor/core@8.3.3)
@@ -1625,6 +1628,11 @@ packages:
 
   '@capacitor/core@8.3.3':
     resolution: {integrity: sha512-xx1FIriZQ5jwqEkZwmWQHfXNEn5a9ZLOtdFoJXslh0ian6T/EU+QJtRmZw3KRsmcUV6p5ufczBrzF1rVP8Nu3A==}
+
+  '@capacitor/ios@8.3.3':
+    resolution: {integrity: sha512-BHlTOxarrvkaqDdlTxKwip+dQmfQSnfctizpheR7SWp/VIlR0HcPpYzWMTiVbHQLq3nLRUdeZO1wSPVGvxzAPA==}
+    peerDependencies:
+      '@capacitor/core': ^8.3.0
 
   '@capacitor/local-notifications@8.3.1':
     resolution: {integrity: sha512-F7zu/+p/mIR958YP4axOkeI5hBKRaXDyYjbNPrAil2wWfd7OxScPSTvP9t85NpQ0eULVRu0/sntoxOg6ck477A==}
@@ -13183,6 +13191,10 @@ snapshots:
   '@capacitor/core@8.3.3':
     dependencies:
       tslib: 2.8.1
+
+  '@capacitor/ios@8.3.3(@capacitor/core@8.3.3)':
+    dependencies:
+      '@capacitor/core': 8.3.3
 
   '@capacitor/local-notifications@8.3.1(@capacitor/core@8.3.3)':
     dependencies:

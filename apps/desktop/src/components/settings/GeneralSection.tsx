@@ -129,7 +129,7 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
 
       {/* @@@5301 通知。这一节**只管咕咕主界面这条链**(聊天新消息 + IM 侧 agent 会话的运行事件);
           会话页 agent 的通知是另一条独立的链、归任务设置面板。两个面板是既定结构,❌ 不要合并。 */}
-      <SettingsGroup
+      {(platform.kind !== 'capacitor' || platform.capabilities.notifications) && <SettingsGroup
         title={t('settings.general.notifications')}
         note={t('settings.general.notificationsScope')}
         footer={notificationHint !== null ? (
@@ -189,7 +189,7 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
             </Button>
           )}
         />
-      </SettingsGroup>
+      </SettingsGroup>}
 
       {/* 终端开关:默认关,普通用户不需要知道终端是什么。开着 = 终端的入口与界面全部回来、新任务走编程;
           它取代了原来的「通用 / 编程」手动切换。只管人看不看得到,❌ 管 agent 自己跑 pty。

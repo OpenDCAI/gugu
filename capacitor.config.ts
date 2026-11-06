@@ -6,6 +6,11 @@ const config: CapacitorConfig = {
   webDir: 'dist-phone',
   // Native bridge calls include opaque login bytes; debug logging must not print their arguments.
   loggingBehavior: 'none',
+  ios: {
+    path: 'apps/mobile/ios',
+    // This foreground-only build does not ship Android host, market, or notification plugins.
+    includePlugins: ['@capacitor/app', '@capacitor/clipboard'],
+  },
   android: {
     path: 'apps/mobile/android',
     allowMixedContent: false,

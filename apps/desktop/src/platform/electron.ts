@@ -84,6 +84,8 @@ export const electronPlatform: AppPlatform = {
     logTail: true,
     appRelaunch: true,
     shareToApps: false,
+    mobileApps: false,
+    phoneDevice: false,
   },
   async relaunchApp() {
     const api = electronApi()

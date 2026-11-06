@@ -23,7 +23,7 @@ export function PhoneDeviceRoot(): null {
   const installationOwner = useContext(PhoneInstallationContext)
 
   useEffect(() => {
-    if (!userId || platform.kind !== 'capacitor' || installationOwner !== userId) return
+    if (!userId || !platform.capabilities.phoneDevice || installationOwner !== userId) return
     if (!enabled && !hostEnabled) {
       void ensurePhoneAgentHostStopped(userId).catch((error: unknown) => rendererLogger('phone-agent').error({ error }, 'Cannot stop a disabled phone agent host'))
       return
