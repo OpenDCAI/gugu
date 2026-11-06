@@ -114,7 +114,15 @@ function wireHostDependencyLedger(handle: AgentConfigRuntimeHandle): void {
 async function hostDependencyInventory(platform = toPlatform(process.platform)) {
   await ensureAgentDependenciesProbed(localDependencyManager);
   const snapshot = await buildHostDependencyLedgerSnapshot(platform);
-  return { ...snapshot, readings: [...localDependencyManager.getAll().values()].filter((state) => state.category === 'agent') };
+  const readings = new Map([...localDependencyManager.getAll().values()]
+    .filter((state) => state.category === 'agent').map((state) => [state.id, state]));
+  for (const entry of snapshot.entries) {
+    if (entry.probeError) readings.set(entry.id, {
+      id: entry.id, category: 'agent', status: 'error', path: null, version: null,
+      checkedAt: Date.now(), error: entry.probeError,
+    });
+  }
+  return { ...snapshot, readings: [...readings.values()] };
 }
 
 type AgentConfigRuntimeHandle = WorkerHandle<AgentConfigRuntimeContract>;

@@ -58,7 +58,9 @@ export class AgentConfigRuntime {
       this.mcpHost.dispose();
     });
     if (!deps.hostDependencyLedger) this.install.initialize();
-    void this.mcp.initialize();
+    void this.mcp.initialize().catch((error: unknown) => {
+      this.deps.logger.warn('AgentConfigRuntime: MCP initialization failed', { error: String(error) });
+    });
   }
 
   agentsLiveHost(): AgentConfigAgentsLiveHost {

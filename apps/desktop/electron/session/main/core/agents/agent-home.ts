@@ -72,7 +72,10 @@ export async function prepareAgentFirstRunState(
 function resolveOnce(providerId: string): Promise<Resolved> {
   const cached = cache.get(providerId);
   if (cached) return cached;
-  const task = compute(providerId);
+  const task = compute(providerId).catch((error: unknown) => {
+    if (cache.get(providerId) === task) cache.delete(providerId);
+    throw error;
+  });
   cache.set(providerId, task);
   return task;
 }

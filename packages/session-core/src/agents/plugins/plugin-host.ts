@@ -272,7 +272,10 @@ export class AgentPluginHost {
       // ❌ 别退回「有 configRoot 就算托管」的隐式推导(#4834):走哪一侧由这家自己声明。
       if (bundle.injectionMode !== 'managed-config-root') return null;
       return provisioner.provision(providerId, bundle.injectionMode, bundle.configRoot);
-    })();
+    })().catch((error: unknown) => {
+      if (this.agentHomeOnce.get(providerId) === task) this.agentHomeOnce.delete(providerId);
+      throw error;
+    });
     this.agentHomeOnce.set(providerId, task);
     return task;
   }
