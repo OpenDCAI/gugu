@@ -8,6 +8,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import { platform } from '../platform'
 import { installedExtensionsStore, type RailApp } from '../session/renderer/features/extensions/installed-extensions-store'
+import { AppConversationUnread } from './extensionBundle/AppConversationUnread'
 import { extensionSurfaceStore } from '../session/renderer/features/extensions/extension-surface-store'
 import { appIsRunning, openApp, openAppInWindow, quitApp, setDock, unpinFromDock } from '../session/renderer/features/extensions/app-dock'
 import { appState } from '../session/renderer/lib/stores/app-state'
@@ -220,16 +221,15 @@ const DockItem = observer(function DockItem({ app, active, onOpen, onOpenInWindo
         style={{ transform: CSS.Transform.toString(transform), transition }}
         {...listeners}
       >
-        <RailItem
-          icon={<RailAppIcon app={app} />}
-          active={active}
-          onClick={onOpen}
-          title={app.name}
-          badge={extensionSurfaceStore.badgedAnywhere(app.kind) ? 1 : 0}
-          running={running}
-          onContextMenu={onContextMenu}
-          menuOpen={menuPos !== null}
-        />
+        {installedExtensionsStore.manifestFor(app.extensionId)?.contributes.unreadSource
+          ? <AppConversationUnread extensionId={app.extensionId}>{unread => <RailItem
+              icon={<RailAppIcon app={app} />} active={active} onClick={onOpen} title={app.name}
+              badge={unread === true || extensionSurfaceStore.badgedAnywhere(app.kind) ? 1 : 0}
+              running={running} onContextMenu={onContextMenu} menuOpen={menuPos !== null}
+            />}</AppConversationUnread>
+          : <RailItem icon={<RailAppIcon app={app} />} active={active} onClick={onOpen} title={app.name}
+              badge={extensionSurfaceStore.badgedAnywhere(app.kind) ? 1 : 0}
+              running={running} onContextMenu={onContextMenu} menuOpen={menuPos !== null} />}
       </div>
       {/* Outside the sortable box: the menu is portalled, but React still bubbles its presses to the box's drag listeners. */}
       {menuPos && (

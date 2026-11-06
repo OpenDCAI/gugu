@@ -747,6 +747,13 @@ export const extensionsController = createRPCController({
     }
   },
 
+  conversationUnreadBindings: async (args: { ownerId: string }) => {
+    try {
+      const { grantedUnreadBindings } = await import('./app-unread-bindings');
+      return { success: true as const, data: { ownerId: args.ownerId, bindings: await grantedUnreadBindings(args.ownerId) } };
+    } catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
+
   unreadBindingChoices: async (args: { extensionId: string; name: string }) => {
     try {
       const { unreadBindingChoices } = await import('./app-unread-bindings');

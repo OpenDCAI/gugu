@@ -812,6 +812,8 @@ and \`chat:unread\`. The person chooses one conversation in the App's common per
 \`gugu.bindings.get("main")\` returns \`state: "bound"\` plus an opaque handle, or \`state: "unbound"\`; it never returns
 a chat ID, messages or another conversation. This grants neither \`chat:read\` nor Agent control.
 The host validates the current account, installed publisher, grant and active membership. An App cannot set its own target.
+Declare \`contributes.unreadSource: {binding: "main"}\` for the host rail red dot. It follows the original chat unread source
+even before your page opens or after eviction. Opening the App does not mark messages read; page badges still work.
 
 Which chats the reader is in and who is in one — for a page that is in no chat (an App's own tab, full screen) to
 offer one — and what people and agents said in a chat: a stretch of its timeline, one thread, or the messages that

@@ -591,6 +591,7 @@ export const extensionManifestSchema = z
     permissions: permissionsSchema.optional(),
     contributes: z.strictObject({
       tabs: z.array(tabContributionSchema).min(1).max(8).default([{ name: 'settings', title: 'Settings', hostPage: 'settings' }]),
+      unreadSource: z.strictObject({ binding: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/) }).optional(),
       mcpServers: z.array(mcpServerContributionSchema).min(1).max(4).optional(),
       /**
        * Bundle-relative folder of Agent Skills (`<skill>/SKILL.md`), handed to every agent
@@ -677,6 +678,9 @@ export const extensionManifestSchema = z
     // 那个,等于让「默认最小」在一个笔误上悄悄失效。当场判错。
     const declared = manifest.permissions?.capabilities ?? [];
     const unreadBinding = manifest.permissions?.bindings?.[0];
+    if (manifest.contributes.unreadSource && manifest.contributes.unreadSource.binding !== unreadBinding?.name) {
+      ctx.addIssue({ code: 'custom', path: ['contributes', 'unreadSource'], message: 'unreadSource must name the declared conversation unread binding' });
+    }
     if (Boolean(unreadBinding) !== declared.includes('chat:unread')) {
       ctx.addIssue({ code: 'custom', path: ['permissions', 'bindings'], message: 'chat:unread requires exactly one conversation binding with only the unread action' });
     }
