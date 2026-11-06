@@ -1,4 +1,5 @@
 import { onNativePublicationQueued, pendingNativePublications, saveNativePublication, type NativePublication, type NativePublicationContext } from './native-publication-journal';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 let currentHost: { context(sessionId: string): Promise<NativePublicationContext | null> } | null = null;
 export async function nativePublicationContext(sessionId: string, requireOwner = false): Promise<NativePublicationContext | null> {
@@ -6,6 +7,16 @@ export async function nativePublicationContext(sessionId: string, requireOwner =
   const context = await host?.context(sessionId) ?? null;
   if (requireOwner && host && !context) throw new Error('Native publication owner is not authenticated');
   return context;
+}
+
+/** Task-page session-direct inputs are personal too; background deliveries never borrow that identity. */
+export async function nativePersonalInputContext(input: {
+  sessionId: string; text: string; kind?: 'ordinary' | 'session-direct';
+  delivery?: { origin?: string }; sourceInput?: unknown;
+}): Promise<NativePublicationContext | null> {
+  const manual = input.delivery?.origin === 'manual' || input.sourceInput !== undefined;
+  return !readDeliveryEnvelope(input.text) && (manual || input.kind !== 'session-direct' && !input.delivery?.origin)
+    ? nativePublicationContext(input.sessionId) : null;
 }
 
 /** Startup drains only explicit durable live admissions, never scans transcripts or activity previews. */

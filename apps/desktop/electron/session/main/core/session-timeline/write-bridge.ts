@@ -5,6 +5,7 @@ import { getAcpRuntimeClient } from '@main/core/acp/runtime-process/host';
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader';
 import { sendMessage } from '@main/core/sessions/sendMessage';
 import { sessionLife } from '@main/core/sessions/session-life';
+import { nativePersonalInputContext } from '@main/core/sessions/native-publication-host';
 import type { Session } from '@shared/core/sessions/sessions';
 import {
   remoteSettlementGap,
@@ -23,8 +24,7 @@ import { log } from '@main/lib/logger';
  * 读侧（时间线）是 harness 自己的记录，与咕咕怎么把它拉起来无关；写侧不是 —— 它必须走
  * 这条会话当初被拉起来的那条腿：
  *
- *  · 用户消息：ACP 与 TUI 都走 `sendMessage`（`core/sessions/sendMessage.ts`），由既有路由按
- *    harness 的能力决定忙时插话；不在手机写侧另写一条 ACP 准入/唤醒/排队链路。
+ *  · 用户消息：ACP 走 `sessionLife`，TUI 走 `sendMessage`，复用各自既有准入与排队链路。
  *    TUI ❌ 不直接 `ptyController.sendInput(text + '\r')`：那会绕开
  *    `buildPromptInjectionPayload`（换行/括号粘贴按家转义）与各家声明的 `submitSequence`/`submitDelayMs`，
  *    也绕开 `prompt.kind: 'none'` 那条 fail loud。同一段字节两处编码，迟早分叉。
@@ -145,9 +145,11 @@ export async function deliverSessionText(
   // ACP: custody chain. The host's session_pending now owns this message id; whatever its receipt says (a
   // refetch after a lost reply finds the existing row), the sender's outbox copy ends here.
   if (target.runtime === 'acp') {
+    const personalPublication = await nativePersonalInputContext({ sessionId: target.id, text, kind: 'session-direct', delivery: { origin: 'manual' } });
     sessionLife().enqueue({
       sessionId: target.id, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'session-direct',
       delivery: { queue: true, origin: 'manual', ...(steerIfBusy ? { steerIfBusy } : {}), ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) },
+      ...(personalPublication ? { personalPublication } : {}),
     });
     return { accepted: 'queued' };
   }

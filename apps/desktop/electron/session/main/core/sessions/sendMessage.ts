@@ -37,7 +37,7 @@ import { sessionLife } from './session-life';
 import { sessionDeliveryFailedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 import { queueNativeInput, type NativePublicationContext } from './native-publication-journal';
-import { nativePublicationContext } from './native-publication-host';
+import { nativePersonalInputContext } from './native-publication-host';
 import { isLifeSession } from './session-pending';
 
 export interface SendSessionMessageParams {
@@ -389,7 +389,7 @@ function persistFailedMessage(
 
 /** Record a successfully injected direct message in the recipient timeline, never in its outbox. */
 function persistDeliveredSessionDirect(
-  params: { sessionId: string; sourceInput?: SendSessionMessageParams['sourceInput'] },
+  params: Pick<SendSessionMessageParams, 'sessionId' | 'sourceInput' | 'personalPublication'>,
   message: { id: string; text: string },
   nativeReceiptId?: string,
 ): void {
@@ -402,6 +402,7 @@ function persistDeliveredSessionDirect(
       timestamp: new Date().toISOString().replace('T', ' ').replace('Z', ''),
       metadata: messageMetadata('session-direct', 'accepted', nativeReceiptId, params.sourceInput),
     }).run();
+    if (params.personalPublication) queueNativeInput(params.personalPublication, params.sessionId, message.id, new Date().toISOString(), tx);
   });
   sessionDirectAccepted(params.sessionId, message);
 }
@@ -440,7 +441,7 @@ export function recordFailedSessionDirectMessage(
 
 /** Keep a gate-rejected session-direct message in the recipient's existing inbox projection. */
 async function enqueuePendingSessionDirectMessage(
-  params: { projectId: string; sessionId: string; clientMessageId: string; sourceInput?: SendSessionMessageParams['sourceInput'] },
+  params: Pick<SendSessionMessageParams, 'projectId' | 'sessionId' | 'clientMessageId' | 'sourceInput' | 'personalPublication'>,
   text: string,
 ): Promise<void> {
   await serialize(enqueueOperations, params.sessionId, async () => {
@@ -466,6 +467,7 @@ async function enqueuePendingSessionDirectMessage(
         metadata: messageMetadata('session-direct', 'queued', undefined, params.sourceInput),
         timestamp: new Date().toISOString().replace('T', ' ').replace('Z', ''),
       }).run()
+      if (params.personalPublication) queueNativeInput(params.personalPublication, params.sessionId, pending.id, new Date().toISOString(), tx);
       tx.update(sessions)
         .set({ config: enqueue.config })
         .where(and(
@@ -569,7 +571,7 @@ function enqueueIntoLife(params: SendSessionMessageParams): SendSessionMessageRe
 
 export async function sendMessage(params: SendSessionMessageParams): Promise<SendSessionMessageResult> {
   params.signal?.throwIfAborted();
-  const personalPublication = params.kind !== 'session-direct' && (!params.delivery?.origin || params.delivery.origin === 'manual') && !readDeliveryEnvelope(params.text) ? await nativePublicationContext(params.sessionId) : null;
+  const personalPublication = await nativePersonalInputContext(params);
   params = { ...params, personalPublication: personalPublication ?? undefined };
   params.signal?.throwIfAborted();
   if (isLifeSession(params.sessionId)) return enqueueIntoLife(params);
@@ -661,11 +663,7 @@ async function sendMessageOnce(
         `session message acceptance id ${receipt.messageId} does not match ${clientMessageId} for ${params.sessionId}`,
       );
     }
-    persistDeliveredSessionDirect(
-      { sessionId: params.sessionId, sourceInput: params.sourceInput },
-      { id: clientMessageId, text },
-      receipt.nativeReceiptId,
-    );
+    persistDeliveredSessionDirect(params, { id: clientMessageId, text }, receipt.nativeReceiptId);
     return { id: clientMessageId, status: 'delivered' };
   }
 
