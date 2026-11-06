@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import YAML from 'yaml'
 import { browserShardPlan } from '../../../scripts/test-infra/vitest-browser-shard-plan.mjs'
 
-type Step = { id?: string; run?: string; uses?: string; if?: string; env?: Record<string, string> }
+type Step = { name?: string; id?: string; run?: string; uses?: string; if?: string; env?: Record<string, string> }
 const roots: string[] = []
 afterEach(() => { roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })) })
 const steps = (action: string): Step[] => YAML.parse(readFileSync('.github/actions/' + action + '/action.yml', 'utf8')).runs.steps
@@ -128,4 +128,52 @@ it('fits the full PR plus existing dev background work in the 20-hosted-job budg
   const peak = jobs.filter(([id]) => !['changes', 'gate'].includes(id)).reduce((sum, [, job]) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0)
   expect(peak).toBe(18)
   expect(peak + 1 /* serial cache producer */ + 1 /* Dev Mac build */).toBeLessThanOrEqual(20)
+})
+
+
+it('only persistent Mac checkouts preserve caches, without changing either immutable route or payload', () => {
+  const actionSteps = steps('setup-community')
+  const clean = actionSteps.find(step => step.name === 'Clean source while preserving checkout-local dependency caches')!
+  expect(clean.if).toBe("runner.environment == 'self-hosted' && runner.os == 'macOS'")
+  expect(actionSteps.indexOf(clean)).toBeLessThan(actionSteps.findIndex(step => step.uses === 'pnpm/action-setup@v4'))
+  for (const [file, sha, id] of [
+    ['ci-mac-build.yml', '499a1ee16cb7650190e8a7869bec59e4f4ee9f22', 'build'],
+    ['ci-mac-session.yml', '0970e2e3af61985a54bedd313278f72673ccc493', 'session'],
+  ]) {
+    const path = '.github/workflows/' + file
+    const current = YAML.parse(readFileSync(path, 'utf8'))
+    const previous = YAML.parse(execFileSync('git', ['show', sha + ':' + path], { encoding: 'utf8' }))
+    const checkout = current.jobs[id].steps.find((step: Step) => step.uses === 'actions/checkout@v4')
+    expect(checkout.with.clean).toBe("${{ runner.environment != 'self-hosted' }}")
+    delete checkout.with.clean
+    expect(current).toEqual(previous)
+  }
+})
+
+it.each([false, true])('the real cleanup removes stale source but preserves nested dependencies and external files (symlink=%s)', linked => {
+  const parent = mkdtempSync(join(tmpdir(), 'checkout-clean-')); roots.push(parent)
+  const root = join(parent, 'checkout with spaces'), outside = join(parent, 'outside')
+  mkdirSync(root); mkdirSync(outside)
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, stdio: 'pipe' })
+  git('init', '-q'); writeFileSync(join(root, 'tracked.ts'), 'original')
+  git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture')
+  // checkout@v4 force-checks out the requested ref even with clean:false.
+  writeFileSync(join(root, 'tracked.ts'), 'dirty'); git('checkout', '--force', 'HEAD')
+  writeFileSync(join(outside, 'sentinel'), 'outside')
+  if (linked) symlinkSync(outside, join(root, 'node_modules'))
+  else { mkdirSync(join(root, 'node_modules')); writeFileSync(join(root, 'node_modules/sentinel'), 'dependency') }
+  for (const dir of ['packages/a/node_modules', '.ci-cache/pnpm', 'dist', 'not-node_modules']) mkdirSync(join(root, dir), { recursive: true })
+  for (const file of ['packages/a/node_modules/sentinel', '.ci-cache/pnpm/sentinel', 'dist/old.js', 'not-node_modules/old.js', '.env.local', 'obsolete.ts']) writeFileSync(join(root, file), 'content')
+  const clean = steps('setup-community').find(step => step.name === 'Clean source while preserving checkout-local dependency caches')!
+  execFileSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', clean.run!], { env: { ...process.env, GITHUB_WORKSPACE: root } })
+  expect(readFileSync(join(root, 'tracked.ts'), 'utf8')).toBe('original')
+  expect(readFileSync(join(root, 'node_modules/sentinel'), 'utf8')).toBe(linked ? 'outside' : 'dependency')
+  expect(readFileSync(join(root, 'packages/a/node_modules/sentinel'), 'utf8')).toBe('content')
+  expect(readFileSync(join(root, '.ci-cache/pnpm/sentinel'), 'utf8')).toBe('content')
+  expect(readFileSync(join(outside, 'sentinel'), 'utf8')).toBe('outside')
+  for (const file of ['dist', 'not-node_modules', '.env.local', 'obsolete.ts']) expect(readdirSync(root)).not.toContain(file)
+  // A misbound nested directory must fail before git clean can affect its parent repo.
+  mkdirSync(join(root, 'nested')); writeFileSync(join(root, 'must-stay.ts'), 'sentinel')
+  expect(() => execFileSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', clean.run!], { env: { ...process.env, GITHUB_WORKSPACE: join(root, 'nested') }, stdio: 'pipe' })).toThrow()
+  expect(readFileSync(join(root, 'must-stay.ts'), 'utf8')).toBe('sentinel')
 })

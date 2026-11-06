@@ -385,10 +385,22 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
       await until('the composer has opened the entry for editing', () => {
         const cancel = [...view.composerSlot!.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === t('common.cancel'));
         const editor = input.element();
-        return !!cancel && !cancel.disabled && editor.getAttribute('aria-disabled') === 'false' && document.activeElement === editor;
+        const selection = window.getSelection();
+        if (!cancel || cancel.disabled || editor.getAttribute('aria-disabled') !== 'false' || document.activeElement !== editor
+          || editorApiRef.current?.getText() !== q!.text || !selection?.isCollapsed || !selection.focusNode || !editor.contains(selection.focusNode)) return false;
+        // A previously focused editor can satisfy activeElement before TipTap's queued
+        // focus callback moves the caret. Observe its final caret as well as its text.
+        const beforeCaret = document.createRange();
+        beforeCaret.selectNodeContents(editor); beforeCaret.setEnd(selection.focusNode, selection.focusOffset);
+        return beforeCaret.toString() === q!.text;
       });
-      await input.fill('edited queued input'); await userEvent.keyboard('{Enter}');
-      await until('the same queued identity has the saved text', () => own.rows.some(row => row.id === q!.id && row.text === 'edited queued input' && !row.sendQueue?.edit));
+      await input.fill('edited queued input');
+      await until('the queued editor and its controlled state contain the edit', () => editorApiRef.current?.getText() === 'edited queued input'
+        && store.queuedPromptEdit?.text === 'edited queued input' && !store.queuedPromptEdit.pending);
+      await userEvent.keyboard('{Enter}');
+      await until('the same queued identity has the saved text', () => ({
+        row: own.rows.find(row => row.id === q!.id), editor: editorApiRef.current?.getText(), edit: store.queuedPromptEdit,
+      }), ({ row }) => row?.text === 'edited queued input' && !row.sendQueue?.edit);
       expect(store.draftText).toBe('保留的草稿');
       q = own.rows.find(row => row.id === q!.id)!;
       await userEvent.dragAndDrop(queueRow(third.id).querySelector<HTMLButtonElement>('button[draggable]')!, queueRow(second.id));
