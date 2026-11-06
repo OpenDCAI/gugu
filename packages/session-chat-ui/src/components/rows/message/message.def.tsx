@@ -220,7 +220,7 @@ function AssistantRender(props: { data: ChatMessage; ctx: RenderCtx; vars: Messa
       class={`${assistantOuter} ${messageText({ role: role() })} ${assistantRoot}`}
       style={assignInlineVars(assistantVars, pxTokens({ height: totalH() }))}
     >
-      <div class={srOnly}>{plainText()}</div>
+      <div class={srOnly} role="note" aria-label={plainText()} />
       <StreamContext.Provider value={props.data.streaming ? streamAnimation : null}>
         <Show when={stack()}>{(s) => <BlockStackView node={s()} />}</Show>
       </StreamContext.Provider>

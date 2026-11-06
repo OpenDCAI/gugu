@@ -28,7 +28,8 @@ export const messageText = recipe({
 export const assistantOuter = style([messageGroup, { position: 'relative' }]);
 
 export const srOnly = style({
-  // A cross-message native selection must not copy this duplicate of the painted body.
+  // Full assistive text lives in an accessible name, not a duplicate Text node:
+  // older WebViews include user-select:none descendants in Selection.toString().
   userSelect: 'none',
   WebkitUserSelect: 'none',
   position: 'absolute',

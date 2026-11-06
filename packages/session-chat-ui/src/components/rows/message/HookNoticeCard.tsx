@@ -173,11 +173,7 @@ export function HookNoticeCard(props: {
       )}
     >
       {/* 读屏先听见「这不是 agent 在说话」，再听内容 —— 视觉上那句话由框和头一行承担。 */}
-      <div class={srOnly}>
-        {props.srLabel}
-        {' · '}
-        {props.data.text}
-      </div>
+      <div class={srOnly} role="note" aria-label={`${props.srLabel} · ${props.data.text}`} />
       <div class={noticeHeader} data-slot="hook-notice-header" aria-hidden="true">
         <span class={noticeDot} />
         <span class={noticeHook} style={{ 'line-height': `${lineH()}px` }} title={props.label}>
