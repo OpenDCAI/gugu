@@ -199,3 +199,12 @@ export function projectMountErrorMessage(projectId: string, translate: SessionTr
   }
   return translate('task.openProjectFailed');
 }
+
+/** The session this window shows, on this computer or another, by its id alone: its project here and its view. */
+export function findSessionAnywhere(sessionId: string): { projectId: string; viewModel: WorkspaceViewModel } | undefined {
+  for (const [projectId, project] of getProjectManagerStore().projects) {
+    const store = project.mountedProject?.sessionManager.sessions.get(sessionId);
+    if (store?.viewModel) return { projectId, viewModel: store.viewModel };
+  }
+  return undefined;
+}
