@@ -63,6 +63,7 @@ import {
   RENDERER_LOG_CHANNEL,
 } from './lib/logger'
 import { createRendererLogForwarder } from './local-renderer-diagnostics'
+import { registerErrorSummaryConsent } from './error-summary-consent-host'
 import { autoApproveFromPermissionMode, type GuguPermissionMode } from '@gugu/session-core/acp'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
@@ -2661,9 +2662,13 @@ async function sessionLifeEnter(): Promise<void> {
   const userId = pushedUserId()
   if (sessionLifeBooted && userId) await bootedSessionLife().signIn(userId)
 }
+const errorSummaryConsent = registerErrorSummaryConsent({
+  eligible: !SERVER_MODE && __GUGU_TIER__ === 'beta' && __GUGU_BUILD_DISTRIBUTION__ === 'published',
+  owner: () => pushedHumanAuth === undefined ? undefined : pushedUserId(),
+})
 const humanAuthSessionIpc = createHumanAuthSessionIpc({
   toAuth: runtimeAuthFromSupabaseTokens,
-  set: (auth) => { pushedHumanAuth = auth },
+  set: (auth) => { pushedHumanAuth = auth; errorSummaryConsent.identityChanged() },
   revoke: () => projectionDeviceRuntime.invalidate(),
   persist: (mirror: Parameters<typeof writeHumanAuthSession>[0]) => writeHumanAuthSession(mirror),
   erase: () => clearHumanAuthSession(),

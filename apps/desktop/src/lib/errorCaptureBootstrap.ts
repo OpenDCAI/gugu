@@ -12,3 +12,11 @@ import { installLocalRendererDiagnostics } from './localRendererDiagnostics'
 
 installErrorRingBuffer()
 installLocalRendererDiagnostics()
+
+// Only a local encounter marker; no error text is passed to the consent host.
+if (window.electronAPI) {
+  const encounter = () => window.electronAPI?.eventSend('error-summary:encounter', null)
+  window.addEventListener('error', encounter)
+  window.addEventListener('unhandledrejection', encounter)
+  window.addEventListener('gugu:react-error', encounter)
+}

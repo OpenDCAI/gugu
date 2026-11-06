@@ -53,6 +53,7 @@ export class AppErrorBoundary extends React.Component<React.PropsWithChildren, A
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    window.dispatchEvent(new CustomEvent('gugu:react-error', { detail: error }))
     // @@@2116 - detailed diagnostics (stack + component stack) go to the log only; the
     // user-facing fallback stays a plain-language message with a recovery action.
     console.error('[app] render failed', error, info)

@@ -1,4 +1,15 @@
 export default {
+  "errorSummary": {
+    "title": "Allow error summaries?",
+    "body": "Gugu encountered an error. You can allow automatic, privacy-filtered error summaries to help us fix problems.",
+    "details": "Includes only the error type, code location, version, operating system and time. Chat, secrets, screenshots, memory and other user content are never sent. You can turn this off in Settings at any time.",
+    "deny": "Don't allow",
+    "allow": "Allow",
+    "privacy": "Privacy",
+    "setting": "Send error summaries automatically",
+    "settingDescription": "Send privacy-filtered error summaries to help fix problems. Turning this off stops reporting and clears pending reports.",
+    "saveFailed": "Your choice could not be saved. Please try again."
+},
   "about": {
     "brand": "Gugu",
     "checking": "Checking...",

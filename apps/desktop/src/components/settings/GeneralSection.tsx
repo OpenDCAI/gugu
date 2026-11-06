@@ -1,3 +1,4 @@
+import { ErrorSummaryPrivacySetting } from '../ErrorSummaryConsent'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SUPPORTED_LOCALES, useLocale, type LocalePreference } from '@/i18n'
@@ -85,6 +86,7 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
 
   return (
     <SettingsPage>
+      <ErrorSummaryPrivacySetting />
       <SettingsGroup>
         <SettingsRow
           title={<label htmlFor="settings-language">{t('settings.general.language')}</label>}
