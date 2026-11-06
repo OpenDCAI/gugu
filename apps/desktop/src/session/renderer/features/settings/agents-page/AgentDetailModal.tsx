@@ -1,11 +1,12 @@
 import { agentSupportsConnectionManagement } from '@shared/core/agents/agent-payload';
+import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsPrimitives';
+import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { observer } from 'mobx-react-lite';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { useManagementAgent } from '@renderer/lib/stores/use-agents';
-import { Dialog, DialogContent, DialogContentArea, DialogHeader } from '@renderer/lib/ui/dialog';
+import { Dialog, DialogContent, DialogContentArea, DialogHeader, DialogTitle } from '@renderer/lib/ui/dialog';
 import { ModalLayout } from '@renderer/lib/ui/modal-layout';
 import { cn } from '@renderer/utils/utils';
-import { AgentAccountSection } from './AgentAccountSection';
 import { AgentModalHeaderSection } from './AgentModalHeaderSection';
 import { InstallSection } from './InstallSection';
 
@@ -34,6 +35,7 @@ const AgentDetailModalContent = observer(function AgentDetailModalContent({
   agentId: string;
   onClose: () => void;
 }) {
+  const { translate } = useSessionMessages();
   const { data: agentPayload } = useManagementAgent(agentId);
   const compact = agentSupportsConnectionManagement(agentPayload);
   /**
@@ -53,25 +55,22 @@ const AgentDetailModalContent = observer(function AgentDetailModalContent({
 
   const header = (
     <DialogHeader>
-      {agentPayload && <AgentModalHeaderSection agent={agentPayload} dimmed={dimmed} compact={compact} />}
+      {agentPayload ? <AgentModalHeaderSection agent={agentPayload} dimmed={dimmed} compact={compact} /> : <DialogTitle>{agentId}</DialogTitle>}
     </DialogHeader>
   );
   const content = (
-    <DialogContentArea className={cn('gap-0', CONTENT_MAX_HEIGHT)}>
-      {agentPayload && (
-        /* Claude/Codex 默认只问能否使用、怎么配置；安装来源收进高级。 */
+    <DialogContentArea className={cn('gap-6', CONTENT_MAX_HEIGHT)}>
+      {agentPayload ? (
+        /* Render cached installation immediately; probes refresh it in the background. */
         <fieldset disabled={readOnly} className="contents" data-read-only={readOnly || undefined}>
-          {compact && <AgentAccountSection agent={agentPayload} />}
           <InstallSection
-            advancedOnly={compact}
             agentId={agentId}
             agentPayload={agentPayload}
             installOptions={agentPayload.installOptions}
             installDocs={agentPayload.installDocs}
-            accountSlot={compact ? undefined : <AgentAccountSection agent={agentPayload} />}
           />
         </fieldset>
-      )}
+      ) : <SettingsGroup><SettingsRow title={translate('agentsPage.installation')} description={translate('agentsPage.checking')} /></SettingsGroup>}
     </DialogContentArea>
   );
   // Fixed credential rows do not use the installation content's height animation.

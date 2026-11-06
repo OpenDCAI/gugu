@@ -7,7 +7,8 @@ export function useConnectionAvailability(providerId: string, machine: string | 
   const query = useQuery({
     queryKey: [...subscriptionKey(machine, providerId), 'availability'],
     staleTime: 30_000,
-    retry: false,
+    retry: true,
+    retryDelay: attempt => Math.min(1000 * 2 ** attempt, 30_000),
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const result = await (await getAgentConfigRuntimeClient(machine)).refreshAuthStatus({ providerId });
@@ -15,10 +16,8 @@ export function useConnectionAvailability(providerId: string, machine: string | 
       return result.data;
     },
   });
-  const state = query.isFetching || query.isPending ? 'checking'
-    : query.error ? 'failed'
-    : query.data?.kind === 'authenticated' ? 'usable'
+  const state = query.data?.kind === 'authenticated' ? 'usable'
     : query.data?.kind === 'unauthenticated' || missingProgram ? 'unusable'
-    : 'failed';
-  return { state, refresh: query.refetch, error: query.error } as const;
+    : query.isFetching || query.isPending ? 'checking' : 'failed';
+  return { auth: query.data, state, refresh: query.refetch, error: query.error } as const;
 }

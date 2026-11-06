@@ -8,6 +8,8 @@ import { onMachineEvent } from '@renderer/lib/ipc';
 import { subscriptionSwitchProgressChannel } from '@shared/core/sessions/subscriptionSwitchEvents';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
+import { SelectItem } from '@renderer/lib/ui/select';
+import { ConnectionSettingsRows } from './ConnectionSettingsRows';
 import { Input } from '@renderer/lib/ui/input';
 import { Dialog, DialogContent, DialogContentArea, DialogHeader, DialogTitle } from '@renderer/lib/ui/dialog';
 import {
@@ -38,7 +40,8 @@ export function useSubscriptionConnections(machine: string | null, providerId: s
     },
     enabled: providerId === 'claude' || providerId === 'codex',
     staleTime: 30_000,
-    retry: false,
+    retry: true,
+    retryDelay: attempt => Math.min(1000 * 2 ** attempt, 30_000),
   });
 }
 
@@ -55,7 +58,9 @@ export type SwitchNotice = {
 };
 
 /** `onError` 把切换失败的原因交给行去摆(整行宽度);这里只管菜单与按钮,❌ 在窄的操作列里画长句。 */
-export function SubscriptionConnections({ agent, machine, onError, trigger, label, open: requestedOpen, onOpenChange, anchor, addDirectly = false }: {
+export function SubscriptionConnections({ agent, machine, onError, trigger, label, open: requestedOpen, onOpenChange, anchor, addDirectly = false, settingsRows = false, description }: {
+  settingsRows?: boolean;
+  description?: ReactNode;
   addDirectly?: boolean;
   trigger?: ReactElement | null;
   label?: ReactNode;
@@ -153,7 +158,13 @@ export function SubscriptionConnections({ agent, machine, onError, trigger, labe
   };
   return (
     <>
-      <DropdownMenu open={open} onOpenChange={changeOpen}>
+      {settingsRows ? <ConnectionSettingsRows connections={connections.data} open={open} onOpenChange={setOpen}
+        onSelect={id => action.mutate({ kind: 'select', id })} onAdd={() => setAdding(true)} busy={action.isPending}
+        description={description} notice={failure && <p className={tone === 'error' ? 'subscription-error' : 'subscription-note'} role={tone === 'error' ? 'alert' : 'status'}>{failure}{refusedId && <Button size="sm" onClick={closeAndSwitch}>{translate('subscriptions.connections.closeAndSwitch')}</Button>}</p>}
+        form={adding && <div className="p-4"><ConnectionForm agent={agent} machine={machine} canSignIn={canSignIn} onCreated={connection => { refresh(); setAdding(false); if (connection.kind === 'account') signIn(connection.id); }} /><Button variant="ghost" size="sm" onClick={() => setAdding(false)}>{translate('agentsPage.cancel')}</Button></div>}>
+        {open && connections.data?.map(connection => <ConnectionOption key={connection.id} connection={connection} agent={agent} machine={machine} busy={action.isPending} selectItem
+          onSignIn={canSignIn ? () => signIn(connection.id) : undefined} onRemove={() => action.mutate({ kind: 'remove', id: connection.id })} />)}
+      </ConnectionSettingsRows> : <DropdownMenu open={open} onOpenChange={changeOpen}>
         {trigger !== null && <DropdownMenuTrigger render={trigger ?? <Button variant="ghost" size="xs" disabled={action.isPending} data-testid={`subscription-switch-${agent.id}`} />}>
           {label ?? <>{translate('subscriptions.connections.switch')}<ChevronDown className="ml-1 size-3" /></>}
         </DropdownMenuTrigger>}
@@ -178,8 +189,8 @@ export function SubscriptionConnections({ agent, machine, onError, trigger, labe
             <Plus className="size-4" />{translate('subscriptions.connections.add')}
           </DropdownMenuItem>
         </DropdownMenuContent>
-      </DropdownMenu>
-      <Dialog open={adding} onOpenChange={setAdding}>
+      </DropdownMenu>}
+      <Dialog open={adding && !settingsRows} onOpenChange={setAdding}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader><DialogTitle>{translate('subscriptions.connections.addTitle', { provider: agent.name })}</DialogTitle></DialogHeader>
           <DialogContentArea>
@@ -195,8 +206,8 @@ export function SubscriptionConnections({ agent, machine, onError, trigger, labe
   );
 }
 
-function ConnectionOption({ connection, agent, machine, busy, onRemove, onSignIn }: {
-  connection: HarnessConnection; agent: AgentPayload; machine: string | null; busy: boolean;
+function ConnectionOption({ connection, agent, machine, busy, onRemove, onSignIn, selectItem = false }: {
+  connection: HarnessConnection; agent: AgentPayload; machine: string | null; busy: boolean; selectItem?: boolean;
   onRemove: () => void;
   onSignIn?: () => void;
 }) {
@@ -229,9 +240,11 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove, onSignIn
     : connection.kind === 'api-key' ? connection.endpoint ? new URL(connection.endpoint).host : translate('subscriptions.connections.officialApi')
     : status?.kind === 'unauthenticated' ? translate(status.reason === 'expired' ? 'subscriptions.connections.expired' : 'subscriptions.connections.signedOut')
     : details.isPending ? translate('subscriptions.checking') : translate('subscriptions.connections.account');
+  const Choice = selectItem ? SelectItem : DropdownMenuRadioItem;
+  const options = <>{canSignIn && <DropdownMenuItem disabled={busy} onClick={onSignIn}>{translate('subscriptions.connections.signIn')}</DropdownMenuItem>}{!connection.current && <DropdownMenuItem disabled={busy} variant="destructive" onClick={onRemove}>{translate('subscriptions.connections.remove')}</DropdownMenuItem>}</>;
   return (
     <div className="subscription-connection-option" data-testid={`connection-${connection.id}`}>
-      <DropdownMenuRadioItem value={connection.id} data-testid={`connection-use-${connection.id}`}
+      <Choice value={connection.id} data-testid={`connection-use-${connection.id}`}
         disabled={busy || details.isPending || (connection.kind === 'account' && status?.kind !== 'authenticated')}
         className="subscription-connection-choice">
         <span><span className="subscription-connection-name">{name}{details.data?.plan?.plan && <span className="subscription-plan-badge">{details.data.plan.plan}</span>}</span>
@@ -239,14 +252,14 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove, onSignIn
           {quota && <span className="subscription-connection-quota block" data-testid={`connection-quota-${connection.id}`} data-warning={nearlyUsed || undefined}>{quota}</span>}
           {details.error && <span className="subscription-error block">{errorText(details.error)}</span>}
         </span>
-      </DropdownMenuRadioItem>
-      {connection.kind !== 'native' && (!connection.current || canSignIn) && <DropdownMenuSub>
+      </Choice>
+      {connection.kind !== 'native' && (!connection.current || canSignIn) && (selectItem ? <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="size-8" aria-label={translate('subscriptions.connections.options', { name })} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger><DropdownMenuContent align="end">{options}</DropdownMenuContent></DropdownMenu> : <DropdownMenuSub>
         <DropdownMenuSubTrigger aria-label={translate('subscriptions.connections.options', { name })} className="subscription-connection-options"><MoreHorizontal className="size-4" /></DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           {canSignIn && <DropdownMenuItem disabled={busy} onClick={onSignIn}>{translate('subscriptions.connections.signIn')}</DropdownMenuItem>}
           {!connection.current && <DropdownMenuItem disabled={busy} variant="destructive" onClick={onRemove}>{translate('subscriptions.connections.remove')}</DropdownMenuItem>}
         </DropdownMenuSubContent>
-      </DropdownMenuSub>}
+      </DropdownMenuSub>)}
     </div>
   );
 }

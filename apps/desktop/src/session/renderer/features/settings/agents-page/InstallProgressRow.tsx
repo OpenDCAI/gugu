@@ -16,9 +16,11 @@ import { installProgressLine } from './install-progress-line';
 export function InstallProgressRow({
   progress,
   onCancel,
+  compact = false,
 }: {
   progress: AgentInstallProgress | null;
   onCancel: () => void;
+  compact?: boolean;
 }) {
   const { translate } = useSessionMessages();
   const [cancelRequested, setCancelRequested] = useState(false);
@@ -55,13 +57,13 @@ export function InstallProgressRow({
         {line !== null && line.ratio !== null ? (
           <span
             data-testid="install-progress-determinate"
-            className="block h-full bg-foreground-info transition-[width] duration-500 motion-reduce:transition-none"
+            className={compact ? "block h-full bg-foreground transition-[width] duration-500 motion-reduce:transition-none" : "block h-full bg-foreground-info transition-[width] duration-500 motion-reduce:transition-none"}
             style={{ width: `${Math.round(line.ratio * 100)}%` }}
           />
         ) : (
           <span
             data-testid="install-progress-indeterminate"
-            className="gg-progress-indeterminate block h-full w-[38%] bg-foreground-info"
+            className={compact ? "gg-progress-indeterminate block h-full w-[38%] bg-foreground" : "gg-progress-indeterminate block h-full w-[38%] bg-foreground-info"}
           />
         )}
       </div>
