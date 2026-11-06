@@ -83,6 +83,15 @@ describe('Codex session identity and explicit fork copies', () => {
     expect(keys[0]).not.toBe(keys[1]);
   });
 
+  it('does not let copied metadata override distinct caller session identities', () => {
+    const keys = ['a', 'b'].map(providerSessionId => {
+      const state = codexTokenReader.initialState({ path: `/fixture/${providerSessionId}`, providerSessionId });
+      codexTokenReader.readLine({ type: 'session_meta', payload: { id: 'copied-parent' } }, state);
+      return codexTokenReader.readLine(count(100), state)!.key;
+    });
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
   it('uses native session metadata and carries it through incremental state', () => {
     const state = codexTokenReader.initialState({ path: '/fixture' });
     expect(codexTokenReader.mayCarryUsage('{"type":"session_meta"}')).toBe(true);

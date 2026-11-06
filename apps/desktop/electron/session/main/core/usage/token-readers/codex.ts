@@ -29,7 +29,7 @@ const ROLLOUT_PATTERN =
 
 type Totals = { input: number; cached: number; cacheWrite: number; output: number; total: number };
 
-type CodexState = { model: string | null; last: Totals | null; scope: string; forkedFrom?: string };
+type CodexState = { model: string | null; last: Totals | null; scope: string; fixedScope: boolean; forkedFrom?: string };
 
 async function listDir(path: string): Promise<Dirent[]> {
   try {
@@ -109,7 +109,8 @@ export const codexTokenReader: TokenLogReader = {
   },
 
   initialState(context): ReaderState {
-    const state: CodexState = { model: null, last: null, scope: context?.providerSessionId || context?.path || 'unbound' };
+    const state: CodexState = { model: null, last: null, scope: context?.providerSessionId || context?.path || 'unbound',
+      fixedScope: !!context?.providerSessionId };
     return state;
   },
 
@@ -125,7 +126,8 @@ export const codexTokenReader: TokenLogReader = {
 
     if (entry.type === 'session_meta') {
       const id = payload.session_id ?? payload.id;
-      if (typeof id === 'string' && id.trim()) state.scope = id.trim();
+      // A copied/stale session_meta must not merge two distinct sessions selected by the caller.
+      if (!state.fixedScope && typeof id === 'string' && id.trim()) state.scope = id.trim();
       if (typeof payload.forked_from_id === 'string' && payload.forked_from_id.trim()) {
         state.forkedFrom = payload.forked_from_id.trim();
       }

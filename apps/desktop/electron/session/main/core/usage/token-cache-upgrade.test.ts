@@ -6,6 +6,7 @@ import { recentTokenRefreshFrom, TOKEN_CACHE_VERSION } from './token-cache-versi
 import { foldTokenEntries } from './token-fold';
 import { packParsedLogFile, parseLogFile, unpackParsedLogFile } from './token-log-file';
 import { claudeTokenReader } from './token-readers/claude';
+import { codexTokenReader } from './token-readers/codex';
 import { collectTokenEntries, createParsedFileMemory, hydrateParsedFileMemory, type CachedLogFileSave } from './token-scan';
 
 const cutoff = Date.parse('2026-10-30T00:00:00Z');
@@ -102,5 +103,53 @@ describe('bounded token parser cache upgrades', () => {
     const result = await collectTokenEntries({ ...f.options, memory: createParsedFileMemory() });
     expect(result.entries.filter(e => e.ts < cutoff).every(e => !e.quality)).toBe(true);
     expect(foldTokenEntries(result.entries).reduce((n, row) => n + row.output, 0)).toBe(5);
+  });
+
+  it('counts a real-format fork prefix once through scanning, cache hydration and append', async () => {
+    const p = join(dir, 'parent.jsonl'), c = join(dir, 'child.jsonl');
+    const meta = (id: string, parent?: string) => JSON.stringify({ type: 'session_meta', payload: { id, forked_from_id: parent } });
+    const usage = (n: number) => JSON.stringify({ type: 'event_msg', timestamp: new Date(cutoff + n * 1000).toISOString(),
+      payload: { type: 'token_count', info: { total_token_usage: { input_tokens: n * 100, output_tokens: n * 10, total_tokens: n * 110 } } } });
+    writeFileSync(p, [meta('p'), usage(1), usage(2), ''].join('\n'));
+    writeFileSync(c, [meta('c', 'p'), usage(1), usage(2), usage(3), ''].join('\n'));
+    const saved: CachedLogFileSave[] = [];
+    const options = { providerSessions: [{ provider: 'codex', providerSessionId: 'p' }, { provider: 'codex', providerSessionId: 'c' }],
+      readers: [{ ...codexTokenReader, locate: async () => new Map([['c', [c]], ['p', [p]]]) }], rootsByProvider: {},
+      memory: createParsedFileMemory(), refreshSinceMs: cutoff, onSave: (row: CachedLogFileSave) => { saved.push(row); } };
+    const first = await collectTokenEntries(options);
+    expect(foldTokenEntries(first.entries)[0]).toMatchObject({ input: 300, output: 30 });
+    const memory = createParsedFileMemory();
+    hydrateParsedFileMemory(memory, saved);
+    const second = await collectTokenEntries({ ...options, memory });
+    expect(second.stats).toMatchObject({ cacheHits: 2, bytesRead: 0 });
+    expect(second.entries).toEqual(first.entries);
+    appendFileSync(c, `${usage(4)}\n`);
+    const third = await collectTokenEntries({ ...options, memory });
+    expect(foldTokenEntries(third.entries)[0]).toMatchObject({ input: 400, output: 40 });
+    expect(third.stats).toMatchObject({ cacheHits: 1, resumed: 1, fullParses: 0 });
+  });
+
+  it('rebuilds recent Codex deltas from old counters while preserving old cache entries', async () => {
+    const path = join(dir, 'codex.jsonl');
+    const usage = (input: number, output: number, ts: number) => JSON.stringify({ type: 'event_msg', timestamp: new Date(ts).toISOString(),
+      payload: { type: 'token_count', info: { total_token_usage: { input_tokens: input, output_tokens: output, total_tokens: input + output } } } });
+    writeFileSync(path, `${usage(1000, 100, cutoff - 1)}\n${usage(1500, 150, cutoff)}\n`);
+    const parsed = await parseLogFile(path, codexTokenReader);
+    const oldEntries = parsed.entries.map(e => ({ ...e, key: e.legacyKey!, legacyKey: undefined }));
+    const data = JSON.stringify({ v: 1, offset: parsed.offset, state: { model: null, last: { input: 1500, cached: 0, cacheWrite: 0, output: 150, total: 1650 } },
+      models: ['unknown'], entries: oldEntries.map(e => [e.key, e.ts, 0, e.input, e.output, e.cacheRead, e.cacheWrite]) });
+    const info = statSync(path), memory = createParsedFileMemory();
+    hydrateParsedFileMemory(memory, [{ path, size: info.size, mtimeMs: Math.floor(info.mtimeMs), data }]);
+    const options = { providerSessions: [{ provider: 'codex', providerSessionId: 's' }],
+      readers: [{ ...codexTokenReader, locate: async () => new Map([['s', [path]]]) }], rootsByProvider: {}, memory, refreshSinceMs: cutoff,
+      onSave: (_row: CachedLogFileSave) => {} };
+    const result = await collectTokenEntries(options);
+    expect(result.entries[0].key).toBe(oldEntries[0].key);
+    expect(result.entries[1]).toMatchObject({ input: 500, output: 50 });
+    expect(result.entries[1].key).toContain('codex:scope:s:');
+    appendFileSync(path, `${usage(2000, 200, cutoff + 1)}\n`);
+    const resumed = await collectTokenEntries(options);
+    expect(resumed.stats.resumed).toBe(1);
+    expect(resumed.entries[2]).toMatchObject({ input: 500, output: 50 });
   });
 });
