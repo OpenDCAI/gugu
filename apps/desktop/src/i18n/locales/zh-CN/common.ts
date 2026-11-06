@@ -25,7 +25,21 @@ export default {
       "network": "连不上你的咕咕服务，检查一下网络。",
       "signed_out": "登录已失效，重新登录后再试。",
       "gone": "你的咕咕已经关闭了。",
-      "failed": "你的咕咕那边出了问题。"
+      "failed": "你的咕咕那边出了问题。",
+      "server_install_failed": "云端服务没装好，请重试。",
+      "server_start_failed": "云端服务没能启动，请重试。",
+      "account_offline": "云端账号没能上线，请重试。",
+      "package_update_pending": "正在等当前任务结束后更新，请稍后再试。",
+      "home_restore_failed": "没能恢复之前的数据，请稍后再试。",
+      "host_unconfirmed": "暂时确认不了云主机状态，请稍后再试。",
+      "assistant_create_failed": "助理没建好，请重试。",
+      "assistant_busy": "助理正在忙，请稍后再试。",
+      "login_expired": "云端登录已失效，需要重新授权。",
+      "device_removed": "云端设备已被移除，需要确认后恢复。",
+      "provision_incomplete": "开通没完成，请重试。",
+      "wake_incomplete": "准备没完成，请稍后再试。",
+      "sleep_incomplete": "操作没完成，请稍后再试。",
+      "close_incomplete": "关闭没完成，请重试。"
     }
   },
   "agentStatus": {

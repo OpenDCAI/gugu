@@ -13,6 +13,7 @@ import {
   cloudComputerErrorFromResponse,
   createCloudComputerClient,
   isCloudComputerNotOpen,
+  cloudComputerSnapshotFailureKind,
   parseCloudComputerSnapshot,
   type CloudComputerSnapshot,
 } from '@gugu/core/cloud/cloudComputer'
@@ -44,7 +45,14 @@ describe('cloudComputerBaseUrl', () => {
 describe('parseCloudComputerSnapshot', () => {
   it('读出四个字段,缺的记 null', () => {
     expect(parseCloudComputerSnapshot({ state: 'awake', deviceId: 'd1', since: '2026-10-15T04:00:00Z' }))
-      .toEqual({ state: 'awake', deviceId: 'd1', error: null, since: '2026-10-15T04:00:00Z', adopting: false, adoptingFrom: null })
+      .toEqual({ state: 'awake', deviceId: 'd1', error: null, reason: null, since: '2026-10-15T04:00:00Z', adopting: false, adoptingFrom: null })
+  })
+  it('失败原因词:reason 原样读出;认识的成为给人看的那一类,不认识的是 failed', () => {
+    const snapshot = parseCloudComputerSnapshot({ state: 'error', error: '原话', reason: 'server_start_failed' })
+    expect(snapshot.reason).toBe('server_start_failed')
+    expect(cloudComputerSnapshotFailureKind(snapshot)).toBe('server_start_failed')
+    expect(cloudComputerSnapshotFailureKind({ reason: 'not_a_reason' })).toBe('failed')
+    expect(cloudComputerSnapshotFailureKind({})).toBe('failed')
   })
   it('搬家中:adopting / adopting_from 读成驼峰字段;不带 = 不是搬家', () => {
     expect(parseCloudComputerSnapshot({ state: 'provisioning', deviceId: 'd1', adopting: true, adopting_from: 'dev-home' }))

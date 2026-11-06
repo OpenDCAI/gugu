@@ -25,7 +25,21 @@ export default {
       "network": "Can't reach Gugu service. Check your network.",
       "signed_out": "You've been signed out. Sign in again and retry.",
       "gone": "your Gugu has been closed.",
-      "failed": "Something went wrong on Gugu's side."
+      "failed": "Something went wrong on Gugu's side.",
+      "server_install_failed": "The cloud service didn't install. Try again.",
+      "server_start_failed": "The cloud service couldn't start. Try again.",
+      "account_offline": "The cloud account didn't come online. Try again.",
+      "package_update_pending": "An update is waiting for the current task to finish. Try again later.",
+      "home_restore_failed": "Your earlier data couldn't be restored. Try again later.",
+      "host_unconfirmed": "The cloud machine's status can't be confirmed right now. Try again later.",
+      "assistant_create_failed": "Your assistant couldn't be created. Try again.",
+      "assistant_busy": "Your assistant is busy. Try again later.",
+      "login_expired": "The cloud sign-in has expired and needs to be authorized again.",
+      "device_removed": "The cloud device was removed. Confirm to restore it.",
+      "provision_incomplete": "Setup didn't finish. Try again.",
+      "wake_incomplete": "It didn't finish getting ready. Try again later.",
+      "sleep_incomplete": "That didn't finish. Try again later.",
+      "close_incomplete": "Closing didn't finish. Try again."
     }
   },
   "agentStatus": {
