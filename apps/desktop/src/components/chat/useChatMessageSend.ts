@@ -21,14 +21,15 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const { writeDraft } = useChatStore('writeDraft')
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  const [sending, setSending] = useState(false)
-  const sendingRef = useRef(false)
+  const [activeSendingVisit, setActiveSendingVisit] = useState<object | null>(null)
+  const sendingRef = useRef(new Set<object>())
   const activeChatIdRef = useRef(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
   // A visit, rather than just an id: leaving and returning while a send is pending
   // must not let its completion change the newly opened composer's privacy mode.
   const chatVisit = useRef({ chatId: chatId ?? null })
   if (chatVisit.current.chatId !== (chatId ?? null)) chatVisit.current = { chatId: chatId ?? null }
+  const sending = activeSendingVisit === chatVisit.current
   const activeWhisperPeer = useRef(whisperTarget?.userId)
   activeWhisperPeer.current = whisperTarget?.userId
   const [publicNoticeVisit, setPublicNoticeVisit] = useState<typeof chatVisit.current | null>(null)
@@ -52,7 +53,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   // `picked`: files sent straight from a picker page (phone photos) together with the draft's own attachments.
   const handleSend = useCallback(async (value?: string, picked: PendingAttachment[] = []) => {
     // 回车走 handleKeyDown 直达这里、不看按钮的 disabled:在途时再进就会把同一批附件重发一遍。
-    if (sendingRef.current) return
+    if (sendingRef.current.has(chatVisit.current)) return
     const sendingVisit = chatVisit.current
     const submittedAt = performance.now()
     const typed = (value ?? text).trim()
@@ -99,8 +100,8 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
     const committed = new Set<number>()
     // 带引用回复时文字单独走 onSend(它带 replyToMessageId),不挂成图片说明——否则引用关系丢失。
     const captionOnImage = multimodalImage && !replyToMessageId
-    sendingRef.current = true
-    setSending(true)
+    sendingRef.current.add(sendingVisit)
+    setActiveSendingVisit(sendingVisit)
     try {
       // C1:先清空输入框、先上屏乐观气泡。会话就绪不再挡在前面(它可能要重开会话,气泡迟迟不出):
       // 文字消息把它交给 outbox 在投递前 await,失败时气泡变「未送达」可重试,❌ 退回输入框。
@@ -163,8 +164,8 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       revokeAttachmentPreviewUrls(snapshotAttachments)
       toast(t('composer.sendFailed', { reason: safeFailureLine(reason) }), 'error')
     } finally {
-      sendingRef.current = false
-      setSending(false)
+      sendingRef.current.delete(sendingVisit)
+      setActiveSendingVisit(current => current === sendingVisit ? null : current)
     }
   }, [beforeSend, chatId, currentUserId, text, attachments, activeMentionTargets, members, rosterNameIndex, isGroupChat, onSend, onSendAttachments, quoteContent, onQuoteConsumed, t, toast, disabled, disabledReason, whisperTarget, onExitWhisper, writeDraft, setMentionTargets, setAttachments, clear, persistTo, flush, inputRef, mobile])
 

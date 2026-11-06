@@ -118,6 +118,29 @@ describe('whisper composer privacy state (#1932)', () => {
     expect(result.returnedToPublic).toBe(false)
   })
 
+  it('does not block a different chat or clear its sending state when an old whisper finishes', async () => {
+    let finishPrivate!: () => void
+    let finishPublic!: () => void
+    await setup(vi.fn((content: string) => new Promise<void>(resolve => {
+      if (content === 'private') finishPrivate = resolve
+      else finishPublic = resolve
+    })))
+    let privateSend!: Promise<void>
+    let publicSend!: Promise<void>
+    await act(async () => { privateSend = result.handleSend('private') })
+    expect(result.sending).toBe(true)
+    await act(async () => { choose({ chatId: 'group-b', peer: null }) })
+    expect(result.sending).toBe(false)
+    await act(async () => { publicSend = result.handleSend('public') })
+    expect(result.sending).toBe(true)
+    await act(async () => { finishPrivate(); await privateSend })
+    expect(result.sending).toBe(true)
+    expect(result.returnedToPublic).toBe(false)
+    await act(async () => { finishPublic(); await publicSend })
+    expect(result.sending).toBe(false)
+    expect(context).toEqual({ chatId: 'group-b', peer: null })
+  })
+
   it('does not clear a different private recipient selected while a send is pending', async () => {
     let finish!: () => void
     await setup(vi.fn(() => new Promise<void>(resolve => { finish = resolve })))
