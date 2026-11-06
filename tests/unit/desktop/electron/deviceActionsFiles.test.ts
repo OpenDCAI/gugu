@@ -14,6 +14,7 @@ import { createDeviceActionsProvider } from '../../../../apps/desktop/electron/d
 import { PrivatePermissionRecords } from '../../../../apps/desktop/electron/permissions/private-records'
 import { defaultPermissionPolicy } from '../../../../apps/desktop/electron/permissions/rules'
 import { ServicePermissionRuntime } from '../../../../apps/desktop/electron/permissions/runtime'
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary'
 
 let dir: string
 let home: string
@@ -74,6 +75,73 @@ describe('owner-private permission state is excluded from Agent file actions', (
     expect(await run('fs.write', { path: flag, content: '{"enabled":true}', mode: 'create' })).toMatchObject({ ok: false, code: 'invalid_args' })
     expect(await f.records.enforcement('owner')).toBe(false)
     expect(fs.existsSync(flag)).toBe(false)
+  })
+  it.each(['absolute dangling', 'relative dangling', 'absolute chain', 'relative chain', 'directory link', 'dangling directory link'])('resolves the final private write target through %s', async kind => {
+    const f = await privateState()
+    const flag = path.join(f.ownerDirectory, 'enforcement.json')
+    const alias = H('Elsewhere/alias')
+    const second = H('Elsewhere/second')
+    let request = alias
+    if (kind === 'absolute dangling') fs.symlinkSync(flag, alias)
+    if (kind === 'relative dangling') fs.symlinkSync(path.relative(path.dirname(alias), flag), alias)
+    if (kind.endsWith('chain')) {
+      fs.symlinkSync(kind.startsWith('relative') ? path.relative(path.dirname(second), flag) : flag, second)
+      fs.symlinkSync(kind.startsWith('relative') ? 'second' : second, alias)
+    }
+    if (kind.includes('directory link')) {
+      fs.symlinkSync(kind.startsWith('dangling') ? path.join(f.ownerDirectory, 'absent') : f.ownerDirectory, alias)
+      request = path.join(alias, 'enforcement.json')
+    }
+    const { run } = setup({ grant: ['files.other'] })
+    const outcome = await run('fs.write', { path: request, content: '{"enabled":true}', mode: 'append' })
+    expect({ outcome, enabled: await f.records.enforcement('owner') }).toMatchObject({
+      outcome: { ok: false, code: 'invalid_args', message: expect.stringContaining('private permission state') }, enabled: false,
+    })
+    await expect(requireAgentFileAccess(request)).rejects.toThrow('private permission state')
+    expect(fs.existsSync(flag)).toBe(false)
+  })
+  it.skipIf(process.platform !== 'darwin')('resolves differently cased dangling link names and private targets on macOS', async () => {
+    const f = await privateState()
+    const alias = H('Elsewhere/MixedAlias')
+    fs.symlinkSync(path.join(f.ownerDirectory.toUpperCase(), 'ENFORCEMENT.JSON'), alias)
+    const { run } = setup({ grant: ['files.other'] })
+    const outcome = await run('fs.write', { path: H('Elsewhere/mIXEDaLIAS'), content: '{"enabled":true}', mode: 'append' })
+    expect({ outcome, enabled: await f.records.enforcement('owner') }).toMatchObject({ outcome: { ok: false, code: 'invalid_args' }, enabled: false })
+  })
+  it('protects a future private directory reached through a dangling directory link at the private root', async () => {
+    const guguHome = H('Elsewhere/linked-state')
+    vi.stubEnv('GUGU_HOME', guguHome)
+    fs.mkdirSync(guguHome)
+    const root = path.join(guguHome, 'private-service-permissions')
+    const future = H('Elsewhere/future-private')
+    fs.symlinkSync(path.relative(guguHome, future), root)
+    const records = new PrivatePermissionRecords(root)
+    const flag = path.join(future, 'owner', 'enforcement.json')
+    const { run } = setup({ grant: ['files.other'] })
+    const outcome = await run('fs.write', { path: flag, content: '{"enabled":true}', mode: 'append' })
+    expect(outcome).toMatchObject({ ok: false, code: 'invalid_args' })
+    expect(fs.existsSync(future)).toBe(false)
+    expect(await records.enforcement('owner')).toBe(false)
+  })
+  it('allows an ordinary dangling relative chain while rejecting link cycles', async () => {
+    await privateState()
+    const target = H('Elsewhere/ordinary.txt')
+    fs.symlinkSync('ordinary.txt', H('Elsewhere/second'))
+    fs.symlinkSync('second', H('Elsewhere/alias'))
+    const { run } = setup({ grant: ['files.other'] })
+    expect(await run('fs.write', { path: H('Elsewhere/alias'), mode: 'append', content: 'ordinary' })).toMatchObject({ ok: true })
+    expect(fs.readFileSync(target, 'utf8')).toBe('ordinary')
+    fs.symlinkSync('cycle-b', H('Elsewhere/cycle-a'))
+    fs.symlinkSync('cycle-a', H('Elsewhere/cycle-b'))
+    await expect(requireAgentFileAccess(H('Elsewhere/cycle-a'))).rejects.toThrow('Too many symbolic links')
+    expect(await run('fs.write', { path: H('Elsewhere/cycle-a'), mode: 'append', content: 'blocked' })).toMatchObject({ ok: false })
+  })
+  it('resolves parent components after a directory link instead of collapsing them lexically', async () => {
+    const f = await privateState()
+    fs.mkdirSync(path.join(f.ownerDirectory, 'nested'))
+    const alias = H('Elsewhere/parent-link')
+    fs.symlinkSync(path.join(f.ownerDirectory, 'nested'), alias)
+    await expect(requireAgentFileAccess(`${alias}/../enforcement.json`)).rejects.toThrow('private permission state')
   })
   it('refuses symlink aliases and copying or moving the containing directory', async () => {
     const f = await privateState()
