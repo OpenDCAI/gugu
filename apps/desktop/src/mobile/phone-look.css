@@ -149,6 +149,11 @@
   background: var(--card);
   box-shadow: var(--ta-composer-shadow);
 }
+/* Start files on the same content column as the text, past the attach button
+   and the editor's inline padding, on every phone composer. */
+[data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-attachments'] {
+  padding-inline-start: calc(var(--control-h-touch) + var(--spacing-lg));
+}
 /* 输入的字跟着咕咕的前景色走:编辑器自己的字色取会话页那套 --em-foreground,手机聊天页不在会话页皮肤里,
    取到哪一套要看外面挂了什么 —— 实底换上以后,深色里一旦取到浅色那套,深字压深底就看不见了。 */
 [data-phone-shell] [data-slot='composer'][data-mobile] [data-slot='composer-input'] [contenteditable] { color: var(--text-primary); }

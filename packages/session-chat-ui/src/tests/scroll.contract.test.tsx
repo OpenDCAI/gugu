@@ -334,6 +334,48 @@ describe('transcript scroll behaviour across the P3 row redraw', () => {
     ).toBeGreaterThan(STICK_THRESHOLD_PX);
   });
 
+  it.each(['new-turn', 'composer-resize'] as const)(
+    'keeps a small upward reading gesture detached through %s, until the reader returns to the end',
+    async change => {
+      const { scrollEl, view, appendCycle, state } = await mountTranscript(120, { composer: 'slot', turns: shortTurns('near', 80) });
+      view.scrollToBottom();
+      await settled(scrollEl);
+      const before = scrollEl.scrollTop;
+      scrollEl.scrollTop -= 24;
+      expect(scrollEl.scrollTop).toBeLessThan(before - 20);
+      await settled(scrollEl);
+      expect(state.scroll.get().kind, 'a deliberate upward scroll inside the old 48px zone still follows the tail').toBe('anchor');
+      const seen = readerRow(scrollEl);
+      expect(seen).not.toBeNull();
+      if (change === 'new-turn') appendCycle();
+      else view.composerSlot!.style.height = '180px';
+      await settled(scrollEl);
+      expect(state.scroll.get().kind).toBe('anchor');
+      expect(rowOffset(scrollEl, seen!.itemId)).toBeCloseTo(seen!.offset, 0);
+
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+      await settled(scrollEl);
+      expect(state.scroll.get().kind, 'manually returning to the actual bottom restores follow').toBe('tail');
+      appendCycle();
+      await settled(scrollEl);
+      expect(distanceToBottom(scrollEl)).toBeLessThanOrEqual(1);
+    }
+  );
+
+  it('detaches even a one-pixel upward reading gesture from the end', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('one-pixel', 80) });
+    m.view.scrollToBottom();
+    await settled(m.scrollEl);
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.scrollTop -= 1;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 0.5);
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+  });
+
   // #6401:视口之上的行长高,读者看着的那一行**任意一帧**都不动(±1px)—— 包括手指还在拖(落定窗口开着)的时候。
   it('keeps the reader\'s row still on every frame while a row above grows mid-drag', async () => {
     const { scrollEl, view, state } = await mountTranscript(120, { turns: growingRowHistory() });
@@ -642,6 +684,42 @@ describe('the first projection onto a (re)attached conversation uses the geometr
     } finally {
       other.dispose();
     }
+  });
+
+  it('keeps following after a late browser step at the end of a smooth return', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('smooth-end', 80), height: 600 });
+    m.scrollEl.scrollTop = 0;
+    await settled(m.scrollEl);
+    m.view.scrollToBottom({ behavior: 'smooth' });
+    await until('the smooth return reaches the end', () => distanceToBottom(m.scrollEl) <= 1);
+    await settled(m.scrollEl);
+    // A queued fractional animation step is not another reader gesture.
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.scrollTop -= 2;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 1);
+    await settled(m.scrollEl);
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('tail');
+    expect(distanceToBottom(m.scrollEl)).toBeLessThanOrEqual(1);
+  });
+
+  it('lets an upward reader gesture interrupt a smooth return to latest', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('smooth-reader', 80), height: 600 });
+    m.scrollEl.scrollTop = 0;
+    await settled(m.scrollEl);
+    m.view.scrollToBottom({ behavior: 'smooth' });
+    await until('the smooth return is actually moving', () => m.scrollEl.scrollTop > 50 && distanceToBottom(m.scrollEl) > 50);
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.dispatchEvent(new WheelEvent('wheel', { deltaY: -24, bubbles: true }));
+    m.scrollEl.scrollTop = before - 24;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 20);
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    const seen = readerRow(m.scrollEl)!;
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(rowOffset(m.scrollEl, seen.itemId)).toBeCloseTo(seen.offset, 0);
   });
 
   // 平滑滚动还在路上就换会话:那段动画属于上一条会话,换进来的一条照样落在它自己的意图上(锚在顶部)。
