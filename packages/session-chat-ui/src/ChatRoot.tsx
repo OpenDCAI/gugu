@@ -1,4 +1,7 @@
 /** @jsxImportSource solid-js */
+import { appendActivityUnits, preserveActivityIds, trailingActivity } from './state/agent-activity';
+import { activityLanes, joinedActivityLanes } from './state/activity-lanes';
+import { latestViewerInput, resetActivityOnInput } from './state/activity-boundary';
 /**
  * ChatRoot — the Solid component that implements the chat transcript renderer.
  *
@@ -60,6 +63,7 @@ import { ThemeContext } from './components/contexts/ThemeContext';
 import { TurnStateContext } from './components/contexts/TurnStateContext';
 import { createFrameScheduler } from './components/engine/frame-scheduler';
 import { createTweenRegistry } from './components/engine/tween-registry';
+import { createActivityGeometry } from './components/engine/activity-geometry';
 import { SEGMENTERS, UNIT_REGISTRY } from './components/engine/unit-registry';
 import { UnitRow } from './components/engine/UnitRow';
 import { latestConversationBubbleId } from './components/rows/message/conversation-body';
@@ -88,6 +92,8 @@ import { segmentCtxFor } from './state/segment-ctx';
 import type { LayoutSnapshot } from './state/geometry';
 import { sameRange } from './state/geometry';
 import {
+  activityPinBackdrop,
+  activityPinLane,
   canvas,
   composerSlotAnimatingClass,
   composerSlotCenteredClass,
@@ -594,7 +600,7 @@ export function ChatRoot(props: ChatRootProps) {
         committedUnitsArr.length > 0
           ? committedUnitsArr[committedUnitsArr.length - 1].kind
           : undefined;
-      const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr), trailingActivity(committedUnitsArr));
       committedDayKey = trailingDayKey(tail, committedDayKey, ctx.latestTurnId);
       const base = committedUnitsArr.length;
       for (let j = 0; j < newUnits.length; j++) {
@@ -603,10 +609,10 @@ export function ChatRoot(props: ChatRootProps) {
           if (!committedIndexById.has(id)) committedIndexById.set(id, base + j);
         }
       }
-      committedUnitsArr = [...committedUnitsArr, ...newUnits];
+      committedUnitsArr = appendActivityUnits(committedUnitsArr, newUnits);
     } else {
       // Full rebuild (seed, prepend, non-append structural change, or an append that joins the previous fold run).
-      committedUnitsArr = flattenTier(next, ctx, SEGMENTERS, UNIT_REGISTRY);
+      committedUnitsArr = preserveActivityIds(committedUnitsArr, flattenTier(next, ctx, SEGMENTERS, UNIT_REGISTRY));
       committedDayKey = trailingDayKey(next, undefined, ctx.latestTurnId);
       committedIndexById.clear();
       for (let i = 0; i < committedUnitsArr.length; i++) {
@@ -672,16 +678,16 @@ export function ChatRoot(props: ChatRootProps) {
       const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
       if (!at && !pendingPrompt && !pendingMessages.length) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
-        return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+        return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr), trailingActivity(committedUnitsArr));
       }
       const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages, state().transcript.state.committedTurns)!;
       // Reserve the same process row from send to startup: adding it at acknowledgement scrolls a long transcript.
       const pending = [...(pendingPrompt ? [pendingPrompt] : []), ...pendingMessages];
       const failedPending = !at && pending.length > 0 && pending.every(input => input.stopped || input.delivery?.state === 'waiting' || input.delivery?.state === 'failed' || input.delivery?.state === 'unknown');
-      const body = flattenTier([activeTurn], failedPending ? { ...ctx, active: false } : ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      const body = flattenTier([activeTurn], failedPending ? { ...ctx, active: false } : ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr), trailingActivity(committedUnitsArr));
       // A held input has no running process row, but it cannot hide the host's compression/stop/failure state.
       if (!failedPending) return body;
-      return [...body, ...flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, body.at(-1)?.kind ?? prevKind, committedDayKey, lastConversationMessage(body))];
+      return [...body, ...flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, body.at(-1)?.kind ?? prevKind, committedDayKey, lastConversationMessage(body), trailingActivity(body))];
     };
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };
@@ -733,6 +739,10 @@ export function ChatRoot(props: ChatRootProps) {
     committedUnitsVersion();
     return makeUnitsView(committedUnitsArr, activeUnits());
   });
+
+  const committedActivityLanes = createMemo(() => { committedUnitsVersion(); return activityLanes(committedUnitsArr); });
+  const activityLaneRanges = createMemo(() => joinedActivityLanes(committedActivityLanes(), activeUnits(), committedUnitsArr.length));
+  const activityLaneByIndex = createMemo(() => new Map(activityLaneRanges().map(lane => [lane.index, lane])));
 
   const latestConversationMessageId = createMemo(() => latestConversationBubbleId(units(), { theme: theme() }));
   const pendingBubbleMeasures = new Set<string>();
@@ -797,6 +807,13 @@ export function ChatRoot(props: ChatRootProps) {
    * one, so a translated lane would stick its row as if the lane sat at the top of the canvas.
    */
   const placeRow = (el: HTMLElement, idx: number, top: number, laneH: number | null) => {
+    // Native sticky positioning supplies the reversible push-out. Under reduced motion,
+    // hide the complete row as soon as that push starts instead of sliding a partial row.
+    const pinLine = laneH === null ? 0 : shadowScrollTop + userTopGap + activityPinOffset(idx) - (units().at(idx)?.gapBefore ?? 0);
+    const stuck = laneH !== null && pinLine > top + 0.5;
+    if (el.dataset.pinStuck !== String(stuck)) el.dataset.pinStuck = String(stuck);
+    const leaving = laneH !== null && pinLine > top + laneH - virt.size(idx) + 0.5;
+    if (el.dataset.pinLeaving !== String(leaving)) el.dataset.pinLeaving = String(leaving);
     const key = laneH === null ? `t${top}` : `l${top}:${laneH}`;
     if (appliedTop.get(idx) === key) return;
     appliedTop.set(idx, key);
@@ -813,13 +830,8 @@ export function ChatRoot(props: ChatRootProps) {
   let lastVisibleStart = 0;
   let lastVisibleEnd = -1;
 
-  // ── Count sync effect ─────────────────────────────────────────────────────
-  createEffect(() => {
-    const us = units();
-    const t = theme();
-    untrack(() => {
-      const estimateCtx = {
-        theme: t,
+  const estimateContext = (): MeasureCtx => ({
+        theme: theme(),
         translate: props.context.translate,
         commands: commands(),
         selfIdentity: props.context.selfIdentity(),
@@ -835,7 +847,14 @@ export function ChatRoot(props: ChatRootProps) {
         finalReplyId: finalReplyId(),
         latestConversationMessageId: latestConversationMessageId(),
         background: backgroundAttachment(),
-      };
+  });
+
+  // ── Count sync effect ─────────────────────────────────────────────────────
+  createEffect(() => {
+    const us = units();
+    theme();
+    untrack(() => {
+      const estimateCtx = estimateContext();
       // lastWidth > 0 iff onCleanup wrote a snapshot on a prior dispose.
       // Skip the Map.get pass entirely on cold mounts (empty heightmap).
       const currentState = state();
@@ -847,6 +866,7 @@ export function ChatRoot(props: ChatRootProps) {
         // then the persisted heightmap (no scrollbar drift on remount), then the cheap estimate.
         const live = tweenRegistry.heightOf(u.id);
         if (live !== undefined) return live;
+        if (u.activityFold && !viewState().isCollapsed(u.activityFold)) return 0;
         if (hasHeightmapSnapshot) {
           const snapped = currentState.heightmap.get(u.id);
           if (snapped !== undefined) return snapped;
@@ -967,7 +987,11 @@ export function ChatRoot(props: ChatRootProps) {
     // range: its user message is the one stuck to the top (see @@@sticky-user-lanes).
     const lane = laneAtTop(st, padTop());
     if (lane >= 0 && lane < start) arr.push(lane);
-    for (let i = start; i <= visEnd; i++) arr.push(i);
+    for (const activity of activityLaneRanges()) {
+      if (activity.index < start && virt.top(activity.index) + padTop() <= st && virt.top(activity.end) + padTop() > st) arr.push(activity.index);
+    }
+    for (let i = start; i <= visEnd; i++) if (virt.size(i) > 0) arr.push(i);
+    arr.sort((a, b) => a - b);
     return arr;
   }
 
@@ -1030,15 +1054,17 @@ export function ChatRoot(props: ChatRootProps) {
       const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting, s.transcript.state.committedTurns);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
       const base = committedUnitsArr.length;
-      const ends = active
+      let ends = active
         ? [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)]
         : committed;
       // The first, standalone process header has the same boundary as reply
       // heads. Otherwise a zero-gap input sticks 8px into it and its backdrop
       // plus fade cover the no-tool first frame (#1129).
       const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
+      ends = ends.filter(index => !all.at(index)?.activityFold);
       for (let i = 0; i < all.length; i++) {
         const unit = all.at(i)!;
+        if (unit.activityFold) continue;
         const data = unit.data as ChatMessage;
         if (unit.kind === 'turn-process' || data.role === 'assistant' && (data.conversationPart === 'head'
           || data.conversationPart === 'body' && unit.itemId.includes(':sent:'))) ends.push(i);
@@ -1051,8 +1077,21 @@ export function ChatRoot(props: ChatRootProps) {
 
   /** Lane height of an anchor: up to the next anchor (or delivered bubble, see `pinEnds`), or to the end of the content. */
   function laneHeight(idx: number): number {
+    const activity = activityLaneByIndex().get(idx);
+    if (activity) return (activity.end < units().length ? virt.top(activity.end) : virt.total()) - virt.top(idx);
     const next = pinEnds().find((end) => end > idx);
-    return (next !== undefined ? virt.top(next) : virt.total()) - virt.top(idx);
+    // Both sticky rows leave together: reserve the activity header below the own-message lane's end.
+    const tail = activityLaneRanges().find(lane => lane.index > idx && lane.end === (next ?? units().length));
+    return Math.max(virt.size(idx), (next !== undefined ? virt.top(next) : virt.total()) - virt.top(idx) - (tail ? virt.size(tail.index) + userTopGap : 0));
+  }
+
+  function activityPinOffset(idx: number): number {
+    if (!activityLaneByIndex().has(idx)) return 0;
+    const own = [...pinAnchorSet()].findLast(index => {
+      const end = pinEnds().find(boundary => boundary > index);
+      return index < idx && (end === undefined || end > idx);
+    });
+    return own === undefined ? 0 : virt.size(own) + userTopGap;
   }
 
   /** The anchor whose lane covers the viewport top (its row is the stuck one), or -1. */
@@ -1124,9 +1163,11 @@ export function ChatRoot(props: ChatRootProps) {
   const [anchor, setAnchorSignal] = createSignal<ScrollMode>(untrack(state).scroll.get(), {
     equals: sameScrollMode,
   });
+  let activityCollapse: { model: ChatState; id: string; itemId: string; height: number; fromOffset: number } | null = null;
 
   // Persist intent to ChatState and update the local signal atomically.
   const setAnchor = (m: ScrollMode) => {
+    activityCollapse = null;
     setAnchorSignal(m);
     state().scroll.set(m);
   };
@@ -1195,8 +1236,19 @@ export function ChatRoot(props: ChatRootProps) {
       const i = unitIndexOf(m.itemId, m.edge);
       if (i >= 0) {
         const rowTop = virt.top(i) + padTop();
+        let offset = m.offset;
+        if (activityCollapse) {
+          const collapse = activityCollapse, lane = activityLaneRanges().find(lane => lane.id === collapse.id);
+          if (collapse.model === state() && collapse.itemId === m.itemId && m.edge === 'top' && lane) {
+            const remaining = Math.max(0, virt.top(lane.end) - virt.top(lane.index + 1));
+            // Follow the existing content-height tween, including offscreen children. The
+            // first frame keeps the reader's position; only the last frame lands the conclusion.
+            offset += (collapse.fromOffset - offset) * Math.min(1, remaining / collapse.height);
+            if (remaining < 0.5) activityCollapse = null;
+          } else activityCollapse = null;
+        }
         const target =
-          m.edge === 'top' ? rowTop + m.offset : rowTop + virt.size(i) - viewHeight() + padBottom() + m.offset;
+          m.edge === 'top' ? rowTop + offset : rowTop + virt.size(i) - viewHeight() + padBottom() + offset;
         const next = Math.max(0, Math.min(target, maxScrollTop()));
         // Sub-pixel no-op guard: if the settle correction is smaller than 1 px
         // (anchor already matches the current position), skip the write so the
@@ -1260,6 +1312,9 @@ export function ChatRoot(props: ChatRootProps) {
     pendingSizeDeltas = [];
     if (!scrollEl) return;
     const m = anchor();
+    // The collapse projects both shrinking geometry and the viewport together. An additional
+    // above-row compensation here would first pull it to the conclusion in the same frame.
+    if (activityCollapse?.model === state() && m.kind === 'anchor' && activityCollapse.itemId === m.itemId) return;
     const ref = m.kind === 'anchor' ? unitIndexOf(m.itemId, m.edge) : smoothScrolling ? lastTopUnitIndex : -1;
     if (ref < 0) return;
     let aboveDelta = 0;
@@ -1324,6 +1379,9 @@ export function ChatRoot(props: ChatRootProps) {
     if (!viewShown()) return;
     const u = units().at(ui);
     if (!u) return;
+    // A folded activity owns zero height (or its in-flight closing tween). Idle
+    // prefetch must not reserve the hidden bubble's full measured height again.
+    if (u.activityFold && !viewState().isCollapsed(u.activityFold)) return;
     const unitDef = UNIT_REGISTRY[u.kind];
     if (!unitDef) return;
     const c = u.chrome;
@@ -1409,6 +1467,7 @@ export function ChatRoot(props: ChatRootProps) {
         needsProject = true;
       }
     } else if (Math.abs(userDelta) > USER_SCROLL_EPSILON) {
+      activityCollapse = null;
       // Only re-derive intent when the user actually moved the scrollbar.
       // Use USER_SCROLL_EPSILON to filter sub-pixel self-write rounding so the
       // arithmetic clamp in writeScrollTop is never misread as a user scroll.
@@ -1475,7 +1534,7 @@ export function ChatRoot(props: ChatRootProps) {
     const anchors = pinAnchorSet();
     for (const idx of nextVisible) {
       const el = rowEls.get(idx);
-      if (el) placeRow(el, idx, virt.top(idx) + pt, anchors.has(idx) ? laneHeight(idx) : null);
+      if (el) placeRow(el, idx, virt.top(idx) + pt, anchors.has(idx) || activityLaneByIndex().has(idx) ? laneHeight(idx) : null);
     }
 
     lastLayout = next;
@@ -1550,6 +1609,19 @@ export function ChatRoot(props: ChatRootProps) {
   // ── Central tween registry — wired to eager scheduler ────────────────────
   const tweenRegistry = createTweenRegistry(virt, onHeightChanged, {
     requestFrame: () => scheduler.request(),
+  });
+
+  const activityGeometry = createActivityGeometry(virt, tweenRegistry, onHeightChanged);
+  onCleanup(() => activityGeometry.dispose());
+  createEffect(() => {
+    const us = units(), ranges = activityLaneRanges(), current = state();
+    const open = new Map(ranges.map(range => [range.id, viewState().isCollapsed(range.id)]));
+    untrack(() => activityGeometry.sync(current, us, ranges, id => open.get(id) ?? false, unit => {
+      const def = UNIT_REGISTRY[unit.kind];
+      const ctx = estimateContext();
+      ctx.width = Math.max(0, ctx.width - 2 * (unit.chrome?.insetX ?? 0));
+      return unitReservedHeight(unit, def?.estimate?.(unit.data, ctx, def.vars ?? {}) ?? 80);
+    }));
   });
 
   // ── Invalidation bridge — the single reactive input list ─────────────────
@@ -1685,6 +1757,22 @@ export function ChatRoot(props: ChatRootProps) {
       writeScrollTop(target);
     }
   };
+
+  const committedViewerInput = createMemo(() => latestViewerInput(projectedCommitted(), props.context.selfIdentity()?.userId));
+  createEffect(() => {
+    if (!theme().layout.agentConversation) return;
+    const inputs = projectedInputs();
+    const turn = activeTurnWithInputs(inputs.active, state().session.state.pendingPrompt, inputs.waiting, state().transcript.state.committedTurns);
+    const input = turn ? latestViewerInput([turn], props.context.selfIdentity()?.userId, committedViewerInput()) : committedViewerInput();
+    untrack(() => {
+      if (resetActivityOnInput(state(), input, viewState())) {
+        abortSmoothScroll();
+        setAnchor({ kind: 'tail' });
+        needsProject = true;
+        scheduler.request();
+      }
+    });
+  });
 
   const doScrollToItem = (id: string, opts?: ScrollToItemOptions) => {
     const el = scrollEl;
@@ -1986,6 +2074,27 @@ export function ChatRoot(props: ChatRootProps) {
         // ⇒ 让开关自己说出「我住在哪一行」(`data-collapse-anchor`),没说的照旧用 id 本身。
         const anchorId = collapseTarget.dataset.collapseAnchor ?? id;
         const idx = unitIndexOf(anchorId);
+        const activity = activityLaneByIndex().get(idx);
+        if (activity && viewState().isCollapsed(id)) {
+          const next = units().at(activity.end);
+          if (scrollEl) {
+            const targetIndex = next ? activity.end : activity.index;
+            const itemId = next?.itemId ?? id;
+            const fromOffset = scrollEl.scrollTop - virt.top(targetIndex) - padTop();
+            const height = virt.top(activity.end) - virt.top(activity.index + 1);
+            // A conclusion already on screen keeps its reading position. Otherwise it
+            // arrives at the top only as the 200ms height collapse finishes.
+            const offset = next && -fromOffset >= userTopGap && -fromOffset < viewHeight() - padBottom() ? fromOffset : -userTopGap;
+            abortSmoothScroll();
+            setAnchor({ kind: 'anchor', itemId, edge: 'top', offset });
+            if (height > 0 && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+              activityCollapse = { model: state(), id, itemId, height, fromOffset };
+            }
+          }
+          else setAnchor({ kind: 'anchor', itemId: id, edge: 'top', offset: -userTopGap });
+          viewState().toggleCollapsed(id);
+          return;
+        }
         if (idx >= 0 && scrollEl) {
           const offset = scrollEl.scrollTop - (virt.top(idx) + padTop());
           setAnchor({ kind: 'anchor', itemId: anchorId, edge: 'top', offset });
@@ -2126,13 +2235,13 @@ export function ChatRoot(props: ChatRootProps) {
                           const unit = u();
                           return unit ? activeTurnItemIds().has(unit.itemId) : false;
                         };
-                        const isPinAnchor = () => pinAnchorSet().has(unitIndex);
+                        const isPinAnchor = () => pinAnchorSet().has(unitIndex) || activityLaneByIndex().has(unitIndex);
 
                         return (
                           <Show when={u()}>
                             <div
                               class={unitRowWrapper}
-                              classList={{ [pinLane]: isPinAnchor() }}
+                              classList={{ [pinLane]: isPinAnchor(), [activityPinLane]: activityLaneByIndex().has(unitIndex) }}
                               ref={(el) => {
                                 rowEls.set(unitIndex, el);
                                 // Seed the placement; commit() reconciles on each frame.
@@ -2147,9 +2256,12 @@ export function ChatRoot(props: ChatRootProps) {
                               {/* Stuck with the card on the pin line whatever this row's collapsed top gap is. */}
                               <div
                                 classList={{ [pinSticky]: isPinAnchor() }}
-                                style={isPinAnchor() ? { top: `${userTopGap - (u()?.gapBefore ?? 0)}px` } : undefined}
+                                style={isPinAnchor() ? { top: `${userTopGap + activityPinOffset(unitIndex) - (u()?.gapBefore ?? 0)}px` } : undefined}
                               >
-                              <Show when={isPinAnchor()}><div class={pinBackdrop} data-chat-pin-backdrop="" aria-hidden="true" /></Show>
+                              <Show when={isPinAnchor()}><div class={pinBackdrop}
+                                classList={{ [activityPinBackdrop]: activityLaneByIndex().has(unitIndex) }}
+                                style={activityLaneByIndex().has(unitIndex) && activityPinOffset(unitIndex) > 0 ? { top: `${-userTopGap}px` } : undefined}
+                                data-chat-pin-backdrop="" aria-hidden="true" /></Show>
                               <UnitRow
                                 unit={u()!}
                                 index={unitIndex}
@@ -2159,6 +2271,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 virt={virt}
                                 onHeightChanged={onHeightChanged}
                                 tweenRegistry={tweenRegistry}
+                                onActivityTweenReleased={activityGeometry.release}
                                 isActiveTurn={isActiveTurn()}
                                 caches={caches()}
                                 measureEpoch={measureEpoch()}
@@ -2168,7 +2281,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 latestConversationMessageId={latestConversationMessageId()}
                                 background={backgroundAttachment()}
                               />
-                              <Show when={isPinAnchor()}>
+                              <Show when={isPinAnchor() && !theme().layout.agentConversation}>
                                 {/* Signals that rows scroll beneath the stuck message; drawn only while stuck. */}
                                 <div class={pinFade} aria-hidden="true" />
                               </Show>

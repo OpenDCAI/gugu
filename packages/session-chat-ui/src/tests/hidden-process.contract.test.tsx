@@ -4,7 +4,7 @@ import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { createChatState } from '@session-chat/state/chat-state';
 import { UNIT_REGISTRY } from '@session-chat/components/engine/unit-registry';
-import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
+import type { TranscriptItem, TranscriptTurn } from '@session-chat/model';
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 import { until } from '../../../../tests/support/awaitCondition';
 const frame=()=>new Promise<void>(r=>requestAnimationFrame(()=>r()));
@@ -12,12 +12,15 @@ for (const hidden of [false,true]) it(`nested process pauses measurement hidden=
  const context=createChatContext({locale:()=> 'en-US'});
  context.setLayout({preset:'double',userGutter:72,agentConversation:true});
  const state=createChatState(context);
+ state.viewState.setCollapsed('scroll:run:say-1',true);
  const host=document.body.appendChild(document.createElement('div'));
  host.style.cssText='position:fixed;inset:0;width:800px;height:800px';
  const view=createChatView({context,state,parent:host});
  const write=(version:number)=>state.transcript.activeTurn.set({id:'scroll',seq:0,initiator:'user',
-  items:Array.from({length:14},(_,i)=>({kind:'message',id:`say-${i}`,seq:i,role:i===0?'user':'assistant',
-    text:`Process item ${i}, version ${version}`} as ChatMessage))} as TranscriptTurn,'generating');
+  items:Array.from({length:14},(_,i):TranscriptItem=>i>0&&i<13
+   ?{kind:'execute-tool-call',id:`say-${i}`,seq:i,toolCallId:`say-${i}`,status:'done',
+      command:`Process item ${i}, version ${version}`,title:`Process item ${i}, version ${version}`}
+   :{kind:'message',id:`say-${i}`,seq:i,role:i===0?'user':'assistant',text:`Panel reply ${i}, version ${version}`})} as TranscriptTurn,'generating');
  try{
   write(0);
   await until('real nested process mounts',()=>!!host.querySelector('[data-slot="conversation-process-steps"]'));

@@ -42,6 +42,8 @@ it('clears an unknown incoming marker when the phone already has its native bubb
   await renderWithAppProviders(harness, <SessionConversation timeline={timeline} deviceId="device" sessionId="phone-task" agentName="Agent" nativeRecord
     sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
     onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
+  await until('confirmed agent delivery is folded without its unknown receipt', () => !!harness.container.querySelector('[data-agent-activity][data-expanded="false"]') && !harness.container.querySelector('[data-send-state="unknown"]'));
+  await userEvent.click(harness.container.querySelector('[data-agent-activity] button[data-collapse-id]')!);
   await until('the matched native bubble renders without an unresolved marker', () => !!harness.container.querySelector('[data-user-card="native-echo"]') && !harness.container.querySelector('[data-send-state="unknown"]'));
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(1);
   expect(harness.container.querySelector('[data-user-card="native-echo"]')).not.toBeNull();
@@ -142,6 +144,8 @@ it('loads older phone history before placing an unknown receipt and never draws 
   const older = { ...timeline, hasOlder: false, turns: [{ id: 'older', seq: 1, initiator: 'agent' as const,
     items: [{ kind: 'message' as const, id: 'older-native', seq: 0, role: 'user' as const, text }], outcome: { kind: 'done' as const } }, ...timeline.turns] };
   await act(async () => { release({ turns: [older.turns[0]!], nextCursor: null }); });
+  await until('older confirmed agent delivery is folded without an unresolved marker', () => !!harness.container.querySelector('[data-agent-activity][data-expanded="false"]') && !harness.container.querySelector('[data-send-state="unknown"]'));
+  await userEvent.click(harness.container.querySelector('[data-agent-activity] button[data-collapse-id]')!);
   await until('the older native bubble clears its unresolved marker', () => !!harness.container.querySelector('[data-user-card="older-native"]') && !harness.container.querySelector('[data-send-state="unknown"]'));
   expect(harness.container.querySelectorAll('[data-user-card]')).toHaveLength(2);
   expect(harness.container.querySelector('[data-user-card="older-incoming"]')).toBeNull();
