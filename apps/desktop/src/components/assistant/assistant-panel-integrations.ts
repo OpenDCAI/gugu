@@ -1,5 +1,5 @@
 import { integrationIcons } from '@gugu/session-plugins/integration-icons'
-import { builtinIntegrationSummary } from '@gugu/session-plugins/integration-summaries'
+import { builtinIntegrationSummary, readIntegrationCatalogMetadata } from '@gugu/session-plugins/integration-summaries'
 import { connectionMetadataCollection, type ConnectionMetadataStore, type ConnectionMetadataItem, type ConnectionMetadataSnapshot } from '../connections/connection-metadata'
 import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
@@ -39,6 +39,7 @@ export function parseAssistantPanelIntegrations(rows: ConnectionMetadataItem[],s
   const catalog = rows.filter(row => row.resource_key.startsWith('catalog:'))
   const items: IntegrationMetadata[] = catalog.map(row => ({
     id: String(row.data.providerId),catalogVersion: row.body_sha256 ?? row.revision,...integrationListCopy(String(row.data.providerId),row.data.displayName,row.data.description,locale),
+    catalog: readIntegrationCatalogMetadata(row.data.catalog),
     websiteUrl: '',features: [],disconnectCredentialLabel: undefined,
     capabilities: { requiresRepositoryUrl: false,supportsIssueContext: false },auth: { methods: [] },
     icon: integrationIcons[String(row.data.providerId)] ?? { kind: 'svg',variants: [] },abilities: [],playbooks: [],multiAccount: false,metadataOnly: true,
