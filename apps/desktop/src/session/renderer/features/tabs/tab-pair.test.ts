@@ -204,6 +204,25 @@ describe('separate wins when anything says so (owner 11-05 §6.3)', () => {
 });
 
 describe('recorded pairs have their own identity and lifecycle', () => {
+  it('a second background pair makes both previous members ordinary tabs without selecting either pair', () => {
+    const { layout, conversation, open } = setup();
+    const otherConversation = open('other-conversation', conversation, 'newTab', 'topic');
+    const terminal = open('terminal', conversation, 'newTab');
+    const first = layout.open('file', { path: 'first.md' }, { from: conversation, intent: 'beside', activate: false })!;
+    expect(layout.pair).toEqual({ pinned: conversation, side: first });
+    const before = layout.layout;
+    const second = layout.open('file', { path: 'second.md' }, { from: otherConversation, intent: 'beside', activate: false })!;
+    expect(layout.pair).toEqual({ pinned: otherConversation, side: second });
+    expect(layout.mainGroup.pane.resolvedTabs.filter((tab) => tab.pairRole).map((tab) => tab.tabId)).toEqual([otherConversation, second]);
+    for (const id of [conversation, first]) {
+      expect(layout.mainGroup.pane.resolvedTabs.find((tab) => tab.tabId === id)?.pairRole).toBeUndefined();
+      expect(layout.stripTabIds).toContain(id);
+    }
+    expect(layout.layout).toBe(before);
+    expect(layout.focusedPane.resolvedActiveTabId).toBe(terminal);
+    expect(layout.sidePaneId).toBeNull();
+  });
+
   it.each(['pinned', 'side'] as const)('selecting the %s member reveals the pair and focuses that pane', (member) => {
     const { layout, conversation, open } = setup();
     open('terminal', conversation, 'newTab');
