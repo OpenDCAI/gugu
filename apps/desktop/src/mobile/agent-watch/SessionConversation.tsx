@@ -1,3 +1,4 @@
+import { useAttachmentFileSelection } from '@/hooks/useAttachmentFileSelection'
 import { useRejectedSessionInputCommands } from '@/hooks/useRejectedSessionInputCommands'
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff'
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead'
@@ -99,6 +100,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const composerDraft = useSessionConversationDraft(deviceId, sessionId, !mobile && nativeRecord && !local && !phoneHost, editor)
   const { text: draftText, setText: setDraftText } = composerDraft
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const fileSelection = useAttachmentFileSelection(attachments, `${deviceId}/${sessionId}`)
   const [attachmentWaiting, setAttachmentWaiting] = useState(false)
   const applied = useRef<typeof draft>(undefined)
   const mirroredText = useRef(draftText)
@@ -148,8 +150,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       return { chatId: await chatService.getOrCreateDM(owner, agentUserId), owner, deviceId: local ? null : deviceId, sessionId }
     } })
   const addFiles = (files: File[]) => {
-    for (const file of files) {
-      void uploads.add({ id: crypto.randomUUID(), name: file.name, kind: file.type.startsWith('image/') ? 'image' : 'file', mimeType: file.type }, file)
+    for (const { id, file } of fileSelection.select(files)) {
+      void uploads.add({ id, name: file.name, kind: file.type.startsWith('image/') ? 'image' : 'file', mimeType: file.type }, file)
     }
   }
   const changeAttachments = (next: ComposerAttachment[]) => {

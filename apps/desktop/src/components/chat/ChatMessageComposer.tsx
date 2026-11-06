@@ -38,6 +38,7 @@ import { mentionOptionStatusProps } from './agentMentionStatusModels'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
 import { usePhoneNewTask } from '../../mobile/chat/PhoneNewTask'
+import { useAttachmentFileSelection } from '@/hooks/useAttachmentFileSelection'
 import { useGroupMentionHint } from './useGroupMentionHint'
 import './group-mention-hint.css'
 export type { ComposerAttachAction } from './ComposerAttachButton'
@@ -72,6 +73,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const mobile = useMobileShell()
   const draft = useChatDraft(chatId)
   const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments } = draft
+  const fileSelection = useAttachmentFileSelection(attachments, chatId)
   const editorApiRef = useRef<PromptEditorRef | null>(null)
   const inputRef = useRef<HTMLElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -136,8 +138,9 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const { dataDropTypes, onDataDropped, invitation } = useChatTaskDrop({ chatId, isGroupChat: isGroupChat && !mobile, groupMembers, provider: mentionProvider, editorApiRef, enabled: !hidden && !disabled })
   const receiveInput = useCallback((element: HTMLElement | null) => { inputRef.current = element }, [])
   const enqueueFiles = useCallback((files: File[]) => {
-    if (files.length) setAttachments((pending) => [...pending, ...files.map(makePendingAttachment)])
-  }, [setAttachments])
+    const picked = fileSelection.select(files)
+    if (picked.length) setAttachments((pending) => [...pending, ...picked.map(({ file, id }) => makePendingAttachment(file, id))])
+  }, [fileSelection, setAttachments])
 
   useEffect(() => isMain ? registerComposerFocusTarget(() => inputRef.current) : undefined, [isMain])
   // 面板占的是键盘的位置:一点输入框(键盘要起来)就收起。
@@ -192,8 +195,8 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
         {mobile && <>
           {/* 照片 = 系统相册(只写 image/*:写多个类型时 Android 壳退回成文件选择器);拍摄 = 直接开相机。 */}
-          <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) setPhotos(picked) }} />
-          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) setPhotos(picked) }} />
+          <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.select(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
+          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.select(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
         </>}
         <ChatComposerContextBands {...deliveryProps} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
@@ -219,7 +222,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
           ...[...(attachMenu ?? []), ...(phoneTask.action ? [phoneTask.action] : [])].map((action): PhoneAttachEntry => ({ ...action, icon: action.icon ?? <Plus /> })),
         ]} />}
         {photos && <PhonePhotoPreview files={photos} caption={text} onCancel={() => setPhotos(null)}
-          onSend={(ready, caption) => { setPhotos(null); void handleSend(caption, ready.map(makePendingAttachment)) }} />}
+          onSend={(ready, caption) => { setPhotos(null); const accepted = fileSelection.select(ready); void handleSend(caption, accepted.map(({ file, id }) => makePendingAttachment(file, id))).finally(() => fileSelection.release(accepted)) }} />}
       </div>
     </MessageProvider>
   </ThemeProvider>

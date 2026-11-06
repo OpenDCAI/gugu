@@ -1,3 +1,4 @@
+import { useAttachmentFileSelection } from '@/hooks/useAttachmentFileSelection';
 import { UserMessageAttachments } from "./attachment.aui";
 import { MAX_ATTACHMENT_BYTES } from "@gugu/session-core/session-record/contract";
 import { ChatComposer, MessageProvider, formatAttachmentSize, type ComposerAttachment, type PromptEditorRef } from "@gugu/session-ui/react/components";
@@ -367,6 +368,7 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
   const mobile = useMobileShell();
   const composer = useAui().composer;
   const { text, attachments, isEmpty, canSend } = useAuiState((s) => s.composer);
+  const fileSelection = useAttachmentFileSelection(attachments, composer);
   const { isRunning, isDisabled, capabilities } = useAuiState((s) => s.thread);
   const hostStop = useComposerStop();
   const placeholder = useComposerPlaceholder() ?? c.placeholder;
@@ -402,7 +404,11 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
       meta: failed ? status.message : progress !== undefined ? `${progress}%` : file ? formatAttachmentSize(file.size) : undefined,
       cancelable: true, retryable: failed && !!file && file.size <= MAX_ATTACHMENT_BYTES };
   });
-  const addFiles = (files: File[]) => { for (const file of files) void composer.addAttachment(file); };
+  const addFiles = (files: File[]) => {
+    for (const picked of fileSelection.select(files)) {
+      void composer.addAttachment(picked.file).catch(() => fileSelection.release([picked]));
+    }
+  };
   return (
     <ThemeProvider theme={theme} target="documentElement">
       <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>

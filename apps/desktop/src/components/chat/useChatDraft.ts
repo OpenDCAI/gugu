@@ -49,8 +49,8 @@ function fromDraftAttachments(drafts: DraftAttachment[]): PendingAttachment[] {
   return drafts.map(withPreviewUrl)
 }
 
-export function makePendingAttachment(file: File): PendingAttachment {
-  return withPreviewUrl({ id: crypto.randomUUID(), file, kind: inferAttachmentKind(file) })
+export function makePendingAttachment(file: File, id: string = crypto.randomUUID()): PendingAttachment {
+  return withPreviewUrl({ id, file, kind: inferAttachmentKind(file) })
 }
 
 const applyUpdate = <T>(u: SetStateAction<T>, prev: T): T => (typeof u === 'function' ? (u as (p: T) => T)(prev) : u)
