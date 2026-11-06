@@ -31,7 +31,11 @@ export type CredentialUseSettlement = Readonly<{
 }>;
 export interface PreparedCredentialHandoff {
   commit(): Promise<void>;
-  /** Dispose only feature-owned unpublished/failed preparation; never restore observation here. */
+  /** Synchronously close admission to the owned pending destination, even during commit. */
+  retract(): void;
+  /** Synchronous final handshake. No external callback/await; only now may Agent admission open. */
+  confirm(): void;
+  /** Dispose only feature-owned failed preparation, including published-but-unconfirmed targets. */
   discard(): Promise<void>;
 }
 
@@ -42,8 +46,8 @@ export interface CredentialHandoffHost {
   assertCurrent(binding: CredentialUseBinding): void;
   readCompletion(binding: CredentialUseBinding): Promise<CredentialCompletion>;
   verifyLocalContinue(binding: CredentialUseBinding, evidence: unknown): boolean;
-  /** Must retain destination isolation during preparation. commit is synchronous and starts the
-   * safe origin navigation without another await; never adopts the private contents or raw login URL.
+  /** Keep observation blocked during preparation and commit. Final confirm opens admission in one
+   * synchronous stack; never adopt the private contents or navigate to the raw login URL.
    */
   prepareHandoff(binding: CredentialUseBinding): Promise<PreparedCredentialHandoff>;
 }
@@ -64,6 +68,8 @@ export class CredentialHandoff {
   private outcome: CredentialLoginOutcome = 'submitted_unconfirmed';
   private useFinished = false;
   private outcomeAudit: PostUseAuditResult | undefined;
+  private prepared: PreparedCredentialHandoff | undefined;
+  private discarding: Promise<void> | undefined;
   private readonly revoked = () => this.invalidate();
   private readonly host: CredentialHandoffHost;
   private readonly audit: FixedOutcomeAuditPort;
@@ -164,7 +170,12 @@ export class CredentialHandoff {
       this.outcomeAudit = this.copyAudit(receipt);
     }
     let prepared: PreparedCredentialHandoff;
-    try { prepared = await this.host.prepareHandoff(this.binding); }
+    try {
+      const candidate = await this.host.prepareHandoff(this.binding);
+      prepared = Object.freeze({ commit: candidate.commit.bind(candidate), retract: candidate.retract.bind(candidate),
+        confirm: candidate.confirm.bind(candidate), discard: candidate.discard.bind(candidate) });
+      this.prepared = prepared;
+    }
     catch { this.latch('handoff_unconfirmed'); return this.view(); }
     try {
       // Do not move this check before the await. Invalidations while preparing must win.
@@ -173,12 +184,20 @@ export class CredentialHandoff {
       catch { this.latch('handoff_unconfirmed'); return this.view(); }
       // A late successful load, or a synchronous callback during dispatch, cannot revive an invalidated use.
       if (this.current() && !this.fault && this.auditMatches(this.outcomeAudit, this.outcome)) {
-        this.handedBack = true;
-        this.revokedSignal.removeEventListener('abort', this.revoked);
+        try {
+          const result: unknown = prepared.confirm();
+          if (result !== undefined) {
+            void Promise.resolve(result).catch(() => {});
+            throw new Error('credential_handoff_confirmation_async');
+          }
+          this.handedBack = true;
+          this.prepared = undefined;
+          this.revokedSignal.removeEventListener('abort', this.revoked);
+        } catch { this.latch('handoff_unconfirmed'); }
       }
     } finally {
       if (!this.handedBack) {
-        try { await prepared.discard(); } catch { this.latch('cleanup_unconfirmed'); }
+        try { await this.discardPrepared(); } catch { this.latch('cleanup_unconfirmed'); }
       }
     }
     return this.view();
@@ -223,12 +242,27 @@ export class CredentialHandoff {
     if (!this.fault) {
       this.fault = reason;
       this.revokedSignal.removeEventListener('abort', this.revoked);
+      // commit may never settle. Close the pending native target's admission in this stack.
+      if (this.prepared) {
+        try { this.prepared.retract(); } catch { /* The fault remains latched. */ }
+        void this.discardPrepared().catch(() => { /* No raw native error leaves the lifecycle. */ });
+      }
       // Do not queue this behind readCompletion or handoff I/O: either may never settle.
       void this.cleanupState.retire().then(() => this.cleanupState.run(true)).catch(() => {
         // The original fault remains latched; raw cleanup errors never leave this private boundary.
       });
     }
     this.waitingForPerson = false;
+  }
+  private discardPrepared(): Promise<void> {
+    if (!this.discarding) {
+      const prepared = this.prepared;
+      if (!prepared) return Promise.resolve();
+      try { prepared.retract(); } catch { /* Still attempt actual native disposal. */ }
+      try { this.discarding = Promise.resolve(prepared.discard()); }
+      catch { this.discarding = Promise.reject(new Error('credential_destination_cleanup_unconfirmed')); }
+    }
+    return this.discarding;
   }
   private same(binding: CredentialUseBinding): boolean {
     return Boolean(binding && BINDING_KEYS.every(key => binding[key] === this.binding[key]));

@@ -4,6 +4,7 @@ import { CredentialHandoff, type CredentialCompletion, type CredentialUseSettlem
 import type { CredentialUseBinding, VaultUseCapability } from './credential-use-contract';
 import type { PostUseAuditProof, PostUseAuditResult, UseOutcomeContext } from './credential-settlement-contract';
 import { CredentialHandoffRegistry } from './credential-handoff-registry';
+import { prepareFreshCredentialHandoffTarget } from './credential-handoff-target';
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 function deferred<T>() {
@@ -23,11 +24,11 @@ function fixture() {
     surfaceEpoch: binding.loginSurfaceEpoch, documentId: randomUUID(), documentEpoch: randomUUID(),
     topDocumentChanged: true, filledPasswordFieldsAbsent: true, requiresPersonInteraction: false };
   const commit = vi.fn(async () => {});
-  const discard = vi.fn(async () => {});
+  const discard = vi.fn(async () => {}), retract = vi.fn(() => {}), confirm = vi.fn(() => {});
   const host = { assertCurrent: vi.fn((_binding: CredentialUseBinding) => {}),
     readCompletion: vi.fn(async (_binding: CredentialUseBinding): Promise<CredentialCompletion> => ({ ...completion })),
     verifyLocalContinue: vi.fn((_binding: CredentialUseBinding, evidence: unknown) => evidence === person),
-    prepareHandoff: vi.fn(async (_binding: CredentialUseBinding): Promise<PreparedCredentialHandoff> => ({ commit, discard })) };
+    prepareHandoff: vi.fn(async (_binding: CredentialUseBinding): Promise<PreparedCredentialHandoff> => ({ commit, discard, retract, confirm })) };
   const surface = { clearFilledFields: vi.fn(async (_binding: CredentialUseBinding) => ({ status: 'cleared' as const })),
     destroy: vi.fn(async (_binding: CredentialUseBinding, _epoch?: string) => ({ status: 'destroyed' as const })) };
   const artifacts = { quiesce: vi.fn(async () => true), clear: vi.fn(async () => true), verify: vi.fn(async () => true) };
@@ -49,7 +50,7 @@ function fixture() {
   const handoff = new CredentialHandoff(binding, capability, host, surface, artifacts, audit, revocation.signal);
   const settlement: Mutable<CredentialUseSettlement> = { outcome: 'submitted_unconfirmed', effectPossible: true,
     audit: issue() };
-  return { binding, capability, person, completion, commit, discard, host, surface, artifacts, handoff, settlement, audit, issue, revocation,
+  return { binding, capability, person, completion, commit, discard, retract, confirm, host, surface, artifacts, handoff, settlement, audit, issue, revocation,
     settle: (value = settlement) => handoff.settle(capability, binding, value) };
 }
 
@@ -214,12 +215,65 @@ describe('private credential session handoff', () => {
     const pending = f.settle();
     await entered.promise;
     f.handoff.invalidate();
-    wait.resolve({ commit: f.commit, discard: f.discard });
+    wait.resolve({ commit: f.commit, discard: f.discard, retract: f.retract, confirm: f.confirm });
     expect((await pending).handoff).toBe('isolated_login_retained');
     expect(f.commit).not.toHaveBeenCalled();
     expect(f.discard).toHaveBeenCalledOnce();
     await f.handoff.refresh();
     expect(f.commit).not.toHaveBeenCalled();
+  });
+
+  it.each(['during-publish', 'before-commit-resolution'] as const)('keeps Agent admission blocked on revocation %s', async timing => {
+    const f = fixture();
+    let blocked = true, published = false, destroyed = false, admissionDuringPublish = false;
+    const destination = {
+      loadOrigin: async () => {},
+      publish: () => {
+        published = true; admissionDuringPublish = !blocked;
+        if (timing === 'during-publish') f.revocation.abort();
+        else queueMicrotask(() => f.revocation.abort());
+        return { status: 'published' as const };
+      },
+      retract: vi.fn(() => { blocked = true; }),
+      confirm: vi.fn(() => { blocked = false; }),
+      dispose: vi.fn(async () => { destroyed = true; published = false; }),
+    };
+    f.host.prepareHandoff.mockImplementationOnce(binding => prepareFreshCredentialHandoffTarget(binding, {
+      assertCurrent: () => { if (f.revocation.signal.aborted) throw new Error('revoked'); }, prepare: async () => destination,
+    }));
+    expect((await f.settle()).handoff).toBe('isolated_login_retained');
+    expect(admissionDuringPublish).toBe(false);
+    expect(blocked && destroyed && !published).toBe(true);
+    expect(destination.confirm.mock.calls.length).toBe(0);
+    expect(destination.dispose.mock.calls.length).toBe(1);
+    await f.handoff.refresh();
+    expect(blocked && destroyed && !published).toBe(true);
+  });
+
+  it('retracts and starts disposal synchronously without waiting for a stuck commit', async () => {
+    const f = fixture(), entered = deferred<void>(), wait = deferred<void>();
+    f.commit.mockImplementationOnce(() => { entered.resolve(); return wait.promise; });
+    const pending = f.settle();
+    await entered.promise;
+    f.revocation.abort();
+    expect(f.retract.mock.calls.length > 0).toBe(true);
+    expect(f.discard.mock.calls.length).toBe(1);
+    expect(f.handoff.view().handoff).toBe('isolated_login_retained');
+    wait.resolve();
+    expect((await pending).handoff).toBe('isolated_login_retained');
+    expect(f.confirm.mock.calls.length).toBe(0);
+    expect(f.discard.mock.calls.length).toBe(1);
+  });
+
+  it('confirms in the final synchronous stack and does not retract a normal completed handoff', async () => {
+    const f = fixture();
+    expect((await f.settle()).handoff).toBe('handed_back');
+    expect(f.confirm.mock.calls.length).toBe(1);
+    f.revocation.abort(); f.handoff.invalidate();
+    await f.handoff.refresh();
+    expect(f.handoff.view().handoff).toBe('handed_back');
+    expect(f.retract.mock.calls.length).toBe(0);
+    expect(f.discard.mock.calls.length).toBe(0);
   });
 
   it('does not revive via reentrant guards, concurrent refresh, duplicate settles or finally', async () => {
@@ -339,7 +393,7 @@ describe('private credential session handoff', () => {
 
   it('keeps construction-time host and audit method identities when dependency objects are later replaced', async () => {
     const f = fixture(), originalPrepare = f.host.prepareHandoff, originalDestroy = f.surface.destroy;
-    const replacement = vi.fn(async (_binding: CredentialUseBinding): Promise<PreparedCredentialHandoff> => ({ commit: f.commit, discard: f.discard }));
+    const replacement = vi.fn(async (_binding: CredentialUseBinding): Promise<PreparedCredentialHandoff> => ({ commit: f.commit, discard: f.discard, retract: f.retract, confirm: f.confirm }));
     f.host.prepareHandoff = replacement;
     f.surface.destroy = vi.fn(async (_binding: CredentialUseBinding, _epoch?: string) => ({ status: 'destroyed' as const }));
     await f.settle();

@@ -123,7 +123,7 @@ describe('native credential handoff destination', () => {
 describe('fresh unregistered credential destination', () => {
   function port() {
     const destination = { loadOrigin: vi.fn(async (_origin: string) => {}),
-      publish: vi.fn(() => ({ status: 'published' as const })), dispose: vi.fn(async () => {}) };
+      publish: vi.fn(() => ({ status: 'published' as const })), retract: vi.fn(() => {}), confirm: vi.fn(() => {}), dispose: vi.fn(async () => {}) };
     const value = { assertCurrent: vi.fn((_binding: CredentialUseBinding) => {}), prepare: vi.fn(async () => destination) };
     return { destination, value };
   }
@@ -135,7 +135,12 @@ describe('fresh unregistered credential destination', () => {
     expect(f.destination.publish).not.toHaveBeenCalled();
     const result = prepared.commit();
     expect(f.destination.publish).toHaveBeenCalledOnce();
+    expect(f.destination.confirm.mock.calls.length).toBe(0);
     await result;
+    prepared.confirm();
+    expect(f.destination.confirm.mock.calls.length).toBe(1);
+    await prepared.discard();
+    expect(f.destination.dispose.mock.calls.length).toBe(0);
     expect(() => prepared.commit()).toThrow('credential_handoff_unavailable');
   });
 
@@ -170,5 +175,23 @@ describe('fresh unregistered credential destination', () => {
     expect(() => prepared.commit()).toThrow('credential_handoff_unavailable');
     expect(f.destination.publish).toHaveBeenCalledOnce();
     expect(f.destination.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('retracts a published but unconfirmed target before waiting for its actual disposal', async () => {
+    const f = port(), prepared = await prepareFreshCredentialHandoffTarget(binding, f.value);
+    await prepared.commit();
+    const disposal = prepared.discard();
+    expect(f.destination.retract.mock.calls.length).toBe(1);
+    expect(f.destination.dispose.mock.calls.length).toBe(1);
+    expect(() => prepared.confirm()).toThrow('credential_handoff_unavailable');
+    await disposal;
+  });
+
+  it('still attempts disposal when the synchronous retraction reports a failure', async () => {
+    const f = port(), prepared = await prepareFreshCredentialHandoffTarget(binding, f.value);
+    f.destination.retract.mockImplementationOnce(() => { throw new Error('retraction_unconfirmed'); });
+    await prepared.discard();
+    expect(f.destination.dispose.mock.calls.length).toBe(1);
+    expect(() => prepared.commit()).toThrow('credential_handoff_unavailable');
   });
 });

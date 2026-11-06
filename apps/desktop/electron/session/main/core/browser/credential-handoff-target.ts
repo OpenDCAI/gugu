@@ -19,7 +19,8 @@ export async function prepareCredentialHandoffTarget(
     // These checks and actual loadURL dispatch are in the same synchronous call stack.
     assertCurrent();
     return prepared.commit();
-  }, discard: async () => { discarded = true; } };
+  }, retract: () => { discarded = true; }, confirm: assertCurrent,
+  discard: async () => { discarded = true; } };
 }
 
 export interface FreshCredentialDestinationPort {
@@ -28,8 +29,11 @@ export interface FreshCredentialDestinationPort {
   prepare(binding: CredentialUseBinding): Promise<{
     /** Starts actual native loading synchronously; no Agent registration or observation. */
     loadOrigin(origin: string): Promise<void>;
-    /** Synchronously verifies/reserves ownership and publishes the prepared native target. No await. */
+    /** Registers the prepared native target while Agent observation remains blocked. No await. */
     publish(): { status: 'published' };
+    retract(): void;
+    /** Opens admission only at B-3's final synchronous handshake; no external callbacks. */
+    confirm(): void;
     dispose(): Promise<void>;
   }>;
 }
@@ -42,26 +46,47 @@ export async function prepareFreshCredentialHandoffTarget(
 ): Promise<PreparedCredentialHandoff> {
   assertCredentialWebsite(binding.origin, binding.origin);
   const origin = binding.origin;
-  const destination = await port.prepare(binding);
+  const assertCurrent = port.assertCurrent.bind(port);
+  const candidate = await port.prepare(binding);
+  const destination = Object.freeze({ loadOrigin: candidate.loadOrigin.bind(candidate), publish: candidate.publish.bind(candidate),
+    retract: candidate.retract.bind(candidate), confirm: candidate.confirm.bind(candidate), dispose: candidate.dispose.bind(candidate) });
   try {
-    port.assertCurrent(binding);
+    assertCurrent(binding);
     await destination.loadOrigin(origin);
-    port.assertCurrent(binding);
+    assertCurrent(binding);
   } catch {
+    try { destination.retract(); } catch { /* Still attempt actual disposal. */ }
     try { await destination.dispose(); } catch { /* Retain failure; never publish from cleanup. */ }
     throw new Error('credential_handoff_unavailable');
   }
-  let consumed = false, discarded = false;
+  let consumed = false, discarded = false, confirmed = false;
+  let disposal: Promise<void> | undefined;
+  const retract = () => {
+    if (!confirmed && !discarded) { discarded = true; destination.retract(); }
+  };
   return {
     commit: () => {
       if (consumed || discarded) throw new Error('credential_handoff_unavailable');
       consumed = true;
       try {
-        port.assertCurrent(binding);
+        assertCurrent(binding);
         if (destination.publish()?.status !== 'published') throw new Error('credential_handoff_unavailable');
       } catch { throw new Error('credential_handoff_unavailable'); }
       return Promise.resolve();
     },
-    discard: async () => { if (!discarded) { discarded = true; await destination.dispose(); } },
+    retract,
+    confirm: () => {
+      if (!consumed || discarded || confirmed) throw new Error('credential_handoff_unavailable');
+      assertCurrent(binding); destination.confirm(); confirmed = true;
+    },
+    discard: () => {
+      if (confirmed) return Promise.resolve();
+      if (!disposal) {
+        try { retract(); } catch { /* Still attempt actual disposal. */ }
+        try { disposal = Promise.resolve(destination.dispose()); }
+        catch { disposal = Promise.reject(new Error('credential_destination_cleanup_unconfirmed')); }
+      }
+      return disposal;
+    },
   };
 }
