@@ -1,6 +1,6 @@
 import { isScreenView, showBesideOnScreen, showOnScreen } from '@renderer/app/screen-layout-actions';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
-import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { appState } from '@renderer/lib/stores/app-state';
 import type { ScreenBlockContent } from '@renderer/app/screen-layout';
 import { openOwnedAgentEntry } from '@/lib/ownedAgentConversation';
 
@@ -11,9 +11,9 @@ import { openOwnedAgentEntry } from '@/lib/ownedAgentConversation';
  */
 export function openChatOnScreen(chatId: string, beside: boolean, purpose?: 'resource'): void {
   if (openOwnedAgentEntry(chatId, undefined, undefined, undefined, purpose)) return;
-  const projectId = projectGroupsStore.projectOfChat(chatId);
+  const projectId = projectGroupsStore.rowProjectOfChat(chatId);
   const content: ScreenBlockContent = projectId
-    ? { kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) }
+    ? { kind: 'project', projectId }
     : { kind: 'chat', chatId };
   (beside && isScreenView(appState.navigation.currentViewId) ? showBesideOnScreen : showOnScreen)(content);
 }
