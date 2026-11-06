@@ -265,6 +265,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           draft={draft === appliedDraft ? undefined : draft}
           onDraftApplied={() => setAppliedDraft(draft)}
           phoneHost={phoneHost} local={local} nativeRecord={native} hostReachable={answering}
+          unseen={session.unseen === true}
           queueReady={queueReady}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
