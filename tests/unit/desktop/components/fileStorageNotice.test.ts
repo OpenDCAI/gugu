@@ -105,17 +105,22 @@ describe('group manager storage notice', () => {
     await tick(1000)
     expect(toast.dismiss).toHaveBeenCalledWith(firstId)
   })
-  it('shares slow requests across mounts, attachment changes, focus and polling', async () => {
+  it.each([false, true])('shares slow requests across mounts, attachment changes, focus and polling (cached=%s)', async cached => {
+    if (cached) {
+      rpc.mockResolvedValue({ data: warning, error: null })
+      await render()
+    }
     let resolve!: (result: { data: typeof healthy; error: null }) => void
     rpc.mockImplementation(() => new Promise(done => { resolve = done }))
-    await render('admin', [], 'group', 2)
+    await render('admin', cached ? [attachment('first')] : [], 'group', 2)
     await render('admin', [attachment('file')], 'group', 2)
     await act(async () => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('online')) })
     await tick(120_000)
-    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(rpc).toHaveBeenCalledTimes(cached ? 2 : 1)
     await act(async () => { resolve({ data: healthy, error: null }) })
     await tick()
-    expect(toast.warning).not.toHaveBeenCalled()
+    expect(harness.container.textContent).toBe('')
+    if (!cached) expect(toast.warning).not.toHaveBeenCalled()
   })
   it('stops retrying after losing manager access', async () => {
     rpc.mockResolvedValue(unavailable)
