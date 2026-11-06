@@ -393,7 +393,7 @@ const ComposerForStore = observer(function ComposerForStore({
       sendingRef.current = true;
       try {
         await sendComposerInput(value, {
-          unsettled: () => fileUploads.unsettled(),
+          started: onScrollToBottom, unsettled: () => fileUploads.unsettled(),
           waitForUploads: async () => { await fileUploads.waitForUploads(); },
           hasFailedAttachments: () => attachmentsRef.current.some(att => att.state === 'error'),
           files: () => fileUploads.files(attachmentsRef.current.map(att => att.id)),
@@ -405,12 +405,12 @@ const ComposerForStore = observer(function ComposerForStore({
             if (editorApiRef.current?.getText() === value) editorApiRef.current.clear();
           }),
         });
-        // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
+        // 只在本机发起时选择跟随；等待期间的上翻优先，提交完成不再改阅读位置。
       } finally {
         sendingRef.current = false;
       }
     },
-    [fileUploads, store]
+    [fileUploads, store, onScrollToBottom]
   );
 
   const handleSubmit = useCallback(
