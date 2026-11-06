@@ -91,7 +91,8 @@ import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { platform } from '../platform'
 import { useToast } from '../components/toastContext'
-import { askChat, closeTopicTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { askChat, askChatFile, closeTopicTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { openOwnedAgentResource } from '../lib/ownedAgentConversation'
 import { filePillText } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { chatSlotKey } from '../lib/shellSlots'
@@ -312,7 +313,10 @@ function InnerLayout({
       setAppDetail(target)
       openSettingsSection('apps')
     },
-    openFile: (chatId, target, source) => { openChatTarget(chatId, 'resource'); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
+    openFile: async (chatId, target, source) => {
+      if (mobile || !await openOwnedAgentResource(chatId)) openChatTarget(chatId, 'resource')
+      await askChatFile(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) })
+    },
     openApp: (chatId, extensionId, tab) => { openChatTarget(chatId, 'resource'); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
     openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
     openProject: (projectId) => { setOpenedPhoneApp(null); setActiveTab('tasks'); appState.navigation.navigate('project', { projectId }) },
