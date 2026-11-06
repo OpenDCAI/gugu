@@ -34,9 +34,10 @@ export function installErrorSummaryConsent(): void {
   void refresh()
 }
 
-export async function setErrorSummaryConsent(decision: Exclude<ErrorSummaryDecision, 'unknown'>): Promise<void> {
+export async function setErrorSummaryConsent(decision: Exclude<ErrorSummaryDecision, 'unknown'>, expectedContext: string | null): Promise<void> {
+  if (expectedContext === null || current.context !== expectedContext) throw new Error('Error summary context changed')
   const token = ++generation
-  const next = await window.electronAPI?.invoke(channels.write, decision, current.context) as ErrorSummaryConsentSnapshot
+  const next = await window.electronAPI?.invoke(channels.write, decision, expectedContext) as ErrorSummaryConsentSnapshot
   if (token === generation) publish(next)
 }
 

@@ -16,7 +16,7 @@ export function ErrorSummaryConsentDialog() {
   async function choose(allowed: boolean) {
     setSaving(true)
     setFailed(false)
-    try { await setErrorSummaryConsent(allowed ? 'allowed' : 'denied') } catch { setFailed(true) } finally { setSaving(false) }
+    try { await setErrorSummaryConsent(allowed ? 'allowed' : 'denied', state.context) } catch { setFailed(true) } finally { setSaving(false) }
   }
   return (
     <Sheet
@@ -55,7 +55,7 @@ export function ErrorSummaryPrivacySetting() {
         <Switch checked={state.decision === 'allowed'} disabled={saving} aria-label={t('errorSummary.setting')} onCheckedChange={async allowed => {
           setSaving(true)
           setFailed(false)
-          try { await setErrorSummaryConsent(allowed ? 'allowed' : 'denied') } catch { setFailed(true) } finally { setSaving(false) }
+          try { await setErrorSummaryConsent(allowed ? 'allowed' : 'denied', state.context) } catch { setFailed(true) } finally { setSaving(false) }
         }} />
       } />
     </SettingsGroup>
