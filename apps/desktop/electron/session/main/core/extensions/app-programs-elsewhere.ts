@@ -3,6 +3,8 @@ import type { AppCallAction, RemoteAppCaller } from '@gugu/session-core/session-
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { appCallAction, notOnSessionMachine, overCallLimit } from '@shared/extensions/machine-call';
 import { machineVerbs } from '@main/core/extensions/machine-verbs';
+import { events } from '@main/lib/events';
+import { appFileMachineOutdatedChannel } from '@shared/events/appEvents';
 import type { MachineVerb, PlaceVerb } from '@shared/extensions/bridge-protocol';
 import { callRefusal, verbFacts } from '@shared/extensions/bridge-protocol';
 import { log } from '@main/lib/logger';
@@ -82,6 +84,7 @@ export async function callOnSessionMachine(
   if (!machine) return { there: false };
   const invalid = notOnSessionMachine(app.manifest, method, args);
   if (invalid) throw invalid;
+  const fileCall = verbFacts(method)?.machine === 'place';
   if (workedByAgent && method === 'callProgram') {
     throw Object.assign(new Error('A page an agent works calls its program on this computer only; this session is on another machine'), { code: 'invalid' });
   }
@@ -93,7 +96,8 @@ export async function callOnSessionMachine(
   } catch (error) {
     // That machine's offline / too old / unreachable / silent, as the page reads it: `unavailable`; its own refusals keep their code.
     const code = (error as { code?: unknown } | null)?.code;
-    if (typeof code === 'string' && UNAVAILABLE.has(code)) throw Object.assign(new Error(error instanceof Error ? error.message : String(error)), { code: 'unavailable' });
+    if (fileCall && oldFileInterface(method, error)) throw machineOutdated(machine);
+    if (typeof code === 'string' && UNAVAILABLE.has(code)) throw Object.assign(new Error(error instanceof Error ? error.message : String(error)), { code: 'unavailable', ...('deviceLabel' in machine && machine.deviceLabel ? { detail: { reason: 'machine-unavailable', machine: machine.deviceLabel } } : {}) });
     throw error;
   }
 }
@@ -140,6 +144,25 @@ export async function answerAppCall(caller: RemoteAppCaller, action: AppCallActi
     if (!reached) answered.delete(key);
   });
   return await result;
+}
+
+/**
+ * A file call its machine does not have, as that machine says it: too old to have the channel or the verb, or from before
+ * file calls stopped asking for the App's version (`admit`). Nothing else is: its own refusals of a call it has stay its own.
+ */
+function oldFileInterface(method: string, error: unknown): boolean {
+  const { code } = (error ?? {}) as { code?: unknown };
+  if (code === 'SESSION_DEVICE_OUTDATED' || code === 'version-mismatch' || code === 'not-installed') return true;
+  return code === 'invalid' && error instanceof Error && error.message.includes(`${method} is done where the page is`);
+}
+
+function machineOutdated(machine: { deviceId: string; deviceLabel?: string | null }): Error {
+  const label = machine.deviceLabel ?? machine.deviceId;
+  events.emit(appFileMachineOutdatedChannel, { deviceId: machine.deviceId, label });
+  return Object.assign(new Error(`咕咕 on ${label} is too old for this file call: update it (Settings, Devices)`), {
+    code: 'machine-outdated',
+    detail: { reason: 'machine-outdated', machine: label, deviceId: machine.deviceId },
+  });
 }
 
 /**

@@ -20,6 +20,7 @@ const fileCapabilities = vi.hoisted(() => ({ granted: null as Set<string> | null
 const readWorkingCopy = vi.hoisted(() => vi.fn());
 vi.mock('@main/core/extensions/working-copy-files', () => ({ readWorkingCopy }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: () => undefined, error: () => undefined, info: () => undefined } }));
+vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn(), on: vi.fn() } }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
     get: () => {
@@ -102,6 +103,23 @@ describe('the machine that has the session does the call', () => {
     await expect(refusal(elsewhere.answerAppCall(CALLER, action({ call_id: 'not-here', method: 'filesRead', session_id: 's-elsewhere' }, { ref: { workspace: 'session:s-elsewhere', id: 'a' } })))).resolves.toMatchObject({ code: 'not-found' });
     installed.version = '0.6.0';
     await expect(refusal(elsewhere.answerAppCall(CALLER, action({ call_id: 'program' })))).resolves.toMatchObject({ code: 'version-mismatch' });
+  });
+
+  it('a file call its machine is too old for says so, naming the machine; the App\'s own verbs keep their refusal', async () => {
+    const app = { extensionId: 'spexcode', manifest: { id: 'spexcode', apiVersion: 25, defaultLocale: 'en', name: 'SpexCode', version: '0.7.0', contributes: { tabs: [], mcpServers: [{ tools: 'tools.js' }] } } } as Parameters<typeof elsewhere.callOnSessionMachine>[0];
+    const file = { ref: { workspace: 'session:s-x', id: 'a.md' } };
+    const call = (method: string, args: Record<string, unknown>) => refusal(elsewhere.callOnSessionMachine(app, { deviceId: 'dev-there' }, method, args, false));
+    const said = (code: string, message: string) => appCall.mockRejectedValueOnce(Object.assign(new Error(message), { code }));
+    for (const [code, message] of [['version-mismatch', 'on x: 文件夹 is 0.2.72 on this machine and 0.2.95 where its page is'], ['SESSION_DEVICE_OUTDATED', 'too old'], ['invalid', 'on x: filesRead is done where the page is, not on its session\'s machine'], ['not-installed', 'not installed']] as const) {
+      said(code, message);
+      await expect(call('filesRead', file)).resolves.toMatchObject({ code: 'machine-outdated' });
+    }
+    said('invalid', 'a file call it refuses for its own reason');
+    await expect(call('filesRead', file)).resolves.toMatchObject({ code: 'invalid' });
+    said('not-found', 'gone');
+    await expect(call('filesRead', file)).resolves.toMatchObject({ code: 'not-found' });
+    said('version-mismatch', 'its program');
+    await expect(call('callProgram', { name: 'graph' })).resolves.toMatchObject({ code: 'version-mismatch' });
   });
 
   it('calls a selected machine without finding or manufacturing a session', async () => {
