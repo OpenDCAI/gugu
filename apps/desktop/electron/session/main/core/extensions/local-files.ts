@@ -625,7 +625,13 @@ export function createLocalAppFiles(platform: {
   }
 
   /** In a working copy a file's id and its name are the same thing: its path. */
-  const pathOf = (ref: WorkspaceFileRef) => ('id' in ref ? ref.id : ref.name);
+  /** A file's path in the working copy. The host hands a page its file by the absolute path: inside the root, that is the same path. */
+  const pathOf = (surface: LocalSurface, ref: WorkspaceFileRef) => {
+    const name = 'id' in ref ? ref.id : ref.name;
+    if (!path.isAbsolute(name)) return name;
+    const rel = path.relative(surface.workspaceRoot, name);
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : name;
+  };
 
   const nameTaken = (rel: string) => new AppFileError('name-taken', `${rel} already exists`);
 
@@ -660,7 +666,7 @@ export function createLocalAppFiles(platform: {
 
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
   function readable(surface: LocalSurface, ref: WorkspaceFileRef, what: 'saving' | 'opening'): { abs: string; rel: string } {
-    const found = inside(surface.workspaceRoot, pathOf(ref), 'existing');
+    const found = inside(surface.workspaceRoot, pathOf(surface, ref), 'existing');
     if (found.rel !== surface.filePath && !has(surface, 'files:read') && !has(surface, 'files:write')) {
       throw new AppFileError('denied', `Not permitted: ${what} a file other than the one this page was opened for needs "files:read" or "files:write"`);
     }
@@ -761,14 +767,14 @@ export function createLocalAppFiles(platform: {
       await requireAgentFileTreeAccess(surface.workspaceRoot);
       const name = String(args.name ?? '').trim();
       if (!name) throw new AppFileError('invalid', 'A file needs a name');
-      const from = entryAt(surface.workspaceRoot, pathOf(args.ref));
+      const from = entryAt(surface.workspaceRoot, pathOf(surface, args.ref));
       // A bare name stays in its folder, as renaming a group file does; a path moves it.
       return moveEntry(surface, from, name.includes('/') ? name : path.posix.join(path.posix.dirname(from.rel), name));
     },
 
     /** Into `folder` ('' the top), under `name` when one is given. */
     move(surface: LocalSurface, args: { ref: WorkspaceFileRef; folder?: string; name?: string }): AppFileEntry {
-      const from = entryAt(surface.workspaceRoot, pathOf(args.ref));
+      const from = entryAt(surface.workspaceRoot, pathOf(surface, args.ref));
       const folder = args.folder ?? path.posix.dirname(from.rel);
       return moveEntry(surface, from, path.posix.join(folder, args.name ?? path.posix.basename(from.rel)));
     },
@@ -781,7 +787,7 @@ export function createLocalAppFiles(platform: {
       await requireAgentFileTreeAccess(surface.workspaceRoot);
       const file = args.file;
       if (!file || !(file.bytes instanceof ArrayBuffer)) throw new AppFileError('invalid', 'files.replace(file, content) takes the new content: a Blob');
-      const found = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
+      const found = inside(surface.workspaceRoot, pathOf(surface, args.ref), 'existing');
       if (found.rel !== surface.filePath && !has(surface, 'files:write')) {
         throw new AppFileError('denied', 'Not permitted: replacing a file other than the one this page was opened for needs "files:write"');
       }
@@ -805,7 +811,7 @@ export function createLocalAppFiles(platform: {
     /** A file, a link (not what it points at) or a folder with all in it. */
     async remove(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<void> {
       await requireAgentFileTreeAccess(surface.workspaceRoot);
-      const found = entryAt(surface.workspaceRoot, pathOf(args.ref));
+      const found = entryAt(surface.workspaceRoot, pathOf(surface, args.ref));
       try {
         fs.rmSync(found.abs, { recursive: true });
       } catch (error) {

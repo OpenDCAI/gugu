@@ -377,6 +377,15 @@ describe('gugu.files on a working copy', () => {
     fs.rmSync(outside, { recursive: true, force: true });
   });
 
+  it('a file named by its absolute path inside the working copy is that file; outside it, refused', () => {
+    write('handed.md', 'x');
+    const a = new Page(nextId++, null);
+    expect(files.rename(a.surface, { ref: { workspace: WS, id: path.join(root, 'handed.md') }, name: 'renamed.md' })).toMatchObject({ id: 'renamed.md' });
+    files.remove(a.surface, { ref: { workspace: WS, id: path.join(root, 'renamed.md') } });
+    expect(fs.existsSync(path.join(root, 'renamed.md'))).toBe(false);
+    expect(() => files.remove(a.surface, { ref: { workspace: WS, id: path.join(root, '..', 'elsewhere.md') } })).toThrow(expect.objectContaining({ code: 'invalid' }));
+  });
+
   it('a file tree\'s writes: folders made and moved, a name taken said, nothing goes inside itself', () => {
     const a = new Page(nextId++, null);
     expect(files.mkdir(a.surface, { path: 'docs/old' })).toMatchObject({ id: 'docs/old', type: 'folder' });
