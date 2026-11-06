@@ -402,13 +402,17 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active: PhotoSwipe | null = null
+    // @@@one-viewer - the viewer is modal, so a request that lands while one is loading or open is a repeat
+    // click (rapid clicks during the import / opening animation, where PhotoSwipe ignores destroy()) and is dropped.
+    let holding = false
     let disposed = false
     const unregister = registerImageViewerHost((request) => {
+      if (holding) return request.items.forEach(item => item.release?.())
+      holding = true
       import('photoswipe')
         .then(({ default: PhotoSwipeCtor }) => {
           if (disposed) return
           const { t: translate, mobile: isMobile } = latest.current
-          active?.destroy()
           const pswp = new PhotoSwipeCtor(viewerOptions(request, isMobile, translate('shell.imagePreview.loadFailed')))
           wireViewer(pswp, translate('shell.imagePreview.dialog'), (item, error) => {
             const target = item.resource?.target
@@ -440,7 +444,8 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
           pswp.on('destroy', () => {
             unbindMenu?.()
             request.items.forEach(item => item.release?.())
-            if (active === pswp) active = null
+            active = null
+            holding = false
             setViewer((open) => (open?.pswp === pswp ? null : open))
             setEditing(null)
           })
@@ -451,6 +456,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
           setViewer({ pswp, root: pswp.element, items: request.items, index: pswp.currIndex })
         })
         .catch((error: unknown) => {
+          holding = active !== null
           log.error({ error: String(error), count: request.items.length }, 'failed to open image viewer')
           latest.current.toast(latest.current.t('shell.imagePreview.openFailed'), 'error', messageForUser(error))
         })
