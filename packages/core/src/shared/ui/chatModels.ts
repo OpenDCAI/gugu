@@ -200,8 +200,8 @@ export function upsertChatRow(chats: ChatItem[], chat: ChatItem): ChatItem[] {
 }
 
 export function mergeFetchedChatsPreservingActiveLocal(
-  fetchedChats: ChatItem[],
-  currentChats: ChatItem[],
+  fetchedChats: readonly ChatItem[],
+  currentChats: readonly ChatItem[],
   activeChatId: string | null,
   options: { preserveMissingActive?: boolean } = {},
 ): ChatItem[] {
@@ -213,6 +213,7 @@ export function mergeFetchedChatsPreservingActiveLocal(
   const localById = new Map(currentChats.map((chat) => [chat.id, chat]))
   const merged = fetchedChats.map((fetched) => {
     const local = localById.get(fetched.id)
+    if (local === fetched) return fetched
     let next = fetched
     if ((fetched.kind === 'dm' || fetched.kind === 'ai') && !fetched.peer_user_id && local?.peer_user_id) {
       next = {

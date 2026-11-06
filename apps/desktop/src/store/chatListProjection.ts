@@ -3,11 +3,10 @@ import { mergeFetchedChatsPreservingActiveLocal } from '@gugu/core/shared/ui/cha
 import { createChatNotificationPayload, shouldNotify } from '@gugu/core/shared/ui/notificationModels'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { publishChatSnapshot } from '../lib/chatSnapshotPublication'
-import { replaceEqualDeep } from '@tanstack/react-query'
 import { platform } from '../platform'
 import { isChatOnScreen } from '../lib/onScreenChat'
 import { chatPreviewText } from '../lib/agentTurnFailure'
-import type { AccountImRepository } from '../lib/imRepository'
+import { imSelectors, type AccountImRepository } from '../lib/imRepository'
 import type { PersonalConversationDeletion } from '../lib/deleteListedConversation'
 import { patchChatRows, prepareProjectedReadWatermark, type PatchChat } from './chatRealtimeMutations'
 import { currentAuthSessionSignal } from '../lib/authSessionLoss'
@@ -15,6 +14,7 @@ import {
   createChatProjection, readProjectionCursor,
   type ChatProjection, type ChatProjectionAttachment,
 } from '../lib/chatProjection'
+import { shareRows } from '../lib/chatProjectionAlgebra'
 
 // @@@selection-is-intent (#4314) — 一次刷新没提到某条会话，含义取决于这一发相对「最后一次看见它」有多新：
 // 刚 open_dm 出来的会话还没被任何一发投影过，对它的沉默是仪器还没读到、不是阴性读数。契约见 [[conversation-data]]。
@@ -70,15 +70,18 @@ export async function applyFetchedChatList(
     { preserveMissingActive: !revokeMissingActive })
   // Select from the same live owner inside the repository transaction. A delayed
   // snapshot must not persist an optimistic tuple that was already rolled back.
-  await publishChatSnapshot(repository, merged.filter((chat) => ids.has(chat.id)), identities, isConversationDeleted,
-    into.liveChats ? () => mergeFetchedChatsPreservingActiveLocal([...fetched], [...into.liveChats!()], activeChatId,
-      { preserveMissingActive: !revokeMissingActive }).filter(chat => ids.has(chat.id)) : undefined)
+  await publishChatSnapshot(repository, () => {
+    const live = into.liveChats?.() ?? currentChats
+    const published = shareRows(live, mergeFetchedChatsPreservingActiveLocal([...fetched], live, activeChatId,
+      { preserveMissingActive: !revokeMissingActive }).filter(chat => ids.has(chat.id)))
+    return published
+  }, identities, isConversationDeleted)
   if (isConversationDeleted) ledger.forgetDeleted(isConversationDeleted)
   const visible = merged.filter(chat => !isConversationDeleted?.(chat.id))
   const missing = ledger.missingFrom(visible)
   // 结构共享:没变的会话行沿用内存里那一版对象。投影每批都重拼全部行,不共享的话一条新消息
   // 就让当前会话 activeChat 换身份,聊天面板里以它为依赖的派生全部重算、每条气泡的 memo 随之失效。
-  return replaceEqualDeep(currentChats as ChatItem[], missing.length > 0 ? [...missing, ...visible] : visible)
+  return shareRows(currentChats, missing.length > 0 ? [...missing, ...visible] : visible)
 }
 
 /** Only the winner of the committed account message's IDB claim calls this outlet. */
@@ -172,10 +175,13 @@ export function useChatProjectionBinding(deps: {
   const ownerFor = useCallback((accountId: string): ChatProjection => {
     if (ownerRef.current?.accountId !== accountId) {
       ownerRef.current?.owner.reset() // 换账号即换属主(store 不跨账号留存)
-      ownerRef.current = { accountId, owner: createChatProjection(accountId) }
+      ownerRef.current = { accountId, owner: createChatProjection(accountId, {
+        rows: () => chatsRef.current,
+        identity: (id) => repositoryRef.current?.accountId === accountId ? imSelectors.identitiesById(repositoryRef.current.snapshot())[id] : undefined,
+      }) }
     }
     return ownerRef.current.owner
-  }, [])
+  }, [chatsRef, repositoryRef])
 
   /** `revokedMembership` 是增量那一路的另一半判据:要**权威的成员行 tombstone**,不是整表缺席(#4314)。 */
   const publish = useCallback(async (
@@ -216,7 +222,7 @@ export function useChatProjectionBinding(deps: {
       current, onScreen: isChatOnScreen, canAcknowledge, visibleSeqOf, patchChat: patchChatFor(accountId),
       deferPersist: (persist) => pendingReads.push(persist),
     })
-    acceptRows(accountId, replaceEqualDeep(current, acknowledged))
+    acceptRows(accountId, shareRows(current, acknowledged))
     for (const persist of pendingReads) persist()
     if (revokeMissingActive && activeChatId) onActiveRevoked(activeChatId)
   }, [ledger, activeChatIdRef, canAcknowledge, visibleSeqOf, chatsRef, getRepository, onActiveRevoked, patchChatFor, acceptRows, repositoryRef])
