@@ -25,6 +25,7 @@ describe('bounded inventory probes', () => {
     await manager.probeAll();
     expect(manager.get('antigravity')).toMatchObject({ status: 'error', error: 'antigravity configuration copy failed' });
     expect(manager.get('claude')).toMatchObject({ status: 'available' });
+    await expect(manager.isPathResolutionConsistent('antigravity')).resolves.toBe(false);
     broken = false; await manager.probeAll();
     expect(manager.get('antigravity')).toMatchObject({ status: 'available' });
     expect(manager.get('antigravity')?.error).toBeUndefined();

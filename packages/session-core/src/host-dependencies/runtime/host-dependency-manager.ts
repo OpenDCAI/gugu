@@ -411,7 +411,10 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     const state = this.state.get(id);
     const descriptor = this._getDependencyDescriptor(id);
     if (!state || !descriptor) return false;
-    const resolvedPath = await this.resolveFirstPath(descriptor);
+    const resolvedPath = await this.resolveFirstPath(descriptor).catch(() => undefined);
+    // A preparation failure makes the cached row uncertain. Re-probe through the per-provider
+    // error publisher instead of rejecting the whole inventory's cache validation.
+    if (resolvedPath === undefined) return false;
     return (resolvedPath !== null) === (state.status !== 'missing');
   }
 
