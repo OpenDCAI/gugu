@@ -5,18 +5,33 @@ import {
   SESSION_TITLE_INSTRUCTIONS_MAX,
   sessionTitleRequestBody,
   shouldGenerateSessionTitle,
+  shortFirstUtteranceTitle,
   thinkingOffParams,
 } from './session-title-namer';
 
 describe('shouldGenerateSessionTitle', () => {
-  it('首轮短到兜底标题就是整句时不起名', () => {
+  it('完整短首轮不需要模型起名', () => {
     expect(shouldGenerateSessionTitle('你好')).toBe(false);
     expect(shouldGenerateSessionTitle('  修复登录跳转  ')).toBe(false);
     expect(shouldGenerateSessionTitle(undefined)).toBe(false);
   });
 
-  it('首轮长到兜底会是半句话时起名', () => {
+  it('较长的首轮交给模型起名', () => {
     expect(shouldGenerateSessionTitle('帮我看看为什么登录之后又跳回首页了，应该是 auth.ts 的问题')).toBe(true);
+  });
+});
+
+describe('shortFirstUtteranceTitle', () => {
+  it('折叠空白,并把长度边界两侧交给本地或模型命名', () => {
+    expect(shortFirstUtteranceTitle('  南京\n 天气  ')).toBe('南京 天气');
+    expect(shortFirstUtteranceTitle('1234567890123456')).toBe('1234567890123456');
+    expect(shortFirstUtteranceTitle('12345678901234567')).toBeNull();
+    expect(shouldGenerateSessionTitle('12345678901234567')).toBe(true);
+  });
+
+  it.each([undefined, '', ' \n ', '？！……', '😀🎉', 'ℹ️', '1️⃣', '😀'.repeat(20)])('无可用文字的首轮 %j 不成为名字也不请求模型', input => {
+    expect(shortFirstUtteranceTitle(input)).toBeNull();
+    expect(shouldGenerateSessionTitle(input)).toBe(false);
   });
 });
 
