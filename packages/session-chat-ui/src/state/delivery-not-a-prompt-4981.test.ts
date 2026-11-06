@@ -23,8 +23,8 @@ const DELIVERY = [
   '</gugu_delivery>',
 ].join('\n');
 
-function message(id: string, role: 'user' | 'assistant', text: string): ChatItem {
-  return { kind: 'message', id, seq: 0, role, text } as unknown as ChatItem;
+function message(id: string, role: 'user' | 'assistant', text: string): ChatMessage {
+  return { kind: 'message', id, seq: 0, role, text };
 }
 
 function turnOf(items: ChatItem[]): TranscriptTurn {
