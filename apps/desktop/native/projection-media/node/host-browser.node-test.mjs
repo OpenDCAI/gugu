@@ -8,8 +8,32 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { openMediaProcess } from './host.mjs'
 
+// A step that must finish, or fail saying so: the cleanup never waits without a bound.
+const bounded = (step, work, ms) => {
+  let timer
+  const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${step} did not finish within ${ms} ms`)), ms) })
+  return Promise.race([work, late]).finally(() => clearTimeout(timer))
+}
+
 test('Node host → actual native helper → Chromium decodes correlated video and returns direct control', { timeout: 30000 }, async t => {
   assert.ok(process.env.GUGU_TEST_CHROMIUM, 'GUGU_TEST_CHROMIUM must select the actual browser')
+  // @@@one-cleanup - node:test skips the remaining after-hooks once one throws. With a hook per resource (registered
+  // media, server, profile, browser, run in that order) removing the profile of a Chromium still starting failed
+  // (ENOTEMPTY), the browser hook never ran, and the live Chromium kept the file process open until the CI job was
+  // cancelled, before the failure was printed. One hook stops everything newest-first (the browser before its profile),
+  // runs every step, bounds each, and reports every step that failed.
+  const cleanup = []
+  t.after(async () => {
+    const failures = []
+    for (const [step, work] of cleanup.reverse()) {
+      try { await work() } catch (error) { failures.push(new Error(`${step}: ${error.message}`, { cause: error })) }
+    }
+    if (!failures.length) return
+    const message = `Browser fixture cleanup failed: ${failures.map(error => error.message).join('; ')}`
+    // A failed test reports only its own error; the cleanup's goes beside it.
+    t.diagnostic(message)
+    throw new AggregateError(failures, message)
+  })
   const lifetime = new AbortController()
   const controls = []
   let browserReady = false
@@ -21,7 +45,8 @@ test('Node host → actual native helper → Chromium decodes correlated video a
     signal: lifetime.signal,
     onControl: raw => controls.push(JSON.parse(raw)),
   })
-  t.after(async () => { lifetime.abort(); await media.closed.catch(() => undefined) })
+  // The host escalates to SIGKILL 2 s after abort; its close settles on the helper's exit.
+  cleanup.push(['stop the media helper', async () => { lifetime.abort(); await bounded('media helper exit', media.closed.catch(() => undefined), 10000) }])
   const server = createServer(async (request, response) => {
     try {
       if (request.url === '/viewer.mjs') {
@@ -43,18 +68,27 @@ test('Node host → actual native helper → Chromium decodes correlated video a
     } catch (error) { browserFailure = error; response.writeHead(400); response.end(String(error)) }
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve) }))
+  cleanup.push(['close the fixture server', () => bounded('server close', new Promise(resolve => { server.closeAllConnections(); server.close(resolve) }), 5000)])
   const profile = await mkdtemp(join(tmpdir(), 'projection-media-browser-'))
-  t.after(() => rm(profile, { recursive: true, force: true }))
+  cleanup.push(['remove the browser profile', () => rm(profile, { recursive: true, force: true })])
   const args = ['--headless=new', '--autoplay-policy=no-user-gesture-required', `--user-data-dir=${profile}`]
   if (process.getuid?.() === 0) args.push('--no-sandbox')
   args.push(`http://127.0.0.1:${server.address().port}`)
-  const browser = spawn(process.env.GUGU_TEST_CHROMIUM, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+  // Its own process group: stopping the browser stops its renderer, GPU and zygote processes too, which share its stderr.
+  const browser = spawn(process.env.GUGU_TEST_CHROMIUM, args, { stdio: ['ignore', 'ignore', 'pipe'], detached: true })
   let diagnostics = ''
   let exit
   const exited = new Promise(resolve => { browser.once('error', error => { browserFailure = error; resolve() }); browser.once('close', code => { exit = code; resolve() }) })
   browser.stderr.on('data', chunk => { diagnostics = (diagnostics + chunk).slice(-4096) })
-  t.after(async () => { browser.kill('SIGTERM'); await exited })
+  cleanup.push(['stop Chromium', async () => {
+    const signal = name => { try { process.kill(-browser.pid, name) } catch (error) { if (error.code !== 'ESRCH') throw error } }
+    if (exit !== undefined || browser.pid === undefined) return
+    signal('SIGTERM')
+    try { await bounded('Chromium exit after SIGTERM', exited, 5000) } catch {
+      signal('SIGKILL')
+      await bounded(`Chromium exit after SIGKILL (stderr: ${diagnostics})`, exited, 5000)
+    }
+  }])
   const until = async predicate => {
     const deadline = Date.now() + 12000
     while (!predicate()) {
