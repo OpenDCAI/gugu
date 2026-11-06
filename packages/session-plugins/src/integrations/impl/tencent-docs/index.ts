@@ -14,6 +14,7 @@ export const TENCENT_DOCS_MCP_URL = 'https://docs.qq.com/openapi/mcp';
 const plugin = defineIntegrationPlugin(
   {
     id: 'tencent-docs',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://docs.qq.com',

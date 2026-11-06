@@ -23,6 +23,7 @@ const mcp = {
 const plugin = defineIntegrationPlugin(
   {
     id: 'amap',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://lbs.amap.com',

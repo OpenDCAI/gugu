@@ -6,7 +6,6 @@ import { platform } from '@/platform'
 import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
 import { connectorState } from '@/session/renderer/features/assistant/assistant-connector-status'
-import { accountNoteFor } from '@/session/renderer/features/assistant/assistant-home-integrations'
 import { formMethodOf, keptByPlatform } from '@/session/renderer/features/integrations/integration-setup-model'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
@@ -20,7 +19,7 @@ import {
 } from './phoneConnectorFlow'
 import { connectorDetail } from './phoneProfileModel'
 import { connectorOrder } from '@/session/renderer/features/assistant/assistant-connector-order'
-import { assistantConnectedApps, type AssistantConnectedApp } from '@/components/assistant/assistant-app-connections'
+import { assistantConnectedApps } from '@/components/assistant/assistant-app-connections'
 import { useChatChannels } from '@/components/settings/channels/useChatChannels'
 import { WechatAppConnection } from '@/components/settings/channels/WechatAppConnection'
 import { AppConnectionHero,AppConnectionListPlaceholder } from '@/components/assistant/AppConnectionHero'
@@ -29,19 +28,18 @@ import { usePhoneConnectorAccounts, type ConnectorAccountRow } from './usePhoneC
 import { usePhoneIntegrationDetail,type PhoneIntegrations,type usePhoneIntegrations } from './usePhoneProfileData'
 import './phone-connector.css'
 import { ReadFailed } from './PhoneMachineView'
+import { ConnectedAppsCatalog } from '@/components/assistant/ConnectedAppsCatalog'
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 
 type Integrations = ReturnType<typeof usePhoneIntegrations>
 /** Apps open their details before authorization; device access lives in the device section. */
-export function PhoneConnectorsPage({ assistant, home, go, integrations, embedded = false }: PhonePageProps & { integrations: Integrations; embedded?: boolean }) {
+export function PhoneConnectorsPage({ assistant, homeDeviceId, go, integrations, embedded = false }: PhonePageProps & { integrations: Integrations; embedded?: boolean }) {
   const { t } = useTranslation('assistant')
-  const name = assistant.display_name
   return (
     <div className={embedded ? 'ta-phone-connectors-inline' : 'ta-page ta-phone-profile ta-phone-connectors-page'} data-testid="assistant-connectors">
       {!embedded ? <PageHead title={t('connectors.title')} /> : null}
-      {!embedded ? <p className="ta-page-sub ta-pad">{home ? accountNoteFor(home, name, t) : ''}</p> : null}
       <CloudGate integrations={integrations}>
-        {(data) => <ConnectorLists data={data} open={(id) => go(`connector:${id}`)} />}
+        {(data) => <ConnectorLists data={data} scope={`${assistant.id}:${homeDeviceId ?? ''}`} open={(id) => go(`connector:${id}`)} />}
       </CloudGate>
     </div>
   )
@@ -68,26 +66,15 @@ export function ConnectorIcon({ integration, size }: { integration: IntegrationM
   return integration.icon ? <PluginIcon id={integration.id} icon={integration.icon} size={size} /> : null
 }
 
-function ConnectorLists({ data, open }: { data: PhoneIntegrations; open: (id: string) => void }) {
+function ConnectorLists({ data, scope, open }: { data: PhoneIntegrations; scope: string; open: (id: string) => void }) {
   const { t, i18n } = useTranslation('assistant')
   const settings = useTranslation('settings').t
   const chats = useChatChannels()
   const stateFor = (id: string) => connectorState(!!data.configured[id], data.statuses?.[id], data.statusError, true)
   const apps = assistantConnectedApps(connectorOrder(data.items, i18n.language), chats.list, id => settings(`channels.${id}`), t('connectors.wechatDescription'), stateFor, data.configured)
-  const connected = (app: AssistantConnectedApp) => app.state === 'connected'
-  const saved = (app: AssistantConnectedApp) => app.saved
-  const groups = [
-    { key: 'connected', title: t('connectors.connected'), items: apps.filter(connected) },
-    { key: 'saved', title: t('connectors.savedGroup'), items: apps.filter(app => !connected(app) && saved(app)) },
-    { key: 'available', title: t('connectors.availableGroup'), items: apps.filter(app => !connected(app) && !saved(app)) },
-  ]
-  return <>{groups.filter(group => group.items.length).map(group => <AssistantSection key={group.key} title={group.title} testId={`assistant-connectors-${group.key}`}>
-    {group.items.map(app => <AssistantRow key={app.id} testId={`assistant-connector-${app.id}`}
-      leading={app.integration ? <ConnectorIcon integration={app.integration} size={32} /> : app.id === 'wechat' ? <ChannelBrandIcon kind="wechat" size={32} /> : undefined}
-      title={app.name} detail={app.description || <span aria-hidden="true">&nbsp;</span>} detailLines={1}
-      trailing={group.key === 'saved' ? <span>{t(`connectors.${app.state}`)}</span> : undefined}
-      chevron={group.key !== 'saved'} onClick={() => open(app.id)} />)}
-  </AssistantSection>)}</>
+  return <ConnectedAppsCatalog apps={apps} scope={scope} open={open} mobile panelNavigation
+    icon={(app, size) => app.integration ? <ConnectorIcon integration={app.integration} size={size} />
+      : app.id === 'wechat' ? <ChannelBrandIcon kind="wechat" size={size} /> : null} />
 }
 
 /**

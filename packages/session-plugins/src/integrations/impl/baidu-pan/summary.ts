@@ -1,4 +1,5 @@
 export const summary = {
+  catalog: { categoryId: "docs", aliases: ["Baidu Netdisk", "百度网盘"] },
   name: { en: 'Baidu Netdisk', 'zh-CN': '百度网盘' },
   description: {
     en: 'Only accesses the “咕咕” folder in Baidu Netdisk',
