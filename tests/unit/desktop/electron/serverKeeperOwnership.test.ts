@@ -11,6 +11,10 @@ import { isProcessAlive } from '../../../../apps/desktop/electron/server/process
 it.runIf(process.platform !== 'win32').each([75, 1])('a manually adopted keeper survives host cleanup and restarts after exit %s', async code => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-keeper-owner-'))
   const record = path.join(home, 'keeper.json'), restarted = path.join(home, 'restarted')
+  const released = path.join(home, 'host-exited'), testBin = path.join(home, 'test-bin')
+  fs.mkdirSync(testBin)
+  // The ownership contract waits for the real host exit, not the production ten-second polling cadence.
+  fs.writeFileSync(path.join(testBin, 'sleep'), '#!/bin/sh\nif [ "$1" != 10 ]; then exec /bin/sleep "$@"; fi\nwhile [ ! -f "$GUGU_TEST_KEEPER_RELEASE" ]; do /bin/sleep 0.01; done\n', { mode: 0o700 })
   const bin = path.join(home, 'current/bin/gugu-server'), entry = path.join(home, 'host.cjs')
   fs.mkdirSync(path.dirname(bin), { recursive: true })
   fs.writeFileSync(bin, `#!/bin/sh\necho restarted > '${restarted}'\nexit 78\n`, { mode: 0o700 })
@@ -24,7 +28,10 @@ it.runIf(process.platform !== 'win32').each([75, 1])('a manually adopted keeper 
     const timer=setInterval(()=>{if(fs.existsSync(keeperPidFile(home))){
       clearInterval(timer);fs.writeFileSync(${JSON.stringify(record)},fs.readFileSync(keeperPidFile(home)));}},10);
   ` }, outfile: entry, bundle: true, platform: 'node', format: 'cjs' })
-  const host = fork(entry, [], { silent: true })
+  const host = fork(entry, [], { silent: true, env: {
+    ...process.env, PATH: testBin + path.delimiter + process.env.PATH, GUGU_TEST_KEEPER_RELEASE: released,
+    GUGU_HOME: path.join(home, 'home'), GUGU_USER_DATA_DIR: path.join(home, 'user-data'),
+  } })
   let keeper: number | undefined
   try {
     keeper = await awaitFact('keeper publishes its actual pid', () => fs.existsSync(record) ? Number(fs.readFileSync(record, 'utf8')) : undefined, { producer: host })
@@ -35,6 +42,7 @@ it.runIf(process.platform !== 'win32').each([75, 1])('a manually adopted keeper 
     const exited = awaitExit('manual host exits after descendant cleanup', host)
     host.send('exit')
     expect(await exited).toEqual({ code, signal: null })
+    fs.writeFileSync(released, 'host exit observed')
     await awaitFact('keeper starts the selected package after its adopted host exits', () => {
       if (fs.existsSync(restarted)) return true
       if (!isProcessAlive(keeper!)) throw new Error('Keeper exited before restarting the server')

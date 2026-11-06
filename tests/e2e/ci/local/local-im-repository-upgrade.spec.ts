@@ -1,6 +1,9 @@
+import { resolve } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
 const DB_NAME = 'gugu.localSync.v1'
+// Same Vite origin and real IndexedDB/modules, without booting the unrelated renderer for every row shape.
+const FIXTURE_PAGE = '/@fs/' + resolve('tests/fixtures/local-im-repository.html').replaceAll('\\', '/').replace(/^\//, '')
 
 function messageValue(overrides: Record<string, unknown> = {}) {
   return {
@@ -28,7 +31,8 @@ function messageValue(overrides: Record<string, unknown> = {}) {
 test.describe.configure({ mode: 'serial' })
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/')
+  await page.goto(FIXTURE_PAGE)
+  await expect(page).toHaveTitle('Local IM repository fixture')
   await page.evaluate(async (name) => {
     localStorage.clear()
     await new Promise<void>((resolve, reject) => {

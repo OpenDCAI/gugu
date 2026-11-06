@@ -65,6 +65,8 @@ function setNetwork(online: boolean) {
 }
 const ensureIdentity = vi.fn()
 beforeEach(() => {
+  // Debounce, query notifications and indexing polls keep their real intervals on a virtual clock.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   remote.opened = []
   remote.desktop = false
@@ -92,18 +94,23 @@ beforeEach(() => {
   root = createRoot(host)
 })
 afterEach(async () => {
-  focusManager.setFocused(undefined)
-  await act(async () => root.unmount())
-  queryClient?.clear()
-  setNetwork(true)
-  publishSelfIdentity(null)
-  host.remove()
-  publishIdentityDirectory(null, null)
-  runInAction(() => sessionAgentBindings.bindings.clear())
+  try {
+    focusManager.setFocused(undefined)
+    await act(async () => root.unmount())
+    queryClient?.clear()
+    setNetwork(true)
+    publishSelfIdentity(null)
+    host.remove()
+    publishIdentityDirectory(null, null)
+    runInAction(() => sessionAgentBindings.bindings.clear())
+  } finally {
+    vi.clearAllTimers()
+    vi.useRealTimers()
+  }
 })
 
 // The typed text settles after the panel's debounce; the two queries answer on the next turns.
-const settle = async () => { for (let round = 0; round < 3; round++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)) }) }
+const settle = async () => { for (let round = 0; round < 3; round++) await act(async () => { await vi.advanceTimersByTimeAsync(120) }) }
 async function render(text: string, tasks = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   queryClient = client
@@ -335,7 +342,7 @@ describe('global search panel', () => {
       const input = host.querySelector<HTMLInputElement>('[data-testid=global-search-input]')!
       input.focus()
       await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(5) })
       expect(remote.opened).toEqual([conversationLink(GROUP, NEW)])
       expect(closed).toBe(1)
       expect(document.activeElement).toBe(document.body)
@@ -349,7 +356,7 @@ describe('global search panel', () => {
     expect(options()).toHaveLength(3)
     expect(host.textContent).not.toContain('globalSearch.emptyFor')
     remote.indexStatus.mockResolvedValue({ state: 'ready' })
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2_200)) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_200) })
     expect(remote.turns).toHaveBeenCalledWith({ query: '回滚', limit: 100 })
     expect(host.querySelector('[role=status]')).toBeNull()
     expect(options()).toHaveLength(3)
