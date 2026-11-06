@@ -17,6 +17,16 @@ export type TokenDayRow = {
 
 const QUARTER_HOUR_MS = 15 * 60_000;
 
+/** Prefer one actual Claude snapshot, rather than manufacturing a request from bucket maxima. */
+function preferSnapshot(candidate: ProviderTokenEntry, current: ProviderTokenEntry): boolean {
+  if (candidate.provider !== 'claude' || !candidate.quality || !current.quality) return false;
+  if (candidate.quality.complete !== current.quality.complete) return candidate.quality.complete;
+  if (candidate.output !== current.output) return candidate.output > current.output;
+  if (candidate.quality.fields !== current.quality.fields) return candidate.quality.fields > current.quality.fields;
+  return candidate.input + candidate.output + candidate.cacheRead + candidate.cacheWrite
+    > current.input + current.output + current.cacheRead + current.cacheWrite;
+}
+
 /**
  * 全局去重 + 按「引擎 × 本地日 × 模型 × 来源」求和。纯函数。
  *
@@ -44,17 +54,19 @@ export function foldTokenEntries(
     return day;
   };
 
-  const seenByProvider = new Map<string, Set<string>>();
-  const rows = new Map<string, TokenDayRow>();
+  const selectedByProvider = new Map<string, Map<string, ProviderTokenEntry>>();
   for (const entry of entries) {
-    let seen = seenByProvider.get(entry.provider);
-    if (!seen) {
-      seen = new Set();
-      seenByProvider.set(entry.provider, seen);
+    let selected = selectedByProvider.get(entry.provider);
+    if (!selected) {
+      selected = new Map();
+      selectedByProvider.set(entry.provider, selected);
     }
-    if (seen.has(entry.key)) continue;
-    seen.add(entry.key);
+    const current = selected.get(entry.key);
+    if (!current || preferSnapshot(entry, current)) selected.set(entry.key, entry);
+  }
 
+  const rows = new Map<string, TokenDayRow>();
+  for (const selected of selectedByProvider.values()) for (const entry of selected.values()) {
     const day = dayOf(entry.ts);
     const source = sourceAt(sourcesByProviderSession[entry.providerSessionId], entry.ts);
     const key = `${entry.provider}\u0000${day}\u0000${entry.model}\u0000${source ?? ''}`;

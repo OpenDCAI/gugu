@@ -102,6 +102,11 @@ export const claudeTokenReader: TokenLogReader = {
       output,
       cacheRead,
       cacheWrite,
+      quality: {
+        complete: typeof message.stop_reason === 'string' && message.stop_reason.trim().length > 0,
+        fields: ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']
+          .filter((field) => typeof usage[field] === 'number' && Number.isFinite(usage[field]) && (usage[field] as number) >= 0).length,
+      },
     };
   },
 };

@@ -20,6 +20,10 @@ export type TokenEntry = {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  /** Claude snapshot quality. Absent on retained legacy history; never reconstruct buckets independently. */
+  quality?: { complete: boolean; fields: number };
+  /** Previous identity, used only for legacy history and verified Codex fork-prefix matching. */
+  legacyKey?: string;
 };
 
 /** 读取器在一份文件里逐行推进时带着的状态(codex 要记上一条累计值与当前模型;claude 不需要)。 */
@@ -33,7 +37,7 @@ export type TokenLogReader = {
    * 一次扫描只列一遍目录,❌ 不按会话逐个 glob。
    */
   locate(configRoots: readonly string[], providerSessionIds: ReadonlySet<string>): Promise<Map<string, string[]>>;
-  initialState(): ReaderState;
+  initialState(context?: { path: string; providerSessionId?: string }): ReaderState;
   /** 廉价的字符串预筛:不可能带用量的行直接跳过 JSON.parse(日志大头是对话正文)。 */
   mayCarryUsage(line: string): boolean;
   /** 一行已解析的 JSON → 一条用量(或 null)。可以改写 state。纯函数,不碰磁盘。 */
