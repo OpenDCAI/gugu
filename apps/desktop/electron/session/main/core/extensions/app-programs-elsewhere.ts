@@ -93,7 +93,7 @@ export async function callOnSessionMachine(
   } catch (error) {
     // That machine's offline / too old / unreachable / silent, as the page reads it: `unavailable`; its own refusals keep their code.
     const code = (error as { code?: unknown } | null)?.code;
-    if (typeof code === 'string' && UNAVAILABLE.has(code)) throw Object.assign(new Error(error instanceof Error ? error.message : String(error)), { code: 'unavailable' });
+    if (typeof code === 'string' && UNAVAILABLE.has(code)) throw Object.assign(new Error(error instanceof Error ? error.message : String(error)), { code: 'unavailable', ...('deviceLabel' in machine && machine.deviceLabel ? { detail: { reason: 'machine-unavailable', machine: machine.deviceLabel } } : {}) });
     throw error;
   }
 }

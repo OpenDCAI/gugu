@@ -114,8 +114,12 @@ export async function listWorkingCopy(place: WorkspacePlace, folder: string | un
   }
 }
 
-/** A page gone: its subscriptions to the tree go with it. */
+/** The version each page last read of each file: its save is checked against it, here, not by the page. */
+export const readVersions = new Map<number, Map<string, string>>();
+
+/** A page gone: its subscriptions to the tree and the versions it read go with it. */
 export function releaseWorkingCopies(pageId: number): void {
+  readVersions.delete(pageId);
   for (const [key, view] of views) {
     if (!key.startsWith(`${pageId}/`)) continue;
     views.delete(key);
@@ -156,27 +160,28 @@ const uploads = createWorkspaceUploads({ maxBytes: Number.MAX_SAFE_INTEGER });
  * `files.upload` into a working copy, one part: at most 512 KB, so a call stays under what one call may carry across
  * machines. `expectedEtag: null` is a new file: one already at that path is said at the first part, before any bytes go.
  */
-export async function writeWorkingCopyChunk(place: WorkspacePlace, chunk: WorkspaceWriteChunk & { abort?: boolean }): Promise<{ received: number; entry?: AppFileEntry }> {
+export async function writeWorkingCopyChunk(place: WorkspacePlace, chunk: WorkspaceWriteChunk & { abort?: boolean }): Promise<{ received: number; entry?: AppFileEntry; etag?: string }> {
   if (chunk.abort === true) {
     await uploads.abort(chunk.uploadId);
     return { received: 0 };
   }
-  const { localRootOf } = await import('./app-files');
-  const { workspaceRoot } = await localRootOf(place);
+  const found = await fileRootOf(place, chunk.path);
   const taken = () => new AppFileError('name-taken', `${chunk.path} already exists`);
   try {
     if (chunk.offset === 0) {
       // Its folders are made once the path is known to be inside; one already there is said before any bytes go.
-      const file = await inWorkspace(workspaceRoot, chunk.path);
+      const file = await inWorkspace(found.root, found.path);
       if (chunk.expectedEtag === null && await fsp.lstat(file).then(() => true, () => false)) throw taken();
       await fsp.mkdir(path.dirname(file), { recursive: true });
     }
-    const { received, committed } = await uploads.write(workspaceRoot, chunk);
+    const { received, committed } = await uploads.write(found.root, { ...chunk, path: found.path });
     if (!committed) return { received };
-    return { received, entry: workingCopyEntry(place, relOf(workspaceRoot, path.resolve(workspaceRoot, chunk.path)), await fsp.stat(path.resolve(workspaceRoot, chunk.path))) };
+    const stat = await fsp.stat(path.resolve(found.root, found.path));
+    return { received, entry: workingCopyEntry(place, path.isAbsolute(chunk.path) ? chunk.path : relOf(found.root, path.resolve(found.root, found.path)), stat), etag: committed.etag };
   } catch (error) {
     if (!(error instanceof WorkspaceTransferError)) throw error;
-    if (error.code === WORKSPACE_CONFLICT_CODE) throw taken();
+    // Saved over the version it read, and the disk has moved on: said as a stale `files.replace` is. No version named: the name is taken.
+    if (error.code === WORKSPACE_CONFLICT_CODE) throw chunk.expectedEtag === null ? taken() : new AppFileError('content-changed', `${chunk.path} changed on its computer since it was read: read it again`);
     throw new AppFileError(error.code === 'outside_workspace' || error.code === 'invalid_payload' ? 'invalid' : 'failed', error.message);
   }
 }
@@ -193,16 +198,29 @@ export async function watchWorkingCopy(place: WorkspacePlace, folder: string | u
   const session = workspaceSession(place);
   const { sessionMachine } = await import('./app-programs-elsewhere');
   if (session && await sessionMachine(session).catch(() => null)) return () => {};
-  const [{ localRootOf }, { runtimeManager }] = await Promise.all([import('./app-files'), import('@main/core/runtime/runtime-manager')]);
+  const { localRootOf } = await import('./app-files');
   const { workspaceRoot: root } = await localRootOf(place);
   const named = folderPath(root, folder) ?? root;
   const below = relOf(root, named);
+  return watchFeed(root, named, (rel) => !below || rel === below || rel.startsWith(`${below}/`), (rel) => rel, hear);
+}
+
+/** One file, as a call names it, on the machine it is on: from the feed of the working copy it is in, or of its own folder. */
+export async function watchWorkingCopyFile(place: WorkspacePlace, file: string, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
+  const found = await fileRootOf(place, file);
+  return watchFeed(found.root, path.dirname(path.resolve(found.root, found.path)), (rel) => rel === found.path.split(path.sep).join('/'), () => file, hear);
+}
+
+/** What the file panel hears: the change feed under `root`, with `named` watched (`@@@tree-by-directories`). */
+async function watchFeed(root: string, named: string, wanted: (rel: string) => boolean, nameOf: (rel: string) => string, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
+  const { runtimeManager } = await import('@main/core/runtime/runtime-manager');
   const cannotWatch = () => new AppFileError('not-found', 'This folder cannot be watched on its computer');
   const lease = await runtimeManager.acquire();
   const feed = lease.value.files.watchChanges(root, (update) => {
     if (update.kind === 'resync') return hear({ kind: 'resync' });
-    const changes = update.changes.map((change) => ({ kind: change.kind, path: relOf(root, change.path) }))
-      .filter(({ path: rel }) => rel && !rel.startsWith('..') && (!below || rel === below || rel.startsWith(`${below}/`)));
+    const changes = update.changes.map((change) => ({ kind: change.kind, rel: relOf(root, change.path) }))
+      .filter(({ rel }) => rel && !rel.startsWith('..') && wanted(rel))
+      .map(({ kind, rel }) => ({ kind, path: nameOf(rel) }));
     if (changes.length > 0) hear({ kind: 'changes', changes });
   }, { ignore: ['**/{.git,node_modules}/**'] });
   if (!feed.success) {

@@ -69,5 +69,10 @@ export const machineVerbs = {
   filesMkdir: async (extensionId, args) => (await import('./app-files')).makeAppFolder(pageOf(extensionId), args),
   filesMove: async (extensionId, args) => (await import('./app-files')).moveAppFile(pageOf(extensionId), args),
   filesRemove: async (extensionId, args) => (await import('./app-files')).removeAppFile(pageOf(extensionId), args),
-  filesWriteChunk: async (extensionId, args) => (await import('./app-files')).writeAppFileChunk(pageOf(extensionId), args),
+  // Who may name what was decided where the page is (`writeAppFileChunk`): a file handed to it there has no page here.
+  filesWriteChunk: async (_extensionId, args) => {
+    const place = placeOf(args.place);
+    if (!isWorkspace(place)) throw invalid('A chat\'s file is uploaded whole: files.upload');
+    return (await import('./working-copy-files')).writeWorkingCopyChunk(place, args as never);
+  },
 } satisfies Record<MachineVerb | PlaceVerb, (extensionId: string, args: Record<string, unknown>, from: MachineCallFrom) => Promise<unknown>>;

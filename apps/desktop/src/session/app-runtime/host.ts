@@ -66,10 +66,11 @@ export interface GuguHost extends ProjectionHost {
     reveal?(args: { ref: AppFileRef }): Promise<void>;
     /** 「设为临时 / 一直保留」: the cloud copy of a chat file this person uploaded, cleared after their temporary period or kept. */
     keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
-    watch(args: { watchId: string; place: AppPlace & { folder?: string }; on: boolean }): Promise<void>;
+    watch(args: { watchId: string; place: AppPlace & { folder?: string; id?: string }; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
     readText(args: { ref: AppFileRef; maxBytes?: number }): Promise<AppFileText>;
     exists(args: { ref: AppFileRef }): Promise<boolean>;
+    writeText(args: { ref: AppFileRef; text: string }): Promise<{ entry: AppFileEntry }>;
     /** Whether whoever reads may delete each file, in order: asked as a file's menu opens, never carried by a list. */
     canDelete(args: { refs: AppFileRef[] }): Promise<boolean[]>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
