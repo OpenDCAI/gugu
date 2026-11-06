@@ -4,6 +4,7 @@ on:
     branches: [dev]
 permissions:
   contents: read
+cache-mode: write
 # Finish the current seed even during frequent merges; only the newest pending push waits.
 concurrency:
   group: community-ci-cache-dev

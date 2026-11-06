@@ -31,6 +31,8 @@ describe('CI cache sharing from dev (#1840)', () => {
 
   it('keeps PR ESLint and unit caches read-only and preserves the test commands', () => {
     const ci = read('.github/workflows/ci.yml')
+    expect(ci['cache-mode']).toBe('read')
+    expect(read('.github/workflows/ci-dev-linux.yml')['cache-mode']).toBe('read')
     for (const job of ['policy', 'unit']) {
       const steps: Step[] = ci.jobs[job].steps
       const caches = steps.filter(step => step.uses?.startsWith('actions/cache'))
@@ -44,6 +46,7 @@ describe('CI cache sharing from dev (#1840)', () => {
   it('warms the exact consumer keys from dev without dispatch/PR access or cancellation starvation', () => {
     const warm = read('.github/workflows/ci-cache.yml')
     expect(warm.on).toEqual({ push: { branches: ['dev'] } })
+    expect(warm['cache-mode']).toBe('write')
     expect(warm.concurrency['cancel-in-progress']).toBe(false)
     expect(warm.jobs.unit.strategy.matrix.shard).toEqual([1, 2, 3, 4])
     const ci = read('.github/workflows/ci.yml')

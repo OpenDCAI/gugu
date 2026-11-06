@@ -5,6 +5,7 @@ on:
 permissions:
   contents: read
   actions: read
+cache-mode: read
 concurrency:
   group: community-ci-dev-linux
   cancel-in-progress: true

@@ -5,6 +5,8 @@ on:
 permissions:
   contents: read
   actions: read
+# Also constrain built-in caches in setup-go/setup-java and immutable reusable callees.
+cache-mode: read
 concurrency:
   group: community-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
