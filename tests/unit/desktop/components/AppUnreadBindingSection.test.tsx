@@ -12,7 +12,7 @@ vi.mock('@/components/Avatar', () => ({ Avatar: () => null }));
 const OWNER = '11000000-0000-4000-8000-000000000001';
 const OTHER = '22000000-0000-4000-8000-000000000002';
 const CHAT = '33000000-0000-4000-8000-000000000003';
-const choices = () => ({ success: true as const, data: { ownerId: OWNER, selected: null, chats: [{ id: CHAT, name: 'Chosen conversation', kind: 'dm' }] } });
+const choices = () => ({ success: true as const, data: { ownerId: OWNER, selected: null, chats: [{ id: CHAT, name: 'Chosen conversation', kind: 'dm' as const }] } });
 const api: UnreadBindingApi = { unreadBindingChoices: vi.fn(), setUnreadBinding: vi.fn() };
 let root: Root;
 let element: HTMLDivElement;
