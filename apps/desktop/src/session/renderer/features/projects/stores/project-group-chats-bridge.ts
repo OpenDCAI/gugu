@@ -8,9 +8,11 @@
 export const PROJECT_GROUP_CHATS_BRIDGE_KEY = '__GUGU_PROJECT_GROUP_CHATS__' as const;
 export const PROJECT_GROUP_CHATS_EVENT = 'gugu:project-group-chats' as const;
 
-/** 这台电脑与连着的每台机器上、各个本地项目绑的群(同一个群可能被几台机器上的项目绑着,这里只列一次)。 */
+/** 项目页和聊天页共用的项目群读数(同群只列一次)。 */
 export type ProjectGroupChatsBridge = {
+  /** 项目页有对应行的群;聊天页只隐藏这一份。 */
   readonly chatIds: ReadonlySet<string>;
+  /** 所有已知绑定的成员,不受项目行显隐影响。 */
   readonly projectMemberIds: ReadonlyMap<string, readonly string[]>;
   /** agent → 它那条会话,只列是某台机器上的会话的 agent。 */
   readonly agentSessions: ReadonlyMap<string, AgentSession>;
