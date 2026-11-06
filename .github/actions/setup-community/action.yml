@@ -45,6 +45,11 @@ runs:
         key: community-electron-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
         restore-keys: community-electron-v2-${{ runner.os }}-${{ runner.arch }}-
     - shell: bash
+      env:
+        PNPM_CACHE_HIT: ${{ steps.pnpm-cache.outputs.cache-hit }}
+        ELECTRON_CACHE_HIT: ${{ steps.electron-cache.outputs.cache-hit }}
+      run: node scripts/ci/seed-community-caches.mjs
+    - shell: bash
       run: pnpm install --frozen-lockfile --prefer-offline --store-dir "$GITHUB_WORKSPACE/.ci-cache/pnpm"
     - if: inputs.save-cache == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.pnpm-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
