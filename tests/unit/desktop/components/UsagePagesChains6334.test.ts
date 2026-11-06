@@ -124,6 +124,21 @@ describe('#6334「活跃」页', () => {
   })
 })
 
+describe('small cache hit percentages', () => {
+  it('preserves one decimal below one percent while an exact zero stays 0%', async () => {
+    state.activity = activity({ usage: { status: 'ready', value: [
+      usageDay({ engine: 'claude', inputTokens: 996, cacheReadTokens: 4 }),
+      usageDay({ engine: 'codex', inputTokens: 1000 }),
+    ] } })
+    const harness = await render(renderActivity)
+    try {
+      expect(document.querySelector('[data-testid="usage-engine-claude"] [data-label="缓存命中率"]')?.textContent).toBe('0.4%')
+      expect(document.querySelector('[data-testid="usage-engine-codex"] [data-label="缓存命中率"]')?.textContent).toBe('0%')
+      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合并缓存命中率 0.2% · 读占全部输入')
+    } finally { harness.cleanup() }
+  })
+})
+
 describe('#6334「用量」页', () => {
   it('#986 活跃紧接时间段，排在消耗和日志前面', async () => {
     state.activity = activity({ usage: { status: 'ready', value: [] } })

@@ -29,7 +29,7 @@ import {
 } from '../../lib/usage/derive'
 import { useUsageData, type Loadable } from './useUsageData'
 import { HeatLegend, UsageHeatmap } from './UsageHeatmap'
-import { compact, duration, heightPx, plain } from './format'
+import { cacheHitPercent, compact, duration, heightPx, plain } from './format'
 import { tokenAmounts } from '../../lib/usage/charts'
 import { combinedCacheHitRate, inputCacheHitRate, isInputCacheTracked } from '../../lib/usage/cacheHitRate'
 import { Layers, Zap } from '@/lib/icons'
@@ -231,7 +231,6 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
   const rows = engineRows(usage, range)
   const totals = totalsFor(usage, range)
   if (rows.length === 0) return <span className="gg-usage-muted" data-testid="usage-engines-empty">{t('usage.enginesEmpty')}</span>
-  const percent = (rate: number | null) => rate === null ? '—' : `${plain(rate * 100, 1)}%`
   return (
     <>
       <div className="na-table-wrap">
@@ -256,7 +255,7 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
                 <td data-label={t('usage.na.colGuguTokens')}><span className="na-mono-xs">{row.guguTokens > 0 ? compact(row.guguTokens) : '—'}</span></td>
                 <td data-label={t('usage.na.colByokTokens')}><span className="na-mono-xs">{row.byokTokens > 0 ? compact(row.byokTokens) : '—'}</span></td>
                 <td data-label={t('usage.cacheHitRate.label')} title={t('usage.cacheHitRate.meaning')}>
-                  <span className="na-mono-xs">{isInputCacheTracked(row.engine) ? percent(inputCacheHitRate(row)) : t('usage.cacheHitRate.untracked')}</span>
+                  <span className="na-mono-xs">{isInputCacheTracked(row.engine) ? cacheHitPercent(inputCacheHitRate(row)) : t('usage.cacheHitRate.untracked')}</span>
                 </td>
                 <td data-label={t('usage.na.colRuntime')}>{row.runSeconds > 0 ? <span className="na-cost">{duration(row.runSeconds, t)}</span> : <span className="gg-usage-muted">—</span>}</td>
               </tr>
@@ -265,7 +264,7 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
         </table>
       </div>
       <span className="gg-usage-caption" data-testid="usage-cache-hit-combined">
-        {t('usage.cacheHitRate.combined', { value: percent(combinedCacheHitRate(rows)) })}
+        {t('usage.cacheHitRate.combined', { value: cacheHitPercent(combinedCacheHitRate(rows)) })}
       </span>
       <StatStrip testId="usage-parallel" items={[
         { key: 'peak', title: t('usage.na.parallelPeak'), value: t('usage.peakValue', { count: totals.peakConcurrency, value: plain(totals.peakConcurrency) }), icon: <Layers />, tone: 'chart-2', description: t('usage.peakHint') },
