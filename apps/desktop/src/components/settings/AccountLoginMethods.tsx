@@ -74,7 +74,7 @@ export function AccountLoginMethods({ userId, onEmailChanged }: { userId: string
   const notice = user ? loginMethodNotice(user) : null
   const button = (label: string, onClick: () => void, disabled = false) => <Button type="button" variant="ghost" size="sm" disabled={busy || disabled} onClick={onClick}>{label}</Button>
 
-  return <SettingsGroup title={t('loginMethods.title')} note={t('loginMethods.intro')}
+  return <SettingsGroup className="gg-account-login-methods" title={t('loginMethods.title')} note={t('loginMethods.intro')}
     footer={<>
       {error && <SettingsNote role="alert" tone="danger">{error}</SettingsNote>}
       {message && <SettingsNote role="status">{message}</SettingsNote>}
