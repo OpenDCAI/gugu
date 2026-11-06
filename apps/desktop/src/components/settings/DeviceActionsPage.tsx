@@ -191,7 +191,7 @@ export function ThisDeviceActions({ onBack, bare = false, panelNavigation = fals
 }) {
   const { t } = useTranslation('settings')
   const text = useDeviceActionGroupText()
-  const { state, reload } = useThisDeviceState()
+  const { state, readError, reload } = useThisDeviceState()
   const [openGroup, setOpenGroup] = useState<string | null>(null)
   const [saveFailure, setSaveFailure] = useState<string | null>(null)
   const save = (...args: Parameters<typeof saveDevicePermission>) => updateDevicePermission(args, reload, setSaveFailure)
@@ -205,6 +205,7 @@ export function ThisDeviceActions({ onBack, bare = false, panelNavigation = fals
   )
   const permissionLink = <SettingsGroup><SettingsRow title={t('devices.deviceActions.managePermissions')} control={<ChevronRight size={16} />} data-testid="device-open-permissions"
     onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'permissions' } }))} /></SettingsGroup>
+  if (readError) return <SettingsPage data-testid="settings-device-actions">{header}{children}<SettingsNote role="alert" tone="danger" data-testid="settings-device-actions-read-failed">{t('devices.deviceActions.thisReadFailed', { message: readError })}</SettingsNote>{!managePermissions && permissionLink}</SettingsPage>
   if (!state) return <SettingsPage data-testid="settings-device-actions">{header}{children}<SettingsNote>{t('devices.loading')}</SettingsNote>{!managePermissions && permissionLink}</SettingsPage>
   if (!state.supported) return <SettingsPage data-testid="settings-device-actions">{header}{children}<SettingsNote>{t('devices.deviceActions.unsupported')}</SettingsNote>{!managePermissions && permissionLink}</SettingsPage>
 
@@ -486,6 +487,8 @@ function OtherDeviceActions({ device, compact = false, machineOnline }: { device
     return [...out.entries()]
   }, [actions])
   if (isPhoneDevice(device)) return <SettingsGroup><SettingsRow title={t('devices.kind.phone')} description={t('devices.phoneActions.localAgentOnly')} control={<Chip>{t(device.is_online ? 'devices.online' : 'devices.offline')}</Chip>} /></SettingsGroup>
+  const readError = device.capabilities?.actions?.read_error
+  if (readError) return <SettingsNote role="alert" tone="danger" data-testid="settings-device-actions-read-failed">{t('devices.deviceActions.otherReadFailed', { message: readError })}</SettingsNote>
   if (!actions) return <SettingsNote>{t('devices.deviceActions.otherNone')}</SettingsNote>
   return (
     <>

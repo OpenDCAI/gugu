@@ -85,9 +85,11 @@ export interface DeviceActionDeviceView {
   this_machine: boolean
   /** 这台设备的时区(IANA):「明天下午 3 点」按它算。 */
   timezone: string | null
-  /** null = 这台设备上的咕咕还不登记动作(版本太旧,或手机还没接)。不带 device 时是分组汇总,见 describe。 */
+  /** null = 这台设备上的咕咕没登记动作,或读取失败(见 read_error)。不带 device 时是分组汇总,见 describe。 */
   groups?: DeviceActionGroupBrief[] | null
   actions?: Array<DeviceActionManifestEntry | DeviceActionBrief> | null
+  /** 那台设备读自己的动作清单失败:动作未知,❌ 当成没有动作。 */
+  read_error?: string
 }
 
 export type DeviceActionBrief = Pick<DeviceActionManifestEntry, 'name' | 'title' | 'available' | 'risk' | 'confirm' | 'unavailable_reason' | 'unavailable_detail'>
@@ -146,7 +148,9 @@ export function createDeviceActionCaller(deps: DeviceActionCallerDeps): DeviceAc
       this_machine: device.this_machine === true,
       timezone: manifest?.timezone ?? null,
     }
-    if (!manifest) return { ...base, ...(depth === 'groups' ? { groups: null } : { actions: null }) }
+    if (!manifest || manifest.read_error) {
+      return { ...base, ...(depth === 'groups' ? { groups: null } : { actions: null }), ...(manifest?.read_error ? { read_error: manifest.read_error } : {}) }
+    }
     if (depth === 'groups') {
       const groups = new Map<string, DeviceActionManifestEntry[]>()
       for (const a of manifest.actions) groups.set(a.group, [...(groups.get(a.group) ?? []), a])
@@ -220,6 +224,9 @@ export function createDeviceActionCaller(deps: DeviceActionCallerDeps): DeviceAc
         return fail(callId, 'device_offline', `「${device.label}」现在离线(最后在线:${minutesAgo(device.last_seen_at, now())}),这次没有发出去;那台设备上的咕咕开着、联网后再试`)
       }
       const manifest = normalizeDeviceActionsCapability(device.actions)
+      if (manifest?.read_error) {
+        return fail(callId, 'execution_failed', `「${device.label}」读取动作清单失败,这次没有发出去:${manifest.read_error}`)
+      }
       if (!manifest) {
         return fail(callId, 'unsupported', `「${device.label}」上的咕咕还不支持被调用动作(版本太旧或还没接入),更新那台设备上的咕咕后再试`)
       }

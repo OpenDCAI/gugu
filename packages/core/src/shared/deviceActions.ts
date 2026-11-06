@@ -81,7 +81,16 @@ export interface DeviceActionsCapability {
    * 不占 token),点名调用其中一个时回 detail,如实说没装或停用了,❌ 只回「没有登记这个动作」。
    */
   switched_off?: DeviceActionsSwitchedOff[]
+  /**
+   * The device could not read its own action list; the text is why. "Unknown", not "no actions": on the wire the block
+   * has no `actions` array (older readers fall back to "no list"), and normalizing gives an empty one that no reader may
+   * present as a list.
+   */
+  read_error?: string
 }
+
+/** What a device writes in `capabilities.actions` when reading its action list threw. */
+export type DeviceActionsReadFailure = Required<Pick<DeviceActionsCapability, 'v' | 'read_error'>>
 
 /** Device-list transport omits the documentation needed only for agent calls. */
 export type DeviceActionSummary = Omit<DeviceActionManifestEntry, 'description' | 'input_schema'>
@@ -268,7 +277,10 @@ function normalizeDeviceActions<T extends DeviceActionSummary>(
   raw: unknown,
   readAction: (item: Record<string, unknown>, summary: DeviceActionSummary) => T,
 ): (Omit<DeviceActionsCapability, 'actions'> & { actions: T[] }) | null {
-  if (!isRecord(raw) || !Array.isArray(raw.actions)) return null
+  if (!isRecord(raw)) return null
+  const v = typeof raw.v === 'number' ? raw.v : DEVICE_ACTION_PROTOCOL_VERSION
+  if (typeof raw.read_error === 'string' && raw.read_error) return { v, actions: [], read_error: raw.read_error }
+  if (!Array.isArray(raw.actions)) return null
   const actions: T[] = []
   for (const item of raw.actions) {
     if (!isRecord(item)) continue
@@ -291,7 +303,7 @@ function normalizeDeviceActions<T extends DeviceActionSummary>(
     }))
   }
   return {
-    v: typeof raw.v === 'number' ? raw.v : DEVICE_ACTION_PROTOCOL_VERSION,
+    v,
     ...(typeof raw.timezone === 'string' && raw.timezone ? { timezone: raw.timezone } : {}),
     actions,
     ...withSwitchedOff(raw.switched_off),

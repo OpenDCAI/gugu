@@ -280,6 +280,8 @@ export default {
       "unsupported": "This computer can't be called yet.",
       "otherTitle": "What “{{name}}” can do",
       "otherNone": "Could not read this device’s tool list.",
+      "thisReadFailed": "This computer failed to read what it can do: {{message}}",
+      "otherReadFailed": "This device failed to read its tool list, so what it can do is unknown: {{message}}",
       "otherOffline": "This device is offline.",
       "availableNow": "Available",
       "unavailable": {
@@ -613,6 +615,7 @@ export default {
       "notAllDayHint": "Reachable only while 咕咕 is open on the phone (including in the background); not after it's swiped away",
       "granted": "Authorized: {{list}}",
       "noneGranted": "Nothing authorized yet",
+      "readFailed": "Failed to read tool list",
       "notCallable": "Can't be called yet",
       "reading": "Reading…",
       "phoneTitle": "This phone",

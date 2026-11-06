@@ -280,6 +280,8 @@ export default {
       "unsupported": "这台电脑暂时不能被调用。",
       "otherTitle": "「{{name}}」能做的事",
       "otherNone": "未读到这台设备的工具清单。",
+      "thisReadFailed": "这台电脑读取能做的事失败：{{message}}",
+      "otherReadFailed": "这台设备读取工具清单失败，现在不知道它能做什么：{{message}}",
       "otherOffline": "这台设备当前离线。",
       "availableNow": "可用",
       "unavailable": {
@@ -613,6 +615,7 @@ export default {
       "notAllDayHint": "手机上的咕咕开着（含切到后台）才调得到，被划掉就调不到",
       "granted": "已授权：{{list}}",
       "noneGranted": "还没授权",
+      "readFailed": "工具清单读取失败",
       "notCallable": "还不能被调用",
       "reading": "正在读…",
       "phoneTitle": "这台手机",
