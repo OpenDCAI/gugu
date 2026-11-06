@@ -47,7 +47,10 @@ const gugu = {
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const ids = () => [...$('file-list').querySelectorAll<HTMLElement>('li.file')].map((li) => li.dataset.id)
-const sections = () => [...$('file-list').querySelectorAll('.list-section')].map((li) => li.textContent)
+// A time section's heading is its name (a button that folds it, with its count after); the folders' and files' headings are text.
+const sections = () => [...$('file-list').querySelectorAll('.list-section:not(.list-more)')].map((li) => li.querySelector('.section-toggle > span')?.textContent ?? li.textContent)
+const toggle = (name: string) => [...$('file-list').querySelectorAll<HTMLButtonElement>('.section-toggle')].find((b) => b.querySelector('span')?.textContent === name)!
+const more = () => $('file-list').querySelector<HTMLButtonElement>('.section-more')
 const row = (id: string) => document.querySelector(`[data-id="${id}"]`) as HTMLElement
 const kind = (name: string) => $('kinds').querySelector<HTMLButtonElement>(`[data-kind="${name}"]`)!
 const radios = () => [...$('menu').querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
@@ -204,5 +207,33 @@ describe('a file that arrives while the folder is open', () => {
     item('保留方式 ›').click()
     expect(radios().map((r) => r.disabled)).toEqual([true, true])
     pressEscape()
+  })
+})
+
+// owner 11-06: a time section folds away from its heading, and a long one shows its first 20 with 「再显示 N 条」 under them.
+describe('a long time section', () => {
+  test('shows its first 20 under its heading and its count, the rest one press away; the heading folds it away and back', async () => {
+    const [, changed] = gugu.files.onChanged.mock.calls.at(-1) as unknown as [unknown, (change: unknown) => void]
+    const many = Array.from({ length: 25 }, (_, i) => file(`today-${i}`, `today-${String(i).padStart(2, '0')}.txt`, 'text/plain', 10, ago(60 + i)))
+    gugu.files.list.mockImplementation(async () => [...ENTRIES, ...many].map((e) => ({ ...e })))
+    changed({ kind: 'entries', entries: many, gone: [] })
+    await until('the new files drawn', () => ids().includes('today-0'))
+    const today = () => ids().filter((id) => id !== undefined && (id.startsWith('today-') || id === 'spec' || id === 'clip' || id === 'late'))
+    const inToday = 25 + ENTRIES.filter((e) => Date.parse(e.updatedAt) > now - 12 * 3600_000).length + (ids().includes('late') ? 1 : 0)
+    expect(toggle('今天').querySelector('.section-count')!.textContent).toBe(String(inToday))
+    expect(today()).toHaveLength(20)
+    expect(more()!.textContent).toBe(`再显示 ${inToday - 20} 条`)
+    // The other sections are still there, after it.
+    expect(sections()).toEqual(['今天', '昨天', '过去 7 天', '2026年9月'])
+    more()!.click()
+    expect(today()).toHaveLength(inToday)
+    expect(more()).toBeNull()
+    toggle('今天').click()
+    expect(today()).toHaveLength(0)
+    expect(toggle('今天').getAttribute('aria-expanded')).toBe('false')
+    expect(ids()).toContain('shot')
+    toggle('今天').click()
+    expect(today()).toHaveLength(inToday)
+    expect(toggle('今天').getAttribute('aria-expanded')).toBe('true')
   })
 })
