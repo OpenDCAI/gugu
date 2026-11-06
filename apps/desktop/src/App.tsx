@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { LoginPage } from './pages/LoginPage'
 import { authCallbacks, startAuthCallbackRouting } from './lib/authCallbacks'
 import { googleLogin } from './lib/googleLogin'
+import { LoginMethodChangeNotice } from './components/LoginMethodChangeNotice'
+import { logoutAndRelaunch } from './lib/authLogout'
 import { MainLayout } from './layouts/MainLayout'
 import { AgentJoinRoute } from './pages/AgentJoinRoute'
 import { AuthContext, type AuthUser } from './store/auth'
@@ -91,26 +93,6 @@ export default function App() {
   )
   const user = session.user
   const loading = session.status === 'boot-restoring'
-  // 退出登录 = 重启 app(owner 拍板 2026-08-26)。
-  // 
-  // 为什么不是「把任务运行时拆掉再装回来」:那个边界看着可拆(bootEmdashModule /
-  // disposeEmdashModule),实际是**一次性闩** —— dispose 用 `??=` 缓存 promise,第二次调
-  // 什么都不做;它也不注销 IPC handler(该文件 removeHandler 0 处命中),拆的是模块级单例,
-  // 还 closeDatabase 却没有对应的再开。硬做成可重入是这个子系统里的立项级改造。
-  // 
-  // 不重启会怎样(都实测过,不是推演):
-  //   1. 会话页整页停在骨架屏 —— 退出登录把它拆了,随后的登录没装回来,只有整页重载能救
-  //      (同账号同 localStorage,只重载:testid 7→20、骨架 20→0)
-  //   2. MCP grant 谁先 hydrate 谁盖章 —— grant 表在主进程内存里,重载渲染层碰不到它,
-  //      换回原账号也解不开,只能重启应用
-  // 
-  // 新进程把这两样一起清干净。代价是切账号会看到 app 重启一次,这是明面上的取舍。
-  const logoutAndRelaunch = async () => {
-    const result = await sessionCoordinator.logout()
-    // 只在真的登出成功后重启:失败路径会把会话恢复回来,这时候重启等于把用户踹出去。
-    if (result.success && platform.capabilities.appRelaunch) await platform.relaunchApp()
-    return result
-  }
   const authContextValue = {
     user,
     loading,
@@ -189,6 +171,7 @@ export default function App() {
           <ContentContextMenuHost />
           <AuthContext.Provider value={authContextValue}>
             {/* 新账号先走一遍首次引导(product spec,#7348);老账号 / 走完的直接进主界面 */}
+            <LoginMethodChangeNotice key={`login-notice:${user.id}`} userId={user.id} />
             <FirstRunGate key={user.id} user={user}>
               <AuthenticatedProduct key={user.id} user={user} />
             </FirstRunGate>

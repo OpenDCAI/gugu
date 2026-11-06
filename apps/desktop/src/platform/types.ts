@@ -87,6 +87,7 @@ export interface AppPlatform {
   }
   oauthBrowser?: {
     openBrowser: (url: string) => Promise<void>
+    openLinkBrowser?: (url: string, redirectTo: string) => Promise<void>
     subscribeBrowserFinished?: (listener: () => void, onError: (error: unknown) => void) => Promise<() => void>
   }
   /**
