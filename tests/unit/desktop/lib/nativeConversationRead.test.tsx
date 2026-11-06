@@ -46,7 +46,7 @@ it.each([1, 2])('acknowledges only visible replies on native input version %s, w
   function Fixture({ shown }: { shown: boolean }) { controls = useNativeConversationRead('host', 's', shown, () => turns); return null }
   await harness.render(<Fixture shown />)
   await act(async () => { controls.onReady({ openItem } as unknown as ChatView); controls.onVisibleItems(['s:turn:4:message:msg_first']) })
-  expect(openItem).toHaveBeenCalledWith('s:turn:s4:message:msg_first')
+  expect(openItem).toHaveBeenCalledWith('s:turn:s4:message:msg_first', { preserveActivity: true })
   await vi.waitFor(() => expect(scope.visible).toHaveBeenCalledWith({ conversationId: 's', itemIds: ['s:turn:4:message:msg_first'] }))
   expect(scope.visible.mock.calls.some(([request]) => request.itemIds.includes('s:turn:s4:message:msg_covered'))).toBe(false)
   await harness.render(<Fixture shown={false} />)

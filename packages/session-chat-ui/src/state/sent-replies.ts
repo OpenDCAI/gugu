@@ -1,6 +1,7 @@
 import { agentSendOf, replyItems, replySend, replySource, sentMessageId, successfulMessageSend, successfulSessionSend } from '@gugu/session-core/session-record/reply-process';
 import { sentAttachmentOf } from '@gugu/session-core/session-record/sent-attachment';
 import { sentFileGroups } from '@gugu/session-core/session-record/sent-file-groups';
+import { sendAddressesOf } from '@gugu/session-core/session-record/send-addresses';
 import type { TranscriptTurn } from '@session-chat/model';
 
 /** Keep successfully delivered replies readable when their tool process is folded. */
@@ -35,6 +36,8 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
     // 对话布局:气泡下面常驻一小段「发到 群名」(管家 10-28),去向与会话页那一行同一个读法。
     const to = fileGroup?.to ?? (options.allDestinations ? agentSendOf(item, turn)?.to : undefined);
     if (to) Object.assign(reply, { sentTo: to });
+    const addresses = sendAddressesOf(item, turn);
+    if (addresses) Object.assign(reply, { sentAddresses: addresses });
     replies.push(reply);
     if (options.allDestinations || fileGroup) {
       const last = fileGroup?.last ?? item;

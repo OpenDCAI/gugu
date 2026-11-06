@@ -30,6 +30,7 @@
     "./session-record/message-preview": "./src/session-record/message-preview.ts",
     "./session-record/live-requests": "./src/session-record/live-requests.ts",
     "./session-record/reply-process": "./src/session-record/reply-process.ts",
+    "./session-record/send-addresses": "./src/session-record/send-addresses.ts",
     "./session-record/sent-attachment": "./src/session-record/sent-attachment.ts",
     "./session-record/send-receipt": "./src/session-record/send-receipt.ts",
     "./session-record/sent-file-groups": "./src/session-record/sent-file-groups.ts",

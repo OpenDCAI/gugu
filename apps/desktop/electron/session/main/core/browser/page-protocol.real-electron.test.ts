@@ -1,14 +1,15 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { startRealElectronFixture } from '../test-support/real-electron-fixture';
 
 // Same native runner as browser-user-agent.real-electron.test.ts. No account or model is used.
 const electron = process.env.GUGU_BROWSER_REAL_ELECTRON;
 const repo = process.cwd();
 let temporary = '';
+let fixture: ReturnType<typeof startRealElectronFixture> | undefined;
 let result: { cases: Record<string, { passed: boolean; error?: string }> };
 
 describe.skipIf(!electron)('page protocol with real Electron and Playwright MCP', () => {
@@ -41,23 +42,18 @@ describe.skipIf(!electron)('page protocol with real Electron and Playwright MCP'
     fs.mkdirSync(env.GUGU_HOME!, { recursive: true });
     fs.mkdirSync(env.GUGU_USER_DATA_DIR!, { recursive: true });
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = spawn(electron!, [entry], { env, signal: AbortSignal.timeout(30_000), stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '', stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }).finally(() => {
-      if (process.env.GUGU_BROWSER_PROBE_REPORT_DIR) {
-        const folder = process.env.GUGU_BROWSER_PROBE_REPORT_DIR;
-        fs.mkdirSync(folder, { recursive: true });
-        fs.writeFileSync(path.join(folder, 'native-page.log'), stdout + '\n' + stderr);
-      }
-    });
+    fixture = startRealElectronFixture({ name: 'native-page', executable: electron!, args: [entry], env,
+      signal: AbortSignal.timeout(30_000), reportDirectory: process.env.GUGU_BROWSER_PROBE_REPORT_DIR });
+    const { code, stdout, stderr } = await fixture.result;
     expect(code, stdout + '\n' + stderr).toBe(0);
     const line = stdout.split('\n').find(line => line.startsWith('PAGE_PROTOCOL_RESULT='));
     expect(line, stdout + '\n' + stderr).toBeDefined();
     result = JSON.parse(line!.slice('PAGE_PROTOCOL_RESULT='.length));
   }, 40_000);
-  afterAll(() => { if (temporary) fs.rmSync(temporary, { recursive: true, force: true }); });
+  afterAll(async () => {
+    await fixture?.dispose();
+    if (temporary) fs.rmSync(temporary, { recursive: true, force: true });
+  });
   it.each(['same-iframe-click', 'cross-iframe-click', 'html-drag', 'surface failed', 'the page debugger is already in use',
     'http-only-cookie-events', 'navigation-schemes', 'drag-files', 'websocket-cookie-events',
     'navigation-control-file', 'navigation-control-chrome', 'navigation-control-devtools', 'navigation-history-policy',

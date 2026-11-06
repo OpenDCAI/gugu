@@ -35,7 +35,12 @@ import {
 } from './localization';
 import type { SelfIdentity } from './lib/self-identity';
 
+/** Typed, host-owned identity facts; null never means agent. */
+export type ChatActor = { id: string; type: 'human' | 'agent'; name: string };
+
 export type ChatContextOptions = {
+  actor?: (address: string) => ChatActor | null;
+  subscribeActors?: (listener: () => void) => () => void;
   /** Resolved host locale. Changes use the existing translator subscription. */
   locale: () => SupportedLocale;
   /**
@@ -98,11 +103,13 @@ export type ChatContextOptions = {
    * "via a group" without a name). Omitted = never known.
    */
   chatName?: (chatId: string) => string | null;
+  chatKind?: (chatId: string) => string | null;
   /** Optional change source so mounted cards re-read `chatName` when the host's chats change. */
   subscribeChatNames?: (listener: () => void) => () => void;
 };
 
 export type ChatContext = {
+  readonly actor: (address: string) => ChatActor | null;
   /** Reactive host locale, sharing the translation epoch. */
   readonly locale: () => SupportedLocale;
   /** Resolved theme (typography drives measurement geometry). Reactive under `setLayout`. */
@@ -123,6 +130,7 @@ export type ChatContext = {
   readonly appName: (appId: string) => string | null;
   /** Reactive accessor for a group's name by chat id; `null` = not known here. */
   readonly chatName: (chatId: string) => string | null;
+  readonly chatKind: (chatId: string) => string | null;
   /** Shared content-addressed caches (highlight / diff / mermaid / richInline). */
   readonly sharedCaches: SharedCaches;
   /**
@@ -163,6 +171,9 @@ export function createChatContext(opts: ChatContextOptions): ChatContext {
   let senderAvatar!: (fromId: string | null) => string | null;
   let appName!: (appId: string) => string | null;
   let chatName!: (chatId: string) => string | null;
+  let chatKind!: (chatId: string) => string | null;
+  let actor!: (address: string) => ChatActor | null;
+  let bumpActors!: () => void;
   let disposeRoot!: () => void;
   let bumpTranslation!: () => void;
   let bumpSelfIdentity!: () => void;
@@ -172,6 +183,9 @@ export function createChatContext(opts: ChatContextOptions): ChatContext {
 
   createRoot((dispose) => {
     disposeRoot = dispose;
+    const [actorsEpoch, setActorsEpoch] = createSignal(0);
+    bumpActors = () => setActorsEpoch(value => value + 1);
+    actor = address => { actorsEpoch(); return opts.actor?.(address) ?? null; };
     const [epoch, setEpoch] = createSignal(0);
     const [translationEpoch, setTranslationEpoch] = createSignal(0);
     themeSignal = createThemeSignal(initialTheme);
@@ -215,9 +229,11 @@ export function createChatContext(opts: ChatContextOptions): ChatContext {
       chatNameEpoch();
       return readChatName(chatId);
     };
+    chatKind = (chatId) => { chatNameEpoch(); return opts.chatKind?.(chatId) ?? null; };
   });
 
   let disposed = false;
+  const unsubscribeActors = opts.subscribeActors?.(() => { if (!disposed) bumpActors(); });
   const unsubscribeTranslator = opts.subscribeTranslator?.(() => {
     if (!disposed) bumpTranslation();
   });
@@ -241,6 +257,7 @@ export function createChatContext(opts: ChatContextOptions): ChatContext {
   });
 
   return {
+    actor,
     get theme() {
       return themeSignal.theme();
     },
@@ -253,6 +270,7 @@ export function createChatContext(opts: ChatContextOptions): ChatContext {
     senderAvatar,
     appName,
     chatName,
+    chatKind,
     sharedCaches,
     measureEpoch,
     bumpEpoch,
@@ -261,6 +279,7 @@ export function createChatContext(opts: ChatContextOptions): ChatContext {
     },
     dispose() {
       disposed = true;
+      unsubscribeActors?.();
       unsubscribeTranslator?.();
       unsubscribeSelfIdentity?.();
       unsubscribeSenderAvatars?.();
