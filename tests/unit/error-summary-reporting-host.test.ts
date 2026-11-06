@@ -24,7 +24,7 @@ beforeEach(() => {
   vi.mocked(app.getPath).mockReturnValue(root)
   previousExceptionListeners = process.listeners('uncaughtExceptionMonitor')
   previousRejectionListeners = process.listeners('unhandledRejection')
-  vi.stubGlobal('__GUGU_ERROR_REPORTING_DSN__', 'https://public@errors.example.test/1')
+  vi.stubGlobal('__GUGU_ERROR_REPORTING_ENDPOINT__', 'https://errors.example.test/v1/beta-errors')
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, body: null })))
 })
 
@@ -38,10 +38,10 @@ afterEach(() => {
 })
 
 describe('native summary reporting boundary', () => {
-  it('does not install collectors or touch pending storage for an empty DSN or nonpilot build', () => {
-    vi.stubGlobal('__GUGU_ERROR_REPORTING_DSN__', '')
+  it('does not install collectors or touch pending storage for an empty endpoint or nonpilot build', () => {
+    vi.stubGlobal('__GUGU_ERROR_REPORTING_ENDPOINT__', '')
     registerErrorSummaryReporting({ eligible: true, owner: () => null })
-    vi.stubGlobal('__GUGU_ERROR_REPORTING_DSN__', 'https://public@errors.example.test/1')
+    vi.stubGlobal('__GUGU_ERROR_REPORTING_ENDPOINT__', 'https://errors.example.test/v1/beta-errors')
     registerErrorSummaryReporting({ eligible: false, owner: () => null })
     expect(process.listeners('uncaughtExceptionMonitor')).toEqual(previousExceptionListeners)
     expect(ipcMain.listenerCount('error-summary:report')).toBe(0)
@@ -64,11 +64,14 @@ describe('native summary reporting boundary', () => {
     ipcMain.emit('error-summary:report', { sender: { trusted: true } }, { ...candidate, version: 'someone@example.test', system: 'private OS' })
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     const [url, options] = vi.mocked(fetch).mock.calls[0]
-    expect(url).toBe('https://errors.example.test/api/1/envelope/')
-    const event = JSON.parse(String(options!.body).trim().split('\n')[2])
-    expect(event.release).toBe('0.3.2')
-    expect(event.contexts.os.name).toBe(process.platform)
-    expect(event.timestamp).not.toBe(candidate.time)
+    expect(url).toBe('https://errors.example.test/v1/beta-errors')
+    const request = JSON.parse(String(options!.body))
+    expect(Object.keys(request).sort()).toEqual(['schemaVersion', 'summary'])
+    expect(request.schemaVersion).toBe(1)
+    const event = request.summary
+    expect(event.version).toBe('0.3.2')
+    expect(event.system).toBe(process.platform)
+    expect(event.time).not.toBe(candidate.time)
     expect(String(options!.body)).not.toMatch(/private|someone|test-owner/)
     expect(options!.redirect).toBe('error')
     expect(options!.credentials).toBe('omit')

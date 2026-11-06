@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { errorSummaryFromError, redactErrorSummaryValue, sanitizeErrorLocation, sanitizeErrorSummary } from '../../apps/desktop/shared/error-summary'
-import { errorSummaryDestination, errorSummaryEnvelope } from '../../apps/desktop/shared/error-summary-transport'
+import { errorSummaryDestination, errorSummaryRequest } from '../../apps/desktop/shared/error-summary-transport'
 import { createErrorSummaryReporter, type ReportingContext } from '../../apps/desktop/shared/error-summary-reporter'
 
 const time = '2026-11-06T15:00:00.000Z'
@@ -47,16 +47,17 @@ describe('outgoing error-summary allowlist', () => {
     expect(sanitizeErrorSummary({ ...summary, time: 'someone@example.test' })).toBeNull()
   })
 
-  it('constructs an envelope with no arbitrary SDK context or message', () => {
-    const body = errorSummaryEnvelope({ ...summary, message: 'private', user: { id: 'private' } }, 'a'.repeat(32))!
-    const event = JSON.parse(body.trim().split('\n')[2])
-    expect(event).toEqual({ event_id: 'a'.repeat(32), timestamp: time, platform: 'javascript', release: summary.version, contexts: { os: { name: 'darwin' } }, exception: { values: [{ type: 'TypeError', stacktrace: { frames: [{ filename: 'apps/desktop/src/App.tsx', lineno: 12, colno: 3, in_app: true }] } }] } })
+  it('constructs exactly the versioned JSON contract with no SDK event or user context', () => {
+    const body = errorSummaryRequest({ ...summary, message: 'private', user: { id: 'private' }, event_id: 'private' })!
+    expect(JSON.parse(body)).toEqual({ schemaVersion: 1, summary })
     expect(body).not.toContain('private')
+    expect(errorSummaryRequest({ ...summary, version: 'unknown' })).toBeNull()
+    expect(errorSummaryRequest({ ...summary, system: 'unknown' })).toBeNull()
   })
 
-  it('disables absent/invalid DSNs and keeps only the public ingestion authentication', () => {
-    for (const dsn of ['', ' ', 'bad', 'http://public@errors.example.test/1', 'https://public:secret@errors.example.test/1', 'https://public@errors.example.test/not-a-project', 'https://public@errors.example.test/1?token=private']) expect(errorSummaryDestination(dsn)).toBeNull()
-    expect(errorSummaryDestination('https://public@errors.example.test/prefix/1')).toEqual({ url: 'https://errors.example.test/prefix/api/1/envelope/', authorization: 'Sentry sentry_version=7,sentry_key=public,sentry_client=gugu-error-summary/1' })
+  it('disables absent/invalid endpoints and rejects DSN or SDK authentication', () => {
+    for (const endpoint of ['', ' ', 'bad', 'http://errors.example.test/v1/beta-errors', 'https://public@errors.example.test/v1/beta-errors', 'https://public:secret@errors.example.test/v1/beta-errors', 'https://errors.example.test/api/1/envelope/', 'https://errors.example.test/v1/beta-errors?token=private']) expect(errorSummaryDestination(endpoint)).toBeNull()
+    expect(errorSummaryDestination('https://errors.example.test/v1/beta-errors')).toEqual({ url: 'https://errors.example.test/v1/beta-errors' })
   })
 })
 

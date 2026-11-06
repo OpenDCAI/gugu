@@ -49,7 +49,7 @@ export function createErrorSummaryReporter(deps: {
         const row = pending[0]
         if (!valid(context) || row.scope !== context.scope) { clear(); return }
         const summary = sanitizeErrorSummary(row.summary)
-        if (!summary) { pending.shift(); save(); continue }
+        if (!summary || deps.now() - Date.parse(summary.time) > 86_400_000 || Date.parse(summary.time) > deps.now() + 60_000) { pending.shift(); save(); continue }
         active = new AbortController()
         try { await deps.send(summary, active.signal) } catch { return }
         if (token !== generation) return

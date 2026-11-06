@@ -5,15 +5,15 @@ import { dirname, join } from 'node:path'
 import { app, ipcMain, BrowserWindow } from 'electron'
 import { createErrorSummaryReporter } from '../shared/error-summary-reporter'
 import { errorSummaryFromError, sanitizeErrorSummary } from '../shared/error-summary'
-import { errorSummaryDestination, errorSummaryEnvelope } from '../shared/error-summary-transport'
+import { errorSummaryDestination, errorSummaryRequest } from '../shared/error-summary-transport'
 
-declare const __GUGU_ERROR_REPORTING_DSN__: string | undefined
+declare const __GUGU_ERROR_REPORTING_ENDPOINT__: string | undefined
 
 export function registerErrorSummaryReporting(deps: {
   eligible: boolean
   owner: () => string | null | undefined
 }) {
-  const destination = errorSummaryDestination(typeof __GUGU_ERROR_REPORTING_DSN__ === 'string' ? __GUGU_ERROR_REPORTING_DSN__ : '')
+  const destination = errorSummaryDestination(typeof __GUGU_ERROR_REPORTING_ENDPOINT__ === 'string' ? __GUGU_ERROR_REPORTING_ENDPOINT__ : '')
   // No endpoint means no queue reads/writes, hooks, timers or reporting requests.
   if (!deps.eligible || !destination) return
   const file = join(app.getPath('userData'), 'pending-error-summaries.json')
@@ -45,12 +45,11 @@ export function registerErrorSummaryReporting(deps: {
     },
     send: async (summary, signal) => {
       // A private connection: never use the signed-in Chromium session/cookie jar.
-      const eventId = createHash('sha256').update(JSON.stringify(summary)).digest('hex').slice(0, 32)
-      const body = errorSummaryEnvelope(summary, eventId)
+      const body = errorSummaryRequest(summary)
       if (!body) return
       const response = await fetch(destination.url, {
         method: 'POST',
-        headers: { 'content-type': 'application/x-sentry-envelope', 'x-sentry-auth': destination.authorization },
+        headers: { 'content-type': 'application/json', 'user-agent': 'gugu-error-summary/1' },
         body,
         signal: anySignal([signal, AbortSignal.timeout(5_000)]),
         redirect: 'error',

@@ -1,6 +1,6 @@
 # Desktop Beta error summaries
 
-The optional `GUGU_ERROR_REPORTING_DSN` build configuration defaults to empty.
+The optional `GUGU_ERROR_REPORTING_ENDPOINT` build configuration defaults to empty.
 An empty/invalid value, a local build, a production build, mobile, or a headless
 server does not activate the reporting host. A configured published desktop Beta
 still requires explicit local consent for the current signed-in account (or the
@@ -20,13 +20,18 @@ are reduced to application roots; user home directories, third-party files and
 URL parameters are excluded. No raw log, screenshot, memory, replay, trace,
 profile, session tracking, cookie or breadcrumb collector is initialized.
 
-The minimal Sentry-compatible envelope adds protocol constants and a deterministic
-random-looking event identifier derived only from the sanitized event. It uses
-Node fetch, without the signed-in Chromium session/cookie jar, refuses redirects,
-and has a five-second timeout. A receipt only follows a successful HTTP response.
-The deployment must separately verify GlitchTip compatibility, disable IP request
-logging/retention and enforce the server-side field contract. No real receiver has
-been configured or deployed by this change.
+The client POSTs JSON to the configured HTTPS `/v1/beta-errors` route. The exact
+request is `{ schemaVersion: 1, summary }`, where summary has only the five fields
+above. The client does not transmit a DSN, project ID, SDK authentication or an
+event identifier. The official intake validates approved versions and build-file
+manifests, generates a random transport ID and rebuilds one event for its fixed
+GlitchTip Beta project. GlitchTip configuration and credentials stay server-side.
+
+The request uses Node fetch without the signed-in Chromium session/cookie jar,
+refuses redirects and has a five-second timeout. The deployment must separately
+verify GlitchTip compatibility, disable IP request logging/retention and enforce
+the server-side field contract. No real receiver has been configured or deployed
+by this client change.
 
 Already-sanitized events may be saved locally (maximum 20, maximum age 24 hours).
 They are rebuilt from the allowlist before transmission. Fatal JavaScript capture
@@ -43,6 +48,5 @@ inventory, native hard-crash metadata/Crashpad, signed-package source maps,
 receiver deployment, localization/legal policy changes and cross-platform crash
 exercises remain separate pilot acceptance work. Raw native dumps are never sent.
 
-Protocol references: https://develop.sentry.dev/sdk/foundations/transport/ and
-https://develop.sentry.dev/sdk/data-model/event-payloads/. GlitchTip SDK guidance:
-https://glitchtip.com/sdkdocs/electron/.
+Protocol v1 is defined by the client-owned five-field summary and the official
+intake route. General GlitchTip guidance: https://glitchtip.com/sdkdocs/electron/.
