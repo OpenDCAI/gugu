@@ -767,7 +767,7 @@ async function expectDroppedAloneThenRebuilt(
     const snapshotUrl = '/src/lib/accountSyncSnapshot.ts'
     const repositoryModule = await import(/* @vite-ignore */ repositoryUrl)
     const { initializeAccountSync } = await import(/* @vite-ignore */ snapshotUrl)
-    // The page has no signed-in session, so the app already aborted the auth boundary this request runs under.
+    // This fixture has no signed-in session; explicitly reset the auth boundary for this request.
     const authBoundaryUrl = '/src/lib/authSessionLoss.ts'
     const { resetAuthSessionBoundary } = await import(/* @vite-ignore */ authBoundaryUrl)
     resetAuthSessionBoundary()

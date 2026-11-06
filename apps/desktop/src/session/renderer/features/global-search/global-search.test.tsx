@@ -65,9 +65,9 @@ function setNetwork(online: boolean) {
 }
 const ensureIdentity = vi.fn()
 beforeEach(() => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   // Debounce, query notifications and indexing polls keep their real intervals on a virtual clock.
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   remote.opened = []
   remote.desktop = false
   remote.local.mockReset().mockResolvedValue([])
