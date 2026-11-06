@@ -22,16 +22,18 @@ function host() {
   const archive = vi.fn(async (..._args: unknown[]) => {})
   const facts = vi.fn(async () => [{ sessionId: 'confirmed-task', projectId: 'project' }])
   const dispose = vi.fn(async (_agent: unknown) => {})
+  const stopPanel = vi.fn()
   const context = {
     cacheString: (cache: Record<string, unknown> | null, key: string) => typeof cache?.[key] === 'string' ? cache[key] : '',
     SESSION_CACHE_KEY: 'emdash_session_id', PARKED_SESSION_CACHE_KEY: 'sessionpage_parked_session_id',
     unregisterSessionpageDeliveryOwners: unregister, revokeAgentCards: revoke,
     loadEmdashBridge: () => ({ archiveSession: archive, emdashSessionpageSessionFacts: facts }),
     disposeSessionpageAgentFromRoster: dispose,
+    assistantPanelRuntime: { remove: stopPanel },
     callback: undefined as undefined | ((agent: { gugu_user_id: string | null; cache?: Record<string, unknown> }, reason: string, receipt?: { userId: string; removedAt: string }) => Promise<void>),
   }
   runInNewContext(code, context, { filename: file })
-  return { run: context.callback!, unregister, revoke, archive, facts, dispose }
+  return { run: context.callback!, unregister, revoke, archive, facts, dispose,stopPanel }
 }
 
 describe('main host archives the same task from a confirmed cloud receipt', () => {
@@ -43,6 +45,7 @@ describe('main host archives the same task from a confirmed cloud receipt', () =
     expect(h.revoke).toHaveBeenCalledExactlyOnceWith('legacy-agent')
     expect(h.archive).not.toHaveBeenCalled()
     expect(h.dispose).not.toHaveBeenCalled()
+    expect(h.stopPanel).not.toHaveBeenCalled()
   })
 
   it.each(['emdash_session_id', 'sessionpage_parked_session_id'])('cloud-removed archives the confirmed %s task with its original receipt', async key => {
@@ -51,6 +54,8 @@ describe('main host archives the same task from a confirmed cloud receipt', () =
     await h.run({ gugu_user_id: 'removed-agent', cache: { [key]: 'confirmed-task' } }, 'cloud-removed', receipt)
     expect(h.archive).toHaveBeenCalledExactlyOnceWith('project', 'confirmed-task', { removeSocialIdentity: true }, receipt)
     expect(h.revoke).toHaveBeenCalledExactlyOnceWith('removed-agent')
+    expect(h.stopPanel).toHaveBeenCalledExactlyOnceWith('removed-agent')
+    expect(h.stopPanel.mock.invocationCallOrder[0]).toBeLessThan(h.archive.mock.invocationCallOrder[0]!)
     expect(h.dispose).not.toHaveBeenCalled()
   })
 
@@ -61,6 +66,7 @@ describe('main host archives the same task from a confirmed cloud receipt', () =
     }
     expect(h.archive).not.toHaveBeenCalled()
     expect(h.unregister).not.toHaveBeenCalled()
+    expect(h.stopPanel).not.toHaveBeenCalled()
   })
 
   it('propagates archive failure to the roster owner instead of claiming cleanup succeeded', async () => {
@@ -76,5 +82,6 @@ describe('main host archives the same task from a confirmed cloud receipt', () =
     await h.run(agent, 'owner-change')
     expect(h.dispose).toHaveBeenCalledExactlyOnceWith(agent)
     expect(h.archive).not.toHaveBeenCalled()
+    expect(h.stopPanel).not.toHaveBeenCalled()
   })
 })

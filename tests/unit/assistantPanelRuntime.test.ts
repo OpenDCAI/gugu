@@ -64,6 +64,10 @@ it('stops only the removed assistant timers and listeners and never recreates it
     expect(new Set(calls.assistants)).toEqual(new Set(['live']))
     expect(listeners.size).toBe(1)
     await expect(runtime.bind({sessionId:'old',assistantId:'removed',ownerId:'owner',cwd})).rejects.toThrow('PANEL_IDENTITY_REMOVED')
+    calls.assistants.length=0
+    await runtime.bind({sessionId:'old',assistantId:'replacement',ownerId:'owner',cwd})
+    await runtime.publish('old')
+    expect(new Set(calls.assistants)).toEqual(new Set(['replacement']))
   }finally{runtime.dispose();await rm(cwd,{recursive:true,force:true})}
 })
 

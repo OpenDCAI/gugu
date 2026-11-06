@@ -1168,10 +1168,10 @@ async function onLocalAgentRosterRemoved(
 ): Promise<void> {
   const agentUserId = agent.gugu_user_id
   if (!agentUserId) return
-  if (reason === 'cloud-removed') assistantPanelRuntime?.remove(agentUserId)
   if (reason === 'cloud-gone' || reason === 'cloud-removed') {
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY)
     if (reason === 'cloud-removed' && receipt?.userId !== agentUserId) throw new Error('Confirmed removal receipt does not match the Agent')
+    if (reason === 'cloud-removed') assistantPanelRuntime?.remove(agentUserId)
     await unregisterSessionpageDeliveryOwners(agentUserId)
     await revokeAgentCards(agentUserId)
     if (reason === 'cloud-removed') {
