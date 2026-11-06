@@ -208,7 +208,6 @@ const fallbackMessages = {
   'transcript.deliveryViaApp': 'from app {app}',
   'transcript.deliveryViaSession': 'from a task',
   'transcript.deliveryViaExtension': 'from an App',
-  'transcript.deliveryViaForum': 'from the forum',
   'transcript.deliveryFromGugu': 'from 咕咕',
   'transcript.deliveryScheduled': 'scheduled, due now',
   'transcript.deliveryScheduledTitled': 'scheduled “{title}”, due now',
