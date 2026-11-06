@@ -48,6 +48,7 @@ it('reads a text no live document holds, whole', async () => {
   const read = await readAppFileText(page(), { ref: { workspace, id: 'conf.json' } });
   expect(read).toMatchObject({ content: '// comment\n{"x":1}\n', truncated: false, totalSize: 19 });
   expect(read.binary).toBeUndefined();
+  expect(read.exact).toBe(true);
 });
 
 it('says a file with a NUL in it is binary, and over the limit only sizes it', async () => {
@@ -55,6 +56,24 @@ it('says a file with a NUL in it is binary, and over the limit only sizes it', a
   await fsp.writeFile(path.join(f.root, 'a.bin'), Buffer.from([1, 0, 2]));
   expect(await readAppFileText(page(), { ref: { workspace, id: 'a.bin' } })).toMatchObject({ binary: true, content: '' });
   expect(await readAppFileText(page(), { ref: { workspace, id: 'conf.json' }, maxBytes: 4 })).toMatchObject({ truncated: true, content: '', totalSize: 19 });
+});
+
+it('reads a file whose name says nothing by its bytes, and believes a name that says something else', async () => {
+  f.capabilities.add('files:read');
+  for (const name of ['Makefile', '.env', '.gitignore', 'a.vue', 'yarn.lock']) {
+    await fsp.writeFile(path.join(f.root, name), 'all: x\n');
+    expect(await readAppFileText(page(), { ref: { workspace, id: name } }), name).toMatchObject({ content: 'all: x\n', exact: true });
+  }
+  await fsp.writeFile(path.join(f.root, 'a.png'), 'looks like text');
+  expect(await readAppFileText(page(), { ref: { workspace, id: 'a.png' } })).toMatchObject({ binary: true, content: '' });
+  await fsp.writeFile(path.join(f.root, 'noname'), Buffer.from([0xd6, 0xd0, 0xce, 0xc4]));
+  expect(await readAppFileText(page(), { ref: { workspace, id: 'noname' } })).toMatchObject({ binary: true });
+});
+
+it('says text in another encoding is not exact', async () => {
+  f.capabilities.add('files:read');
+  await fsp.writeFile(path.join(f.root, 'gbk.md'), Buffer.from([0xd6, 0xd0, 0xce, 0xc4]));
+  expect(await readAppFileText(page(), { ref: { workspace, id: 'gbk.md' } })).toMatchObject({ content: '中文', exact: false });
 });
 
 it('reads across pieces', async () => {

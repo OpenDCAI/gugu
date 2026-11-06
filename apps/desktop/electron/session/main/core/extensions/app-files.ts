@@ -48,7 +48,7 @@ import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } fro
 import { fileServiceUrl, fileSync, localFileService } from '@main/core/extensions/file-sync';
 import { createLocalAppFiles, workingCopyEntry, type LocalSurface } from '@main/core/extensions/local-files';
 import { REMOTE_WORKSPACE_CHUNK_BYTES, REMOTE_WORKSPACE_MAX_FILE_BYTES } from '@gugu/session-core/session-record/contract';
-import { decodeUtf8Sample } from '@gugu/session-core/files';
+import { workspaceFileText } from '@gugu/core/shared/workspaceUpload.mjs';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
 import { fileIconKey } from '@shared/extensions/app-icon';
 import { claimantOf, openerChoice as chatOpenerChoice, requireOwnTabChoice } from '@shared/extensions/file-openers';
@@ -374,7 +374,7 @@ const versionKey = (ref: WorkspaceFileRef & { id: string }) => `${ref.workspace}
 
 /**
  * `files.readText(file, { maxBytes })`: a working copy's text whole, in the file panel's pieces, on the machine it is on.
- * What it holds is decided as the file panel decides it (`decodeUtf8Sample`); over `maxBytes` it is not read, only sized.
+ * What it holds is the one answer to "is this text" (`workspaceFileText`); over `maxBytes` it is not read, only sized.
  */
 export async function readAppFileText(page: DesktopFilePage, args: { ref?: unknown; maxBytes?: unknown }): Promise<AppFileText> {
   const ref = wholeFileRef(page, args.ref, 'files:read', 'readText');
@@ -403,8 +403,8 @@ export async function readAppFileText(page: DesktopFilePage, args: { ref?: unkno
     }
     if (!readVersions.has(page.pageId)) readVersions.set(page.pageId, new Map());
     readVersions.get(page.pageId)!.set(versionKey(ref), etag);
-    const decoded = decodeUtf8Sample(Buffer.concat(pieces), false);
-    return { entry: { ...entry, size }, content: decoded.content, ...(decoded.binary ? { binary: true as const } : {}), truncated: false, totalSize: size };
+    const text = workspaceFileText(ref.id, Buffer.concat(pieces));
+    return { entry: { ...entry, size }, content: text?.text ?? '', ...(text ? { exact: text.exact } : { binary: true as const }), truncated: false, totalSize: size };
   }
 }
 
