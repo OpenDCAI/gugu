@@ -53,13 +53,13 @@ describe('native summary reporting boundary', () => {
     registerErrorSummaryReporting({ eligible: true, owner: () => null })
     ipcMain.emit('error-summary:report', { sender: { trusted: true } }, candidate)
     expect(fetch).not.toHaveBeenCalled()
-    ipcMain.on('error-summary:read-local-consent', reply => reply({ eligible: true, decision: 'allowed' }))
+    ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision: 'allowed' }) })
     ipcMain.emit('error-summary:report', { sender: { trusted: false } }, candidate)
     expect(fetch).not.toHaveBeenCalled()
   })
 
   it('builds outgoing protocol data from the allowlist and supplies trusted host metadata', async () => {
-    ipcMain.on('error-summary:read-local-consent', reply => reply({ eligible: true, decision: 'allowed' }))
+    ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision: 'allowed' }) })
     registerErrorSummaryReporting({ eligible: true, owner: () => 'test-owner-only-local' })
     ipcMain.emit('error-summary:report', { sender: { trusted: true } }, { ...candidate, version: 'someone@example.test', system: 'private OS' })
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
