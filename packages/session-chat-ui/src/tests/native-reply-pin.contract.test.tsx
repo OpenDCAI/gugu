@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { until, untilStable } from '../../../../tests/support/awaitCondition';
 
 describe('native reply after a file input', () => {
-  it.each([390, 1280])('scrolls the input clear of its reply header at width %i, including remount', async width => {
+  it.each([390, 1280])('positions a native reply below its pinned input at width %i, including remount', async width => {
     const context = createChatContext({ locale: () => 'en-US', layout: { agentConversation: true, preset: 'double', userGutter: 0 } });
     const state = createChatState(context);
     const turn: TranscriptTurn = {
@@ -32,7 +32,11 @@ describe('native reply after a file input', () => {
       for (let pass = 0; pass < 2; pass++) {
         await until('the file reply is mounted', () => !!host.querySelector('[data-agent-conversation-message="native-file-turn:process:head"]'));
         expect(host.querySelector('[data-agent-conversation-message="file-input"] [data-kind="file"]')).not.toBeNull();
-        view.setScrollMode({ kind: 'anchor', itemId: 'native-file-turn:process:head', edge: 'top', offset: -8 });
+        await untilStable('the input and its viewport are measured before the source jump', () => [
+          host.querySelector('[data-agent-conversation-message="file-input"]')?.getBoundingClientRect().height,
+          host.querySelector('[data-chat-scroll]')?.scrollHeight,
+        ]);
+        view.scrollToItem('native-file-turn:process:head', { align: 'start' });
         const input = () => host.querySelector<HTMLElement>('[data-agent-conversation-message="file-input"]')!;
         const head = () => host.querySelector<HTMLElement>('[data-agent-conversation-message="native-file-turn:process:head"]')!;
         await untilStable('the anchored file turn settles', () => [input()?.getBoundingClientRect().bottom, head()?.getBoundingClientRect().top]);
@@ -40,7 +44,7 @@ describe('native reply after a file input', () => {
         expect(head().getBoundingClientRect().top - lane.getBoundingClientRect().top,
           'the virtualizer reserved the full input height').toBeGreaterThanOrEqual(input().getBoundingClientRect().height - 1);
         expect(input().getBoundingClientRect().bottom,
-          'the sticky input must stop before its native reply header').toBeLessThanOrEqual(head().getBoundingClientRect().top + 1);
+          'the source jump must reserve the pinned input above its native reply header').toBeLessThanOrEqual(head().getBoundingClientRect().top + 1);
         if (pass === 0) { view.dispose(); view = mount(); }
       }
     } finally {

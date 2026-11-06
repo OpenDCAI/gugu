@@ -16,6 +16,7 @@ import { collectUserTurnUnits, isDeliveredFromAgent, makeUnitsView } from './fla
 import type { ChatItem, ChatMessage } from '../model';
 import type { TranscriptTurn } from '../model';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { normalizeMessage } from '../components/rows/message/message.def';
 
 const DELIVERY = [
   '<gugu_delivery route="chat" from="小雨" from_id="u_42" msg="m1" at="2026-09-06T08:00:00Z">',
@@ -93,5 +94,19 @@ describe('#4981 投递进来的不是人打的字', () => {
   it('❌ 阳控:换成人打的字就进名单', () => {
     const items = [message('m1', 'user', '帮我看下这个'), message('m2', 'assistant', '好的')];
     expect(collectUserTurnUnits([turnOf(items)], unitsOf(items))).toEqual([0]);
+  });
+});
+
+describe('viewer-owned cross-client delivery pins', () => {
+  const viewerId = '11111111-1111-4111-8111-111111111111';
+  const envelope = (fromId: string, type: string) => `<gugu_delivery route="chat" from_id="user:${fromId}" from_type="${type}" msg="msg:own"><![CDATA[Own request]]></gugu_delivery>`;
+  for (const normalized of [false, true]) it(`recognizes only the authenticated viewer human delivery (normalized=${normalized})`, () => {
+    const own = envelope(viewerId, 'human');
+    const other = envelope('22222222-2222-4222-8222-222222222222', 'human');
+    for (const [text, expected] of [[own, [0]], [other, []], [envelope(viewerId, 'agent'), []], [own + '\n' + other, []]] as const) {
+      const input = message('input', 'user', text);
+      const items = [normalized ? normalizeMessage(input) : input, message('reply', 'assistant', 'The original answer')];
+      expect(collectUserTurnUnits([turnOf(items)], unitsOf(items), { viewerId })).toEqual(expected);
+    }
   });
 });
