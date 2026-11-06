@@ -276,6 +276,17 @@ describe('recorded pairs have their own identity and lifecycle', () => {
     expect(layout.focusedPane.resolvedActiveTabId).toBe(terminal);
   });
 
+  it('closing a background pair member remembers beside, not a user request to separate', () => {
+    const placements = new Map<string, 'beside' | 'separate'>();
+    const { layout, conversation, open } = setup({ read: (key) => placements.get(key), write: (key, value) => { placements.set(key, value); } });
+    const terminal = open('terminal', conversation, 'newTab');
+    const output = layout.open('file', { path: 'output.md' }, { from: conversation, intent: 'beside', activate: false })!;
+    close(layout, output);
+    const reopened = layout.open('file', { path: 'output.md' }, { from: conversation, intent: 'beside', activate: false })!;
+    expect(layout.pair).toEqual({ pinned: conversation, side: reopened });
+    expect(layout.focusedPane.resolvedActiveTabId).toBe(terminal);
+  });
+
   it('restores an old paired snapshot without a pair field, preserving direction, sizes and active pane', () => {
     const { layout, conversation, open } = setup();
     const output = open('A.md');

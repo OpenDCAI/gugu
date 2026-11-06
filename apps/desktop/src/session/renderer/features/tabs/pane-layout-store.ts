@@ -845,7 +845,11 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
       layoutOpener: (kind, args, config) => this.open(kind, args, config),
       isViewActive: () => this._isViewActiveBox.get() && (!this.narrow || this.activePaneId === paneId),
       layoutSplitter: {
-        tabClosing: (entry) => this._rememberPlacement(entry, this.sidePaneId !== null ? 'beside' : 'separate'),
+        tabClosing: (entry) => {
+          const pair = this.pair;
+          const paired = pair && (entry.tabId === pair.pinned || entry.tabId === pair.side);
+          this._rememberPlacement(entry, paired || this.sidePaneId !== null ? 'beside' : 'separate');
+        },
         // Closing the pinned page = the side fills (closing the side closes its pane): 关掉一页 ≠ 拆开.
         tabRemoved: (tabId, wasActive) => this._tabRemoved(paneId, tabId, wasActive),
         // While paired, bringing any other tab of the strip forward replaces the side; the pinned page stays.
