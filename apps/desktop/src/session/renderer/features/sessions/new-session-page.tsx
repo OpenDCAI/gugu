@@ -190,7 +190,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
         </p>
       ) : null}
       {blocked || blockReason ? null : remoteInstall.note}
-      <CreateDeliveryError failure={deliveryError} />
+      <CreateDeliveryError failure={deliveryError} noticeKey={`session-create:${draftKey ?? projectId ?? 'new'}`} />
     </div>
   );
 });

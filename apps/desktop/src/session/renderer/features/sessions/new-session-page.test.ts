@@ -418,39 +418,26 @@ describe('NewSessionPage', () => {
     expect(container.querySelector('[data-testid="new-session-right-panel"]')).toBeNull();
   });
 
-  // @@@5173 这一轮没送出去时,原因必须**在用户当时所在的那一面**说出来。
-  // 三个创建面调的是同一个 useCreateSessionCallback,从前只有会话页渲染它的 deliveryError ——
-  // 项目首页与创建弹窗把那个字段解构丢了,于是同一次失败在这一面出提示、在那一面**什么都不显示**
-  // (实机验收就撞在这里:闸挡住了空会话,可屏幕上一片安静,用户只知道「发不出去」)。
-  // ⚠️ 断言只比骨架:文案本身 owner 要雕琢,钉死原文这条用例就会跟着文案红。这里判的是
-  //    ① 那条 alert 在;② 它说了人话 —— ❌ 不是 i18n 键名(缺键时 i18next 原样吐键),
-  //    ❌ 也不是 `provision-timeout` 这种开发者诊断串(失败 kind 的字面量)。
-  // ⚠️ 这里**故意不用** harness-unavailable:那一种已经改由右下角的瞬时通知说(见 project-sessions-store),
-  //    composer 这条常驻红字不再承接它。用它当样本会把「已经搬走的行为」焊死在这两条用例里。
   const deliveryFailure: SessionFailure = { kind: 'provision-timeout', timeoutMs: 30000 };
 
-  it('speaks the delivery failure on the session-page composer', async () => {
+  it('reports a delivery failure through the shared notice outlet on the session composer', async () => {
     mocks.deliveryError = deliveryFailure;
     await renderPage();
-
-    const alert = container.querySelector('[data-testid="create-delivery-error"]');
-    expect(alert).not.toBeNull();
-    const text = alert?.textContent ?? '';
-    expect(text.trim()).not.toBe('');
-    expect(text).not.toContain('taskError.');
-    expect(text).not.toContain('provision-timeout');
+    expect(container.querySelector('[data-testid="create-delivery-error"]')).toBeNull();
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
+      key: expect.stringMatching(/^session-create:/), tier: 'error', ongoing: true,
+      title: expect.not.stringContaining('taskError.'),
+    }));
   });
 
-  it('speaks the same delivery failure on the project home composer', async () => {
+  it('reports a delivery failure through the same outlet on the project composer', async () => {
     mocks.deliveryError = deliveryFailure;
     await renderProjectHome();
-
-    const alert = container.querySelector('[data-testid="create-delivery-error"]');
-    expect(alert).not.toBeNull();
-    const text = alert?.textContent ?? '';
-    expect(text.trim()).not.toBe('');
-    expect(text).not.toContain('taskError.');
-    expect(text).not.toContain('provision-timeout');
+    expect(container.querySelector('[data-testid="create-delivery-error"]')).toBeNull();
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
+      key: expect.stringMatching(/^session-create:/), tier: 'error', ongoing: true,
+      title: expect.not.stringContaining('taskError.'),
+    }));
   });
 
   it('stays silent while nothing has failed', async () => {

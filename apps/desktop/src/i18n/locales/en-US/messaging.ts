@@ -451,6 +451,7 @@ export default {
     "mobilePlaceholder": "Message",
     "projectGroupPlaceholder": "Message {{name}}… @ an agent to call it",
     "removeAttachment": "Remove {{fileName}}",
+    "sendFailedRetry": "This message was not sent. Send it again.",
     "sendFailed": "Could not send: {{reason}}",
     "verb": {
       "task": "New task"

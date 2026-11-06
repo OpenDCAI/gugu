@@ -6,7 +6,7 @@ import { firstMentionedUserId, resolveMentionUserIds, type MentionCandidate } fr
 import { rememberGroupMention } from '@/lib/groupMentionRecall'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { rendererLogger } from '@/lib/log'
-import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { useSessionInputNotice } from '@/session/renderer/features/sessions/session-input-notice'
 import { useToast } from '../toastContext'
 import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type MentionTarget, type PendingAttachment } from './useChatDraft'
 import { contentWithQuote } from './messageQuoteContent'
@@ -21,6 +21,8 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const [sending, setSending] = useState(false)
+  const [sendFailure, setSendFailure] = useState<string | null>(null)
+  useSessionInputNotice(`chat-send:${chatId ?? 'new'}:${currentUserId ?? 'self'}`, sendFailure ? { title: t('composer.sendFailedRetry'), diagnostic: sendFailure } : null)
   const sendingRef = useRef(false)
   const activeChatIdRef = useRef(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
@@ -82,6 +84,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       clear()
       flush()
       onQuoteConsumed?.()
+      setSendFailure(null)
       scheduleComposerFocus('message-sent', { target: () => inputRef.current, mobileShell: mobile })
       if (pendingFiles.length > 0 && onSendAttachments) await beforeSend?.()
 
@@ -124,7 +127,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       }
       // Drop the now-stale snapshot URLs (replaced by fresh ones above, or unused when persisting to store).
       revokeAttachmentPreviewUrls(snapshotAttachments)
-      toast(t('composer.sendFailed', { reason: safeFailureLine(reason) }), 'error')
+      setSendFailure(reason)
     } finally {
       sendingRef.current = false
       setSending(false)

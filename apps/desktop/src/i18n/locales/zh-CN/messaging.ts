@@ -449,6 +449,7 @@ export default {
     "mobilePlaceholder": "消息",
     "projectGroupPlaceholder": "发消息给 {{name}}… @ 某个 agent 叫它",
     "removeAttachment": "移除 {{fileName}}",
+    "sendFailedRetry": "这条消息未发出，请重新发送。",
     "sendFailed": "发送失败：{{reason}}",
     "verb": {
       "task": "新任务"

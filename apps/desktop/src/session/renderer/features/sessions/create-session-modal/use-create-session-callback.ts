@@ -332,6 +332,7 @@ export function useCreateSessionCallback({
     }).then(() => {
       if (!submission) input.setPrompt((current) => retainNewerInput(submittedPrompt, current));
       finishSubmission(submission);
+      setDeliveryError(null);
       onCreated?.({ projectId: selectedProjectId, sessionId });
       if (!openAfterCreate) {
         void rpcOn(machineRegistry.machineOf(selectedProjectId) ?? null).sessionTimeline.sessionStart({ conversationId: sessionId }).then((started) => {
@@ -401,7 +402,7 @@ export function useCreateSessionCallback({
       }
     }
     setIsCreating(true);
-    setDeliveryError(null);
+    // A retry is not recovery: retain this failure episode until the send succeeds.
     // A retry already owns its placed files. Keep the live draft for retainNewerInput on success.
     if (pendingMessage()) { createSessionNow([]); return; }
     let submission: Submission | undefined;

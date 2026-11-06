@@ -80,6 +80,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   hostInstallNavigation: vi.fn(),
   toast: vi.fn(),
+  notify: vi.fn(),
+  dismissNotice: vi.fn(),
 }));
 
 vi.mock('@gugu/session-ui/react/components', () => ({
@@ -551,6 +553,8 @@ const remembered = () => settingsStore.get('newSessionMemory') as { lastPicked: 
 
 // 那两条短时提示（读不到目录的原因 / 未登录但咕咕模型可用）走 toast —— 要断言「它带没带一条
 // 去登录的路」，就得把 toast 收下来。❌ 不留真 sonner：它的 action 只活在 DOM 里，读不回来。
+vi.mock('@/lib/notices', () => ({ notify: mocks.notify, dismissNotice: mocks.dismissNotice }));
+
 vi.mock('@renderer/lib/hooks/use-toast', () => ({
   toast: mocks.toast,
   useToast: () => ({ toast: mocks.toast }),
@@ -671,6 +675,8 @@ function chatComposerProps(): ChatComposerProps {
  * ❌ 不用 `expect(toolbarExtra).toBeTruthy()`：那排里还挂着 Chat UI 开关，它本身就让整块非空 ——
  * 提示丢了照样绿。要断言的是「这句话在不在」，就得把节点真渲出来读文字。
  */
+function noticeText(): string { return mocks.notify.mock.calls.map(([notice]) => notice.title ?? '').join('\n'); }
+
 function toolbarText(): string {
   const host = document.createElement('div');
   const localRoot = createRoot(host);
@@ -2025,7 +2031,7 @@ describe('InitialSessionField', () => {
     await renderField();
 
     expect(latestState?.platformNotice).toBe('guguCatalog.reason.runtime-not-connected');
-    expect(toolbarText()).toContain('guguCatalog.reason.runtime-not-connected');
+    expect(toolbarText()).not.toContain('guguCatalog.reason.runtime-not-connected');
     // 配置事实,重试不会变 ⇒ 不给重试。
     expect(latestState?.retryPlatformCatalog).toBeUndefined();
     expect(toolbarText()).not.toContain('harnessCatalog.retry');
@@ -2042,7 +2048,7 @@ describe('InitialSessionField', () => {
     expect(latestState?.platformNotice).toBe('guguCatalog.reason.unreachable');
     const text = toolbarText();
     expect(text).not.toContain('net::');
-    expect(text).toContain('harnessCatalog.retry');
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'guguCatalog.reason.unreachable', action: expect.objectContaining({ label: 'harnessCatalog.retry' }) }));
     expect(latestState?.retryPlatformCatalog).toBeTypeOf('function');
   });
 
@@ -2127,8 +2133,8 @@ describe('InitialSessionField', () => {
     expect(chatComposerProps().modelOptions ?? {}).toEqual({});
     // 断的是「取了哪条 key、插了哪个 agent 名」—— 文案本体在词表里，两语由 messages 元测试守。
     expect(latestState?.harnessNotice).toBe('harnessCatalog.notInstalled|Claude Code');
-    expect(toolbarText()).toContain('harnessCatalog.notInstalled');
-    expect(toolbarText()).toContain('Claude Code');
+    expect(noticeText()).toContain('harnessCatalog.notInstalled');
+    expect(noticeText()).toContain('Claude Code');
   });
 
   it('stays silent about the model catalog while no agent is selected', async () => {
@@ -2159,7 +2165,7 @@ describe('InitialSessionField', () => {
     await renderField();
 
     expect(latestState?.harnessNotice).toBe('harnessCatalog.authRequiredWith|Claude Code|OAuth');
-    expect(toolbarText()).toContain('harnessCatalog.authRequiredWith');
+    expect(noticeText()).toContain('harnessCatalog.authRequiredWith');
   });
 
   it('hands a needs-login harness a way to actually sign in, not just the news', async () => {
@@ -2320,7 +2326,7 @@ describe('InitialSessionField', () => {
     //    照抄会变成一句**恒真**的空话。换成它真正守着的那件事:`byokLoginOptional` 对这一家
     //    必须仍为 false —— 它一旦被误判成 true,`harnessNoticeMessage` 就会被闭掉,
     //    工具栏上那句「需要先登录」会连同它一起消失。这一条能红。
-    expect(toolbarText(), '强制登录那一家的行内说明不该被 byokLoginOptional 闭掉').toContain(
+    expect(noticeText(), 'A required login must remain visible through the shared outlet').toContain(
       'harnessCatalog.authRequiredWith'
     );
 
@@ -2381,7 +2387,7 @@ describe('InitialSessionField', () => {
     await renderField({ provider: 'kimi' });
 
     // 阳性对照：那句状态确实还在这一排里 —— 否则下面「这一排点不出登录」平凡为真。
-    expect(toolbarText()).toContain('harnessCatalog.authRequiredWith');
+    expect(noticeText()).toContain('harnessCatalog.authRequiredWith');
     expect(toolbarOpensSignIn(), '工具栏又长出一条通向登录的路了').toBe(false);
 
     // 而这条路本身必须存在，它搬去了模型清单里那一组。
@@ -2410,7 +2416,7 @@ describe('InitialSessionField', () => {
     await renderField({ provider: 'nologin' });
 
     // 阳性对照：那句状态照说 —— 「没有下一步」不等于「什么都不说」。
-    expect(toolbarText()).toContain('harnessCatalog.authRequiredWith');
+    expect(noticeText()).toContain('harnessCatalog.authRequiredWith');
     expect(latestState?.harnessSignIn).toBeNull();
     expect(latestState?.harnessModelUnlock, '清单里摆了一条点不开的死行').toBeNull();
   });
@@ -2426,19 +2432,17 @@ describe('InitialSessionField', () => {
     expect(latestState?.harnessSignIn).toBeNull();
   });
 
-  // #6692:读不到目录的原因从前只走 toast,而 <Toaster/> 只挂在会话页 —— 对话页「新建 Agent」用的是同一个
-  // section,原因在那里无处可见。现在就地一行,两页一样;原文只取第一行、遮掉路径(与启动失败同一个口径)。
-  it('says why the harness catalog could not be read right under the composer, not in a toast', async () => {
-    harnessCatalog({
-      kind: 'unavailable',
-      reason: 'Hermes is not connected to any AI provider yet. Run `hermes model` in /Users/me/.hermes\n    at probe (catalog.ts:12)',
-    });
-    await renderField({ provider: 'kimi' });
-
-    expect(latestState?.harnessNotice).toContain('harnessCatalog.unavailable');
-    const line = container.querySelector('[data-testid="harness-catalog-failure-detail"]');
-    expect(line?.textContent).toBe('Hermes is not connected to any AI provider yet. Run `hermes model` in [path]');
-    expect(mocks.toast).not.toHaveBeenCalled();
+  it('reports model catalog failures through a dismissible notice and keeps raw diagnostics off the input', async () => {
+    const raw = 'local Codex app-server exited (code=1 signal=null)';
+    harnessCatalog({ kind: 'unavailable', reason: raw });
+    await renderField({ provider: 'codex' });
+    expect(container.querySelector('[data-testid="harness-catalog-failure-detail"]')).toBeNull();
+    expect(container.textContent).not.toContain(raw);
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
+      key: expect.stringMatching(/^session-catalog:/), title: 'taskError.codexUpgrade', ongoing: true,
+      action: expect.objectContaining({ label: expect.stringContaining('runtimeUpgradeOpenInstaller') }),
+    }));
+    expect(JSON.stringify(mocks.notify.mock.calls)).not.toMatch(/app-server|code=|signal=/);
   });
 
   it('drops the harness notice once a platform model is picked', async () => {
