@@ -3523,6 +3523,7 @@ function applyMode() {
   $('mode-edit').hidden = mode !== 'preview' || readInHost()
   $('mode-preview').hidden = mode === 'preview' && !readInHost()
   $('mode-split').hidden = true
+  document.body.classList.toggle('read-in-host', readInHost())
   if (mode !== 'edit' && state.current?.previewDeferred) state.current.drawPreview()
   syncBlockControls(true)
 }
