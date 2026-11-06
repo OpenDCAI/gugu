@@ -119,7 +119,7 @@ vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
   createChatProjection: () => ({
     confirmPersonalHiding: async (receipt: {chat_id:string;hidden_at:string;account_revision:string}) => {
       const snapshot = await serverChatList()
-      projectionStub.rows = snapshot.chats.map(row => row.id === receipt.chat_id
+      projectionStub.rows = (snapshot.chats as ChatItem[]).map(row => row.id === receipt.chat_id
         ? { ...row, conversation_hidden_at: receipt.hidden_at, conversation_visibility_revision: receipt.account_revision } : row)
       return projectionStub.rows
     },
