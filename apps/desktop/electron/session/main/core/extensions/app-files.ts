@@ -6,6 +6,7 @@ import { attachmentFileRef } from '@gugu/core/shared/ui/attachmentModels';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { writeFileHandle } from '@gugu/core/local/files/fileSnapshots';
+import { editorBufferService } from '@main/core/editor/editor-buffer-service';
 import {
   AppFileError,
   contentTypeOf,
@@ -326,6 +327,20 @@ export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; 
   if (there.there) return workspaceAppFileChunk(there.value as { size: number; offset: number; data: string });
   const { readWorkingCopy } = await import('./working-copy-files');
   return workspaceAppFileChunk(await readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length));
+}
+
+/**
+ * `filesDraft` answered on this machine: a file's unsaved edits, under the key its old editor used too: its own table, project
+ * and workspace, and its path in the working copy, so what that editor left is found.
+ */
+export async function draftHere(ref: WorkspaceFileRef & { id: string }, text: unknown): Promise<string | null | void> {
+  const { projectId, workspaceId, workspaceRoot } = await localRootOf({ workspace: ref.workspace });
+  const workspace = workspaceId ?? ref.workspace;
+  const inRoot = path.relative(workspaceRoot, ref.id);
+  const filePath = path.isAbsolute(ref.id) && !inRoot.startsWith('..') && !path.isAbsolute(inRoot) ? inRoot.split(path.sep).join('/') : ref.id;
+  if (text === undefined) return (await editorBufferService.listBuffers(projectId, workspace)).find((buffer) => buffer.filePath === filePath)?.content ?? null;
+  if (text === null) return editorBufferService.clearBuffer(projectId, workspace, filePath);
+  return editorBufferService.saveBuffer(projectId, workspace, filePath, String(text));
 }
 
 /**
