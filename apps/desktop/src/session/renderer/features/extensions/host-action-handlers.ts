@@ -220,11 +220,15 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     case 'setTabBadge':
       extensionSurfaceStore.say(sessionId, tabId, { badge: action.badge });
       return;
+    case 'setTabDirty':
+      extensionSurfaceStore.reportDirty(sessionId, action.tabId, action.dirty, action.webContentsId);
+      return;
     case 'reportError':
       extensionSurfaceStore.say(sessionId, tabId, { error: action.message });
       return;
     case 'newDocument':
       extensionSurfaceStore.say(sessionId, tabId, { title: null, badge: null, error: null });
+      extensionSurfaceStore.clearDirtyOfPage(sessionId);
       return;
     case 'openBrowserTab': {
       const view = requireSessionView(sessionId);

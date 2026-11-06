@@ -603,6 +603,9 @@ export function hostAppFrame(
       case 'setTabBadge':
         hooks.chrome({ badge: pageArgument('setTabBadge', args) })
         return Promise.resolve(undefined)
+      // A page's unsaved edits, with no tab to mark here: nothing to draw.
+      case 'setTabDirty':
+        return Promise.resolve(undefined)
       case 'openBrowserTab': {
         const url = String(args.url ?? '')
         if (!/^https?:\/\//i.test(url)) refused('invalid', 'openBrowserTab takes an http(s) URL')

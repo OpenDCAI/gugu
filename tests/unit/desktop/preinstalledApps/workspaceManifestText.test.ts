@@ -44,8 +44,8 @@ describe('the folder App: people read its subtitle, agents read its instructions
 
   // P4: its own page is a task's folder too. A tab that claims files is one a task never keeps of its own
   // (app-placement-sync, F95/F3), so the page claims none; the files it opens open in its `file` tab.
-  test('its own page claims no files, so a task keeps it; the .md and .json it opens go to its file tab', () => {
+  test('its own page claims no files, so a task keeps it; the files it opens go to its file tab', () => {
     const tabs = Object.fromEntries(manifest.contributes.tabs.map((tab) => [tab.name, declaredContexts(tab)]))
-    expect(tabs).toEqual({ main: [], file: ['chat'] })
+    expect(tabs).toEqual({ main: [], file: ['session', 'chat'] })
   })
 })

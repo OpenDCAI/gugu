@@ -175,7 +175,8 @@ describe('claiming a file by its name (摩擦单 F82, S23: a board App took ever
     };
     expect(refused('*.md')).toContain('is the suffix \\".md\\"');
     expect(refused('docs/todo.md')).toContain('no slashes');
-    expect(refused('*')).toContain('more than');
+    expect(refused('**')).toContain('more than');
+    expect(refused('*')).toBeNull(); // any file, behind every other claim
     expect(refused('md')).toContain('needs its dot'); // a suffix missing its dot, not a file named "md"
     expect(refused('.MD')).toBeNull(); // lowercased, still a suffix
     // Control: before F82 a claim had to be a dot-led suffix — "TODO.md" was refused.

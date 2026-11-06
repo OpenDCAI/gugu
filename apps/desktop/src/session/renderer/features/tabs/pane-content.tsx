@@ -87,7 +87,7 @@ const PaneBody = observer(function PaneBody({
   }, [pane, isFocusedPane, active?.resource]);
   const unavailable = active && (!pane.registry.has(active.kind) || isUnavailableTabResource(active.resource)) ? active : null;
   const kinds = [...new Set(pane.resolvedTabs.map((tab) => tab.kind))];
-  const recent = useRetainedTabs(kinds, active ? [active.kind] : []);
+  const recent = useRetainedTabs(kinds, active ? [active.kind] : [], pane.resolvedTabs.filter((tab) => tab.resource.holdsUnsaved).map((tab) => tab.kind));
   const retained = new Set([...recent, ...pane.registry.all().filter((provider) => provider.keepMounted && kinds.includes(provider.kind)).map((provider) => provider.kind)]);
   const fullscreen = tabFullscreen.isOn(pane);
   return (

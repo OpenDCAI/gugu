@@ -13,7 +13,7 @@
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
 import { INSERT_BLOCKS, isFrontmatter, listInsertion, moveBlock, previewBlock, sourceBlocks, turnBlockChanges } from './blocks.js'
-import { bufferAnchors, firstBytes, sourceFile } from './source-file.js'
+import { HARD_MAX_BYTES, bufferAnchors, firstBytes, sourceFile } from './source-file.js'
 import { KINDS, SORTS, compareNames, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
@@ -73,7 +73,16 @@ const STRINGS = {
     readOnly: '只读',
     notUtf8ReadOnly: '这个文件不是 UTF-8 编码，在这里只能看，不能改。',
     previewCut: '全文较大，预览只显示前 {size}，请在源码里看全文。',
-    deletedHere: '这个文件已经被删除了。',
+    deletedHere: '这个文件已经被删除了。正文还在，保存一下就重新建出来。',
+    saveFailed: '{name} 没有保存：{e}',
+    saveFailedOn: '{name} 没存到 {machine}。此刻连不上「{machine}」。',
+    saveFailedOutdated: '{name} 没存到 {machine}。那台机器的咕咕版本太旧，升级后才能存。',
+    tooLarge: '这个文件有 {size}，打开可能很慢。',
+    grewTooLarge: '这个文件在外面变大了（{size}），这里没有读进来；现在保存会盖掉外面的内容。',
+    openAnyway: '仍然打开',
+    openingLong: '正在打开 {name}（{size}）…',
+    openingProgress: '正在打开 {name}：{done} / {total}',
+    overHardMax: '这个文件有 {size}，超过了这里能打开的上限（100 MB），可以下载或用别的程序打开。',
     edit: '编辑',
     split: '对照',
     preview: '阅读',
@@ -268,7 +277,16 @@ const STRINGS = {
     readOnly: 'Read-only',
     notUtf8ReadOnly: 'This file is not UTF-8: you can read it here, not change it.',
     previewCut: 'This file is large: the preview shows its first {size}. Read the whole file in its source.',
-    deletedHere: 'This file has been deleted.',
+    deletedHere: 'This file has been deleted. Its text is still here: saving makes the file again.',
+    saveFailed: '{name} was not saved: {e}',
+    saveFailedOn: "{name} wasn't saved to {machine}: {machine} can't be reached right now.",
+    saveFailedOutdated: "{name} wasn't saved to {machine}: its Gugu is too old. Upgrade it to save here.",
+    tooLarge: 'This file is {size}: opening it may be slow.',
+    grewTooLarge: 'This file grew to {size} outside and was not read in. Saving now writes over what is there.',
+    openAnyway: 'Open anyway',
+    openingLong: 'Opening {name} ({size})…',
+    openingProgress: 'Opening {name}: {done} of {total}',
+    overHardMax: 'This file is {size}, over the 100 MB that can be opened here. Download it, or open it in another program.',
     edit: 'Edit',
     split: 'Side by side',
     preview: 'Read',
@@ -412,6 +430,8 @@ const STRINGS = {
 }
 
 const state = {
+  /** Files edited whole and not shown now, by id, each as `state.current` holds one: see `leaveCurrent`. */
+  parked: new Map(),
   ctx: null,
   t: stringsFor('zh', null),
   entries: [],
@@ -600,6 +620,10 @@ async function applyContext(ctx) {
   // which picks the most specific claim; .md and plain .json are this App's). The host's header then has
   // the way back, so this page's own Back is not drawn; going back takes the file away again.
   document.body.classList.toggle('host-opened', !!ctx.file)
+  if (ctx.file && state.current?.source && state.current.entry.id === ctx.file.id) {
+    moveToTab(state.current, ctx.tabId)
+    showSourceState(state.current)
+  }
   if (ctx.file && state.current?.entry.id !== ctx.file.id && state.opening?.id !== ctx.file.id) await openHanded()
   else if (!ctx.file && previous?.file) {
     closeCurrent()
@@ -1989,7 +2013,13 @@ function closeCurrent() {
   for (const off of current.offs) off()
   current.unbind?.()
   current.view?.destroy()
+  current.stopWatching?.()
   current.file?.close()
+  clearShownFile()
+}
+
+function clearShownFile() {
+  syncBlockControls()
   $('editor').replaceChildren()
   $('preview').replaceChildren()
   $('peers').replaceChildren()
@@ -2003,33 +2033,46 @@ function closeCurrent() {
   hideBanner()
 }
 
+/** A file this App edits as a live document: wherever it can be one, as `files.open` says. Other names are edited whole. */
+const isLiveName = (name) => /\.(md|markdown|json)$/i.test(name)
+const isMarkdownName = (name) => /\.(md|markdown)$/i.test(name)
+const LONG_TEXT = 256 * 1024
+const PARKED_CLEAN_FILES = 16
+
 /** The file the host handed this page (ctx.file): every file opens through the host (真源 §2.6). */
-async function openHanded() {
-  const token = { id: state.ctx.file.id }
+async function openHanded(maxBytes) {
+  const handed = state.ctx.file
+  const token = { id: handed.id }
   state.opening = token
   // A place is the file's its link names (#7257): another file opening drops it.
   if (state.place && state.place.file !== token.id) state.place = null
-  closeCurrent()
+  leaveCurrent()
   document.body.classList.add('show-doc')
   try {
-    const file = await gugu.files.open(state.ctx.file)
+    // Left and come back to: as it was, edits and undo history.
+    const parked = state.parked.get(handed.id)
+    if (parked) {
+      state.parked.delete(handed.id)
+      moveToTab(parked, state.ctx.tabId)
+      await showWhole(parked)
+      return
+    }
+    if (handed.workspace && !isLiveName(handed.id)) {
+      await openWhole(handed, token, maxBytes)
+      return
+    }
+    const file = await gugu.files.open(handed)
     if (state.opening !== token) {
       file.close()
       return
     }
-    // Stored text (JSON that is not an object, a file over a document's size): edited as a whole, replaced when saved.
-    if (file.readOnlyReason === 'stored-bytes') {
-      await openStoredText(file, token)
-      return
-    }
-    // Not text, or over what an editor takes: its details, to download. The host handed it to this App (it claims the
-    // name), so nobody else says why: this page does (复核 10-15).
-    if (file.type === 'binary') {
+    if (file.type === 'binary' || file.readOnlyReason === 'stored-bytes') {
+      // Text that cannot be a live document is edited whole; a chat's stored text comes with what it holds.
+      const first = file.readOnlyReason === 'stored-bytes' ? { content: file.text, exact: file.exact } : null
+      const { entry } = file
       file.close()
-      showDocMessage(state.t.downloadOnly)
-      document.body.classList.add('binary', 'show-doc')
-      $('doc-title').textContent = file.entry.name
-      showEntry(file.entry)
+      if (first || entry.workspace) await openWhole(entry, token, maxBytes, first)
+      else showDownloadOnly(entry)
       return
     }
     const current = { entry: file.entry, file, view: null, unbind: null, offs: [] }
@@ -2047,32 +2090,52 @@ async function openHanded() {
   }
 }
 
-const isMarkdownName = (name) => /\.(md|markdown)$/i.test(name)
-const LONG_TEXT = 256 * 1024
+// The host handed it to this App (it claims the name), so nobody else says why: this page does (复核 10-15).
+function showDownloadOnly(entry) {
+  showDocMessage(state.t.downloadOnly)
+  document.body.classList.add('binary', 'show-doc')
+  $('doc-title').textContent = entry.name
+  showEntry(entry)
+}
 
 /**
- * A stored text file as this page edits it: what `mountText` and the source view read of a file — `text`, `onChange`,
- * `anchor` / `resolve` — on the editor's own document, and `bind`, which a live file's `gugu.bind.codemirror` stands for.
+ * A file edited whole as this page's views read a file — `text`, `onChange`, `anchor` / `resolve` — on the editor's own
+ * document, and `bind`, which a live file's `gugu.bind.codemirror` stands for. Left with unsaved edits it keeps the editor's
+ * state, and takes the file's changes there.
  */
 function bufferFile(cm, entry, initial, readOnly, source) {
   const anchors = bufferAnchors()
   const listeners = new Set()
+  const { Transaction, StateEffect } = cm.state
+  const outsideHistory = Transaction.addToHistory.of(false)
   let view = null
+  let parked = null
+  const docText = () => (view ? view.state.doc : parked?.doc)?.toString() ?? initial
   return {
     type: isMarkdownName(entry.name) ? 'text' : 'source',
     readOnly,
-    get text() { return view ? view.state.doc.toString() : initial },
+    get text() { return docText() },
     anchor: anchors.anchor,
     resolve: anchors.resolve,
     onChange(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    close: () => undefined,
+    close: () => {
+      source.flush()
+      source.close()
+    },
+    park() {
+      parked = view.state
+      view = null
+    },
     bind(editor) {
       view = editor
-      const { Transaction, StateEffect } = cm.state
-      const outsideHistory = Transaction.addToHistory.of(false)
+      if (parked) {
+        view.setState(parked)
+        parked = null
+        return () => undefined
+      }
       view.dispatch({ changes: { from: 0, insert: initial }, annotations: outsideHistory })
       view.dispatch({ effects: StateEffect.appendConfig.of([
         cm.EditorState.readOnly.of(readOnly),
@@ -2085,84 +2148,234 @@ function bufferFile(cm, entry, initial, readOnly, source) {
         }),
       ]) })
       source.attach({
-        text: () => view.state.doc.toString(),
-        apply: (hunks) => view.dispatch({ changes: hunks.map(({ from, to, insert }) => ({ from, to, insert })), annotations: outsideHistory }),
+        text: docText,
+        apply: (hunks) => {
+          const changes = hunks.map(({ from, to, insert }) => ({ from, to, insert }))
+          if (view) view.dispatch({ changes, annotations: outsideHistory })
+          else {
+            const update = parked.update({ changes, annotations: outsideHistory })
+            parked = update.state
+            anchors.moved(update.changes)
+            source.edited()
+          }
+        },
       })
       return () => undefined
     },
   }
 }
 
-/** `handle`: the stored text `files.open` gave. Writing goes through `files.replace`, the stored file's one way in. */
-async function openStoredText(handle, token) {
-  const initial = handle.text
-  const { exact } = handle
-  const entry = handle.entry
-  handle.close()
-  const cm = await editorKit()
-  if (state.opening !== token) return
-  const current = { entry, view: null, unbind: null, offs: [] }
-  const source = sourceFile({
-    io: {
-      async read() {
-        const file = await gugu.files.open(current.entry)
-        try {
-          if (file.readOnlyReason !== 'stored-bytes') return { becameDocument: true }
-          current.entry = file.entry
-          return { content: file.text }
-        } finally {
-          file.close()
-        }
+const noteDraftFailure = (error) => void gugu.reportError(`Unsaved edits were not kept for after a crash: ${error.message}`, { level: 'hint' })
+
+/** A chat's file goes back as its next version, `files.replace`; a working copy's as itself, wherever it is. */
+function wholeFileCalls(current) {
+  const ref = () => current.entry
+  if (current.entry.workspace) {
+    return {
+      read: (maxBytes) => gugu.files.readText(ref(), { maxBytes }),
+      write: (text) => gugu.files.writeText(ref(), text),
+      // A draft not kept is not a save that failed (its machine may be off): the App's record says so, the page does not.
+      draft: {
+        get: () => gugu.files.draft(ref()).catch((error) => { noteDraftFailure(error); return null }),
+        put: (text) => gugu.files.draft(ref(), text).catch(noteDraftFailure),
+        clear: () => gugu.files.draft(ref(), null).catch(noteDraftFailure),
       },
-      async write(text) {
-        const content = new Blob([text], { type: current.entry.contentType })
-        try {
-          current.entry = await gugu.files.replace(current.entry, content, current.entry.workspace ? {} : { expectedVersion: current.entry.version })
-        } catch (error) {
-          throw error.code === 'content-changed' ? Object.assign(new Error(error.message), { code: 'conflict' }) : error
-        }
-      },
+    }
+  }
+  return {
+    async read() {
+      const file = await gugu.files.open(ref())
+      try {
+        current.entry = file.entry
+        return { content: file.text }
+      } finally {
+        file.close()
+      }
     },
-    text: cm,
-    onChange: () => showSourceState(current, source),
-    onError: (error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error'),
-    // Saved as what a document is (comments taken out of a JSON file, say): from here on it opens live.
-    onDocument: () => { if (state.current === current) void openHanded() },
-  })
-  source.load(initial)
-  const readOnly = !exact || !canWrite()
-  current.file = bufferFile(cm, entry, initial, readOnly, source)
-  current.source = source
-  current.jsonApply = () => source.save()
-  current.jsonDiscard = () => source.discard()
-  state.current = current
-  bindFileMenu(current)
-  showDoc(entry)
-  if (readOnly) {
-    $('doc-status').textContent = state.t.readOnly
-    if (!exact) showBanner(state.t.notUtf8ReadOnly, 'info', true)
+    async write(text) {
+      current.entry = await gugu.files.replace(ref(), new Blob([text], { type: ref().contentType }), { expectedVersion: ref().version })
+    },
   }
-  const place = entry.workspace ? { workspace: entry.workspace } : { chat: entry.chat }
-  const changedHere = (change) => change.kind === 'resync' || change.gone?.includes(entry.id) || (change.changes ?? change.entries ?? []).some((c) => (c.id ?? c.path) === entry.id)
-  current.offs.push(gugu.files.onChanged(place, (change) => { if (changedHere(change)) void source.refresh() }))
-  if (current.file.type === 'text') {
-    await mountText(current, previewReady)
-    return
-  }
-  document.body.dataset.kind = 'json'
-  current.view = new cm.EditorView({
-    parent: $('editor'),
-    extensions: [cm.basicSetup, /\.json$/i.test(entry.name) ? cm.json() : [], cm.EditorView.lineWrapping, editorTheme(cm, false), selectionWatch(cm)],
-  })
-  current.unbind = current.file.bind(current.view)
 }
 
-function showSourceState(current, source) {
+async function openWhole(entry, token, maxBytes, first = null) {
+  const cm = await editorKit()
+  // The host hands a page a file's place; what it is comes with its first read.
+  if (entry.workspace && !first) {
+    const name = entry.id.split(/[\\/]/).pop()
+    // A file that takes a while says how far it has come; another machine's over a slow link can take minutes.
+    const onProgress = (done, total) => {
+      if (state.opening === token && total > LONG_TEXT) showDocMessage(fmt(state.t.openingProgress, { name, done: sizeOf(done), total: sizeOf(total) }))
+    }
+    first = await gugu.files.readText(entry, { maxBytes, onProgress })
+    entry = first.entry
+  }
+  const current = { entry, view: null, unbind: null, offs: [], tabId: state.ctx.tabId }
+  const source = sourceFile({
+    io: wholeFileCalls(current),
+    text: cm,
+    onChange: () => showSourceState(current),
+    onError: (error) => {
+      current.saveFailedShown = true
+      const { machine } = error.detail ?? {}
+      // Too old a machine: the host offers to upgrade it. Trying again would not help, and this page does not.
+      const says = error.code === 'machine-outdated' ? state.t.saveFailedOutdated : machine ? state.t.saveFailedOn : null
+      showBanner(says ? fmt(says, { name: current.entry.name, machine }) : fmt(state.t.saveFailed, { name: current.entry.name, e: error.message }), 'error')
+    },
+  })
+  const loaded = await source.load(maxBytes, first)
+  if (state.opening !== token) return
+  if (loaded.kind === 'binary') return showDownloadOnly(entry)
+  if (loaded.kind === 'too-large') return showTooLarge(entry, loaded.totalSize)
+  current.source = source
+  const readOnly = first?.exact === false || !canWrite()
+  current.file = bufferFile(cm, entry, loaded.initial, readOnly, source)
+  current.readOnlyNote = first?.exact === false
+  current.jsonApply = () => saveWhole(current)
+  current.jsonDiscard = () => source.discard()
+  const stopWatching = gugu.files.onChanged(entry.workspace ? { workspace: entry.workspace, id: entry.id } : { chat: entry.chat }, (change) => {
+    const here = change.kind === 'resync' || change.gone?.includes(entry.id) || (change.changes ?? change.entries ?? []).some((c) => (c.id ?? c.path) === entry.id)
+    if (here) void source.refresh()
+  })
+  current.stopWatching = stopWatching
+  await showWhole(current)
+}
+
+async function showWhole(current) {
+  const { file, entry } = current
+  state.current = current
+  bindFileMenu(current)
+  showDoc(current.entry)
+  if (file.readOnly) {
+    $('doc-status').textContent = state.t.readOnly
+    if (current.readOnlyNote) showBanner(state.t.notUtf8ReadOnly, 'info', true)
+  }
+  if (file.type === 'text') await mountText(current, previewReady)
+  else {
+    document.body.dataset.kind = 'json'
+    const cm = await editorKit()
+    if (state.current !== current) return
+    const languageId = cm.code.languageFor(entry.name)
+    const language = await cm.code.load(languageId).catch((error) => {
+      void gugu.reportError(`Syntax highlighting of ${languageId} did not load: ${error.message}`)
+      return []
+    })
+    if (state.current !== current) return
+    current.view = new cm.EditorView({
+      parent: $('editor'),
+      extensions: [
+        cm.EditorView.editorAttributes.of({ class: 'code-view' }),
+        cm.view.highlightActiveLine(),
+        cm.commands.history(),
+        cm.keymap.of(cm.commands.historyKeymap),
+        cm.code.editing({ language, dark: state.ctx.themeMode === 'dark', editable: !file.readOnly }),
+        selectionWatch(cm),
+      ],
+    })
+    current.unbind = file.bind(current.view)
+    current.view.focus()
+  }
+  showSourceState(current)
+}
+
+function showTooLarge(entry, size) {
+  if (size > HARD_MAX_BYTES) {
+    showDocMessage(fmt(state.t.overHardMax, { size: sizeOf(size) }))
+    showEntry(entry)
+    return
+  }
+  showDocMessage(fmt(state.t.tooLarge, { size: sizeOf(size) }))
+  showEntry(entry)
+  const open = document.createElement('button')
+  open.type = 'button'
+  open.textContent = state.t.openAnyway
+  open.onclick = () => {
+    showDocMessage(fmt(state.t.openingLong, { name: entry.name, size: sizeOf(size) }))
+    showEntry(entry)
+    void openHanded(HARD_MAX_BYTES)
+  }
+  $('doc-message').append(document.createElement('br'), open)
+}
+
+function saveWhole(current) {
+  return current.source.save()
+}
+
+/** The file shown in another tab now: its edits, and their dot, go with it. */
+function moveToTab(current, tabId) {
+  if (current.tabId === tabId) return
+  if (current.saidDirty) void gugu.setTabDirty?.(current.tabId, false)
+  current.tabId = tabId
+  current.saidDirty = false
+}
+
+function reportDirty(current) {
+  if (current.tabId) void gugu.setTabDirty?.(current.tabId, current.source.dirty)
+}
+
+function showSourceState(current) {
+  const { source } = current
+  if (source.dirty !== current.saidDirty) {
+    current.saidDirty = source.dirty
+    reportDirty(current)
+  }
   if (state.current !== current) return
   document.body.classList.toggle('json-dirty', source.dirty)
-  if (source.deleted) showBanner(state.t.deletedHere, 'info', true)
-  else if (current.deletedShown) hideBanner()
-  current.deletedShown = source.deleted
+  const note = source.deleted ? state.t.deletedHere : source.tooLarge !== null ? fmt(state.t.grewTooLarge, { size: sizeOf(source.tooLarge) }) : null
+  // A failed save's words stay until a save goes through.
+  if (current.saveFailedShown && !source.dirty) {
+    current.saveFailedShown = false
+    hideBanner()
+  }
+  if (note) showBanner(note, 'info', true)
+  else if (current.noteShown) hideBanner()
+  current.noteShown = !!note
+}
+
+/** The host's question about a tab, answered by saying again whether it holds anything unsaved (extension-tab-provider). */
+async function answerAboutTab(commandId) {
+  const [, action, tabId] = /^gugu\.file\.(save|discard):(.+)$/.exec(commandId) ?? []
+  if (!action) return
+  const current = [state.current, ...state.parked.values()].find((one) => one?.source && one.tabId === tabId)
+  if (!current) {
+    void gugu.setTabDirty?.(tabId, false)
+    return
+  }
+  // A parked file's editor state takes the same calls as a shown one.
+  if (action === 'save') await current.source.save()
+  else current.source.discard()
+  reportDirty(current)
+  if (!current.source.dirty && state.parked.get(current.entry.id) === current) letGoOfParked(current)
+}
+
+/**
+ * A file edited whole stays with this page while another is shown (one page serves a pane's file tabs): its edits and its
+ * undo history, as the host's editor kept them while the tab was open. The page is not told when a clean tab closes, so the
+ * clean ones are a bounded few, the oldest going first; what is unsaved always stays.
+ */
+function leaveCurrent() {
+  const current = state.current
+  if (!current?.source || !current.view) {
+    closeCurrent()
+    return
+  }
+  state.current = null
+  for (const off of current.offs) off()
+  current.offs = []
+  current.file.park()
+  current.unbind = null
+  current.view.destroy()
+  current.view = null
+  state.parked.set(current.entry.id, current)
+  clearShownFile()
+  const clean = [...state.parked.values()].filter((one) => !one.source.dirty)
+  for (const one of clean.slice(0, Math.max(0, clean.length - PARKED_CLEAN_FILES))) letGoOfParked(one)
+}
+
+function letGoOfParked(current) {
+  state.parked.delete(current.entry.id)
+  current.stopWatching?.()
+  current.file.close()
 }
 
 async function mountText(current, preview) {
@@ -2202,7 +2415,7 @@ async function mountText(current, preview) {
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
   const cm = await editorKit()
   if (state.current !== current) return
-  current.marks = lineMarks(cm)
+  current.marks ??= lineMarks(cm)
   current.view = new cm.EditorView({
     parent: $('editor'),
     extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension, blockCompletions(current, cm)],
@@ -3480,7 +3693,7 @@ function start() {
   document.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key === 's' && state.current?.source) {
       event.preventDefault()
-      void state.current.source.save()
+      void saveWhole(state.current)
     }
     if (event.key !== 'Escape') return
     if (!state.menuAnchor && state.details) closeDetails()
@@ -3538,6 +3751,8 @@ function start() {
       applyMarks()
     })
   }
+  gugu.onCommand?.((id) => void answerAboutTab(id))
+  window.addEventListener('pagehide', () => { for (const one of [state.current, ...state.parked.values()]) one?.source?.flush() })
   gugu.onLink(goTo)
   setMode(state.mode)
   const contextFailed = (error) => showDocMessage(fmt(state.t.failed, { e: error.message }))

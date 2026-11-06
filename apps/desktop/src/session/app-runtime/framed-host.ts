@@ -41,7 +41,7 @@ const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
   'chats.list', 'chats.members', 'linkTo', 'openLink',
   'callProgram', 'sessions.index', 'sessions.read',
   'cloud.read', 'cloud.write', 'cloud.subscribe', 'cloud.unsubscribe', 'onCloudHeard', 'pickAgent',
-  'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText',
+  'setTabTitle', 'setTabBadge', 'setTabDirty', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText',
   'readData', 'writeData', 'listData',
   'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.read', 'appFiles.readText', 'appFiles.exists', 'appFiles.draft', 'appFiles.writeText', 'appFiles.search', 'appFiles.recent', 'appFiles.create', 'appFiles.viewPreferences',
   'appFiles.keep', 'appFiles.remove', 'appFiles.canDelete', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
