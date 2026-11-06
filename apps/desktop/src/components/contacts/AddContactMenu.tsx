@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { InviteFriendsPreview } from '../referralPreview/ReferralPreview'
 import { useTranslation } from 'react-i18next'
 import { ListChecks, UserPlus, Users } from '@/lib/icons'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
@@ -118,6 +119,7 @@ export function ContactsHeaderActions({
   }
   return (
     <>
+      <InviteFriendsPreview />
       <UiIconButton
         title={labels.selectMode}
         aria-label={labels.selectMode}

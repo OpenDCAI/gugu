@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 import { JoinGroupById } from './contacts/JoinGroupById'
 import { SearchField } from './ui/SearchField'
 import { useBackLayer } from './ui/sheetStack'
+import { InviteFriendsPreview } from './referralPreview/ReferralPreview'
 
 // @@@add-friend-unify (#加人链路统一) AddFriendSearch 是「搜索用户 → 发好友申请」的唯一实现，
 // 同时被 ContactsPanel 的「添加联系人」路由（面板态，showHeader）与 ChatListPanel 的「+ 添加联系人」
@@ -262,6 +263,8 @@ export function AddFriendSearch({
       <div style={{ padding: showHeader ? '0 16px 12px' : '12px 16px', flexShrink: 0 }}>
         <SearchBar value={query} onChange={handleQueryChange} onSubmit={handleSearch} autoFocus={autoFocus} />
       </div>
+
+      {hasQuery && <InviteFriendsPreview placement="search" />}
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>

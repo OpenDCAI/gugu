@@ -1,4 +1,25 @@
 export default {
+  "referralPreview": {
+    "noNumber": "咕咕号尚未分配，暂不能生成联系人名片。",
+    "proposal": "建议 · 待审核",
+    "invite": "邀请朋友",
+    "summary": "分享邀请码，让朋友加入咕咕。邀请码选填，人人都能注册。",
+    "code": "我的邀请码",
+    "disconnected": "尚未接通",
+    "backendNote": "此版本供界面审核。邀请码、邀请链接和统计服务尚未接通，暂不能复制或分享。",
+    "copyCode": "复制邀请码",
+    "copyLink": "复制邀请链接",
+    "socialNote": "邀请不会自动添加好友或加入群聊，仍需各自确认。",
+    "sharePurpose": "分享方式",
+    "myCard": "我的名片",
+    "inviteToGugu": "邀请朋友加入咕咕",
+    "view": "查看",
+    "optionalCode": "邀请码（选填）",
+    "placeholder": "有邀请码可以填在这里",
+    "clear": "清除",
+    "draftNote": "仅保存本机预览草稿，尚未提交或确认邀请来源；留空也能继续。",
+    "storageError": "本机草稿保存失败；仍可留空继续，邀请码不会提交。"
+},
   "imageAnnotate": {
     "title": "编辑图片",
     "edit": "编辑图片",

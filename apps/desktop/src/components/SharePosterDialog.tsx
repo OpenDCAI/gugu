@@ -1,5 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import QRCode from 'qrcode'
 import { createSharePosterCanvas, copyPosterToClipboard, downloadPoster } from './sharePosterCanvas'
 import { Sheet } from './ui/Sheet'
@@ -28,10 +28,12 @@ export interface SharePosterDialogProps {
   qrCaption?: string
   /** 底部邀请 CTA 文案。 */
   ctaText?: string
+  headerContent?: ReactNode
+  previewContent?: ReactNode
   onClose: () => void
 }
 
-export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, totalMemberCount, qrCaption, ctaText, onClose }: SharePosterDialogProps) {
+export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, totalMemberCount, qrCaption, ctaText, headerContent, previewContent, onClose }: SharePosterDialogProps) {
   const { t } = useTranslation('contacts')
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [posterDataUrl, setPosterDataUrl] = useState<string | null>(null)
@@ -166,6 +168,8 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
           </button>
         </div>
 
+        {headerContent}
+        {previewContent ?? (<>
         {/* Poster preview */}
         <div
           style={{
@@ -262,6 +266,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
             {downloadDone ? t('sharing.downloaded') : t('sharing.downloadImage')}
           </button>
         </div>
+        </>)}
       </div>
     </Sheet>
   )

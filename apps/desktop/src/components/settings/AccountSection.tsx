@@ -16,6 +16,8 @@ import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
 import { GuguSubscriptionRow } from '../../session/renderer/features/settings/subscriptions/GuguSubscriptionRow'
 import { AccountLoginMethods } from './AccountLoginMethods'
 
+import { ReferralAccountPreview } from '../referralPreview/ReferralPreview'
+
 const log = rendererLogger('settings/account')
 
 interface AccountSectionProps {
@@ -242,6 +244,7 @@ export function AccountSection({ user, updateUser, logout, mobile = false }: Acc
       </div>
 
       {user && <AccountLoginMethods key={user.id} userId={user.id} onEmailChanged={email => updateUser({ ...user, email })} />}
+      <ReferralAccountPreview />
 
       {mobile && officialServicesEnabled() && (
         <SettingsGroup presentation="summary"><GuguSubscriptionRow /></SettingsGroup>
