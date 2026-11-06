@@ -8,8 +8,11 @@ import { isScreenView, showSessionBeside } from './screen-layout-actions';
 import { appState } from '@renderer/lib/stores/app-state';
 import { answerMachinePreviewReads } from '@renderer/features/sessions/workspace-backend/machine-preview-reads';
 import { answerAppFileWatches } from '@renderer/features/extensions/app-file-watches-elsewhere';
+import { notify } from '@/lib/notices';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { machineOfProject } from '@renderer/features/remote-hosts/workspace/machine-workspace-backend';
 import { onMachineReconnected } from '@renderer/lib/machine-clients';
+import { retryServerVersionMatch } from '@/lib/serverVersionRetry';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { getSessionPageStore, getWorkspaceForSession } from '@renderer/features/sessions/stores/session-selectors';
 import { workspaceEvents, workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
@@ -35,6 +38,7 @@ import {
   notificationFocusSessionChannel,
   appFileHeardElsewhereChannel,
   appFileWatchElsewhereChannel,
+  appFileMachineOutdatedChannel,
   remotePreviewReadChannel,
   remotePreviewReadResultChannel,
   sessionManageTabsChannel,
@@ -143,6 +147,31 @@ export function AppMenuEvents() {
       disposers.clear();
     };
   }, []);
+
+  // A file call its machine is too old for: one notice a machine, whose button updates it the way a device row's retry does,
+  // and lands on that row, which says how it goes.
+  useEffect(
+    () =>
+      events.on(appFileMachineOutdatedChannel, ({ deviceId, label }) => {
+        const key = `machine-outdated:${deviceId}`;
+        const failed = () => notify({ key, title: translateSessionMessage('remoteHost.status.updateFailed', { device: label }), tier: 'error' });
+        notify({
+          key,
+          title: translateSessionMessage('remoteHost.notice.serverTooOld', { device: label }),
+          tier: 'error',
+          action: {
+            label: translateSessionMessage('remoteHost.notice.updateMachine'),
+            onClick: () => {
+              openShellSettings('devices');
+              void retryServerVersionMatch(deviceId).then((requested) => {
+                if (!requested) failed();
+              }, failed);
+            },
+          },
+        });
+      }),
+    []
+  );
 
   // A page hearing one file on another machine: that machine's changes reach this window, not main.
   useEffect(

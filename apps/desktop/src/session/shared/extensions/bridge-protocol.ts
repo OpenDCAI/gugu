@@ -1008,11 +1008,12 @@ export function callRefusal(
  *   or `files.replace` when the machine keeping the chat's files is offline or did not take the new version in time.
  * - `not-installed` / `version-mismatch`: a `machine` verb for a session on another machine, where this App is not
  *   installed, or another version of it is.
+ * - `machine-outdated`: a working copy's file call its machine is too old to do. `detail.machine` names it; the host says how to update it.
  * - `name-taken` (子文件夹): a rename or a move to a name another file of that folder already has (case not counted).
  */
 export const BRIDGE_ERROR_CODES = [
   'denied', 'invalid', 'failed', 'not-found', 'ambiguous', 'too-large', 'rate-limited', 'content-changed', 'unavailable',
-  'name-taken', 'not-installed', 'version-mismatch', 'stale-version',
+  'name-taken', 'not-installed', 'version-mismatch', 'stale-version', 'machine-outdated',
 ] as const;
 export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
 

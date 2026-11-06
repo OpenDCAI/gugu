@@ -56,6 +56,7 @@ export const enUSRemoteHostMessages = {
   'remoteHost.mention.notRead': "Haven't read the tasks on {device} yet",
   'remoteHost.notice.serverTooOld': 'Gugu on {device} needs an update. Open Settings → Devices to update it.',
   'remoteHost.reconnectNow': 'Reconnect now',
+  'remoteHost.notice.updateMachine': 'Update that machine',
   'remoteHost.reconnect': 'Reconnect',
   // ── 终端:最后一行状态 ──────────────────────────────────────────────────
   // {headline} 只装 remoteHost.reason.* 翻好的那一整句人话(见 connection-status.ts),❌ 内部错误原文。
@@ -245,6 +246,7 @@ export const zhCNRemoteHostMessages: Record<RemoteHostMessageKey, string> = {
   'remoteHost.mention.notRead': '还没读到 {device} 上的会话',
   'remoteHost.notice.serverTooOld': '{device} 上的咕咕需要更新，请在 设置 → 设备 中更新。',
   'remoteHost.reconnectNow': '立即重连',
+  'remoteHost.notice.updateMachine': '升级那台机器',
   'remoteHost.reconnect': '重新连接',
   'remoteHost.reason.cancelled': '你取消了连接 {device}。',
   'remoteHost.reason.promptUnanswered': '{device} 等待回答超时，已断开。',

@@ -128,6 +128,8 @@ export const sessionManageTabsResultChannel = defineEvent<SessionPaneTabsResult 
  * the window to listen and to tell it (`app-file-watches-elsewhere`).
  */
 export const appFileWatchElsewhereChannel = defineEvent<{ key: string; sessionId: string; file: string; on: boolean }>('session:app-file-watch-elsewhere');
+/** A file call its machine is too old for: the window says so, with the way to update that machine. */
+export const appFileMachineOutdatedChannel = defineEvent<{ deviceId: string; label: string }>('session:app-file-machine-outdated');
 export const appFileHeardElsewhereChannel = defineEvent<{ key: string; change: ExtensionFileChangeBatch }>('session:app-file-heard-elsewhere');
 
 /**

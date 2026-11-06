@@ -562,7 +562,7 @@ The place is \`{ workspace: ctx.workspace.id }\`. An entry's \`id\` is its path 
 
 A text no live document holds (over 1 MiB, JSON that is no object, on another machine, outside the working copy) is read and saved whole. Nothing is needed for \`ctx.file\`, which may be an absolute path; any other file needs \`files:read\` / \`files:write\`, and no capability opens another absolute path (\`denied\`).
 - \`gugu.files.readText(file, { maxBytes })\` → \`{ entry, content, truncated, totalSize, binary?, exact? }\`. Up to 20 MiB unless told, at most 100 MiB; over that, \`truncated\` and no content. \`binary\`: it is not text. \`exact: false\`: another encoding, which saving would change: show it read-only.
-- \`gugu.files.writeText(file, text)\` saves over the version \`readText\` read: \`content-changed\` if the disk moved on, so read it, merge, save. A file deleted since is made again. \`unavailable\`: its machine cannot be reached; \`error.detail.machine\` names it.
+- \`gugu.files.writeText(file, text)\` saves over the version \`readText\` read: \`content-changed\` if the disk moved on, so read it, merge, save. A file deleted since is made again. \`unavailable\`: its machine cannot be reached; \`machine-outdated\`: it is too old for this call, and the host offers to update it. \`error.detail.machine\` names it in both.
 - \`gugu.files.exists(file)\`: whether it is there now.
 - \`gugu.files.onChanged({ workspace, id }, fn)\`: one file, by the name you gave. \`resync\`: anything may have changed (its machine is back). A file outside the working copy on another machine sends nothing.
 - After \`rename\`, \`move\` or \`remove\`, the host's panes that show the file follow it.
