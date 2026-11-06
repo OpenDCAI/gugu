@@ -30,6 +30,8 @@ export function permissionOperation(caller: PermissionCaller, name: string, raw:
   if (core && name === 'catalog_call') { name = ''; args = {} }
   let namespace = core ? 'gugu' : caller.toolScope
   let risk = core && Object.hasOwn(CORE_TOOL_RISKS, name) ? CORE_TOOL_RISKS[name] : undefined
+  // This explicit variant keeps the social identity; the default archive removes its seats.
+  if (core && name === 'session_archive' && args.remove_social_identity === false) risk = { risk: 'medium', effect: 'write' }
   if (core && name === 'device_call') {
     namespace = 'device'
     const device = args.device

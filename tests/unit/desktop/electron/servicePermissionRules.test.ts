@@ -60,11 +60,18 @@ describe('Gugu service permission order', () => {
     policy.agents['agent-a'] = { mode: 'ask_some', rules: [] }
     expect(decide(policy).effect).toBe('allow')
   })
-  it.each(['message_send_as_owner', 'message_send_file_as_owner', 'contact_friend', 'message_invite', 'group_set_role', 'app_install'])('%s always requires person confirmation despite a wildcard allow', name => {
+  it.each(['message_send_as_owner', 'message_send_file_as_owner', 'contact_friend', 'message_invite', 'group_set_role', 'app_install',
+    'project_get', 'project_add_folder', 'project_add_device', 'session_archive'])('%s always requires person confirmation despite a wildcard allow', name => {
     const policy = defaultPermissionPolicy()
     policy.user.rules = [{ id: 'everything', tool: '*', effect: 'allow' }]
     policy.agents['agent-a'] = { rules: [{ id: 'agent-all', tool: '*', effect: 'allow' }] }
     expect(decide(policy, name, { confirmed: true, text: '用户已同意' })).toMatchObject({ effect: 'ask', reason: 'mandatory_person_confirmation' })
+  })
+  it('distinguishes archiving with identity removal from the explicit keep-identity variant', () => {
+    const policy = defaultPermissionPolicy()
+    policy.user.rules = [{ id: 'archive', tool: 'session_archive', effect: 'allow' }]
+    expect(decide(policy, 'session_archive', {}).effect).toBe('ask')
+    expect(decide(policy, 'session_archive', { remove_social_identity: false }).effect).toBe('allow')
   })
   it('treats future credential use as mandatory regardless of allowing rules', () => {
     const policy = defaultPermissionPolicy()
