@@ -5,7 +5,9 @@ import {
   type TabDescriptor,
   type TabGroupsSnapshot,
   type SessionViewSnapshot,
+  type TabPageSnapshot,
 } from '@shared/view-state';
+import { hostViewerKind } from '../file-view/file-view-kinds';
 import { resolveWorkspacePath } from './workspace-path';
 
 /** Task-only normalization and migration; persistence itself is shared by all tab hosts. */
@@ -16,7 +18,7 @@ export function createSessionTabPersistor(ctx: SessionTabContext): TabViewPersis
   });
 }
 
-function normalizeTabGroupsSnapshot(
+export function normalizeTabGroupsSnapshot(
   snapshot: TabGroupsSnapshot,
   workspacePath: string | undefined
 ): TabGroupsSnapshot {
@@ -46,13 +48,20 @@ function normalizeTabDescriptor(
     };
     return { kind: 'extension', extensionKind, tabId, state, ...(history ? { history } : {}), ...(openerTabId ? { openerTabId } : {}) };
   }
-  if ((tab.kind === 'file' || tab.kind === 'file-view') && !tab.isExternal) {
-    return { ...tab, path: resolveWorkspacePath(workspacePath, tab.path) };
+  if (tab.kind === 'file' || tab.kind === 'file-view') {
+    const path = tab.isExternal ? tab.path : resolveWorkspacePath(workspacePath, tab.path);
+    // A layout saved before non-text files moved to the file preview: the tab stays, in the tab that kind opens in now.
+    return { ...tab, kind: hostViewerKind(path), path, ...(tab.history ? { history: { ...tab.history, pages: tab.history.pages.map(migratedPage) } } : {}) };
   }
   if (tab.kind === 'diff' && tab.diffGroup !== 'pr') {
     return { ...tab, path: resolveWorkspacePath(workspacePath, tab.path) };
   }
   return tab;
+}
+
+function migratedPage(page: TabPageSnapshot): TabPageSnapshot {
+  const path = (page.state as { path?: unknown } | undefined)?.path;
+  return page.kind === 'file' && typeof path === 'string' ? { ...page, kind: hostViewerKind(path) } : page;
 }
 
 /**
