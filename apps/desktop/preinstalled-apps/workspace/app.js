@@ -176,6 +176,7 @@ const STRINGS = {
     keep_kept: '持续保存',
     keep_soon: '7 天内清除',
     clearFilters: '清除筛选',
+    filtered: '已筛选',
     noFiltered: '没有符合条件的文件。',
     details: '详情',
     open: '打开',
@@ -370,6 +371,7 @@ const STRINGS = {
     keep_kept: 'Kept',
     keep_soon: 'Cleared within 7 days',
     clearFilters: 'Clear filters',
+    filtered: 'Filtered',
     noFiltered: 'No file matches these filters.',
     details: 'Details',
     open: 'Open',
@@ -860,7 +862,7 @@ function renderList() {
     .filter(visibleEntry)
     .filter((e) => !needle || e.name.toLocaleLowerCase().includes(needle) || shownName(e).toLocaleLowerCase().includes(needle))
   const ofKind = (state.ofKind = shown.filter((e) => !isFolder(e) && (state.kind === 'all' || kindOf(e) === state.kind)))
-  renderTools(ofKind, now)
+  renderTools()
   const filtering = Object.values(state.filters).some(Boolean)
   const folders = state.kind === 'all' && !filtering ? shown.filter(isFolder).sort(folderOrder) : []
   const files = ofKind.filter((e) => matches(e, state.filters, machineOf, now)).sort(comparer(state.sort, shownName, changedAt, state.ctx?.locale))
@@ -938,7 +940,9 @@ function renderRoots() {
   $('files-empty').hidden = true
   $('empty-upload').hidden = true
   state.order = []
-  renderTools([], new Date(Date.now()))
+  // The roots page lists no files: its order's menu offers no filter.
+  state.ofKind = []
+  renderTools()
 }
 
 /** How many files a time section shows before 「再显示 N 条」. */
@@ -1028,7 +1032,7 @@ function machineOf(storedOn) {
 
 // The kinds (全部 / 文档 / 图片和视频 / 其他), the order and the view, above the list (kept on this device); under them the
 // filters this list has something to pick by (上传者; 存放 where a file stays on a machine; 保留方式 where one has a cloud copy).
-function renderTools(files = state.ofKind, now = new Date(Date.now())) {
+function renderTools() {
   const t = state.t
   const kinds = $('kinds')
   if (kinds.childElementCount !== KINDS.length) {
@@ -1051,9 +1055,11 @@ function renderTools(files = state.ofKind, now = new Date(Date.now())) {
     button.textContent = t[`kind_${button.dataset.kind}`]
     button.setAttribute('aria-pressed', String(button.dataset.kind === state.kind))
   }
-  $('sort-label').textContent = t[`sort_${state.sort}`]
+  const filtered = Object.values(state.filters).some(Boolean)
+  $('sort-label').textContent = filtered ? `${t[`sort_${state.sort}`]} · ${t.filtered}` : t[`sort_${state.sort}`]
   $('sort').title = t.sort
-  $('sort').setAttribute('aria-label', `${t.sort}: ${t[`sort_${state.sort}`]}`)
+  $('sort').setAttribute('aria-label', `${t.sort}: ${t[`sort_${state.sort}`]}${filtered ? ` · ${t.filtered}` : ''}`)
+  $('sort').setAttribute('aria-pressed', String(filtered))
   $('views').setAttribute('aria-label', t.views)
   for (const button of $('views').children) {
     const label = t[`view_${button.dataset.view}`]
@@ -1061,11 +1067,12 @@ function renderTools(files = state.ofKind, now = new Date(Date.now())) {
     button.setAttribute('aria-label', label)
     button.setAttribute('aria-pressed', String(viewOf(state.kind) === button.dataset.view))
   }
-  renderChips(files, now)
 }
 
-// One chip per filter there is something to pick by; a set one says what it is set to.
-function renderChips(files, now) {
+// The filters (who sent a file, where it is kept, how long it is kept) are in the order's menu, under its orders (owner
+// 11-06: no row of chips over the list): one submenu per filter there is something to pick by, a set one saying what it is
+// set to, and 「清除筛选」 while one is. A set filter shows on the order's button too.
+function filterItems(files, now) {
   const t = state.t
   const people = new Map()
   for (const entry of files) if (entry.createdBy && entry.createdBy.kind !== 'system' && entry.createdBy.id) people.set(entry.createdBy.id, entry.createdBy)
@@ -1076,34 +1083,24 @@ function renderChips(files, now) {
     where: machines.length || state.filters.where ? [['cloud', t.cloud], ...machines.map((name) => [name, name])] : [],
     keep: kept.size || state.filters.keep ? [['temporary', t.keep_temporary], ['soon', t.keep_soon], ['kept', t.keep_kept]] : [],
   }
-  const chips = []
+  const items = []
   for (const key of ['who', 'where', 'keep']) {
     if (!options[key].length) continue
-    const chip = document.createElement('button')
-    chip.type = 'button'
-    chip.className = 'chip'
-    chip.dataset.filter = key
-    chip.setAttribute('aria-haspopup', 'menu')
     const set = state.filters[key]
     const label = set ? options[key].find(([value]) => value === set)?.[1] ?? set : null
-    chip.textContent = label ? `${t[`filter_${key}`]}: ${label}` : t[`filter_${key}`]
-    if (set) chip.setAttribute('aria-pressed', 'true')
-    chip.onclick = () => toggleMenu(chip, [[null, t.anyone], ...options[key]].map(([value, text]) => ({
-      text, checked: (state.filters[key] ?? null) === value, run: () => setFilter(key, value),
-    })))
-    chips.push(chip)
+    items.push({
+      text: label ? `${t[`filter_${key}`]}: ${label}` : t[`filter_${key}`],
+      children: [[null, t.anyone], ...options[key]].map(([value, text]) => ({ text, checked: (state.filters[key] ?? null) === value, run: () => setFilter(key, value) })),
+    })
   }
   if (Object.values(state.filters).some(Boolean)) {
-    const clear = Object.assign(document.createElement('button'), { type: 'button', className: 'chips-clear', textContent: t.clearFilters })
-    clear.onclick = () => {
+    items.push({ text: t.clearFilters, run: () => {
       clearPicks()
       state.filters = { who: null, where: null, keep: null }
       renderList()
-    }
-    chips.push(clear)
+    } })
   }
-  $('chips').replaceChildren(...chips)
-  $('chips').hidden = chips.length === 0
+  return items
 }
 
 function setFilter(key, value) {
@@ -1121,11 +1118,12 @@ function setSort(sort) {
 
 function sortMenu() {
   const t = state.t
-  toggleMenu($('sort'), SORTS.map((sort) => ({
+  const filters = filterItems(state.ofKind ?? [], new Date(Date.now()))
+  toggleMenu($('sort'), [...SORTS.map((sort) => ({
     text: t[`sort_${sort}`],
     checked: state.sort === sort,
     run: () => setSort(sort),
-  })))
+  })), ...(filters.length ? [{ separator: true }, ...filters] : [])])
 }
 
 // The way up and each folder from the top (子文件夹): a press goes there, a dropped file moves there. Not drawn at the top.

@@ -65,16 +65,14 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .kinds button[aria-pressed='true'] { background: var(--em-background-3); color: var(--em-foreground); font-weight: 500; }
 .sort { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; padding: 2px var(--em-spacing-xs); min-height: 24px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); white-space: nowrap; }
 .sort gugu-icon { width: 12px; height: 12px; }
+/* A set filter (in its menu) shows here: the order's words, then 「· 已筛选」, in the ink. */
+.sort[aria-pressed='true'] { color: var(--em-foreground); }
 .views { display: flex; gap: 0; flex: none; }
 .views button { border: 0; background: none; width: 26px; height: 26px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--em-foreground-muted); border-radius: calc(var(--em-radius-control) - 2px); }
 .views button[aria-pressed='true'] { color: var(--em-foreground); background: var(--em-background-subtle, color-mix(in srgb, var(--em-foreground) 6%, transparent)); }
 .views gugu-icon { width: 14px; height: 14px; }
 
 /* The filters: a chip per filter, a set one in the accent. */
-.chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--em-spacing-xs); padding: 0 var(--em-spacing-lg) var(--em-spacing-sm); flex: none; }
-.chip { min-height: 24px; padding: 0 var(--em-spacing-sm); border: 1px dashed var(--em-border); border-radius: var(--em-radius-capsule); background: none; font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
-.chip[aria-pressed='true'] { border-style: solid; border-color: var(--em-accent-11); color: var(--em-accent-11); background: color-mix(in srgb, var(--em-accent-11) 8%, transparent); }
-.chips-clear { border: 0; background: none; min-height: 24px; padding: 0 var(--em-spacing-xs); font-size: var(--em-font-caption); color: var(--em-accent-11); }
 
 /* A picture where there is one (an image with a cloud copy): the suffix square becomes it. */
 .file-badge.has-thumb { background-size: cover; background-position: center; color: transparent; }
@@ -167,8 +165,6 @@ img.details-picture { object-fit: contain; }
   .menu-file strong, .menu-file small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .menu-file small { color: var(--em-foreground-muted); }
   .menu.file-context button { min-height: var(--em-control-h-touch); }
-  .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .chip { flex: none; }
   .pick-bar { order: 1; margin: 0; left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; justify-content: center; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
   .details { padding-top: var(--em-spacing-sm); }
   .details::before { content: ''; align-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--em-border); }
@@ -327,11 +323,11 @@ body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 .files-toolbar > .kinds, .files-toolbar > .crumbs { min-width: 0; flex: 1; overflow: auto; white-space: nowrap; margin: 0; padding: 0; flex-wrap: nowrap; }
 /* The kinds' grey track hugs its four buttons (owner 11-06: 「Other 尾巴很长」); the controls after it keep to the right. */
 .files-toolbar > .kinds { flex: 0 1 auto; margin-right: auto; }
+/* The kinds alone push the rest right: search, the order, the views, upload and new keep together. */
+.files-toolbar > .sort { margin-inline-start: 0; }
 .files-toolbar:has(.crumbs:not([hidden])) > .kinds { display: none; }
 .files-toolbar > button { flex: none; min-height: 28px; padding: 2px 5px; }
 .files-toolbar .filter { min-width: 60px; max-width: 180px; flex: 1; }
-.files-toolbar .chips { padding: 0; max-width: 40%; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-.files-toolbar .chip, .files-toolbar .chips-clear { flex: none; white-space: nowrap; }
 @container (min-width: 720px) {
   .files-toolbar:has(~ .file-list:not(.as-grid)) > .sort { display: none; }
 }
