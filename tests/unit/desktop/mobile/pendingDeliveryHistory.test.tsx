@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createReactHarness } from '../../../support/testHarness'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { PendingPrompt } from '@gugu/session-chat-ui'
 import { splitActiveTurn } from '@/components/assistant-ui/transcript-sync'
@@ -17,7 +18,9 @@ const running = (seq: number): TranscriptTurn => ({ id: `session:turn:${seq}`, s
 ] })
 const unknown: PendingPrompt = { id: 'old-unknown', text: 'old delivered message', held: true, delivery: { state: 'unknown' } }
 
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+let harness: ReturnType<typeof createReactHarness>
+beforeEach(() => { harness = createReactHarness() })
+afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
 
 describe('receipt history keeps the native live tail separate from store ordering', () => {
   it('preserves the current page by reference when no receipt pages were read', () => {
@@ -57,25 +60,30 @@ it('keeps new input and live replies active through real unknown-history resolut
   let resolveHistory!: (value: { turns: TranscriptTurn[]; nextCursor: null }) => void
   rpc.history.mockReturnValueOnce(new Promise(resolve => { resolveHistory = resolve }))
   const active = running(3), page = [stored(100), stored(101)]
-  const { result, rerender } = renderHook(({ turns }) => usePendingDeliveryHistory({ deviceId: 'host', sessionId: 'session',
-    local: false, enabled: true, ready: true, cursor: 100, turns, inputs: [unknown] }), { initialProps: { turns: [...page, active] } })
-  await waitFor(() => expect(rpc.history).toHaveBeenCalledOnce())
-  expect(splitActiveTurn(result.current.turns).active).toBe(active)
+  let result!: ReturnType<typeof usePendingDeliveryHistory>
+  function Fixture({ turns }: { turns: readonly TranscriptTurn[] }) {
+    result = usePendingDeliveryHistory({ deviceId: 'host', sessionId: 'session',
+      local: false, enabled: true, ready: true, cursor: 100, turns, inputs: [unknown] })
+    return null
+  }
+  await harness.render(<Fixture turns={[...page, active]} />)
+  await vi.waitFor(() => expect(rpc.history).toHaveBeenCalledOnce())
+  expect(splitActiveTurn(result.turns).active).toBe(active)
   await act(async () => { resolveHistory({ turns: [stored(1), stored(2)], nextCursor: null }) })
-  expect(result.current.turns.map(turn => turn.id)).toEqual(['session:turn:s1', 'session:turn:s2', ...page.map(turn => turn.id), active.id])
-  expect(splitActiveTurn(result.current.turns).active).toBe(active)
+  expect(result.turns.map(turn => turn.id)).toEqual(['session:turn:s1', 'session:turn:s2', ...page.map(turn => turn.id), active.id])
+  expect(splitActiveTurn(result.turns).active).toBe(active)
 
   const updated: TranscriptTurn = { ...active, items: [...active.items,
     { kind: 'message', id: 'live-reply', seq: 1, role: 'assistant', text: 'live answer' }] }
-  rerender({ turns: [...page, updated] })
-  expect(splitActiveTurn(result.current.turns).active).toBe(updated)
-  expect(splitActiveTurn(result.current.turns).active?.items.map(item => item.id)).toEqual(['new-client-input', 'live-reply'])
+  await harness.render(<Fixture turns={[...page, updated]} />)
+  expect(splitActiveTurn(result.turns).active).toBe(updated)
+  expect(splitActiveTurn(result.turns).active?.items.map(item => item.id)).toEqual(['new-client-input', 'live-reply'])
   expect(rpc.history).toHaveBeenCalledOnce()
 
   const committed: TranscriptTurn = { ...stored(102), items: updated.items }
-  rerender({ turns: [...page, committed] })
-  expect(result.current.turns.map(turn => turn.seq)).toEqual([1, 2, 100, 101, 102])
-  expect(splitActiveTurn(result.current.turns).active).toBeNull()
-  expect(result.current.turns.at(-1)?.items).toBe(updated.items)
-  expect(result.current.turns.some(turn => turn.id === active.id)).toBe(false)
+  await harness.render(<Fixture turns={[...page, committed]} />)
+  expect(result.turns.map(turn => turn.seq)).toEqual([1, 2, 100, 101, 102])
+  expect(splitActiveTurn(result.turns).active).toBeNull()
+  expect(result.turns.at(-1)?.items).toBe(updated.items)
+  expect(result.turns.some(turn => turn.id === active.id)).toBe(false)
 })
