@@ -278,6 +278,29 @@ describe('approved A2A activity', () => {
     }
     expect(t.button().getAttribute('aria-expanded')).toBe('false');
   });
+  it.each(['#ffffff', '#212121'])('paints both pinned lanes opaquely without scroll-state containers (%s)', async background => {
+    const question = 'Owner question';
+    const t = await mount(360, [turn('own', [ordinary(question, 'user'),
+      ...Array.from({ length: 24 }, (_, i) => delivery(`opaque${i}`, `Underlying text ${i}. `.repeat(45)))]),
+      turn('conclusion', [ordinary('Following conclusion. '.repeat(60))])]);
+    t.host.style.setProperty('--chat-bg', background);
+    t.button().click();
+    await untilStable('opaque-lane source measured', () => t.scroll().scrollHeight);
+    // Older Android WebViews do not implement scroll-state queries. Disable
+    // those containers while exercising the real sticky layout and paint.
+    for (const row of t.host.querySelectorAll<HTMLElement>('[data-index] > div')) row.style.containerType = 'normal';
+    const own = () => t.host.querySelector(`[data-agent-conversation-message="${question}"]`)!;
+    const masks = () => [own(), t.head()!].map(row => row.closest('[data-index]')!.querySelector<HTMLElement>('[data-chat-pin-backdrop]')!);
+    t.scroll().scrollTop = 850;
+    await untilStable('both opaque lanes stuck', () => [own().getBoundingClientRect().top, t.head()?.getBoundingClientRect().top]);
+    for (const mask of masks()) {
+      expect(getComputedStyle(mask).opacity, 'the scrolling body cannot paint through either pinned lane').toBe('1');
+      expect(getComputedStyle(mask).backgroundColor).toBe(background === '#ffffff' ? 'rgb(255, 255, 255)' : 'rgb(33, 33, 33)');
+    }
+    t.scroll().scrollTop = 0;
+    await untilStable('opaque lanes return to ordinary bubbles', () => t.head()?.getBoundingClientRect().top);
+    for (const mask of masks()) expect(getComputedStyle(mask).opacity).toBe('0');
+  });
   it('snaps the pinned exit and manual collapse when reduced motion is enabled', async () => {
     await cdp().send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     const t = await mount(800, [turn('own', [ordinary('Owner question', 'user'), ...Array.from({ length: 24 }, (_, i) => delivery(`a${i}`, `Update ${i}. `.repeat(45))) ]),

@@ -807,8 +807,10 @@ export function ChatRoot(props: ChatRootProps) {
   const placeRow = (el: HTMLElement, idx: number, top: number, laneH: number | null) => {
     // Native sticky positioning supplies the reversible push-out. Under reduced motion,
     // hide the complete row as soon as that push starts instead of sliding a partial row.
-    const leaving = laneH !== null && shadowScrollTop + userTopGap + activityPinOffset(idx)
-      - (units().at(idx)?.gapBefore ?? 0) > top + laneH - virt.size(idx) + 0.5;
+    const pinLine = laneH === null ? 0 : shadowScrollTop + userTopGap + activityPinOffset(idx) - (units().at(idx)?.gapBefore ?? 0);
+    const stuck = laneH !== null && pinLine > top + 0.5;
+    if (el.dataset.pinStuck !== String(stuck)) el.dataset.pinStuck = String(stuck);
+    const leaving = laneH !== null && pinLine > top + laneH - virt.size(idx) + 0.5;
     if (el.dataset.pinLeaving !== String(leaving)) el.dataset.pinLeaving = String(leaving);
     const key = laneH === null ? `t${top}` : `l${top}:${laneH}`;
     if (appliedTop.get(idx) === key) return;
