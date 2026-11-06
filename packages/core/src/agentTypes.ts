@@ -16,7 +16,7 @@ export const VALID_AGENT_TYPES = [
   'commandcode', 'charm', 'auggie', 'goose', 'kimi', 'kilocode', 'kiro', 'rovo',
   'cline', 'continue', 'codebuff', 'freebuff', 'mistral', 'jules', 'junie',
   'oh-my-pi', 'pi', 'qoder', 'letta', 'autohand', 'mimocode', 'zero', 'zcode',
-  'codebuddy',
+  'codebuddy', 'dsh',
 ] as const
 export type AgentType = typeof VALID_AGENT_TYPES[number]
 

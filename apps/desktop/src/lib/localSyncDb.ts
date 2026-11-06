@@ -1,5 +1,9 @@
 import { displayIdentityFromRow } from './displayIdentity'
 import { createIndexedDbHandle, type IndexedDbHandle } from './indexedDbHandle'
+import { ACCOUNT_REVISION_CURSOR_KEY } from './accountRevisionRuntime'
+import { rendererLogger } from './log'
+
+const cacheLog = rendererLogger('im/local-cache')
 
 const DB_NAME = 'gugu.localSync.v1'
 // v4(#7290):消息行多了指向字节的列(file_item_id / file_version / file_blob_id)。老客户端存下的行没有这几列,
@@ -24,13 +28,6 @@ export const IM_STORE_NAMES = [
 
 export type ImStoreName = (typeof IM_STORE_NAMES)[number]
 export type LocalImRow = { accountId: string; [key: string]: unknown }
-
-/** Only server-derived cache validation can be recovered. Outbox/IO failures cannot. */
-export class LocalImCacheError extends Error {
-  constructor(cause: unknown, readonly outbox: LocalImRow[]) {
-    super(`Local IM cache requires a snapshot rebuild: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
-  }
-}
 
 export type LocalImDbOperation =
   | { type: 'put'; store: ImStoreName; value: LocalImRow }
@@ -373,15 +370,17 @@ function createIndexedDbAdapter(handle: IndexedDbHandle): LocalImDbAdapter {
       const raw = Object.fromEntries(entries) as Record<ImStoreName, LocalImRow[]>
       // Validate user-authored data first; never discard an invalid unsent message.
       const outbox = raw.outbox.map((row) => validateCurrentRow('outbox', row, accountId))
-      try {
-        const rows = Object.fromEntries(IM_STORE_NAMES.map((name) => [name,
-          name === 'outbox' ? outbox : raw[name].map((row) => validateCurrentRow(name, row, accountId)),
-        ])) as Record<ImStoreName, LocalImRow[]>
-        validateCurrentRelations(rows)
-        return rows
-      } catch (error) {
-        throw new LocalImCacheError(error, outbox)
-      }
+      // @@@row-level-cache - server-derived rows are a cache: one row an older build wrote in a shape this build rejects
+      // drops that row only. Everything else stays the first frame; dropping the revision cursor makes the account snapshot
+      // rebuild the dropped rows behind it. (Discarding the whole cache emptied the list after updates until the snapshot.)
+      const dropped: DroppedRow[] = []
+      const rows = Object.fromEntries(IM_STORE_NAMES.map((name) => [name, name === 'outbox' ? outbox : raw[name].flatMap((row) => {
+        try { return [validateCurrentRow(name, row, accountId)] } catch (error) { dropped.push(droppedRow(name, row, error)); return [] }
+      })])) as Record<ImStoreName, LocalImRow[]>
+      dropUnrelatedRows(rows, dropped)
+      if (dropped.length === 0) return rows
+      cacheLog.error({ accountId, count: dropped.length, dropped: dropped.slice(0, 20) }, 'dropped local IM rows this build rejects; rebuilding them from the account snapshot')
+      return { ...rows, sync_state: rows.sync_state.filter((row) => row.key !== ACCOUNT_REVISION_CURSOR_KEY) }
     },
     async commit(operations) {
       if (operations.length === 0) return
@@ -580,25 +579,38 @@ function isReaction(value: unknown): boolean {
     && (value.count as number) >= 0 && typeof value.my_reaction === 'boolean'
 }
 
-function validateCurrentRelations(rows: Record<ImStoreName, LocalImRow[]>): void {
+type DroppedRow = { store: ImStoreName; key: string; reason: string }
+
+function droppedRow(store: ImStoreName, row: unknown, error: unknown): DroppedRow {
+  const key = isRecord(row) ? String(row.id ?? row.key ?? row.identityId ?? '?') : '?'
+  const reasons: string[] = []
+  for (let cause = error; cause instanceof Error; cause = cause.cause) reasons.push(cause.message)
+  return { store, key, reason: reasons.join(' <- ') }
+}
+
+/** Rows whose partner was dropped (or never written) are dropped too: a message needs its stream, a window must cover its messages. */
+function dropUnrelatedRows(rows: Record<ImStoreName, LocalImRow[]>, dropped: DroppedRow[]): void {
   const streamIds = new Set(rows.stream.map((row) => row.id as string))
+  rows.message = rows.message.filter((message) => streamIds.has(message.streamId as string)
+    || (dropped.push({ store: 'message', key: String(message.id), reason: `stream ${String(message.streamId)} is missing` }), false))
+  const seqRange = new Map<string, { oldest: number; max: number }>()
   for (const message of rows.message) {
-    if (!streamIds.has(message.streamId as string)) throw new Error(`invalid current message stream ${String(message.id)}`)
+    const seq = message.seq as number
+    const range = seqRange.get(message.streamId as string)
+    if (!range) seqRange.set(message.streamId as string, { oldest: seq, max: seq })
+    else { range.oldest = Math.min(range.oldest, seq); range.max = Math.max(range.max, seq) }
   }
-  for (const view of rows.view) {
+  rows.view = rows.view.filter((view) => {
     const key = view.key as string
-    if (!key.startsWith('message-window:')) continue
+    if (!key.startsWith('message-window:')) return true
     const chatId = key.slice('message-window:'.length)
     const value = view.value
-    if (!chatId || !isRecord(value)) throw new Error('invalid current view row')
-    const oldestSeq = requiredNonNegativeInteger(value.oldestSeq, 'message-window.oldestSeq')
-    const maxSeq = requiredNonNegativeInteger(value.maxSeq, 'message-window.maxSeq')
-    if (typeof value.hasMoreOlder !== 'boolean') throw new Error('invalid current view row')
-    const seqs = rows.message.filter((row) => row.streamId === `main:${chatId}`).map((row) => row.seq as number)
-    const expectedOldest = seqs.length > 0 ? Math.min(...seqs) : 0
-    const expectedMax = seqs.length > 0 ? Math.max(...seqs) : 0
-    if (oldestSeq !== expectedOldest || maxSeq !== expectedMax) throw new Error(`invalid current message-window ${chatId}`)
-  }
+    const range = seqRange.get(`main:${chatId}`) ?? { oldest: 0, max: 0 }
+    const valid = !!chatId && isRecord(value) && typeof value.hasMoreOlder === 'boolean'
+      && value.oldestSeq === range.oldest && value.maxSeq === range.max
+    if (!valid) dropped.push({ store: 'view', key, reason: `message window does not cover stored messages ${range.oldest}..${range.max}` })
+    return valid
+  })
 }
 
 function isLegacyOutboxPayload(value: unknown): boolean {

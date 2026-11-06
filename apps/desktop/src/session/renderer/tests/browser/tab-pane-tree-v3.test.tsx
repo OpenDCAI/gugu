@@ -1,4 +1,4 @@
-import { act } from 'react';
+import { act, useEffect } from 'react';
 import { afterAll, afterEach, expect, it } from 'vitest';
 import { cdp, page } from 'vitest/browser';
 import { createReactHarness } from '../../../../../../../tests/support/testHarness';
@@ -7,6 +7,7 @@ import { createTabProvider, createTabRegistry } from '@renderer/features/tabs/co
 import { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 import { PaneTreeView } from '@renderer/features/tabs/pane-tree-view';
 import '@renderer/index.css';
+import '@/styles/tokens.css';
 
 let harness: ReturnType<typeof createReactHarness>;
 let layout: PaneLayoutStore;
@@ -69,4 +70,31 @@ it('narrowing and widening only change visibility, preserving both panes, tabs a
   harness.container.style.width = '1000px';
   await until('the same tree widens again', () => !harness.container.querySelector('[data-pane-tree-narrow]'));
   expect(JSON.stringify(layout.snapshot)).toBe(before);
+});
+
+it('splitting and closing a pane keep the pane that stays mounted, its page the same node', async () => {
+  await page.viewport(1100, 800);
+  harness = createReactHarness();
+  harness.container.style.cssText = 'position:fixed;left:0;top:0;width:1000px;height:600px';
+  const provider = createTabProvider({ kind: 'page', resourceKey: (state: { id: string }) => state.id, initialize: () => ({ dispose() {} }), dispose() {}, TabContent: () => null, TabBarItem: () => null, TabBarItemDragPreview: () => null });
+  layout = new PaneLayoutStore(createTabRegistry([provider]), { viewId: 'tree-v3-keep' });
+  layout.open('page', { id: 'conversation' }, { from: null, intent: 'newTab' });
+  const file = layout.open('page', { id: 'file' }, { from: null, intent: 'newTab' })!;
+  layout.focusedPane.setDimensions(harness.container.clientWidth, harness.container.clientHeight);
+  const kept = layout.activePaneId;
+  const mounts: string[] = [];
+  function Page({ id }: { id: string }) {
+    useEffect(() => { mounts.push(`mount ${id === kept ? 'kept' : 'other'}`); return () => { mounts.push(`unmount ${id === kept ? 'kept' : 'other'}`); }; }, [id]);
+    return <iframe title={id} style={{ width: '100%', height: '100%' }} />;
+  }
+  await act(() => harness.render(<PaneTreeView layout={layout} renderPane={(id) => <Page id={id} />} />));
+  const page0 = harness.container.querySelector(`iframe[title="${kept}"]`);
+  await act(() => { expect(layout.splitPane(kept, 'right', file)).toBe(true); });
+  const other = layout.groups.find(({ paneId }) => paneId !== kept)!.paneId;
+  await until('the kept pane fills the left half', () => harness.container.querySelector(`iframe[title="${kept}"]`)?.getBoundingClientRect().width ?? 0, (width) => Math.abs(width - 499.5) < 2);
+  expect(harness.container.querySelector(`iframe[title="${kept}"]`)).toBe(page0);
+  await act(() => layout.closePane(other));
+  await until('the kept pane fills the tree again', () => harness.container.querySelector(`iframe[title="${kept}"]`)?.getBoundingClientRect().width ?? 0, (width) => width === 1000);
+  expect(harness.container.querySelector(`iframe[title="${kept}"]`)).toBe(page0);
+  expect(mounts).toEqual(['mount kept', 'mount other', 'unmount other']);
 });

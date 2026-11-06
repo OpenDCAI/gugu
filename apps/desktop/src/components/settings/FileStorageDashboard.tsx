@@ -112,7 +112,7 @@ export function FileStorageDashboard() {
   const machines = overview.machines.filter((machine) => Number(machine.files) > 0 || Number(machine.temporary_copy_bytes) > 0)
   const section = (title: string, aside: ReactNode, body: ReactNode, testId: string) => (
     <section data-testid={testId} className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <span className="text-[length:var(--font-body)] font-medium text-[var(--fg)]">{title}</span>
         <span className="text-[length:var(--font-caption)] text-[var(--muted-fg)]">{aside}</span>
       </div>
@@ -121,7 +121,7 @@ export function FileStorageDashboard() {
   )
 
   return (
-        <div className="gg-usage flex flex-col gap-[var(--spacing-2xl)]" data-testid="file-storage-dashboard">
+        <div className="gg-usage" data-testid="file-storage-dashboard">
       <section data-testid="file-storage-usage">
         <div className="flex items-end justify-between gap-4">
           <div className="min-w-0">
@@ -180,7 +180,7 @@ export function FileStorageDashboard() {
       </section>
 
       {overview.expiring.length > 0 && section(t('fileStorage.dashboard.soonTitle'), null, <>
-        <table className="w-full table-fixed border-collapse text-[length:var(--font-body)]" data-testid="file-storage-files">
+        <table className="gg-file-table w-full table-fixed border-collapse text-[length:var(--font-body)]" data-testid="file-storage-files">
           <colgroup><col /><col className="w-[120px]" /><col className="w-[84px]" /><col className="w-[104px]" /></colgroup>
           <thead className="text-[length:var(--font-caption)] text-[var(--muted-fg)]">
             <tr className="[&>th]:border-b [&>th]:border-[var(--border-color)] [&>th]:px-2 [&>th]:pb-[6px]">
@@ -194,11 +194,11 @@ export function FileStorageDashboard() {
               return (
                 <tr key={`${file.item_id ?? file.chat_id}-${file.expires_at}-${index}`} data-testid="file-storage-file"
                   className="hover:bg-[var(--hover)] [&>td]:truncate [&>td]:border-b [&>td]:border-[var(--border-color)] [&>td]:px-2 [&>td]:py-[7px]">
-                  <td><span className="flex min-w-0 items-center gap-2 text-[var(--fg)]">
+                  <td data-field="name"><span className="flex min-w-0 items-center gap-2 text-[var(--fg)]">
                     <Icon size={16} className="shrink-0 text-[var(--muted-fg)]" />
                     <span className="truncate">{file.file_name ?? classLabel(file.class)}</span>
                   </span></td>
-                  <td className="text-[var(--muted-fg)]">{groupName(file.chat_id)}</td>
+                  <td data-field="group" className="text-[var(--muted-fg)]">{groupName(file.chat_id)}</td>
                   <td className="text-right tabular-nums">{size(file.bytes)}</td>
                   <td className={left <= 2 ? 'text-right tabular-nums text-[var(--warn-fg)]' : 'text-right tabular-nums'}>
                     {left === 0 ? t('fileStorage.dashboard.today') : t('fileStorage.dashboard.daysLeft', { count: left })}
@@ -225,7 +225,7 @@ export function FileStorageDashboard() {
               <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-[var(--muted)] text-[var(--muted-fg)]"><Monitor size={18} /></span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[length:var(--font-body)] font-semibold text-[var(--fg)]">{machine.label}</div>
-                <div className="truncate text-[length:var(--font-caption)] text-[var(--muted-fg)]">
+                <div className="[overflow-wrap:anywhere] text-[length:var(--font-caption)] text-[var(--muted-fg)]">
                   {t(Number(machine.temporary_copy_bytes) > 0 ? 'fileStorage.dashboard.machineHint' : 'fileStorage.dashboard.machineHintNone',
                     { count: Number(machine.files), size: size(machine.bytes), copies: size(machine.temporary_copy_bytes) })}
                 </div>

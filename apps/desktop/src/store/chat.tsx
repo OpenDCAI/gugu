@@ -22,8 +22,8 @@ import {
   replaceChatRows,
   type AccountImRepository,
 } from '../lib/imRepository'
-import { closeImRepository, publishMessageWindow, subscribeIdentities } from '../lib/chatMessageWindowPublication'
-import { readCompleteCachedChats } from '../lib/chatSnapshotPublication'
+import { closeImRepository, publishMessageWindow } from '../lib/chatMessageWindowPublication'
+import { paintLocalChats, publishLocalFirstFrame } from '../lib/chatSnapshotPublication'
 import { createChatListProjectionLedger, useChatProjectionBinding, notifyForIngestedMessage } from './chatListProjection'
 import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
 import { bindRepositoryMessageCache } from './chatDiskWindow'
@@ -137,12 +137,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     const previous = cache.view(chatId).threadMessages
     cache.patchView(chatId, { threadMessages: typeof updater === 'function' ? updater(previous) : updater })
   }, [cache])
+  const paintLocal = useCallback((repository: AccountImRepository) => paintLocalChats(repository, { chatsRef, projection: projectionRef.current, setChats, setChatsLoad }), [chatsRef, setChats])
   const getImRepository = useCallback(async (): Promise<AccountImRepository> => {
     if (!userId) throw new Error('Cannot open IM repository without an account')
     if (imRepositoryScope.disposed || imRepositoryScope.accountId !== userId) throw new Error(`IM repository scope ${userId} disposed`)
     if (imRepositoryRef.current?.accountId === userId) return imRepositoryRef.current
     if (imRepositoryPromiseRef.current?.accountId === userId) return imRepositoryPromiseRef.current.promise
-    const promise = openImRepository(userId, { initialize: initializeAccountSync }).catch((error) => { if (imRepositoryPromiseRef.current?.promise === promise) imRepositoryPromiseRef.current = null; throw error })
+    const loaded = (local: AccountImRepository) => publishLocalFirstFrame(local, () => !imRepositoryScope.disposed && imRepositoryPromiseRef.current?.promise === promise, setIdentitiesById, paintLocal)
+    const promise: Promise<AccountImRepository> = openImRepository(userId, { initialize: initializeAccountSync, loaded }).catch((error) => { if (imRepositoryPromiseRef.current?.promise === promise) imRepositoryPromiseRef.current = null; throw error })
     imRepositoryPromiseRef.current = { accountId: userId, promise }
     const repository = await promise
     if (imRepositoryScope.disposed || imRepositoryPromiseRef.current?.promise !== promise) {
@@ -150,10 +152,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       throw new Error(`IM repository scope ${userId} was disposed or superseded during open`)
     }
     imRepositoryRef.current = repository
-    subscribeIdentities(repository, setIdentitiesById)
     bindRepositoryMessageCache(repository, cache)
     return repository
-  }, [cache, imRepositoryScope, userId])
+  }, [cache, imRepositoryScope, paintLocal, userId])
 
   const getRevisionCoordinator = useCallback(async (): Promise<AccountRevisionCoordinator> => {
     if (revisionCoordinatorRef.current) return revisionCoordinatorRef.current
@@ -484,17 +485,15 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     void getImRepository()
       .then(async (repository) => {
         if (cancelled) return
-        const cached = readCompleteCachedChats(repository)
-        if (cached.length > 0) {
-          chatsRef.current = cached
-          projectionRef.current.seedFromCache(cached) // durable snapshot = 上一次会话的服务端投影 (#4314)
-          setChats(cached)
-        }
+        paintLocal(repository) // initialization may have rebuilt the store from the account snapshot
         await loadChats()
       })
-      .catch((err) => console.error('[ChatStore] open IM repository failed', err))
+      .catch((err) => {
+        console.error('[ChatStore] open IM repository failed', err)
+        if (!cancelled) setChatsLoad('failed') // an empty list here is a failure, not "no conversations"
+      })
     return () => { cancelled = true }
-  }, [chatsRef, getImRepository, loadChats, setChats, userId])
+  }, [getImRepository, loadChats, paintLocal, setChats, userId])
 
   useEffect(() => {
     if (!userId || !imRepositoryRef.current) return

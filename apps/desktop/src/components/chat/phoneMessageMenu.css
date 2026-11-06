@@ -1,0 +1,79 @@
+/* 手机长按菜单(方案 A,owner 11-05)。参数见 PhoneMessageMenu.tsx 顶注:
+   遮罩 200ms 淡入;气泡浮起 / 回应条 / 列表 340ms 带一点回弹;回应逐个错开 22ms;收起 150ms。 */
+.gg-phone-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu);
+  background: var(--bg-overlay-soft);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  backdrop-filter: blur(10px) saturate(1.1);
+  animation: gg-phone-menu-fade 200ms ease-out both;
+}
+.gg-phone-menu-scrim[data-ending-style] { animation: gg-phone-menu-fade 150ms ease-in reverse both; }
+
+.gg-phone-menu {
+  --gg-phone-menu-ease: cubic-bezier(0.22, 1.28, 0.42, 1);
+  position: relative;
+  width: 100vw;
+  height: 100dvh;
+  outline: none;
+  pointer-events: none;
+}
+/* 整屏这一层(连同 Base UI 包在外面的定位器)只让子块接点按:点到空处落到遮罩上 = 菜单外,收起。 */
+.gg-menu-positioner:has(> .gg-phone-menu) { pointer-events: none; }
+/* 收起时浮层本身也走 150ms,Base UI 等它放完才卸载,子块的退场动画才看得见。 */
+.gg-phone-menu[data-ending-style] { animation: gg-phone-menu-hold 150ms both; }
+.gg-phone-menu > * { position: absolute; pointer-events: auto; }
+
+.gg-phone-menu-frame {
+  inset: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.gg-phone-menu-preview {
+  overflow: hidden;
+  box-shadow: var(--shadow-lift);
+  animation: gg-phone-menu-lift 340ms var(--gg-phone-menu-ease) both;
+}
+.gg-phone-menu-preview > * { margin-top: var(--clip-top); pointer-events: none; }
+/* 长消息只露手指附近那一截:被裁的那头渐隐,看得出后面还有。遮罩只看不透明度,取哪个实色都一样。 */
+.gg-phone-menu-preview[data-clipped-bottom] { -webkit-mask-image: linear-gradient(var(--color-white) calc(100% - 32px), transparent); mask-image: linear-gradient(var(--color-white) calc(100% - 32px), transparent); }
+.gg-phone-menu-preview[data-clipped-top] { -webkit-mask-image: linear-gradient(transparent, var(--color-white) 32px); mask-image: linear-gradient(transparent, var(--color-white) 32px); }
+.gg-phone-menu-preview[data-clipped-top][data-clipped-bottom] { -webkit-mask-image: linear-gradient(transparent, var(--color-white) 32px, var(--color-white) calc(100% - 32px), transparent); mask-image: linear-gradient(transparent, var(--color-white) 32px, var(--color-white) calc(100% - 32px), transparent); }
+.gg-phone-menu[data-ending-style] .gg-phone-menu-preview { animation: gg-phone-menu-land 150ms ease-in both; }
+
+.gg-phone-menu-reactions,
+.gg-phone-menu-list {
+  background: var(--menu-bg);
+  color: var(--menu-fg);
+  box-shadow: var(--shadow-lift);
+  transform-origin: var(--origin);
+  animation: gg-phone-menu-pop 340ms var(--gg-phone-menu-ease) both;
+}
+.gg-phone-menu-reactions { border-radius: 24px; padding: 2px 4px; }
+.gg-phone-menu-reactions[data-expanded] { width: min(366px, calc(100vw - 16px)); border-radius: var(--radius-surface); padding: 8px; }
+.gg-phone-menu-reactions [role='group'] { padding-bottom: 0; }
+.gg-phone-menu-reactions [role='group'] > * { animation: gg-phone-menu-pop 340ms var(--gg-phone-menu-ease) both; }
+.gg-phone-menu-reactions [role='group'] > :nth-child(2) { animation-delay: 22ms; }
+.gg-phone-menu-reactions [role='group'] > :nth-child(3) { animation-delay: 44ms; }
+.gg-phone-menu-reactions [role='group'] > :nth-child(4) { animation-delay: 66ms; }
+.gg-phone-menu-reactions [role='group'] > :nth-child(5) { animation-delay: 88ms; }
+.gg-phone-menu-reactions [role='group'] > :nth-child(6) { animation-delay: 110ms; }
+.gg-phone-menu-reactions [role='group'] > :nth-child(7) { animation-delay: 132ms; }
+.gg-phone-menu-list { width: 212px; padding: 4px; border-radius: var(--radius-surface); animation-delay: 40ms; }
+.gg-phone-menu[data-ending-style] :is(.gg-phone-menu-reactions, .gg-phone-menu-list) { animation: gg-phone-menu-leave 150ms ease-in both; }
+
+@keyframes gg-phone-menu-fade { from { opacity: 0; } }
+@keyframes gg-phone-menu-hold { from { opacity: 1; } to { opacity: 1; } }
+@keyframes gg-phone-menu-pop { from { opacity: 0; transform: scale(0.55); } }
+@keyframes gg-phone-menu-leave { to { opacity: 0; transform: scale(0.9); } }
+@keyframes gg-phone-menu-lift { from { transform: translateY(var(--lift-from)); box-shadow: none; } to { transform: scale(var(--lift-scale)); } }
+@keyframes gg-phone-menu-land { from { transform: scale(var(--lift-scale)); } to { transform: translateY(var(--lift-from)); box-shadow: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-phone-menu-preview, .gg-phone-menu-reactions, .gg-phone-menu-list,
+  .gg-phone-menu-reactions [role='group'] > *,
+  .gg-phone-menu[data-ending-style] :is(.gg-phone-menu-preview, .gg-phone-menu-reactions, .gg-phone-menu-list) { animation-name: gg-phone-menu-fade; animation-timing-function: linear; animation-direction: normal; }
+  .gg-phone-menu[data-ending-style] :is(.gg-phone-menu-preview, .gg-phone-menu-reactions, .gg-phone-menu-list) { animation-direction: reverse; }
+}

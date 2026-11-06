@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "8fb45815029b6197c3e57408d64453bdf5e23b89",
-  "status": "merged backend preserving archived-agent DM deletion and including Agent self-listen permissions and project-group invite metadata"
+  "ref": "6898b8ea196a1a0e602cb5e095a861061e3accd6",
+  "status": "merged backend preserving archived-agent DM deletion, Agent self-listen permissions and project-group invite metadata, and allowing agent type dsh"
 }

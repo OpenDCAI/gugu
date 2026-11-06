@@ -166,7 +166,7 @@ describe('AcpRuntime session manager', () => {
     const sessionId = `conv-load-capability-${String(loadSession)}`;
 
     await expect(rt.startSession(makeStartInput({ sessionId }))).resolves.toMatchObject({ success: true });
-    expect(rt.sessionsListLiveModel().states.list.snapshot().data[sessionId]?.canLoadSession).toBe(loadSession);
+    expect(rt.sessionsListLiveModel().states.list.snapshot().data[sessionId]?.canReattach).toBe(loadSession);
   });
 
   it('queuePrompt on a ready idle session starts the turn instead of parking it (#6762)', async () => {
@@ -2261,6 +2261,37 @@ describe('AcpRuntime session manager', () => {
 
     const edit = await answered('edit');
     expect(edit.pending).toHaveLength(1);
+  });
+
+  it.each([
+    ['read-only', 'unsupported'],
+    ['edit', 'unsupported'],
+    ['full-access', 'unsupported'],
+    ['read-only', 'reload-session'],
+    ['full-access', 'reload-session'],
+  ] as const)(
+    '档位不经 ACP、由会话包在 spawn 时兑现的家(dsh 形状):%s(通道 %s)照起,❌ 去设一个它不报的档',
+    async (permissionMode, channel) => {
+      const h = makeAcpHarness({
+        autoApprove: 'supported',
+        bundleAutonomy: 'native',
+        liveSettings: { permission: { channel, ack: 'none', busy: 'reject', reloadRequired: channel === 'reload-session', recovery: channel === 'reload-session' ? 'runtime-restart' : 'unsupported' } },
+      });
+      const rt = new AcpRuntime(h.deps);
+      h.agent.newSession.mockResolvedValueOnce({ sessionId: `session-dsh-${permissionMode}-${channel}` });
+      const started = await rt.startSession({ ...makeStartInput({ sessionId: `conv-dsh-${permissionMode}-${channel}` }), permissionMode });
+      expect(isOk(started)).toBe(true);
+      expect(h.agent.setSessionMode).not.toHaveBeenCalled();
+      expect(h.agent.setSessionConfigOption).not.toHaveBeenCalled();
+    },
+  );
+
+  it('阴控:档位由会话包兑现、但权限一维走 ACP 的家,更严的档仍要 ACP 报得出来', async () => {
+    const h = makeAcpHarness({ autoApprove: 'supported', bundleAutonomy: 'native' });
+    const rt = new AcpRuntime(h.deps);
+    h.agent.newSession.mockResolvedValueOnce({ sessionId: 'session-acp-tier' });
+    const started = await rt.startSession({ ...makeStartInput({ sessionId: 'conv-acp-tier' }), permissionMode: 'read-only' });
+    expect(isOk(started)).toBe(false);
   });
 
   it('grok 形状:整张档位表缺席 + per-surface 自治(仅 acp native)+ 完全访问 ⇒ 会话照起', async () => {

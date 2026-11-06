@@ -26,6 +26,9 @@ import { translateSessionMessage } from '../../session/renderer/localization/loc
 import { useChatDraft, makePendingAttachment, revokeAttachmentPreviewUrls } from './useChatDraft'
 import { useChatMessageSend } from './useChatMessageSend'
 import { ComposerAttachButton } from './ComposerAttachButton'
+import { PhoneAttachPanel, PhonePhotoPreview, type PhoneAttachEntry } from './PhoneAttachPanel'
+import { IconButton } from '../ui/IconButton'
+import { Camera, Image, Paperclip, Plus } from '@/lib/icons'
 import { ComposerVerbs } from './ComposerVerbs'
 import { useComposerVerbTakeover } from './useComposerVerbTakeover'
 import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
@@ -72,6 +75,11 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const editorApiRef = useRef<PromptEditorRef | null>(null)
   const inputRef = useRef<HTMLElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  // 手机「+」面板开着没有;照片 / 拍摄选完、还在预览页上的那几张。
+  const [attachOpen, setAttachOpen] = useState(false)
+  const [photos, setPhotos] = useState<File[] | null>(null)
   const isMain = surface === 'main'
   const inChatSlot = useInChatSlot()
   const projectName = useChatSlotProjectName()
@@ -132,6 +140,14 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   }, [setAttachments])
 
   useEffect(() => isMain ? registerComposerFocusTarget(() => inputRef.current) : undefined, [isMain])
+  // 面板占的是键盘的位置:一点输入框(键盘要起来)就收起。
+  useEffect(() => {
+    const input = inputRef.current
+    if (!attachOpen || !input) return
+    const close = () => setAttachOpen(false)
+    input.addEventListener('focus', close)
+    return () => input.removeEventListener('focus', close)
+  }, [attachOpen])
   useLayoutEffect(() => registerDraftEditor(chatId ?? null, () => editorApiRef.current), [chatId, registerDraftEditor])
   useEffect(() => {
     if (!mentionToInsert) return
@@ -174,6 +190,11 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
       <div {...hintEvents} title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-phone-task={phoneTask.active || undefined} data-sending={sending} hidden={hidden || takenOver}>
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
+        {mobile && <>
+          {/* 照片 = 系统相册(只写 image/*:写多个类型时 Android 壳退回成文件选择器);拍摄 = 直接开相机。 */}
+          <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) setPhotos(picked) }} />
+          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) setPhotos(picked) }} />
+        </>}
         <ChatComposerContextBands {...deliveryProps} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
         {invitation}
@@ -186,8 +207,19 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
           mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon} dataDropTypes={dataDropTypes} onDataDropped={onDataDropped}
           onFilesDropped={enqueueFiles} onImageFilesDropped={enqueueFiles}
           attachments={composerAttachments} onAttachmentsChange={(next) => { const kept = attachments.filter((file) => next.some((item) => item.id === file.id)); revokeAttachmentPreviewUrls(attachments.filter((file) => !kept.includes(file))); setAttachments(kept) }}
-          toolbarExtra={<><ComposerAttachButton glyph={attachGlyph} actions={phoneTask.action ? [...(attachMenu ?? []), phoneTask.action] : attachMenu} disabled={disabled} mobile={mobile} onPickFile={() => fileInputRef.current?.click()} />{isMain && !mobile && !props.conversation && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={() => editorApiRef.current?.getText() ?? ''} onCarried={() => writeDraft(chatId, '')} />}</>}
+          toolbarExtra={<>{mobile
+            ? <IconButton shape="pill" size="md" title={t('composer.attach')} aria-label={t('composer.attach')} aria-expanded={attachOpen} disabled={disabled} data-testid="chat-composer-attach-menu"
+                onClick={() => { inputRef.current?.blur(); setAttachOpen((open) => !open) }}>{attachGlyph ?? <Plus />}</IconButton>
+            : <ComposerAttachButton glyph={attachGlyph} actions={attachMenu} disabled={disabled} mobile={mobile} onPickFile={() => fileInputRef.current?.click()} />}{isMain && !mobile && !props.conversation && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={() => editorApiRef.current?.getText() ?? ''} onCarried={() => writeDraft(chatId, '')} />}</>}
           className={inChatSlot ? sessionComposerDockedWidthClassName : undefined} />
+        {mobile && attachOpen && <PhoneAttachPanel onClose={() => setAttachOpen(false)} entries={[
+          { id: 'photos', label: t('composer.photos'), icon: <Image />, onSelect: () => photoInputRef.current?.click() },
+          { id: 'camera', label: t('composer.camera'), icon: <Camera />, onSelect: () => cameraInputRef.current?.click() },
+          { id: 'file', label: t('composer.file'), icon: <Paperclip />, onSelect: () => fileInputRef.current?.click() },
+          ...[...(attachMenu ?? []), ...(phoneTask.action ? [phoneTask.action] : [])].map((action): PhoneAttachEntry => ({ ...action, icon: action.icon ?? <Plus /> })),
+        ]} />}
+        {photos && <PhonePhotoPreview files={photos} caption={text} onCancel={() => setPhotos(null)}
+          onSend={(ready, caption) => { setPhotos(null); void handleSend(caption, ready.map(makePendingAttachment)) }} />}
       </div>
     </MessageProvider>
   </ThemeProvider>

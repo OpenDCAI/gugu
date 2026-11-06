@@ -42,6 +42,7 @@ import { provider as continueCli } from './impl/continue';
 import { provider as copilot } from './impl/copilot';
 import { provider as cursor } from './impl/cursor';
 import { provider as devin } from './impl/devin';
+import { provider as dsh } from './impl/dsh';
 import { provider as droid } from './impl/droid';
 import { provider as gemini } from './impl/gemini';
 import { provider as grok } from './impl/grok';
@@ -117,6 +118,7 @@ const providers = [
   zero,
   zcode,
   codebuddy,
+  dsh,
 ] as const;
 
 // @@@adapter-surface-guard — every host adapter is physically carried on one specific descriptor surface;

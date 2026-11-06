@@ -37,6 +37,8 @@ export interface AcpAgentConnection {
   /** Identity of the actual spawned resource, including when its PID is unavailable. */
   process: Pick<AcpProcessHandle, 'pid'>;
   supportsLoadSession: boolean;
+  /** `sessionCapabilities.resume`:接回原 provider session,不重放历史。 */
+  supportsResumeSession: boolean;
   supportsForkSession: boolean;
   /** agent 在 initialize 里声明它收 image 块;没声明按协议默认 false。 */
   supportsImagePrompt: boolean;
@@ -186,12 +188,14 @@ export async function createAcpAgentConnection(
       processClosed.then(failClosedBeforeReady),
     ]);
     const supportsLoadSession = initialized.agentCapabilities?.loadSession === true;
+    const supportsResumeSession = initialized.agentCapabilities?.sessionCapabilities?.resume != null;
     const supportsForkSession = initialized.agentCapabilities?.sessionCapabilities?.fork != null;
     const supportsImagePrompt = initialized.agentCapabilities?.promptCapabilities?.image === true;
     const initializeMeta = (initialized as InitializeResponse & { _meta?: unknown })._meta;
     const supportsSteering = isSteeringCapability(initializeMeta);
     logger.debug('createAcpAgentConnection: initialized', {
       supportsLoadSession,
+      supportsResumeSession,
       supportsForkSession,
       supportsImagePrompt,
       supportsSteering,
@@ -242,6 +246,7 @@ export async function createAcpAgentConnection(
       agent: connection,
       process: handle,
       supportsLoadSession,
+      supportsResumeSession,
       supportsForkSession,
       supportsImagePrompt,
       supportsSteering,

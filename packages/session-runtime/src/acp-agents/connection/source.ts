@@ -30,6 +30,7 @@ export interface AcpConnectionContext {
 export interface AcpConnectionEntry extends AcpConnectionContext {
   agent: AcpAgentApi;
   supportsLoadSession: boolean;
+  supportsResumeSession: boolean;
   supportsForkSession: boolean;
   /** 见 AcpAgentConnection.supportsImagePrompt:决定图片附件能不能走 ACP 这条路。 */
   supportsImagePrompt: boolean;
@@ -207,6 +208,7 @@ async function provisionAcpConnection(
     agent: connection.data.agent,
     process: connection.data.process,
     supportsLoadSession: connection.data.supportsLoadSession,
+    supportsResumeSession: connection.data.supportsResumeSession,
     supportsForkSession: connection.data.supportsForkSession,
     supportsImagePrompt: connection.data.supportsImagePrompt,
     supportsSteering: connection.data.supportsSteering,

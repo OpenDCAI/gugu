@@ -32,7 +32,7 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
     needsYouCountForProject: () => 0, projectMembersOf: () => ['proj'], hasNameTwin: () => false, rowProjectIdOf: (id: string) => id,
     ensureProjectExpanded: vi.fn(), toggleProjectExpanded: vi.fn() },
 }));
-vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => false, showBesideOnScreen: vi.fn() }));
+vi.mock('@renderer/app/screen-layout-actions', () => ({ isScreenView: () => false, showBesideOnScreen: vi.fn(), showOnScreen: vi.fn() }));
 vi.mock('@/lib/composerVerbBridge', () => ({ readComposerVerb: () => null, setComposerVerb: vi.fn() }));
 vi.mock('@renderer/features/projects/project-task-entry', () => ({ prepareProjectTask: vi.fn() }));
 vi.mock('@renderer/features/sessions/composer-drafts', () => ({ composerDrafts: { get: () => '' }, projectDraftKey: () => '' }));

@@ -17,6 +17,8 @@ import type {
   NewSessionResponse,
   PromptRequest,
   RequestPermissionResponse,
+  ResumeSessionRequest,
+  ResumeSessionResponse,
   SessionConfigOption,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,
@@ -206,6 +208,8 @@ export interface AcpAgentApi {
   newSession(params: NewSessionRequest): Promise<NewSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Optional — only available when the agent advertises the `loadSession` capability. */
   loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
+  /** Optional — only available when the agent advertises `sessionCapabilities.resume`. Reattaches without replaying history. */
+  resumeSession?(params: ResumeSessionRequest): Promise<ResumeSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Optional experimental ACP surface advertised through `sessionCapabilities.fork`. */
   unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Dispatch/acceptance only; completion is an event. An accepted receipt requires its user echo to have already arrived. */

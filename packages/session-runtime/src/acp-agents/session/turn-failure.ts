@@ -1,7 +1,7 @@
-import { isSignInFailure, type AdapterExit, type SessionFailure, type TranscriptTurnOutcome } from '@gugu/session-core/acp';
+import { isSignInFailure, upstreamSaid, type AdapterExit, type SessionFailure, type TranscriptTurnOutcome } from '@gugu/session-core/acp';
 import { guguReasonInText } from '@gugu/session-core/session-record/contract';
 import { errorDetail, type SerializedError } from '@gugu/session-shared';
-import { redactAll, redactSecrets } from '@gugu/session-shared/logger';
+import { redactSecrets } from '@gugu/session-shared/logger';
 
 /**
  * 一次回合失败的**事实**,按它**在哪个边界被观测到**分类。
@@ -121,47 +121,6 @@ function adapterExitDetail(exit: AdapterExit): string | undefined {
   return head ?? tail;
 }
 
-const MAX_SAID_LENGTH = 280;
-
-function parseJsonObject(text: string): Record<string, unknown> | undefined {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * 上游(网关 / provider)回给 harness 的那一句,一行 —— 「回合失败」那一行直接说它(#7103)。只认 codex 递上来的两种形状
- * (codex 0.156.1 `codex-rs/protocol/src/error.rs`):
- * - 400:HTTP 错误体本身(`{"error":{"message":…,"code":…}}`),codex 原样当 turn.error.message,桥原样转成这一轮的错;
- * - 其余状态:`unexpected status <码> <原因>: <体>`,后面可能依次跟 `, url: …`、`, cf-ray: …`、`, request id: …`、
- *   `, auth error: …`。体是带 `error.message` 的 JSON 时 codex 已经替我们取成纯文本;从第一个 `, url: ` 起整段去掉
- *   (本机中转地址和 codex 自己附上的那几段)。
- * 取 `error.message`(或体本身的 `message`,或状态行后面那段纯文本)的第一行,去敏(令牌、路径、IP)、按码点限长;
- * 上游自己写进那句话里的 `(request id: …)` 原样留着。以 `<` 开头的(网关前面 nginx 回的 HTML 错误页)不说。
- * 认不出 ⇒ undefined,那一行照旧说「回合未能完成」,原文在详情里 —— claude 的「API Error: 400 …」已经作为它自己的话
- * 进了转录,不是这两种形状,❌ 在这一行再说一遍。
- */
-export function upstreamSaid(text: string, data?: unknown): string | undefined {
-  // Structured JSON-RPC data.message is the provider's own cause, including plain 5xx text.
-  const message = data && typeof data === 'object' ? (data as Record<string, unknown>).message : undefined;
-  const structured = typeof message === 'string' ? message : undefined;
-  const trimmed = (structured ?? text).trim();
-  const status = /^unexpected status \d{3}[^:]*:\s*([\s\S]*?)(?:,\s*url:\s[\s\S]*)?$/.exec(trimmed);
-  const body = status ? status[1]!.trim() : trimmed;
-  const json = body.startsWith('{') ? parseJsonObject(body) : undefined;
-  const nested = json?.error && typeof json.error === 'object' ? (json.error as Record<string, unknown>).message : undefined;
-  const said = typeof nested === 'string' ? nested
-    : typeof json?.message === 'string' ? json.message
-    : (status || structured !== undefined) && !json ? body
-    : undefined;
-  const line = said?.split(/\r?\n/).map((part) => part.trim()).find(Boolean);
-  if (!line || line.startsWith('<')) return undefined;
-  return Array.from(redactAll(line)).slice(0, MAX_SAID_LENGTH).join('');
-}
-
 /** 咕咕拒了这一轮的票(原因码)⇒ 这一轮的终局;不是原因码 ⇒ null。`settledOutcome` 与 prompt 被拒两条路共用。 */
 export function refusedTurnOutcome(code: string | null | undefined): TranscriptTurnOutcome | null {
   const guguReason = guguReasonInText(code);
@@ -201,8 +160,8 @@ export function classifyTurnFailure(fact: TurnFailureFact): ClassifiedTurnFailur
       // 这家在这台机器上的登录不能用了(#6264):同一个 reason,多一格让界面说「登录已失效 · 重新登录」,
       // 并让宿主把这家标成「登录已失效」。判据只认结构化信号,见 `isSignInFailure`。
       const signInRequired = !fact.platformCredentials && isSignInFailure(fact.cause);
-      // #7103 上游自己说了什么(codex 原样递上来的网关错误体):那一行直接说它,❌ 只说「回合未能完成」让人点开猜。
-      const said = signInRequired ? undefined : upstreamSaid(fact.cause.message, fact.cause.data);
+      // #7103 The failing side's own sentence goes on the row, never just "could not be completed".
+      const said = signInRequired || !providerAuthored(fact.cause) ? undefined : upstreamSaid(fact.cause.message, fact.cause.data);
       return {
         outcome: {
           kind: 'error',

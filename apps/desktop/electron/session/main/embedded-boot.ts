@@ -383,7 +383,7 @@ import { sessionLifeSources } from '@main/core/sessions/session-life-host'
 import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
 import { forkStore, runtimeFork, runtimeForks, runtimeForksOf } from '@main/core/sessions/session-life-forks'
 import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
-import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
+import { sessionChangedChannel, sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
 import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
 import { createStageLedger, type StageLedger } from '@main/lib/stage-ledger'
@@ -1221,6 +1221,11 @@ export async function reloadEmdashSession(input: {
    * `model_reasoning_effort`),活进程改不了;通用模式在活会话里当场改,不走重开。
    */
   effort?: string | null
+  /**
+   * 换成这一档权限(咕咕四档)再重开 —— 只给权限一维声明 `reload-session` 的家(dsh:档位在 spawn 那刻由会话包
+   * 写进进程,活进程经 ACP 改不了)。与 `model` 同一条纪律:宿主先写进会话记录、再停、再起,起不来就写回原样。
+   */
+  permissionMode?: GuguPermissionMode
 }): Promise<{ warning?: string; nativeSession: ReloadNativeSession }> {
   const { sessionId, reason } = input
   if (input.resetModel && typeof input.model === 'string' && input.model.trim()) {
@@ -1266,6 +1271,9 @@ export async function reloadEmdashSession(input: {
   if (session.runtime !== 'acp') {
     if (Array.isArray(input.mcpDisabledServers)) {
       throw new Error(`session ${sessionId} PTY reload does not accept MCP changes`)
+    }
+    if (input.permissionMode !== undefined) {
+      throw new Error(`session ${sessionId} PTY reload does not take a permission change`)
     }
     const nextModel = typeof input.model === 'string' && input.model.trim() ? input.model.trim() : null
     if (nextModel && input.modelSource !== 'platform' && input.modelSource !== 'own') {
@@ -1402,6 +1410,12 @@ export async function reloadEmdashSession(input: {
     configPatch.mcpDisabledServers = [...input.mcpDisabledServers]
     configPatch.mcpToggleDecided = true
   }
+  if (input.permissionMode !== undefined) {
+    if (!isGuguPermissionMode(input.permissionMode)) {
+      throw new Error(`session ${sessionId} reload asked for an unknown permission mode ${JSON.stringify(input.permissionMode)}`)
+    }
+    configPatch.permissionMode = input.permissionMode
+  }
   /**
    * 写之前那一份 —— 起不来时原样写回去,见下面 `restoreConfig`。
    * ⚠️ 类型取自列本身:摊平成 `Record<string, unknown>` 写不回去(TS2322),
@@ -1431,6 +1445,10 @@ export async function reloadEmdashSession(input: {
     await db.update(sessions)
       .set({ config: nextConfig })
       .where(eq(sessions.id, sessionId))
+    // 权限档是渲染层从会话记录读的(这一维没有活会话报档),记录改了就得播出去,与 `recordLiveSessionSetting` 同一条广播。
+    if (input.permissionMode !== undefined) {
+      events.emit(sessionChangedChannel, { sessionId, projectId: session.projectId, changes: { permissionMode: input.permissionMode } })
+    }
   } else if (input.resetModel) {
     configBeforePatch = await dropRecordedModel(sessionId, reason)
   }
@@ -1476,7 +1494,9 @@ export async function reloadEmdashSession(input: {
             providerSessionState: 'restart_failed' as const,
             pendingRestart: {
               status: 'restart_failed' as const,
-              dimension: reason === 'mcp-toggle' ? 'mcp' as const : 'model' as const,
+              dimension: reason === 'mcp-toggle'
+                ? 'mcp' as const
+                : input.permissionMode !== undefined ? 'permission' as const : 'model' as const,
               ...(nextModel ? { targetModel: nextModel } : {}),
               ...(input.modelSource ? { targetModelSource: input.modelSource } : {}),
               error: failure,
@@ -1486,6 +1506,11 @@ export async function reloadEmdashSession(input: {
       await db.update(sessions)
         .set({ config: restoredConfig })
         .where(eq(sessions.id, sessionId))
+      if (input.permissionMode !== undefined) {
+        // 回滚也播:否则界面停在没生效的那一档。播的是 spawn 按回滚后的记录会用的那一档(缺键 = 默认档)。
+        const before = resolveSessionPermissionMode(configBeforePatch as { permissionMode?: GuguPermissionMode })
+        events.emit(sessionChangedChannel, { sessionId, projectId: session.projectId, changes: { permissionMode: before } })
+      }
       // provider 会话 id 的回滚也经 `setSessionId` —— 它会广播(#5869)。
       // ⚠️ 这一步**不能省**:换计费路那一支上面已经 `clearSessionId` 过一次,渲染端此刻以为
       // 这条会话没有可续的 provider 会话;回滚只改库不说话的话,它就一直停在那句作废的话上。

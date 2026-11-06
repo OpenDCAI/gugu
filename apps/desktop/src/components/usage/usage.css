@@ -11,6 +11,8 @@
   container-type: inline-size;
   --usage-heat-0: color-mix(in oklab, var(--fg) 7%, transparent);
   display: grid;
+  /* 显式的列:隐式 auto 列会被最宽的内容(长文件名、表格)撑过容器。 */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--spacing-2xl);
   min-width: 0;
 }
@@ -23,7 +25,7 @@
   .gg-usage-toolbar .gg-segtab { flex: 1 1 0; justify-content: center; padding-inline: var(--spacing-sm); white-space: nowrap; }
 }
 
-.gg-usage-section { display: grid; gap: var(--spacing-md); min-width: 0; }
+.gg-usage-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-md); min-width: 0; }
 .gg-usage-hint { font-size: var(--font-caption); color: var(--muted-fg); font-weight: var(--font-weight-regular); }
 .gg-usage-card { border: 1px solid var(--border); border-radius: var(--radius-xl); padding: var(--spacing-lg); min-width: 0; }
 .gg-usage-muted { color: var(--muted-fg); font-size: var(--font-body); }
@@ -213,7 +215,6 @@
 
 /* One set of data and rows: narrow containers read as labelled records rather than a wide table. */
 @container (max-width: 560px) {
-  .gg-usage-section { grid-template-columns: minmax(0, 1fr); }
   .na-referral { overflow-wrap: anywhere; }
   .na-stat-label, .na-stat-value { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
   .na-stat-label { letter-spacing: normal; text-transform: none; }
@@ -248,6 +249,17 @@
   .na-cost { max-width: 100%; height: auto; min-height: 24px; overflow-wrap: anywhere; }
   .na-pager-btns { flex-wrap: wrap; min-width: 0; max-width: 100%; gap: var(--spacing-xs); }
   .na-pager-btn { min-width: var(--control-h-touch); height: var(--control-h-touch); }
+  /* 即将过期的文件:同一份行,窄处文件名独占一行,群、大小、到期排在它下面;表头只留排序按钮。 */
+  .gg-file-table, .gg-file-table tbody { display: block; }
+  .gg-file-table colgroup { display: none; }
+  .gg-file-table thead { display: block; }
+  .gg-file-table thead tr { display: flex; flex-wrap: wrap; gap: var(--spacing-lg); border-bottom: 1px solid var(--border-color); padding-bottom: var(--spacing-xs); }
+  .gg-file-table thead th { display: block; border: 0; padding: 0; }
+  .gg-file-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: var(--spacing-md); border-bottom: 1px solid var(--border-color); padding-block: var(--spacing-sm); }
+  .gg-file-table tbody td { border: 0; padding: 0; }
+  .gg-file-table td[data-field='name'] { grid-column: 1 / -1; }
+  .gg-file-table td:not([data-field='name']) { margin-top: 2px; font-size: var(--font-caption); color: var(--muted-fg); }
+  .gg-file-table td[data-field='group'] { padding-left: var(--spacing-2xl); }
 }
 
 /* The loading shapes follow the real stats and controls, without adding row height. */

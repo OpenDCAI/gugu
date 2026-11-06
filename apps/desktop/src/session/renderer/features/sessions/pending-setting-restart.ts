@@ -1,3 +1,4 @@
+import type { GuguPermissionMode } from '@gugu/session-core/acp';
 import type { SessionReloadReasonCode } from '@/session/shared/core/agents/session-reload';
 import type { SessionReloadReason } from './session-reload-confirm';
 
@@ -26,16 +27,18 @@ import type { SessionReloadReason } from './session-reload-confirm';
  * 另两维没有这个轴 —— 这正是它们不该被塞进同一个字段的原因。
  */
 export type RestartTarget =
-  { dimension: 'model'; value: string; label: string; source: 'platform' | 'own' };
+  | { dimension: 'model'; value: string; label: string; source: 'platform' | 'own' }
+  /** 权限一维声明 `reload-session` 的家(dsh):档位只能带着新档重起进程再续接。`value` 是咕咕四档。 */
+  | { dimension: 'permission'; value: GuguPermissionMode; label: string };
 
 /** 这次重开在日志与遥测里记成哪一种(枚举,❌ 不是自由文本)。 */
-export function reloadReasonCodeFor(_target: RestartTarget): SessionReloadReasonCode {
-  return 'model-switch';
+export function reloadReasonCodeFor(target: RestartTarget): SessionReloadReasonCode {
+  return target.dimension === 'permission' ? 'permission-switch' : 'model-switch';
 }
 
 /** 确认框的措辞档 —— 组件按它选标题,调用方不写文案。 */
-export function confirmReasonFor(_target: RestartTarget): SessionReloadReason {
-  return 'model-switch';
+export function confirmReasonFor(target: RestartTarget): SessionReloadReason {
+  return target.dimension === 'permission' ? 'permission-switch' : 'model-switch';
 }
 
 /**
@@ -52,7 +55,11 @@ export function reloadRequestFor(
   reason: SessionReloadReasonCode;
   model?: string;
   modelSource?: 'platform' | 'own';
+  permissionMode?: GuguPermissionMode;
 } {
+  if (target.dimension === 'permission') {
+    return { sessionId, reason: reloadReasonCodeFor(target), permissionMode: target.value };
+  }
   return {
     sessionId,
     reason: reloadReasonCodeFor(target),
