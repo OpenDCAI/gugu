@@ -549,6 +549,8 @@ export type ExtensionHostEvent =
    * on purpose — a guessed set would be worse.
    */
   | { type: 'filesChanged'; watchId: string; place: AppPlace; change: ExtensionFileChangeBatch }
+  /** How far a `files.download` of a working copy's file or folder is. */
+  | { type: 'downloadProgress'; transferId: string; done: number; total: number }
   /**
    * What the app is showing moved — a pane switched tabs, the view split, the
    * user changed session, or the window gained or lost the foreground.
@@ -852,6 +854,8 @@ export const BRIDGE_VERBS = {
   filesWriteChunk: { needs: 'files:write', machine: 'place' },
   /** A working copy's file or folder shown in this computer's file manager. */
   filesReveal: { needs: 'files:read', only: 'page' },
+  /** A `files.download` under way stopped: what it had saved goes. */
+  filesDownloadStop: { needs: null, only: 'page' },
   /**
    * A stored file's content replaced: the same file, its next version (G1), the one it had kept as history. Gated like
    * open read-write: the file the host handed this page needs nothing, any other `files:write` (checked in `app-files.ts`).

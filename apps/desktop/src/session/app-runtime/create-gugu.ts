@@ -146,8 +146,22 @@ export function createGugu(
     ...(download && openWith
       ? {
           // API 20: several files at once — one 「save to」 for them all (a folder on the desktop, the share sheet on the phone).
-          // A working copy's folder (`entry.type: 'folder'`): saved whole.
-          download: (files: unknown) => (Array.isArray(files) ? withRefs(files, (refs) => download({ refs })) : withRef(files, (ref) => download({ ref, ...((files as { type?: unknown } | null)?.type === 'folder' ? { folder: true } : {}) }))),
+          // A working copy's folder (`entry.type: 'folder'`): saved whole. `{ onProgress, signal }`, one file or folder of a
+          // working copy: the bytes saved of them all, and stopping it: nothing is left where it was going.
+          download: (files: unknown, options?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal }) => (Array.isArray(files)
+            ? withRefs(files, (refs) => download({ refs }))
+            : withRef(files, (ref) => {
+              const folder = (files as { type?: unknown } | null)?.type === 'folder' ? { folder: true } : {};
+              if (!options?.onProgress && !options?.signal) return download({ ref, ...folder });
+              const transferId = crypto.randomUUID();
+              const off = (raw.onDownloadProgress as ((hear: (id: string, done: number, total: number) => void) => () => void) | undefined)?.((id, done, total) => { if (id === transferId) options.onProgress?.(done, total); });
+              const stop = () => void host.appFiles.downloadStop?.({ transferId });
+              options.signal?.addEventListener('abort', stop);
+              return download({ ref, ...folder, transferId }).finally(() => {
+                off?.();
+                options.signal?.removeEventListener('abort', stop);
+              });
+            })),
           // `{ ask: true }`: 「用别的 App 打开」 — every App that opens it, the person picks. `{ at }`: the place in it (a pill's).
           // `{ peek: true }`: beside this page, which stays as it is (G1).
           openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> }) =>
@@ -164,7 +178,7 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['navigationGo', 'appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
+    if (['navigationGo', 'appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onDownloadProgress', 'onForumChanged', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;
