@@ -11,7 +11,7 @@ import { pinFade } from '../chat-root.css';
 
 const peer = 'user:11111111-1111-4111-8111-111111111111';
 const me = '22222222-2222-4222-8222-222222222222';
-const delivery = (id: string, body = 'Agent update', type = 'agent'): ChatMessage => ({ kind: 'message', id, seq: 0, role: 'user', text:
+const delivery = (id: string, body = 'Agent update', type = 'agent') => ({ kind: 'message' as const, id, seq: 0, role: 'user' as const, text:
   `<gugu_delivery route="chat" from="d3" from_id="${type === 'agent' ? peer : `user:${me}`}" from_type="${type}" chat="group" chat_kind="group" msg="msg:${id}"><![CDATA[${body}]]></gugu_delivery>` });
 const ordinary = (id: string, role: 'user' | 'assistant' = 'assistant'): ChatMessage => ({ kind: 'message', id, seq: 0, role, text: id });
 const turn = (id: string, items: ChatMessage[]): TranscriptTurn => ({ id, seq: 0, initiator: 'user', outcome: { kind: 'done' }, items: items as TranscriptTurn['items'] });

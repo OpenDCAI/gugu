@@ -1,10 +1,12 @@
 /** @jsxImportSource solid-js */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../model';
 import { messageUnitDef } from '../components/rows/message/message.def';
 import { cardFadeOverlay } from '../components/rows/message/user-message.css';
 import { conversationBubbleKey } from '../components/rows/message/conversation-body';
 import { makeContractCtx, renderAndMeasureUnit } from './contract';
+
+afterEach(() => document.body.classList.remove('emdark'));
 
 const longText = Array.from({ length: 24 }, (_, i) =>
   `Paragraph ${i + 1}: a long Agent response with enough readable words to fill the collapsed preview.`).join('\n\n');
@@ -18,9 +20,8 @@ describe.each([
       text: mode === 'short' ? 'The requested check is complete.' : longText,
       conversationPart: 'body', conversationTail: true, sentTo: { kind: 'session', count: 1 } };
     const ctx = makeContractCtx({ width, isCollapsed: key => mode === 'expanded' && key === conversationBubbleKey(item) });
-    ctx.theme = { ...ctx.theme, layout: { preset: 'double', userGutter: 0, agentConversation: true },
-      themeVars: { ...ctx.theme.themeVars, bg: dark ? '#212121' : '#ffffff',
-        bubbleUser: dark ? '#eeeeee' : '#1a1a1a', fg: dark ? '#eeeeee' : '#1a1a1a' } };
+    ctx.theme = { ...ctx.theme, layout: { preset: 'double', userGutter: 0, agentConversation: true } };
+    document.body.classList.toggle('emdark', dark);
     ctx.latestConversationMessageId = 'later-reply';
     const reading = await renderAndMeasureUnit(messageUnitDef, item, ctx, host => {
       const card = host.querySelector<HTMLElement>('[data-user-card]')!;

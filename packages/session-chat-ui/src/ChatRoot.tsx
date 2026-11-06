@@ -1061,6 +1061,11 @@ export function ChatRoot(props: ChatRootProps) {
       // Only another visible input, or the end of an opened activity, releases it.
       const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
       ends = ends.filter(index => !all.at(index)?.activityFold);
+      // A separately delivered panel reply starts its own reading boundary.
+      for (let i = 0; i < all.length; i++) {
+        const row = all.at(i)!, data = row.data as ChatMessage;
+        if (!row.activityFold && data.role === 'assistant' && data.conversationPart === 'body' && row.itemId.includes(':sent:')) ends.push(i);
+      }
       for (const lane of activityLaneByIndex().values()) ends.push(lane.end);
       return [...new Set(ends)].sort((a, b) => a - b);
     },

@@ -12,7 +12,7 @@ const a = 'user:11111111-1111-4111-8111-111111111111', human = 'user:22222222-22
 const ctx: SegmentCtx = { actor: (id: string) => id === a ? { id, type: 'agent', name: 'd3' } : id === human ? { id, type: 'human', name: 'Owner' } : null,
   chatName: (id: string) => id === 'group' ? 'gugu' : null, translate, agentConversation: true, active: false, expanded: () => false,
   pendingToolCallIds: () => new Set(), terminalSnapshot: () => null, plan: () => null, caches: {} } as unknown as SegmentCtx;
-const incoming = (id: string, type = 'agent', address = a): ChatMessage => ({ kind: 'message', id, seq: 0, role: 'user', text:
+const incoming = (id: string, type = 'agent', address = a) => ({ kind: 'message' as const, id, seq: 0, role: 'user' as const, text:
   `<gugu_delivery route="chat" chat="group" chat_kind="group" from="d3" from_id="${address}" from_type="${type}" msg="msg:${id}"><![CDATA[message ${id}]]></gugu_delivery>` });
 const message = (id: string): ChatMessage => ({ kind: 'message', id, seq: 0, role: 'assistant', text: id });
 const turn = (id: string, items: ChatMessage[]): TranscriptTurn => ({ id, seq: 0, initiator: 'user', outcome: { kind: 'done' }, items: items as TranscriptTurn['items'] });
