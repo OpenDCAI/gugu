@@ -26,9 +26,14 @@ export class CredentialCleanup {
   private retired = false;
   private cleared = false;
   private retirement: Promise<boolean> | undefined;
+  private readonly surface: CredentialCleanupSurface;
+  private readonly artifacts: CredentialArtifactCleanup;
 
-  constructor(private readonly binding: CredentialUseBinding, private readonly surface: CredentialCleanupSurface,
-    private readonly artifacts: CredentialArtifactCleanup) {}
+  constructor(private readonly binding: CredentialUseBinding, surface: CredentialCleanupSurface,
+    artifacts: CredentialArtifactCleanup) {
+    this.surface = Object.freeze({ clearFilledFields: surface.clearFilledFields.bind(surface), destroy: surface.destroy.bind(surface) });
+    this.artifacts = Object.freeze({ quiesce: artifacts.quiesce.bind(artifacts), clear: artifacts.clear.bind(artifacts), verify: artifacts.verify.bind(artifacts) });
+  }
 
   get failed(): boolean { return this.fault; }
   get destroyed(): boolean { return this.retired; }

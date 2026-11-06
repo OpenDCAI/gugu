@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { CredentialHandoff, type CredentialCompletion, type CredentialUseSettlement } from './credential-handoff';
+import { CredentialHandoff, type CredentialCompletion, type CredentialUseSettlement, type PreparedCredentialHandoff } from './credential-handoff';
 import type { CredentialUseBinding, VaultUseCapability } from './credential-use-contract';
 import type { PostUseAuditProof, PostUseAuditResult, UseOutcomeContext } from './credential-settlement-contract';
 import { CredentialHandoffRegistry } from './credential-handoff-registry';
@@ -23,10 +23,11 @@ function fixture() {
     surfaceEpoch: binding.loginSurfaceEpoch, documentId: randomUUID(), documentEpoch: randomUUID(),
     topDocumentChanged: true, filledPasswordFieldsAbsent: true, requiresPersonInteraction: false };
   const commit = vi.fn(async () => {});
+  const discard = vi.fn(async () => {});
   const host = { assertCurrent: vi.fn((_binding: CredentialUseBinding) => {}),
     readCompletion: vi.fn(async (_binding: CredentialUseBinding): Promise<CredentialCompletion> => ({ ...completion })),
     verifyLocalContinue: vi.fn((_binding: CredentialUseBinding, evidence: unknown) => evidence === person),
-    prepareHandoff: vi.fn(async (_binding: CredentialUseBinding): Promise<{ commit(): Promise<void> }> => ({ commit })) };
+    prepareHandoff: vi.fn(async (_binding: CredentialUseBinding): Promise<PreparedCredentialHandoff> => ({ commit, discard })) };
   const surface = { clearFilledFields: vi.fn(async (_binding: CredentialUseBinding) => ({ status: 'cleared' as const })),
     destroy: vi.fn(async (_binding: CredentialUseBinding, _epoch?: string) => ({ status: 'destroyed' as const })) };
   const artifacts = { quiesce: vi.fn(async () => true), clear: vi.fn(async () => true), verify: vi.fn(async () => true) };
@@ -48,7 +49,7 @@ function fixture() {
   const handoff = new CredentialHandoff(binding, capability, host, surface, artifacts, audit, revocation.signal);
   const settlement: Mutable<CredentialUseSettlement> = { outcome: 'submitted_unconfirmed', effectPossible: true,
     audit: issue() };
-  return { binding, capability, person, completion, commit, host, surface, artifacts, handoff, settlement, audit, issue, revocation,
+  return { binding, capability, person, completion, commit, discard, host, surface, artifacts, handoff, settlement, audit, issue, revocation,
     settle: (value = settlement) => handoff.settle(capability, binding, value) };
 }
 
@@ -208,14 +209,15 @@ describe('private credential session handoff', () => {
   });
 
   it('does not commit after lock/revoke while async handoff preparation waits', async () => {
-    const f = fixture(), wait = deferred<{ commit(): Promise<void> }>(), entered = deferred<void>();
+    const f = fixture(), wait = deferred<PreparedCredentialHandoff>(), entered = deferred<void>();
     f.host.prepareHandoff.mockImplementationOnce(() => { entered.resolve(); return wait.promise; });
     const pending = f.settle();
     await entered.promise;
     f.handoff.invalidate();
-    wait.resolve({ commit: f.commit });
+    wait.resolve({ commit: f.commit, discard: f.discard });
     expect((await pending).handoff).toBe('isolated_login_retained');
     expect(f.commit).not.toHaveBeenCalled();
+    expect(f.discard).toHaveBeenCalledOnce();
     await f.handoff.refresh();
     expect(f.commit).not.toHaveBeenCalled();
   });
@@ -333,5 +335,22 @@ describe('private credential session handoff', () => {
     registry.registerUse(f.capability, f.binding, f.revocation.signal);
     expect(() => registry.registerUse({} as VaultUseCapability, f.binding, new AbortController().signal)).toThrow('credential_use_already_registered');
     expect(f.handoff.view().handoff).toBe('isolated_login_active');
+  });
+
+  it('keeps construction-time host and audit method identities when dependency objects are later replaced', async () => {
+    const f = fixture(), originalPrepare = f.host.prepareHandoff, originalDestroy = f.surface.destroy;
+    const replacement = vi.fn(async (_binding: CredentialUseBinding): Promise<PreparedCredentialHandoff> => ({ commit: f.commit, discard: f.discard }));
+    f.host.prepareHandoff = replacement;
+    f.surface.destroy = vi.fn(async (_binding: CredentialUseBinding, _epoch?: string) => ({ status: 'destroyed' as const }));
+    await f.settle();
+    expect(originalPrepare).toHaveBeenCalledOnce();
+    expect(originalDestroy).toHaveBeenCalledOnce();
+    expect(replacement).not.toHaveBeenCalled();
+    expect(f.surface.destroy).not.toHaveBeenCalled();
+    const other = fixture(), receipt = other.issue();
+    if (receipt.status !== 'recorded') throw new Error('fixture_unavailable');
+    other.audit.matches = vi.fn((_receipt: Extract<PostUseAuditResult, { status: 'recorded' }>, _context: UseOutcomeContext) => true);
+    expect((await other.settle({ ...other.settlement, audit: { ...receipt, proof: {} as PostUseAuditProof } })).reason).toBe('audit_unavailable');
+    expect(other.commit).not.toHaveBeenCalled();
   });
 });

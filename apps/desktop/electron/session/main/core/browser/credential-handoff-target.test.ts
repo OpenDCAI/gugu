@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { BrowserWindow, WebContentsView } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { BrowserPageRuntime } from './browser-page-runtime';
-import { prepareCredentialHandoffTarget } from './credential-handoff-target';
+import { prepareCredentialHandoffTarget, prepareFreshCredentialHandoffTarget } from './credential-handoff-target';
 import type { CredentialUseBinding } from './credential-use-contract';
 
 function target() {
@@ -82,5 +82,58 @@ describe('native credential handoff destination', () => {
       expect(() => prepared.commit()).toThrow('invalidated');
       expect(contents.loadURL.mock.calls.some(([url]) => url === binding.origin)).toBe(false);
     } finally { runtime.close(); }
+  });
+});
+
+describe('fresh unregistered credential destination', () => {
+  function port() {
+    const destination = { loadOrigin: vi.fn(async (_origin: string) => {}),
+      publish: vi.fn(() => ({ status: 'published' as const })), dispose: vi.fn(async () => {}) };
+    const value = { assertCurrent: vi.fn((_binding: CredentialUseBinding) => {}), prepare: vi.fn(async () => destination) };
+    return { destination, value };
+  }
+
+  it('loads only the safe origin while unpublished, then publishes synchronously once', async () => {
+    const f = port();
+    const prepared = await prepareFreshCredentialHandoffTarget(binding, f.value);
+    expect(f.destination.loadOrigin).toHaveBeenCalledWith(binding.origin);
+    expect(f.destination.publish).not.toHaveBeenCalled();
+    const result = prepared.commit();
+    expect(f.destination.publish).toHaveBeenCalledOnce();
+    await result;
+    expect(() => prepared.commit()).toThrow('credential_handoff_unavailable');
+  });
+
+  it('does not publish when invalidated while the fresh target is loading', async () => {
+    const f = port();
+    let resolve!: () => void, current = true;
+    const loading = new Promise<void>(done => { resolve = done; });
+    f.destination.loadOrigin.mockReturnValueOnce(loading);
+    f.value.assertCurrent.mockImplementation(() => { if (!current) throw new Error('invalidated'); });
+    const preparing = prepareFreshCredentialHandoffTarget(binding, f.value);
+    await Promise.resolve(); await Promise.resolve();
+    current = false; resolve();
+    await expect(preparing).rejects.toThrow('credential_handoff_unavailable');
+    expect(f.destination.publish).not.toHaveBeenCalled();
+    expect(f.destination.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('discards prepared contexts without publishing from cleanup or a late callback', async () => {
+    const f = port(), prepared = await prepareFreshCredentialHandoffTarget(binding, f.value);
+    await prepared.discard(); await prepared.discard();
+    expect(() => prepared.commit()).toThrow('credential_handoff_unavailable');
+    expect(f.destination.publish).not.toHaveBeenCalled();
+    expect(f.destination.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('does not turn an uncertain publication result into a success or a retry', async () => {
+    const f = port();
+    f.destination.publish.mockImplementationOnce(() => { throw new Error('synthetic_native_publish_failure'); });
+    const prepared = await prepareFreshCredentialHandoffTarget(binding, f.value);
+    expect(() => prepared.commit()).toThrow('credential_handoff_unavailable');
+    await prepared.discard();
+    expect(() => prepared.commit()).toThrow('credential_handoff_unavailable');
+    expect(f.destination.publish).toHaveBeenCalledOnce();
+    expect(f.destination.dispose).toHaveBeenCalledOnce();
   });
 });

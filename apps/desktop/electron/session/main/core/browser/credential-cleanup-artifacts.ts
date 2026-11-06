@@ -11,12 +11,25 @@ export type CredentialArtifactKind = typeof CREDENTIAL_ARTIFACT_KINDS[number];
 export function credentialArtifactCleanup(
   custodians: Readonly<Record<CredentialArtifactKind, CredentialArtifactCleanup>>,
 ): CredentialArtifactCleanup {
-  const fixed = CREDENTIAL_ARTIFACT_KINDS.map(kind => custodians[kind]);
+  const fixed = CREDENTIAL_ARTIFACT_KINDS.map(kind => {
+    const custodian = custodians[kind];
+    return custodian ? { quiesce: custodian.quiesce?.bind(custodian), clear: custodian.clear?.bind(custodian),
+      verify: custodian.verify?.bind(custodian) } : undefined;
+  });
   const run = async (method: keyof CredentialArtifactCleanup, binding: CredentialUseBinding): Promise<boolean> => {
+    if (method === 'quiesce') {
+      // Close ALL admissions before waiting for any consumer's real in-flight work.
+      const closed = await Promise.all(fixed.map(async custodian => {
+        try { return typeof custodian?.quiesce === 'function' && await custodian.quiesce(binding) === true; }
+        catch { return false; }
+      }));
+      return closed.every(Boolean);
+    }
     // A failed custodian cannot skip other outputs that still need clearing. Do not short-circuit.
     let success = true;
     for (const custodian of fixed) {
-      try { if (!custodian || await custodian[method](binding) !== true) success = false; }
+      const operation = custodian?.[method];
+      try { if (typeof operation !== 'function' || await operation(binding) !== true) success = false; }
       catch { success = false; }
     }
     return success;

@@ -29,6 +29,11 @@ export type CredentialUseSettlement = Readonly<{
   effectPossible: boolean;
   audit: PostUseAuditResult;
 }>;
+export interface PreparedCredentialHandoff {
+  commit(): Promise<void>;
+  /** Dispose only feature-owned unpublished/failed preparation; never restore observation here. */
+  discard(): Promise<void>;
+}
 
 export interface CredentialHandoffHost {
   /** Actor/ref/lock/surface and destination ownership, including after normal post-submit navigation.
@@ -40,7 +45,7 @@ export interface CredentialHandoffHost {
   /** Must retain destination isolation during preparation. commit is synchronous and starts the
    * safe origin navigation without another await; never adopts the private contents or raw login URL.
    */
-  prepareHandoff(binding: CredentialUseBinding): Promise<{ commit(): Promise<void> }>;
+  prepareHandoff(binding: CredentialUseBinding): Promise<PreparedCredentialHandoff>;
 }
 
 /** Host-only lifecycle for one already-approved use. No approval or submission counter is maintained here.
@@ -60,11 +65,16 @@ export class CredentialHandoff {
   private useFinished = false;
   private outcomeAudit: PostUseAuditResult | undefined;
   private readonly revoked = () => this.invalidate();
+  private readonly host: CredentialHandoffHost;
+  private readonly audit: FixedOutcomeAuditPort;
 
   constructor(binding: CredentialUseBinding, private readonly capability: VaultUseCapability,
-    private readonly host: CredentialHandoffHost, surface: CredentialCleanupSurface, artifacts: CredentialArtifactCleanup,
-    private readonly audit: FixedOutcomeAuditPort, private readonly revokedSignal: AbortSignal) {
+    host: CredentialHandoffHost, surface: CredentialCleanupSurface, artifacts: CredentialArtifactCleanup,
+    audit: FixedOutcomeAuditPort, private readonly revokedSignal: AbortSignal) {
     assertCredentialWebsite(binding.origin, binding.origin);
+    this.host = Object.freeze({ assertCurrent: host.assertCurrent.bind(host), readCompletion: host.readCompletion.bind(host),
+      verifyLocalContinue: host.verifyLocalContinue.bind(host), prepareHandoff: host.prepareHandoff.bind(host) });
+    this.audit = Object.freeze({ appendOutcome: audit.appendOutcome.bind(audit), matches: audit.matches.bind(audit) });
     this.binding = Object.freeze(Object.fromEntries(BINDING_KEYS.map(key => [key, binding[key]]))) as CredentialUseBinding;
     this.cleanupState = new CredentialCleanup(this.binding, surface, artifacts);
     if (revokedSignal.aborted) this.invalidate();
@@ -153,17 +163,23 @@ export class CredentialHandoff {
       this.outcome = outcome;
       this.outcomeAudit = this.copyAudit(receipt);
     }
-    let prepared: { commit(): Promise<void> };
+    let prepared: PreparedCredentialHandoff;
     try { prepared = await this.host.prepareHandoff(this.binding); }
     catch { this.latch('handoff_unconfirmed'); return this.view(); }
-    // Do not move this check before the await. Invalidations while preparing must win.
-    if (!this.current() || !this.outcomeAudit || !this.auditMatches(this.outcomeAudit, this.outcome) || this.fault) return this.view();
-    try { await prepared.commit(); }
-    catch { this.latch('handoff_unconfirmed'); return this.view(); }
-    // A late successful load, or a synchronous callback during dispatch, cannot revive an invalidated use.
-    if (this.current() && !this.fault && this.auditMatches(this.outcomeAudit, this.outcome)) {
-      this.handedBack = true;
-      this.revokedSignal.removeEventListener('abort', this.revoked);
+    try {
+      // Do not move this check before the await. Invalidations while preparing must win.
+      if (!this.current() || !this.outcomeAudit || !this.auditMatches(this.outcomeAudit, this.outcome) || this.fault) return this.view();
+      try { await prepared.commit(); }
+      catch { this.latch('handoff_unconfirmed'); return this.view(); }
+      // A late successful load, or a synchronous callback during dispatch, cannot revive an invalidated use.
+      if (this.current() && !this.fault && this.auditMatches(this.outcomeAudit, this.outcome)) {
+        this.handedBack = true;
+        this.revokedSignal.removeEventListener('abort', this.revoked);
+      }
+    } finally {
+      if (!this.handedBack) {
+        try { await prepared.discard(); } catch { this.latch('cleanup_unconfirmed'); }
+      }
     }
     return this.view();
   }
