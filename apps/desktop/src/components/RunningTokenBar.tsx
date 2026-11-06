@@ -3,6 +3,7 @@
 // 消除 DM 三跳点 vs GroupAgentStatusBar(群聊竖排文字+工具名) 双轨(两者都已删)。
 // 设计 SSOT: design/agent-running-group-1687.html（.bar/.tok/.state/.pop/.more/.ov/.otok/.opop）。
 import { useId, useLayoutEffect, useRef, useState, type FocusEvent, type ReactNode, type RefObject } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useAvatarIdentity } from '@/lib/avatarIdentity'
@@ -213,19 +214,24 @@ export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }:
   const [fitted, setFitted] = useState(Number.POSITIVE_INFINITY)
   const empty = tokens.length === 0
   const visible = fitted
+  const ids = tokens.map(token => token.id).join(' ')
+  // @@@measure-after-layout - sizes are read only in the ResizeObserver callback, after the frame's own layout: reading
+  // them in a layout effect forced a synchronous layout of everything the commit had just written (a freshly opened
+  // chat's rows), once per parent render. In the callback only the bar is dirty after its own update, so fitting again
+  // with the +N chip in place lays out just the bar, and the fitted row lands in the same frame.
   useLayoutEffect(() => {
     const el = boxRef.current
     if (!el) return
     const pills = [...el.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')]
-    const more = el.querySelector<HTMLElement>('.rtb-more')
-    const report = () => setFitted(fitCount(el.clientWidth, pills.map(pill => pill.offsetWidth), more?.offsetWidth ?? 0))
-    const observer = new ResizeObserver(report)
+    const fit = () => fitCount(el.clientWidth, pills.map(pill => pill.offsetWidth), el.querySelector<HTMLElement>('.rtb-more')?.offsetWidth ?? 0)
+    const observer = new ResizeObserver(() => {
+      // A wider +N fits fewer pills and more pills make +N narrower, so successive passes move one way and stop.
+      for (let next = fit(), shown = Number.NaN; next !== shown; shown = next, next = fit()) flushSync(() => setFitted(next))
+    })
     observer.observe(el)
     pills.forEach(pill => observer.observe(pill))
-    if (more) observer.observe(more)
-    report()
     return () => observer.disconnect()
-  }, [tokens, visible]) // Re-measure after +N mounts or its digit count changes.
+  }, [ids])
   if (empty) return null
   const overflow = tokens.slice(visible)
   return (
