@@ -12,8 +12,8 @@ export interface Invalidation { epoch: string; reason: LockReason | 'edit' | 'de
 export interface VaultState { status: 'locked' | 'unlocked' | 'unavailable'; epoch: string; reason?: VaultCode }
 export interface AuditInput {
   id: string
-  action: 'setup' | 'recovery' | 'unlock' | 'lock' | 'add' | 'edit' | 'delete' | 'request' | 'decision' | 'use' | 'invalidate' | 'clear'
-  agentId?: string; sessionId?: string; requestId?: string; useId?: string
+  action: 'pre-submit' | 'setup' | 'recovery' | 'unlock' | 'lock' | 'add' | 'edit' | 'delete' | 'request' | 'decision' | 'use' | 'invalidate' | 'clear'
+  loginSurfaceId?: string; agentId?: string; sessionId?: string; requestId?: string; useId?: string
   credential?: { id: string; version: number }; origin?: string
   decision?: 'allow-once' | 'reject' | 'cancel' | 'expire'
   source: 'local-person' | 'policy' | 'browser' | 'lifecycle'
@@ -21,7 +21,7 @@ export interface AuditInput {
 }
 export interface AuditRecord extends AuditInput { id: string; at: string; accountId: string }
 export type AuditReceipt = { status: 'recorded'; recordId: string } | {
-  status: 'unavailable' | 'uncertain'; code: 'AUDIT_FAILED'; retry: false; keepObservationPaused: boolean
+  status: 'unavailable' | 'uncertain'; code: 'AUDIT_FAILED'; retry: false; retainIsolatedLogin: boolean
 }
 /** Implemented by the trusted local host, never from tool arguments or a claimed principal. */
 export interface VaultKeyProtector {
@@ -48,14 +48,16 @@ export interface VaultDependencies {
 }
 
 export type { VaultUseCapability, CredentialUseLease as VaultUseControl } from '../session/main/core/browser/credential-use-contract'
-import type { VaultUseCapability, CredentialUseBinding, CredentialUseLease } from '../session/main/core/browser/credential-use-contract'
+import type { VaultUseCapability, CredentialUseBinding, CredentialUseLease, AuditedCredentialUseLease, CredentialUseCleanup, CredentialLoginOutcome } from '../session/main/core/browser/credential-use-contract'
 export type VaultUseBinding = CredentialUseBinding
-export type BrowserOutcome = 'submitted_unconfirmed' | 'login_confirmed' | 'person_interaction_required' | 'failed' | 'uncertain'
+export type BrowserOutcome = CredentialLoginOutcome
+export type VaultSinkControl = AuditedCredentialUseLease
 export interface VaultBrowserSink {
   claimCredentialSink(capability: VaultUseCapability, binding: VaultUseBinding): CredentialUseLease
   /** Fixed at trusted host construction, never supplied by an Agent or per-call callback. */
-  fillAndSubmit(binding: VaultUseBinding, secrets: { account: Buffer; password: Buffer }, control: CredentialUseLease): Promise<BrowserOutcome>
-  /** Cleanup proves clearing only and MUST NOT resume observation; only the coordinator can release its lease. */
-  cleanup(useRef: string): Promise<{ status: 'cleaned' | 'paused_cleanup_unconfirmed' }>
+  fillAndSubmit(binding: VaultUseBinding, secrets: { account: Buffer; password: Buffer }, control: VaultSinkControl): Promise<BrowserOutcome>
+  /** Cleanup proves clearing only and MUST NOT hand back the isolated surface; only the coordinator can finalize handoff. */
+  cleanup(useRef: string): Promise<CredentialUseCleanup>
 }
-export interface CredentialUseResult { status: BrowserOutcome | 'unavailable'; retry: false; keepObservationPaused: boolean }
+/** Login outcome only. A false retention flag is NOT handback authority; the coordinator checks the complete B state. */
+export interface CredentialUseResult { status: BrowserOutcome | 'unavailable'; retry: false; retainIsolatedLogin: boolean }

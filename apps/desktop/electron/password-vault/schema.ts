@@ -16,8 +16,8 @@ export function httpsOrigin(input: string): string {
 const origin = z.string().refine(value => { try { return httpsOrigin(value) === value } catch { return false } })
 export const auditSchema = z.strictObject({
   id: uuid,
-  action: z.enum(['setup', 'recovery', 'unlock', 'lock', 'add', 'edit', 'delete', 'request', 'decision', 'use', 'invalidate', 'clear']),
-  agentId: identity.optional(), sessionId: identity.optional(), requestId: uuid.optional(), useId: uuid.optional(),
+  action: z.enum(['pre-submit', 'setup', 'recovery', 'unlock', 'lock', 'add', 'edit', 'delete', 'request', 'decision', 'use', 'invalidate', 'clear']),
+  loginSurfaceId: uuid.optional(), agentId: identity.optional(), sessionId: identity.optional(), requestId: uuid.optional(), useId: uuid.optional(),
   credential: z.strictObject({ id: uuid, version: z.number().int().positive() }).optional(), origin: origin.optional(),
   decision: z.enum(['allow-once', 'reject', 'cancel', 'expire']).optional(),
   source: z.enum(['local-person', 'policy', 'browser', 'lifecycle']),

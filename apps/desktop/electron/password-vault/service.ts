@@ -227,15 +227,15 @@ export class LocalPasswordVault {
   /** For the trusted approval/browser coordinator only. This method never accepts passwords or raw errors. */
   appendAudit(input: AuditInput, { effectPossible }: { effectPossible: boolean }): Promise<AuditReceipt> {
     let validated: AuditInput
-    try { validated = auditInput(input) } catch { return Promise.resolve({ status: effectPossible ? 'uncertain' : 'unavailable', code: 'AUDIT_FAILED', retry: false, keepObservationPaused: effectPossible }) }
+    try { validated = auditInput(input) } catch { return Promise.resolve({ status: effectPossible ? 'uncertain' : 'unavailable', code: 'AUDIT_FAILED', retry: false, retainIsolatedLogin: true }) }
     return this.run(async () => {
       try { await this.gates(); return { status: 'recorded', recordId: await this.record(validated) } }
-      catch { await this.fail(); return { status: effectPossible ? 'uncertain' : 'unavailable', code: 'AUDIT_FAILED', retry: false, keepObservationPaused: effectPossible } }
+      catch { await this.fail(); return { status: effectPossible ? 'uncertain' : 'unavailable', code: 'AUDIT_FAILED', retry: false, retainIsolatedLogin: true } }
     })
   }
   useCredential(capability: VaultUseCapability, useBinding: VaultUseBinding): Promise<CredentialUseResult> {
     const sink = this.#dependencies.browser
-    if (!sink) return Promise.resolve({ status: 'unavailable', retry: false, keepObservationPaused: true })
+    if (!sink) return Promise.resolve({ status: 'unavailable', retry: false, retainIsolatedLogin: true })
     // Copy the binding; mutating a caller-owned object while waiting must not change the authorization.
     const bound = { ...useBinding }
     return performCredentialUse(sink, capability, bound, control => this.run(async () => {

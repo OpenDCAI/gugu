@@ -55,10 +55,14 @@ describe('local encrypted vault: storage and lifecycle', () => {
     await expect(vault.list(person)).rejects.toMatchObject({ code: 'LOCKED' })
     await vault.confirmRecovery(person, pending.setupId, pending.recoveryMaterial)
     const summary = await vault.save(person, randomUUID(), input)
+    await writeFile(join(root, 'detector-control.txt'), 'known-nonempty-detector-control')
     const files = await bytesUnder(root)
+    expect(files.some(bytes => bytes.includes('known-nonempty-detector-control'))).toBe(true)
     // The detector has an independent positive control; failures print booleans, never the canary.
     expect(Buffer.from('known-control').includes('known-control')).toBe(true)
-    for (const secret of [input.password, input.account, pending.recoveryMaterial]) expect(files.some(bytes => bytes.includes(secret))).toBe(false)
+    for (const secret of [input.password, input.account, pending.recoveryMaterial, pending.recoveryMaterial.split('.')[2]]) {
+      for (const encoded of [secret, Buffer.from(secret).toString('base64'), Buffer.from(secret).toString('hex'), encodeURIComponent(secret)]) expect(files.some(bytes => bytes.includes(encoded))).toBe(false)
+    }
     expect(JSON.stringify(summary).includes(input.password)).toBe(false)
     expect(summary.maskedAccount).toBe('••••')
     await vault.dispose()
@@ -257,7 +261,7 @@ describe('private encrypted audit and failure receipts', () => {
       return original.call(this, path, bytes)
     })
     const receipt = await vault.appendAudit(event(), { effectPossible })
-    expect(receipt).toEqual({ status: effectPossible ? 'uncertain' : 'unavailable', code: 'AUDIT_FAILED', retry: false, keepObservationPaused: effectPossible })
+    expect(receipt).toEqual({ status: effectPossible ? 'uncertain' : 'unavailable', code: 'AUDIT_FAILED', retry: false, retainIsolatedLogin: true })
     expect(JSON.stringify(receipt).includes(secret)).toBe(false)
     expect(vault.state().status).toBe('unavailable')
     expect(vi.mocked(dependencies.invalidate).mock.calls.at(-1)?.[0].reason).toBe('failure')
