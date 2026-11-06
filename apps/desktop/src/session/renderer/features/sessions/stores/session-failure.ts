@@ -22,6 +22,7 @@ export type GitFetchFailure =
 
 export type SessionFailure =
   | { kind: 'project-not-found' }
+  | { kind: 'attachment-host-update-required'; detail: string }
   /**
    * 引擎此刻起不来,任务因此没有被创建。`reason` 决定指路,不是同一句话的两种说法:
    * `updating` 让用户稍后重试,`missing` 让用户去装。`detail` 是解析器诊断原文,逐字保留。

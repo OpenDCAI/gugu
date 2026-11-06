@@ -252,7 +252,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
   it.each([15, undefined])('keeps the file chip and draft without creating on remote attachment protocol %s', async protocol => {
     machineRegistry.register('remote-host', ['project-1']);
     devices.push({ device_id: 'remote-host', capabilities: { remote_protocol: protocol } });
-    mocks.assertProtocol.mockImplementationOnce(() => { throw new Error('Update the task host to send attachments'); });
+    const detail = 'task attachment protocol mismatch: received=15 required=17';
+    mocks.assertProtocol.mockImplementationOnce(() => { throw new Error(detail); });
     const { chip } = attachFirstFile();
     await act(async () => root.render(React.createElement(Probe)));
     await act(async () => latest?.handleCreateSession());
@@ -263,7 +264,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(initialSession.dropAttachment).not.toHaveBeenCalled();
     expect(initialSession.attachments).toEqual([chip]);
     expect(initialSession.prompt).toBe('make one task');
-    expect(latest?.deliveryError).toEqual({ kind: 'raw', detail: 'Update the task host to send attachments' });
+    expect(latest?.deliveryError).toEqual({ kind: 'attachment-host-update-required', detail });
+    expect(mocks.logWarn).toHaveBeenCalledWith('Attachment protocol check failed', { machineId: 'remote-host', error: detail });
     expect(mocks.navigate).not.toHaveBeenCalled();
 
     initialSession.attachments = [];

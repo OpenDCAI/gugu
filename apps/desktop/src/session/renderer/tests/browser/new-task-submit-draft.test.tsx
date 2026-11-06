@@ -10,17 +10,18 @@ import type { InitialSessionState } from '@renderer/features/sessions/session-co
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { machineRegistry } from '@renderer/lib/machine-routing';
+import { NoticeHost } from '@/components/NoticeHost';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import '@renderer/index.css';
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), assertProtocol: vi.fn(), navigate: vi.fn(), warn: vi.fn() }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), assertProtocol: vi.fn(), navigate: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionManagerStore: () => ({ createSession: mocks.create }), getSessionPageStore: () => ({ workspaceId: 'workspace' }), asProvisioned: (value: unknown) => value,
 }));
 vi.mock('@/store/devicesCache', () => ({ readCachedDevices: () => [{ device_id: 'host', capabilities: { remote_protocol: 15 } }] }));
 vi.mock('@/lib/taskAttachmentTarget', async original => ({ ...(await original<object>()), assertTaskAttachmentProtocol: mocks.assertProtocol, taskAttachmentUsesSsh: () => false }));
 vi.mock('@renderer/lib/ipc', async original => ({ ...(await original<object>()), rpc: { sessions: { sendMessage: vi.fn() } }, rpcOn: () => ({ sessionCreate: { admitFirstMessages: async () => {} } }) }));
-vi.mock('@renderer/utils/logger', () => ({ log: { warn: mocks.warn, error: vi.fn() } }));
+vi.mock('@renderer/utils/logger', () => ({ log: { warn: mocks.warn, error: mocks.error } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: vi.fn() }));
 
 const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
@@ -45,6 +46,7 @@ function Harness() {
     if (editor.current?.getText() !== prompt) editor.current?.setText(prompt);
   }, [prompt]);
   return <>
+    <NoticeHost />
     <ChatComposer editorOptions={{ clearOnSubmit: false }} editorApiRef={editor} onInputChange={setPrompt}
       onSubmit={handleCreateSession} canSubmit={canCreate} attachments={attachments}
       onAttachmentsChange={next => { setAttachments(next); setEditSeq(seq => seq + 1); }} />
@@ -72,15 +74,20 @@ afterEach(() => { act(() => root.unmount()); container.remove(); machineRegistry
 const text = () => container.querySelector('[data-testid="prompt-editor"]')?.textContent;
 
 it.each(['Enter', 'button'])('keeps the draft, file chip and visible update error after rejected %s submission', async method => {
-  mocks.assertProtocol.mockImplementation(() => { throw new Error('Update the task host to send attachments'); });
+  const detail = 'task attachment protocol mismatch: received=15 required=17';
+  mocks.assertProtocol.mockImplementation(() => { throw new Error(detail); });
   if (method === 'Enter') await userEvent.keyboard('{Enter}');
   else await page.getByRole('button', { name: translateSessionMessage('composer.sendMessage'), exact: true }).click();
-  await until('attachment refusal is visible', () => container.querySelector('[data-testid="create-delivery-error"]')?.checkVisibility() === true);
-  expect(container.querySelector('[role="alert"]')?.textContent).toBe(translateSessionMessage('composer.attachmentHostUpdateRequired'));
+  const message = translateSessionMessage('composer.attachmentHostUpdateRequired');
+  await expect.element(page.getByText(message, { exact: true })).toBeVisible();
+  expect(container.querySelector('[data-testid="create-delivery-error"]')).toBeNull();
+  expect(document.body.textContent).not.toContain(detail);
+  expect(mocks.warn).toHaveBeenCalledWith('Attachment protocol check failed', { machineId: 'host', error: detail });
   expect(text()).toBe('keep this draft');
   expect(container.textContent).toContain('brief.txt');
   expect(mocks.create).not.toHaveBeenCalled();
   await page.getByRole('button', { name: translateSessionMessage('composer.removeAttachment', { name: 'brief.txt' }), exact: true }).click();
+  await until('editing the attachments clears the obsolete refusal', () => document.querySelector('[data-sonner-toast]') === null);
   await page.getByTestId('prompt-editor').click();
   await userEvent.keyboard('{Enter}');
   await until('the retained caption creates one task', () => mocks.navigate.mock.calls.length === 1 && text() === '');

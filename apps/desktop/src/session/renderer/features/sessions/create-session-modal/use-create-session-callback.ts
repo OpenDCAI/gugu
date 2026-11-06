@@ -403,8 +403,10 @@ export function useCreateSessionCallback({
       const deviceId = selectedProjectId ? machineRegistry.machineOf(selectedProjectId) : null;
       if (deviceId) {
         try { assertTaskAttachmentProtocol(readCachedDevices().find(device => device.device_id === deviceId)?.capabilities?.remote_protocol); }
-        catch {
-          setDeliveryError({ kind: 'raw', detail: translateSessionMessage('composer.attachmentHostUpdateRequired') });
+        catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          log.warn('Attachment protocol check failed', { machineId: deviceId, error: detail });
+          setDeliveryError({ kind: 'attachment-host-update-required', detail });
           return;
         }
       }

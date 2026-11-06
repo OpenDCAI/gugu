@@ -13,6 +13,7 @@ export function sessionStartupFailureCopy(reason: string, translate: SessionTran
 /** Creation errors are application failures, unlike raw failed-turn contents in the transcript. */
 export function creationFailureCopy(failure: SessionFailure, translate: SessionTranslate): string {
   switch (failure.kind) {
+    case 'attachment-host-update-required': return translate('composer.attachmentHostUpdateRequired');
     case 'raw': return translate(codexNeedsUpgrade(failure.detail) ? 'taskError.codexUpgrade' : 'taskError.createFailedRetry');
     case 'harness-unavailable': return translate(failure.reason === 'updating' ? 'taskError.harnessUpdating' : 'taskError.harnessMissing', { harnessName: failure.harnessName });
     case 'project-not-found': return translate('taskError.createProjectMissing');
