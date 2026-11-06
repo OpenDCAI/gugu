@@ -1067,9 +1067,14 @@ export async function discloseInboxRowsFailed(agentUserId: string, sources: read
   if (outcome.kind === 'retained') return discloseBatchFailure(agentUserId, sources, deps, undefined, 'notAdmitted')
   // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
   const said = outcome.kind === 'failed'
-    ? await discloseBatchFailure(agentUserId, sources, deps, outcome.cause, failureReason(outcome.cause))
+    // A failed row never reached the agent: said as not delivered, unless the cause names something the person can act on.
+    ? await discloseBatchFailure(agentUserId, sources, deps, outcome.cause, agentFailureReason(errorText(outcome.cause)) ?? 'deliveryRejected', true)
     : await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown')
-  await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
+  // Final either way: a read marker that cannot land (an identity removed by the archive may not mark read) was logged and
+  // leaves the row unread; it must not stop the unit from settling. The host's claimed source keeps it from being resent.
+  await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps).catch((error: unknown) => {
+    if (isSqliteBusy(error)) throw error
+  })
   return said
 }
 
