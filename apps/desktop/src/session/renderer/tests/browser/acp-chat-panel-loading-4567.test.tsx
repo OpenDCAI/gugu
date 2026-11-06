@@ -114,9 +114,11 @@ describe('ACP task chat loading state (#4567)', () => {
       </QueryClientProvider>
     );
 
-    await until('loading surface is visible', () => page.getByText('Loading chat').query()?.checkVisibility({ opacityProperty: true, visibilityProperty: true }) === true);
-    await expect.element(page.getByText('Loading chat')).toBeVisible();
-    expect(host.querySelector('[data-session-chat-loading="true"]')?.textContent).toContain('Loading chat');
+    const loading = page.getByRole('status', { name: 'Loading chat', exact: true });
+    await until('loading surface is visible', () => loading.query()?.checkVisibility({ opacityProperty: true, visibilityProperty: true }) === true);
+    await expect.element(loading).toBeVisible();
+    expect(host.querySelectorAll('[data-session-chat-loading="true"] [data-skeleton-bubble]')).toHaveLength(6);
+    expect(host.querySelector('[data-gg-loading]')).toBeNull();
 
     const element = host.querySelector<HTMLElement>('[data-session-chat-loading="true"]');
     expect(element).not.toBeNull();
