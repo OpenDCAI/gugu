@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { appendFile, chmod, link, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { chmod, link, mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { PermissionCaller } from './operation'
 import type { PermissionDecision, PermissionOperation } from './rules'
@@ -24,6 +25,24 @@ const RETENTION_MS = 90 * 24 * 60 * 60 * 1000
 const noFile = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 const dayFile = /^\d{4}-\d{2}-\d{2}\.jsonl$/
 
+/** Bind validation and I/O to one open file; a hard-linked private file is compromised, even for the owner API. */
+async function openPrivateFile(path: string, flags = constants.O_RDONLY) {
+  const handle = await open(path, flags | (constants.O_NOFOLLOW ?? 0), 0o600)
+  try {
+    const info = await handle.stat()
+    if (!info.isFile() || info.nlink !== 1) throw new Error('Private permission file must be regular with a single link')
+    return handle
+  } catch (error) { await handle.close(); throw error }
+}
+async function readPrivateFile(path: string): Promise<string> {
+  const handle = await openPrivateFile(path)
+  try { return await handle.readFile('utf8') } finally { await handle.close() }
+}
+async function verifyPrivateFile(path: string): Promise<void> {
+  const handle = await openPrivateFile(path)
+  await handle.close()
+}
+
 /** Local and person-only. No chat, timeline, upload, resource-index or MCP reader is registered for these files. */
 export class PrivatePermissionRecords {
   constructor(private readonly root: string, private readonly now = () => new Date()) {}
@@ -36,7 +55,7 @@ export class PrivatePermissionRecords {
   }
   async enforcement(ownerId: string): Promise<boolean> {
     try {
-      const value: unknown = JSON.parse(await readFile(join(this.directory(ownerId), 'enforcement.json'), 'utf8'))
+      const value: unknown = JSON.parse(await readPrivateFile(join(this.directory(ownerId), 'enforcement.json')))
       if (!value || typeof value !== 'object' || typeof (value as { enabled?: unknown }).enabled !== 'boolean') throw new Error('Malformed permission enforcement setting')
       return (value as { enabled: boolean }).enabled
     } catch (error) { if (noFile(error)) return false; throw error }
@@ -46,10 +65,13 @@ export class PrivatePermissionRecords {
     requirePermissionOwner(principal, ownerId)
     if (typeof enabled !== 'boolean') throw new Error('Invalid enforcement setting')
     const directory = await this.prepare(ownerId)
+    const target = join(directory, 'enforcement.json')
+    await verifyPrivateFile(target).catch(error => { if (!noFile(error)) throw error })
     const temporary = join(directory, `${randomUUID()}.tmp`)
     try {
-      await writeFile(temporary, JSON.stringify({ enabled }), { mode: 0o600 })
-      await rename(temporary, join(directory, 'enforcement.json'))
+      await writeFile(temporary, JSON.stringify({ enabled }), { mode: 0o600, flag: 'wx' })
+      await verifyPrivateFile(temporary)
+      await rename(temporary, target)
     } finally { await unlink(temporary).catch(error => { if (!noFile(error)) throw error }) }
   }
   private async salt(ownerId: string): Promise<Buffer> {
@@ -79,10 +101,12 @@ export class PrivatePermissionRecords {
     }
     const path = join(directory, `${record.at.slice(0, 10)}.jsonl`)
     // Refuse an unbounded daily file, including in enforced mode before a side effect can start.
-    const size = await stat(path).then(info => info.size, error => { if (noFile(error)) return 0; throw error })
-    if (size > 16 * 1024 * 1024) throw new Error('Permission record daily capacity reached')
-    await appendFile(path, `${JSON.stringify(record)}\n`, { mode: 0o600 })
-    await chmod(path, 0o600)
+    const handle = await openPrivateFile(path, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT)
+    try {
+      if ((await handle.stat()).size > 16 * 1024 * 1024) throw new Error('Permission record daily capacity reached')
+      await handle.appendFile(`${JSON.stringify(record)}\n`)
+      await handle.chmod(0o600)
+    } finally { await handle.close() }
     await this.prune(caller.ownerId)
   }
   private async files(ownerId: string): Promise<string[]> {
@@ -92,6 +116,7 @@ export class PrivatePermissionRecords {
   private async prune(ownerId: string): Promise<void> {
     const cutoffDay = new Date(this.now().getTime() - RETENTION_MS).toISOString().slice(0, 10)
     for (const file of await this.files(ownerId)) if (file.slice(0, 10) < cutoffDay) {
+      await verifyPrivateFile(join(this.directory(ownerId), file)).catch(error => { if (!noFile(error)) throw error })
       await unlink(join(this.directory(ownerId), file)).catch(error => { if (!noFile(error)) throw error })
     }
   }
@@ -101,7 +126,7 @@ export class PrivatePermissionRecords {
     await this.prune(ownerId)
     const records: PrivatePermissionRecord[] = []
     for (const file of (await this.files(ownerId)).reverse()) {
-      const lines = (await readFile(join(this.directory(ownerId), file), 'utf8')).trim().split('\n').filter(Boolean).reverse()
+      const lines = (await readPrivateFile(join(this.directory(ownerId), file))).trim().split('\n').filter(Boolean).reverse()
       for (const line of lines) {
         const record = JSON.parse(line) as PrivatePermissionRecord
         if (Date.parse(record.at) >= this.now().getTime() - RETENTION_MS) records.push(record)
@@ -112,6 +137,8 @@ export class PrivatePermissionRecords {
   }
   async clear(principal: PersonPrincipal, ownerId: string): Promise<void> {
     requirePermissionOwner(principal, ownerId)
-    for (const file of await this.files(ownerId)) await unlink(join(this.directory(ownerId), file))
+    const files = await this.files(ownerId)
+    for (const file of files) await verifyPrivateFile(join(this.directory(ownerId), file))
+    for (const file of files) await unlink(join(this.directory(ownerId), file))
   }
 }

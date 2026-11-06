@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { link, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -64,6 +64,31 @@ describe('private service permission administration and records', () => {
     const subdirectory = (await readdir(directory))[0]!
     await writeFile(join(directory, subdirectory, 'enforcement.json'), '{}')
     await expect(records.enforcement('owner')).rejects.toThrow('Malformed')
+  })
+  it('rejects reading or replacing an enforcement file with another hard-link name', async () => {
+    const { records, directory } = await fixture()
+    await records.setEnforcement(person, 'owner', false)
+    const ownerDirectory = join(directory, (await readdir(directory))[0]!)
+    const flag = join(ownerDirectory, 'enforcement.json')
+    await link(flag, join(directory, 'outside-alias'))
+    await expect(records.enforcement('owner')).rejects.toThrow('single link')
+    await expect(records.setEnforcement(person, 'owner', true)).rejects.toThrow('single link')
+    expect(JSON.parse(await readFile(flag, 'utf8'))).toEqual({ enabled: false })
+  })
+  it('does not append to or unlink a journal with a pre-existing hard-link alias', async () => {
+    const { records, directory } = await fixture()
+    const operation = permissionOperation(caller, 'guide_topics', {})
+    const decision = decidePermission({ operation, agentId: caller.subjectId, policy: defaultPermissionPolicy() })
+    const entry = { id: 'one', phase: 'before' as const, mode: 'observe' as const, outcome: 'would_allow' as const, decision }
+    await records.append(caller, operation, entry)
+    const ownerDirectory = join(directory, (await readdir(directory))[0]!)
+    const journal = join(ownerDirectory, (await readdir(ownerDirectory)).find(name => name.endsWith('.jsonl'))!)
+    const before = await readFile(journal, 'utf8')
+    await link(journal, join(directory, 'outside-alias'))
+    await expect(records.read(person, 'owner')).rejects.toThrow('single link')
+    await expect(records.append(caller, operation, { ...entry, id: 'two' })).rejects.toThrow('single link')
+    await expect(records.clear(person, 'owner')).rejects.toThrow('single link')
+    expect(await readFile(journal, 'utf8')).toBe(before)
   })
   it('publishes one complete target key during simultaneous first writes from two store instances', async () => {
     const { records, directory } = await fixture()

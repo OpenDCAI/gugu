@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -10,6 +10,23 @@ const roots: string[] = []
 afterEach(async () => {
   vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+it('refuses a real hard-linked journal in the chat attachment byte gateway', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'gugu-permission-hard-upload-'))
+  roots.push(home)
+  vi.stubEnv('GUGU_HOME', home)
+  const directory = join(home, 'private-service-permissions', 'owner')
+  await mkdir(directory, { recursive: true })
+  const file = join(directory, 'journal.jsonl')
+  const alias = join(home, 'ordinary.txt')
+  await writeFile(file, 'private-hard-link-canary')
+  await link(file, alias)
+  await expect(readUploadBytes('message_send_file', { file_path: alias }, 1024)).rejects.toThrow('private permission state')
+  const fetch = vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error('must not upload'))
+  await expect(uploadSessionFile({ supabaseUrl: 'https://example.invalid', anonKey: '', token: '', fetch }, { file_path: alias },
+    { agentId: 'agent', sessionId: 'session', recipients: [] })).rejects.toThrow('private permission state')
+  expect(fetch).not.toHaveBeenCalled()
 })
 
 it('refuses private state through chat upload bytes and session attachments, including symlinks', async () => {

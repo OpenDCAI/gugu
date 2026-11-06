@@ -179,7 +179,7 @@ async function scopeOf(granted: ReadonlySet<string>): Promise<Scope> {
 
 async function scopedPaths(paths: string[], scope: Scope): Promise<string[]> {
   const checked = await Promise.all(paths.filter(scope.allowed).map(async file => {
-    try { await requireAgentFileAccess(file); return file }
+    try { await requireAgentFileAccess(file, scope.privatePaths); return file }
     catch { return null }
   }))
   return checked.filter((file): file is string => file !== null)
@@ -201,8 +201,10 @@ async function entryPath(raw: string, granted: ReadonlySet<string>, scope: Scope
   const parent = mustExist ? await resolveInsideRoots(path.dirname(abs), granted) : await resolveTargetInsideRoots(path.dirname(abs), granted)
   if (!parent.ok) return { ok: false, message: parent.message.startsWith('not found') ? `not found: ${raw}` : notConnected(raw, granted) }
   const entry = path.join(parent.path, path.basename(abs))
-  if (scope.privatePaths.overlaps(entry)) return { ok: false, message: PRIVATE_PERMISSION_STATE_REFUSAL }
   if (scope.isRoot(entry)) return { ok: false, message: rootRefusal }
+  if (scope.privatePaths.overlaps(entry)) return { ok: false, message: PRIVATE_PERMISSION_STATE_REFUSAL }
+  try { await scope.privatePaths.assertIdentity(entry); await scope.privatePaths.assertTree(entry) }
+  catch { return { ok: false, message: PRIVATE_PERMISSION_STATE_REFUSAL } }
   if (!scope.allowed(entry)) return { ok: false, message: notConnected(raw, granted) }
   if (mustExist) {
     try {
@@ -654,6 +656,10 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
           if (scope.privatePaths.excludes(full)) { skipped++; continue }
           const st = await fsp.lstat(full).catch(() => null)
           if (!st) continue
+          if (st.isFile() && st.nlink > 1) {
+            try { await scope.privatePaths.assertIdentity(full) }
+            catch { skipped++; continue }
+          }
           const type = typeOf(st)
           const blocked = type === 'directory' && !scope.allowed(full)
           if (!pattern || pattern.test(name)) {
@@ -1044,6 +1050,8 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
       if (scope.privatePaths.overlaps(src.path)) return bad(PRIVATE_PERMISSION_STATE_REFUSAL)
       // 整个个人文件夹里有没连上的根:❌ 整个复制。
       if (lower(src.path) === lower(scope.home)) return bad('cannot copy the whole home folder: copy the folders inside it instead')
+      try { await scope.privatePaths.assertTree(src.path) }
+      catch { return bad(PRIVATE_PERMISSION_STATE_REFUSAL) }
       const dst = await entryPath(str(args, 'destination'), granted, scope, false)
       if (!dst.ok) return bad(dst.message)
       if (dst.path === src.path) return bad('source and destination are the same')
@@ -1297,13 +1305,21 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
           .filter((p) => scope.descend(p, where.path))
       }
       if (targets.length === 0) return ok({ total: 0, matches: [], truncated: false })
+      targets = targets.filter(target => !scope.privatePaths.excludes(target))
+      try {
+        for (const target of targets) {
+          await requireAgentFileAccess(target, scope.privatePaths)
+          await scope.privatePaths.assertTree(target, path => scope.privatePaths.excludes(path))
+        }
+      }
+      catch { return bad(PRIVATE_PERMISSION_STATE_REFUSAL) }
       const maxResults = clampInt(num(args, 'maxResults'), 100, 1, 500)
       const context = clampInt(num(args, 'contextLines'), 0, 0, 20)
       const cli = ['--json', '--no-config', '--max-columns', '500', '--max-columns-preview', '--max-filesize', '20M', '-m', String(maxResults)]
       // rg must never read the private tree, even when its parent is an explicitly searched visible folder.
       for (const root of scope.privatePaths.roots) {
         const relative = path.relative(where.path, root).split(path.sep).join('/').replace(/([*?[\]{}!\\])/g, '\\$1')
-        if (relative && !relative.startsWith('../')) cli.push('-g', `!**/${relative}/**`)
+        if (relative && !relative.startsWith('../')) cli.push('-g', `!**/${relative}`, '-g', `!**/${relative}/**`)
       }
       if (bool(args, 'caseSensitive') === false) cli.push('-i')
       if (bool(args, 'fixedStrings') === true) cli.push('-F')
@@ -1333,7 +1349,7 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
           continue
         }
         if (msg.data?.path?.text) {
-          try { await requireAgentFileAccess(msg.data.path.text) }
+          try { await requireAgentFileAccess(msg.data.path.text, scope.privatePaths) }
           catch { current = null; pending = []; continue }
         }
         const lineNumber = msg.data?.line_number ?? 0
