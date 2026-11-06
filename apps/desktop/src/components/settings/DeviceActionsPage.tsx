@@ -487,6 +487,7 @@ function OtherDeviceActions({ device, compact = false, machineOnline }: { device
     return [...out.entries()]
   }, [actions])
   if (isPhoneDevice(device)) return <SettingsGroup><SettingsRow title={t('devices.kind.phone')} description={t('devices.phoneActions.localAgentOnly')} control={<Chip>{t(device.is_online ? 'devices.online' : 'devices.offline')}</Chip>} /></SettingsGroup>
+  if (device.capabilities?.host_kind === 'server') return <SettingsNote data-testid="settings-device-actions-server">{t('devices.deviceActions.serverNone')}</SettingsNote>
   const readError = device.capabilities?.actions?.read_error
   if (readError) return <SettingsNote role="alert" tone="danger" data-testid="settings-device-actions-read-failed">{t('devices.deviceActions.otherReadFailed', { message: readError })}</SettingsNote>
   if (!actions) return <SettingsNote>{t('devices.deviceActions.otherNone')}</SettingsNote>

@@ -260,6 +260,19 @@ describe('调用方(DeviceActionCaller)', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
+  it('咕咕 server 不登记动作:如实说它不提供,❌ 说成版本太旧', async () => {
+    const rpc = vi.fn()
+    const server = { label: 'cloud-box', host_kind: 'server', actions: undefined }
+    const caller = createDeviceActionCaller({ listDevices: async () => [target({ ...server, device_id: 'srv' }), target({ ...server, device_id: 'other-srv', this_machine: false })], rpc })
+    // Called on the server itself, and from another device: neither says "too old" nor sends the agent to the server.
+    for (const deviceId of ['srv', 'other-srv']) {
+      const result = await caller.call({ deviceId, action: 'clipboard.read' })
+      expect(result).toMatchObject({ ok: false, code: 'unsupported' })
+      expect(!result.ok && result.message).toContain('不提供设备动作')
+    }
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
   it('读取清单失败:带着原因报出来,和「没有动作」「没登记」都不一样,调用 ❌ 发出去', async () => {
     const rpc = vi.fn()
     const failed = { v: 1, read_error: 'boom' }

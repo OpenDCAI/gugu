@@ -280,6 +280,7 @@ export default {
       "unsupported": "这台电脑暂时不能被调用。",
       "otherTitle": "「{{name}}」能做的事",
       "otherNone": "未读到这台设备的工具清单。",
+      "serverNone": "咕咕 server 不提供设备动作：它不是谁的电脑，没有可授权的屏幕、剪贴板或通知。",
       "thisReadFailed": "这台电脑读取能做的事失败：{{message}}",
       "otherReadFailed": "这台设备读取工具清单失败，现在不知道它能做什么：{{message}}",
       "otherOffline": "这台设备当前离线。",

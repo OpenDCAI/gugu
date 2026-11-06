@@ -36,6 +36,8 @@ export interface DeviceActionTarget {
   platform?: string | null
   online: boolean
   last_seen_at: string | null
+  /** `capabilities.host_kind`:咕咕 server 不登记动作,没有清单是设计如此,❌ 说成版本太旧。 */
+  host_kind?: unknown
   /** `capabilities.actions`(原样,这里再解析)。 */
   actions?: unknown
   /** 是不是发起调用的这台机器自己。 */
@@ -215,6 +217,10 @@ export function createDeviceActionCaller(deps: DeviceActionCallerDeps): DeviceAc
       const devices = await deps.listDevices()
       const device = devices.find((d) => d.device_id === input.deviceId)
       if (!device) return fail(callId, 'unknown_device', `你的账号下没有设备 ${input.deviceId}(用 device_actions 列出你的设备)`)
+      // Before the scope check: "create an agent on that server" would only lead here again.
+      if (device.host_kind === 'server' && !normalizeDeviceActionsCapability(device.actions)) {
+        return fail(callId, 'unsupported', `「${device.label}」是咕咕 server,不提供设备动作;要用屏幕、剪贴板、通知这些,请调用户自己的电脑或手机`)
+      }
       // this_machine is computed by the host's device directory, not by model input.
       if (device.this_machine !== true) {
         const error = deviceScopeError(device.device_id)
