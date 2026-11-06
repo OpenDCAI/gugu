@@ -5,7 +5,8 @@ import { resolveReplyDelivery } from '@gugu/core/shared/replyDelivery'
 import { ChatComposer, MessageProvider, type ComposerAttachment, type MentionItem, type PromptEditorRef } from '@gugu/session-ui/react/components'
 import { ThemeProvider } from '@gugu/session-ui/react/primitives'
 import { useLocale } from '@/i18n'
-import { registerComposerFocusTarget, scheduleComposerFocus } from '@/lib/focusComposer'
+import { focusComposer, registerComposerFocusTarget, scheduleComposerFocus } from '@/lib/focusComposer'
+import { useComposerEntryFocus } from '@/lib/composerEntryFocus'
 import { activeMentionPicks, MENTION_ALL_USER_ID, type MentionCandidate } from '@/lib/mention'
 import { isMentionQueryActive } from '@/lib/mentionMatch'
 import { rankMentionCandidates } from '@/lib/mentionRanking'
@@ -143,6 +144,9 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   }, [fileSelection, setAttachments])
 
   useEffect(() => isMain ? registerComposerFocusTarget(() => inputRef.current) : undefined, [isMain])
+  useComposerEntryFocus(chatId ? 'chat:' + chatId : null, isMain && !hidden && props.entryActive === true, () => {
+    if (!disabled) focusComposer('chat-entry', { mobileShell: mobile, target: () => inputRef.current })
+  })
   // 面板占的是键盘的位置:一点输入框(键盘要起来)就收起。
   useEffect(() => {
     const input = inputRef.current

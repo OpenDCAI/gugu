@@ -9,6 +9,10 @@ class SessionNavigationFocusStore {
   constructor() {
     makeAutoObservable(this);
   }
+
+  setFocusLayer(layer: SessionNavFocusLayer): void {
+    this.focusLayer = layer;
+  }
 }
 
 export const sessionNavigationFocus = new SessionNavigationFocusStore();
