@@ -70,6 +70,7 @@ export interface GuguHost extends ProjectionHost {
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
     readText(args: { ref: AppFileRef; maxBytes?: number }): Promise<AppFileText>;
     exists(args: { ref: AppFileRef }): Promise<boolean>;
+    draft(args: { ref: AppFileRef; text?: string | null }): Promise<string | null>;
     writeText(args: { ref: AppFileRef; text: string }): Promise<{ entry: AppFileEntry }>;
     /** Whether whoever reads may delete each file, in order: asked as a file's menu opens, never carried by a list. */
     canDelete(args: { refs: AppFileRef[] }): Promise<boolean[]>;

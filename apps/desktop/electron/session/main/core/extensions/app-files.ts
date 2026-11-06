@@ -7,6 +7,7 @@ import { attachmentFileRef } from '@gugu/core/shared/ui/attachmentModels';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { writeFileHandle } from '@gugu/core/local/files/fileSnapshots';
+import { editorBufferService } from '@main/core/editor/editor-buffer-service';
 import {
   AppFileError,
   contentTypeOf,
@@ -475,6 +476,28 @@ export async function appFileExists(page: DesktopFilePage, args: { ref?: unknown
     if (code === 'not-found' || code === 'invalid') return false;
     throw error;
   });
+}
+
+/**
+ * `files.draft`: a file's unsaved edits, on the machine the file is on, under the key its old editor used there too: its own
+ * table, project and workspace, and its path in the working copy, so what that editor left is found.
+ */
+export async function appFileDraft(page: DesktopFilePage, args: { ref?: unknown; text?: unknown }): Promise<string | null | void> {
+  const ref = wholeFileRef(page, args.ref, 'files:read', 'draft');
+  const there = await onItsMachine(page, ref, 'filesDraft', { ref, ...(args.text === undefined ? {} : { text: args.text }) });
+  if (there.there) return there.value as string | null;
+  return draftHere(ref, args.text);
+}
+
+/** On this machine: the page that named the file was let through where it is. */
+export async function draftHere(ref: WorkspaceFileRef & { id: string }, text: unknown): Promise<string | null | void> {
+  const { projectId, workspaceId, workspaceRoot } = await localRootOf({ workspace: ref.workspace });
+  const workspace = workspaceId ?? ref.workspace;
+  const inRoot = path.relative(workspaceRoot, ref.id);
+  const filePath = path.isAbsolute(ref.id) && !inRoot.startsWith('..') && !path.isAbsolute(inRoot) ? inRoot.split(path.sep).join('/') : ref.id;
+  if (text === undefined) return (await editorBufferService.listBuffers(projectId, workspace)).find((buffer) => buffer.filePath === filePath)?.content ?? null;
+  if (text === null) return editorBufferService.clearBuffer(projectId, workspace, filePath);
+  return editorBufferService.saveBuffer(projectId, workspace, filePath, String(text));
 }
 
 /**

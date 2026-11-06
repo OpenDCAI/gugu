@@ -566,6 +566,7 @@ A text no live document holds (over 1 MiB, JSON that is no object, on another ma
 - \`gugu.files.exists(file)\`: whether it is there now.
 - \`gugu.files.onChanged({ workspace, id }, fn)\`: one file, by the name you gave. \`resync\`: anything may have changed (its machine is back). A file outside the working copy on another machine sends nothing.
 - After \`rename\`, \`move\` or \`remove\`, the host's panes that show the file follow it.
+- \`gugu.files.draft(file, text)\`: keep a file's unsaved edits on its machine for after a crash: without \`text\` it reads them, with \`null\` it drops them.
 `;
 
 export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files

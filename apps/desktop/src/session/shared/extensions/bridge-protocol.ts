@@ -838,6 +838,8 @@ export const BRIDGE_VERBS = {
   /** A working copy's text whole, and whether it is there, in those pieces: gated as filesOpen, in `app-files.ts`. */
   filesReadText: { needs: null },
   filesExists: { needs: null },
+  /** What survives a crash of a file's unsaved edits, on the file's machine: read, kept (`text`), dropped (`text: null`). */
+  filesDraft: { needs: null, machine: 'place' },
   filesWriteText: { needs: null },
   /**
    * Files across every chat the reader is in (gugu-supabase 20261017002319): found by a piece of their path, and the ones
