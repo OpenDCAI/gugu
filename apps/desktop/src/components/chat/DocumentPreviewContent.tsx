@@ -3,7 +3,6 @@ import { ChevronLeft, ChevronRight, Maximize2, MinusCircle, Plus } from '@/lib/i
 import { useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask, TextLayer } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
-import pdfViewerCss from 'pdfjs-dist/web/pdf_viewer.css?inline'
 import { useTranslation } from 'react-i18next'
 import { usePinchZoom } from '../../hooks/usePinchZoom'
 import { Button } from '../ui/Button'
@@ -274,7 +273,6 @@ function PdfPreview({ data }: { data: ArrayBuffer }) {
       <div ref={viewportRef} className="document-preview-pdf-viewport">
         {error ? <PreviewStatus error>{error}</PreviewStatus> : !document ? <PreviewStatus><LoadingIndicator size="inline" />{t('chatArea.filePreview.rendering')}</PreviewStatus> : null}
         <div className="document-preview-pdf-page">
-          <style>{`@scope (.document-preview-pdf-page) { ${pdfViewerCss} }`}</style>
           <canvas ref={canvasRef} aria-label={t('chatArea.filePreview.pdfPage', { page: pageNumber })} />
           <div ref={textLayerRef} className="textLayer" data-file-selection />
         </div>
