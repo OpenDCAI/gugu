@@ -13,12 +13,12 @@ import { FileToolbar } from '@renderer/features/sessions/editor/file-toolbar'
 import { Button as ToolbarButton } from '@renderer/lib/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
+import { ImageRenderer } from '@renderer/lib/editor/image-renderer'
 import { useFileZoom, type FileZoomKind } from '../preview/file-content-zoom'
 import { ZoomMenuRow } from '../preview/ZoomMenuRow'
 import { usePinchZoom } from '@/hooks/usePinchZoom'
 import { pinchZoom, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM } from '@/session/shared/preview/pinch-zoom'
 import type { HtmlPreviewRegistration } from '../preview/HtmlPreviewFrame'
-import { ImageRenderer } from '@renderer/lib/editor/image-renderer'
 
 // pdf.js, docx-preview and the sheet parser load with the first document opened, not with the chat.
 const DocumentPreviewContent = lazy(() => import('./DocumentPreviewContent').then((m) => ({ default: m.DocumentPreviewContent })))

@@ -46,7 +46,7 @@ function normalizeTabDescriptor(
     };
     return { kind: 'extension', extensionKind, tabId, state, ...(history ? { history } : {}), ...(openerTabId ? { openerTabId } : {}) };
   }
-  if (tab.kind === 'file' && !tab.isExternal) {
+  if ((tab.kind === 'file' || tab.kind === 'file-view') && !tab.isExternal) {
     return { ...tab, path: resolveWorkspacePath(workspacePath, tab.path) };
   }
   if (tab.kind === 'diff' && tab.diffGroup !== 'pr') {
