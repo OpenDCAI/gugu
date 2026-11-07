@@ -35,7 +35,7 @@ it('prunes bounded binary-prefix batches without deleting another file or the re
 it('does not hold a write transaction while serializing and publishes at most forty rows per SQL batch', () => {
   let inTransaction = false, rows = 0; const batches: number[] = [];
   const Traced = class extends Database {
-    constructor(name: string, options: Database.Options) { super(name, { ...options, verbose(sql: unknown) {
+    constructor(name: string, options: Database.Options = {}) { super(name, { ...options, verbose(sql: unknown) {
       if (typeof sql !== 'string') return;
       if (sql.startsWith('BEGIN')) { inTransaction = true; rows = 0; }
       if (sql.startsWith('INSERT')) rows++;

@@ -5,7 +5,7 @@ import type { CachedLogFileRow, CachedLogFileSave } from '../token-scan';
 import { tokenCachePartRange } from '../token-file-cache';
 
 /** Worker-only connection. Packing runs outside bounded SQLite write transactions. */
-export function openTokenCachePager(path: string, Constructor?: typeof Database): TokenCachePager & { close(): void } {
+export function openTokenCachePager(path: string, Constructor?: new (path: string, options?: Database.Options) => Database.Database): TokenCachePager & { close(): void } {
   const Sqlite = Constructor ?? createRequire(import.meta.url)('better-sqlite3') as typeof Database;
   const db = new Sqlite(path, { fileMustExist: true, timeout: 100 });
   db.pragma('busy_timeout = 100');
