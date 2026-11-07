@@ -10,7 +10,7 @@ import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useOpenInApps } from '@renderer/lib/hooks/useOpenInApps';
 import { rpc } from '@renderer/lib/ipc';
-import { MenuItem } from '@/components/ui/Menu';
+import { MenuFold, MenuItem } from '@/components/ui/Menu';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/lib/ui/select';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
@@ -232,7 +232,7 @@ export function OpenInMenuItems({ targets }: { targets: ReturnType<typeof useOpe
   const { icons, labels, availability, loading, menuApps, selectAndOpenApp } = targets;
   if (loading) return null;
   return (
-    <>
+    <MenuFold icon={<SquareArrowRight />} label={translate('titlebar.openWith')}>
       {menuApps.map((app) => {
         const isAvailable = availability[app.id] !== false;
         const label = labels[app.id] || app.label;
@@ -242,7 +242,7 @@ export function OpenInMenuItems({ targets }: { targets: ReturnType<typeof useOpe
           </MenuItem>
         );
       })}
-    </>
+    </MenuFold>
   );
 }
 

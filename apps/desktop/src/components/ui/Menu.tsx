@@ -11,11 +11,12 @@
  */
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
-import { useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { Children, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { cn } from '@/lib/cn'
 import { ChevronRight } from '@/lib/icons'
 import { popupMotion } from './variants'
 import { useBackLayer } from './sheetStack'
+import { useMobileShell } from '../../hooks/useMobileShell'
 import { useUiPortalContainer } from '@gugu/session-ui/react/primitives'
 import { Switch } from './Switch'
 
@@ -257,11 +258,26 @@ export function MenuSubmenu({ icon, label, 'data-testid': testId, popupStyle, po
       </MenuPrimitive.SubmenuTrigger>
       <MenuPrimitive.Portal container={portalContainer}>
         <MenuPrimitive.Positioner className="gg-menu-positioner window-no-drag-region" positionMethod="fixed" collisionPadding={8} style={submenuPositionerStyle}>
-          <MenuPrimitive.Popup className={cn(menuPopup, popupClassName)} style={style}>{children}</MenuPrimitive.Popup>
+          <MenuPrimitive.Popup className={cn(menuPopup, popupClassName)} data-occludes-browser-page style={style}>{children}</MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>
     </MenuPrimitive.SubmenuRoot>
   )
+}
+
+/**
+ * 把低频的几行收进一行,悬浮后在旁边展开(owner 11-07)。只剩一行就留在原地:折一行省不了地方,只多一步。
+ * 手机没有悬浮,窄屏也放不下第二层:照旧平铺。children 要直接是行 ——Fragment 或组件都只算一行。
+ */
+export function MenuFold({ icon, label, 'data-testid': testId, children }: {
+  icon?: ReactNode
+  label: ReactNode
+  'data-testid'?: string
+  children: ReactNode
+}) {
+  const mobile = useMobileShell()
+  if (mobile || Children.toArray(children).length < 2) return <>{children}</>
+  return <MenuSubmenu icon={icon} label={label} data-testid={testId}>{children}</MenuSubmenu>
 }
 
 /**
