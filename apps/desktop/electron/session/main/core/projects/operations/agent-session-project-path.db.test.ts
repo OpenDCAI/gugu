@@ -36,7 +36,8 @@ vi.mock('@main/core/runtime/runtime-manager', () => ({
   },
 }));
 
-import { persistedWorkspacePath, resolveWorkspace } from '../utils';
+import { persistedWorkspacePath } from '../utils';
+import { workspaceRegistry } from '../../workspaces/workspace-registry';
 import { resolveAgentSessionProject } from './resolve-agent-session-project';
 
 describe('agent.create on a project nothing has mounted', () => {
@@ -60,7 +61,7 @@ describe('agent.create on a project nothing has mounted', () => {
     const project = await resolveAgentSessionProject('');
     const workspaceId = project.repositoryWorkspaceId;
     expect(workspaceId).toBeTruthy();
-    expect(resolveWorkspace(project.id, workspaceId!)).toBeNull();
+    expect(workspaceRegistry.get(workspaceId!)).toBeUndefined();
     expect(persistedWorkspacePath(workspaceId!)).toBe(mocks.home);
   });
 

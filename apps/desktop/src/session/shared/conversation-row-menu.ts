@@ -1,8 +1,8 @@
 /** Row actions are shared by desktop context menus and future touch menus. */
 export type ConversationRowAction = 'mark-read' | 'pin' | 'notifications' | 'mark-all-read' | 'delete-chat' | 'remove-project'
-/** DMs use personal deletion; group/topic deletion follows the server's distinct management capabilities. */
-export function conversationCanDelete(kind: string | null, authority?: { can_dissolve?: boolean; can_archive_topic?: boolean } | null, ownedAgentDm = false): boolean {
-  return (kind === 'dm' && ownedAgentDm) || (kind === 'group' && authority?.can_dissolve === true) || (kind === 'topic' && authority?.can_archive_topic === true)
+/** Personal DM deletion requires an archived/removed owned Agent, matching delete_my_dm_conversation. */
+export function conversationCanDelete(kind: string | null, authority?: { can_dissolve?: boolean; can_archive_topic?: boolean } | null, ownedAgentDm?: { session_archived_at?: string | null; removed_at?: string | null }): boolean {
+  return (kind === 'dm' && !!ownedAgentDm && (ownedAgentDm.session_archived_at != null || ownedAgentDm.removed_at != null)) || (kind === 'group' && authority?.can_dissolve === true) || (kind === 'topic' && authority?.can_archive_topic === true)
 }
 export type ConversationRowMenuState = ({ kind: 'chat'; canDelete: boolean } | { kind: 'project' } | { kind: 'topic' }) & {
   hasUnread: boolean
@@ -17,6 +17,8 @@ type RowMenuItem = {
   icon: 'read' | 'pin' | 'notifications' | 'trash'
   disabled?: boolean
   danger?: boolean
+  /** 收进「更多」:影响整张列表或不可撤回的,不是这一行的日常动作。 */
+  fold?: true
 }
 
 export function conversationRowMenu(state: ConversationRowMenuState): RowMenuItem[] {
@@ -27,8 +29,8 @@ export function conversationRowMenu(state: ConversationRowMenuState): RowMenuIte
     : [...common,
         { id: 'pin', label: state.pinned ? 'unpin' : 'pin', icon: 'pin' },
         { id: 'notifications', label: state.notificationsMuted ? 'enableNotifications' : 'disableNotifications', icon: 'notifications' },
-        { id: 'mark-all-read', label: 'markAllRead', icon: 'read', disabled: !state.hasAnyUnread },
-        ...(state.canDelete ? [{ id: 'delete-chat', label: 'delete', icon: 'trash', danger: true } as const] : []),
+        { id: 'mark-all-read', label: 'markAllRead', icon: 'read', disabled: !state.hasAnyUnread, fold: true },
+        ...(state.canDelete ? [{ id: 'delete-chat', label: 'delete', icon: 'trash', danger: true, fold: true } as const] : []),
       ]
 }
 

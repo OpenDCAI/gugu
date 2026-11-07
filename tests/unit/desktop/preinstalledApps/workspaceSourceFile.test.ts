@@ -108,6 +108,36 @@ describe('a file edited as a whole', () => {
     expect(r.onDocument).toHaveBeenCalledOnce()
   })
 
+  test('a change during a read is read again: an emptied file seen last is not what the buffer keeps', async () => {
+    const r = rig('a\n')
+    let finishFirst = (_: { content: string }) => undefined as void
+    r.io.read.mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve }))
+    const first = r.file.refresh()
+    r.onDisk.value = 'filled\n'
+    void r.file.refresh()
+    finishFirst({ content: '' })
+    await first
+    expect(r.doc()).toBe('filled\n')
+    expect(r.file.dirty).toBe(false)
+  })
+
+  test('read empty where it was not: read once more, and taken only if it is still empty', async () => {
+    const r = rig('a\n')
+    r.io.read.mockClear()
+    r.onDisk.value = 'filled\n'
+    r.io.read.mockResolvedValueOnce({ content: '' })
+    await r.file.refresh()
+    expect(r.io.read).toHaveBeenCalledTimes(2)
+    expect(r.doc()).toBe('filled\n')
+
+    r.io.read.mockClear()
+    r.onDisk.value = ''
+    await r.file.refresh()
+    expect(r.io.read).toHaveBeenCalledTimes(2)
+    expect(r.doc()).toBe('')
+    expect(r.file.dirty).toBe(false)
+  })
+
   test('discarding goes back to the file', () => {
     const r = rig('a\n')
     r.type('b\n')

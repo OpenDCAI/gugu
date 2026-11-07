@@ -1,3 +1,4 @@
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary';
 import { taskName } from './task-name';
 import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
 import { SessionArchivedError } from '@gugu/core/shared/sessionArchival';
@@ -93,6 +94,7 @@ import { providerConsumesStartupPrompt } from '@gugu/session-core/agents/plugins
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 import { flushDeferredMessages, sessionIsWorking, storeDeferredMessage } from './session-deferred-messages';
 import { childHarnessDefault } from './child-harness-default';
+import { HarnessNotInstalledError } from './impl/resolve-agent-executable';
 import { platformModelIdFromOption, platformOptionId } from '@shared/platform-model-id';
 import { extensionsService } from '../extensions/extensions-root';
 import {
@@ -980,7 +982,25 @@ async function assertSpawnableSurface(provider: AgentProviderId, transport: Sess
   }
   // 启动那道闸在建行之前当场过一次(与 session_list_harnesses 问的是同一个函数):起不来就同步报原话,
   // ❌ 先给 id、再在异步启动里失败并删掉会话(调用方只能事后撞上 not a session)。
-  await assertLocalHarnessLaunchable(provider, transport as SessionTransport);
+  try {
+    await assertLocalHarnessLaunchable(provider, transport as SessionTransport);
+  } catch (error) {
+    if (!(error instanceof HarnessNotInstalledError)) throw error;
+    // spawn 不替人装:拒绝当场给出两条出路 —— 这台机器上能改用的,和怎么显式装上。
+    throw new Error(`${error.message}\n${await missingHarnessWayOut(provider)}`, { cause: error });
+  }
+}
+
+/** The refusal's way out for a harness this machine does not have: what is installed here, and how to install it. */
+async function missingHarnessWayOut(provider: AgentProviderId): Promise<string> {
+  const harnesses = await listLocalHarnesses();
+  const name = harnesses.find((harness) => harness.id === provider)?.name ?? provider;
+  const usable = harnesses.filter((harness) => harness.spawnable && harness.id !== provider).map((harness) => harness.id);
+  return [
+    usable.length ? `Installed here and spawnable instead: ${usable.join(', ')}.` : 'No other harness is spawnable on this machine.',
+    `session_spawn does not install harnesses: a person installs ${name} on this machine in Gugu → Library → Agents → ${name} → Install`
+      + ' (a Gugu-managed download, usually a few minutes), then retries.',
+  ].join('\n');
 }
 
 /** A session's first turn as session-direct writes it: the sending session's envelope. */
@@ -1112,7 +1132,7 @@ async function createChildSession(input: {
   const created = input.bindIdentityFirst && transport === 'acp'
     ? bindIdentityThenCreate(
       async () => {
-        const cwd = resolveWorkspace(projectId, input.workspaceId)?.path;
+        const cwd = (await resolveWorkspace(projectId, input.workspaceId))?.path;
         if (!cwd) throw new Error(`workspace ${input.workspaceId} is unknown`);
         const identity = await provisionStartIdentity({ sessionId, providerId: provider, projectId, cwd }, 'fresh', { agentDisplayName: title || undefined });
         if (!identity) throw new Error(`session ${sessionId} could not be given an identity`);
@@ -1369,7 +1389,7 @@ async function requireCallerWorkspace(context: SessionCallerContext, signal?: Ab
   if (!caller.workspaceId || caller.workspaceId !== context.workspaceId) {
     throw new Error('current session workspace is not ready');
   }
-  const workspace = resolveWorkspace(context.projectId, caller.workspaceId);
+  const workspace = await resolveWorkspace(context.projectId, caller.workspaceId);
   if (!workspace) throw new Error('current session workspace is not mounted');
   return workspace;
 }
@@ -1446,6 +1466,7 @@ async function openFileInTab(
   const absolutePath = isAbsoluteMachinePath(requestedPath)
     ? requestedPath
     : joinMachinePath(workspace.path, requestedPath);
+  await requireAgentFileAccess(absolutePath);
   const stat = await workspace.fileSystem.stat(absolutePath);
   signal?.throwIfAborted();
   if (!stat.success) {
@@ -1608,7 +1629,7 @@ async function openBrowserInTab(
  * 目录外的 / 不存在的 / 不是文件的当场说清,❌ 推过去再开出一个打不开的页。
  */
 async function requireRemotePageFile(
-  workspace: NonNullable<ReturnType<typeof resolveWorkspace>>,
+  workspace: NonNullable<Awaited<ReturnType<typeof resolveWorkspace>>>,
   url: string,
   signal?: AbortSignal
 ): Promise<void> {

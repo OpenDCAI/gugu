@@ -110,6 +110,9 @@ export class TextModelRegistry {
 
   private reloadingFromDisk = new Set<string>();
 
+  /** The disk read under way for each disk:// URI, and whether the file changed since it began: see `readDiskInTurn`. */
+  private diskReads = new Map<string, { again: boolean; done: Promise<void> }>();
+
   /**
    * 盘上这份文件已经没了(外部删掉)的缓冲区 URI:页签标「已删除」、正文留着,存一下就重新建出来(照 VS Code)。
    * 由 disk 模型重读失败后问一次「还在不在」得出;再读到 / 存下去就清掉。
@@ -794,38 +797,7 @@ export class TextModelRegistry {
     const entry = this.modelMap.get(uri);
     if (!entry) return;
     if (entry.type === 'disk') {
-      const res = entry.external
-        ? await workspaceRpc(entry.projectId).files.readExternalFile(
-            entry.projectId,
-            entry.workspaceId,
-            entry.filePath,
-            EDITOR_CONFIRM_FILE_BYTES
-          )
-        : await workspaceRpc(entry.projectId).files.readFile(
-            entry.projectId,
-            entry.workspaceId,
-            entry.filePath,
-            EDITOR_CONFIRM_FILE_BYTES
-          );
-      const bufferUri = uri.replace(/^disk:\/\//, 'file://');
-      if (!res.success) {
-        if (!entry.external) {
-          const exists = await workspaceRpc(entry.projectId).files.fileExists(entry.projectId, entry.workspaceId, entry.filePath);
-          if (exists.success && !exists.data.exists) runInAction(() => this.deletedOnDisk.add(bufferUri));
-        }
-        return;
-      }
-      runInAction(() => this.deletedOnDisk.delete(bufferUri));
-      if (res.data.truncated) {
-        // 文件在外部被写到超出上限。显形成 too-large,❌ 不拿半截内容覆盖缓冲区。
-        // disk 条目的 key 就是 disk:// uri,与 `applyDiskUpdate` 的第一个参数同址。
-        runInAction(() => {
-          this.modelStatus.set(uri, 'too-large');
-          this.modelTotalSizes.set(uri, res.data.totalSize);
-        });
-        return;
-      }
-      this.applyDiskUpdate(uri, entry, res.data.content);
+      await this.readDiskInTurn(uri, entry);
     } else if (entry.type === 'git') {
       try {
         const res =
@@ -850,6 +822,70 @@ export class TextModelRegistry {
         throw error;
       }
     }
+  }
+
+  /**
+   * @@@one-read-at-a-time - a write shows as two changes on disk, emptied then filled, and reads can come back out of order
+   * (a remote machine's most of all). The last read to return is what the buffer takes, so one that saw the file empty must
+   * not be it, or the next save writes the emptied text over the file. One read at a time; a change during a read reads again,
+   * after it. Reading once more is cheap: the file only changes the buffer if it differs.
+   */
+  private readDiskInTurn(uri: string, entry: DiskModelEntry): Promise<void> {
+    const reading = this.diskReads.get(uri);
+    if (reading) {
+      reading.again = true;
+      return reading.done;
+    }
+    const turn = { again: false, done: Promise.resolve() };
+    this.diskReads.set(uri, turn);
+    turn.done = (async () => {
+      try {
+        do {
+          turn.again = false;
+          await this.readDisk(uri, entry);
+        } while (turn.again);
+      } finally {
+        this.diskReads.delete(uri);
+      }
+    })();
+    return turn.done;
+  }
+
+  private async readDisk(uri: string, entry: DiskModelEntry, seenEmpty = false): Promise<void> {
+    const res = entry.external
+      ? await workspaceRpc(entry.projectId).files.readExternalFile(
+          entry.projectId,
+          entry.workspaceId,
+          entry.filePath,
+          EDITOR_CONFIRM_FILE_BYTES
+        )
+      : await workspaceRpc(entry.projectId).files.readFile(
+          entry.projectId,
+          entry.workspaceId,
+          entry.filePath,
+          EDITOR_CONFIRM_FILE_BYTES
+        );
+    const bufferUri = uri.replace(/^disk:\/\//, 'file://');
+    if (!res.success) {
+      if (!entry.external) {
+        const exists = await workspaceRpc(entry.projectId).files.fileExists(entry.projectId, entry.workspaceId, entry.filePath);
+        if (exists.success && !exists.data.exists) runInAction(() => this.deletedOnDisk.add(bufferUri));
+      }
+      return;
+    }
+    runInAction(() => this.deletedOnDisk.delete(bufferUri));
+    if (res.data.truncated) {
+      // 文件在外部被写到超出上限。显形成 too-large,❌ 不拿半截内容覆盖缓冲区。
+      // disk 条目的 key 就是 disk:// uri,与 `applyDiskUpdate` 的第一个参数同址。
+      runInAction(() => {
+        this.modelStatus.set(uri, 'too-large');
+        this.modelTotalSizes.set(uri, res.data.totalSize);
+      });
+      return;
+    }
+    // Empty where it was not: most likely caught mid-write, so not taken on one read. Empty twice, it is empty.
+    if (res.data.content === '' && entry.model.doc.length > 0 && !seenEmpty) return this.readDisk(uri, entry, true);
+    this.applyDiskUpdate(uri, entry, res.data.content);
   }
 
   // ---------------------------------------------------------------------------

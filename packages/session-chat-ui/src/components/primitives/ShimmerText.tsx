@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility';
+import { pauseAnimationsOffscreen } from '@gugu/session-shared/animation-visibility';
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show, splitProps, type JSX } from 'solid-js';
 import { textShimmer, textShimmerBaseSweep, textShimmerClip, textShimmerInk, textShimmerLightInk, textShimmerMultiline, textShimmerSweep } from '@session-chat/styles/effects.css';
 
@@ -11,7 +11,6 @@ export function ShimmerText(props: JSX.HTMLAttributes<HTMLSpanElement> & { activ
   // pending replay, and a sweep that finished in that hold never ran again (10-23: the turn header swept once).
   const active = createMemo(() => !!local.active);
   const [text, setText] = createSignal('');
-  const [visible, setVisible] = createSignal(false);
   let host!: HTMLSpanElement;
   let clip!: HTMLSpanElement;
   let restartTimer: ReturnType<typeof setTimeout> | undefined;
@@ -40,22 +39,21 @@ export function ShimmerText(props: JSX.HTMLAttributes<HTMLSpanElement> & { activ
       // content changes update the static glyph texture; animation never does.
       const content = new MutationObserver(syncText);
       content.observe(host, { subtree: true, childList: true, characterData: true });
-      const stop = observeAnimationViewport(host, setVisible);
+      const stop = pauseAnimationsOffscreen(host);
       onCleanup(() => { content.disconnect(); stop(); clearTimeout(restartTimer); });
     });
   });
 
   return (
     <span {...rest} ref={host} class={local.class}
-      classList={{ ...local.classList, [textShimmer]: active(), [textShimmerMultiline]: !!local.multiline }}
-      data-shimmer-visible={active() && visible() ? 'true' : undefined}>
+      classList={{ ...local.classList, [textShimmer]: active(), [textShimmerMultiline]: !!local.multiline }}>
       {local.children}
       <Show when={active()}>
         <span ref={clip} aria-hidden="true" class={textShimmerClip}>
-          <span class={textShimmerBaseSweep} onAnimationEnd={sweepEnded}>
+          <span class={textShimmerBaseSweep}>
             <span class={textShimmerInk} data-shimmer-text={text()} />
           </span>
-          <span class={textShimmerSweep}>
+          <span class={textShimmerSweep} onAnimationEnd={sweepEnded}>
             <span class={`${textShimmerInk} ${textShimmerLightInk}`} data-shimmer-text={text()} />
           </span>
         </span>

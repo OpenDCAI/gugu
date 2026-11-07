@@ -2,7 +2,7 @@ import { messageItemFromRow } from '@gugu/core/cloud/messageItem'
 import type { ImMessageBatch, ImMessageWrite } from '../session/shared/core/im-messages'
 import type { AccountRevisionOperation } from './accountRevisionRuntime'
 import { readMemberRosterRevision, readMessageCreatedRevision, readRevisionResourceKey } from './accountRevisionCoordinator'
-import { entityKey, membershipId, type ProjectionCache } from './chatProjectionAlgebra'
+import { entityKey, membershipId, splitMembershipId, type ProjectionCache } from './chatProjectionAlgebra'
 import { rendererLogger } from './log'
 
 /** Parse server facts directly, before any IndexedDB delivery-queue or cursor commit. */
@@ -44,10 +44,23 @@ export function messageRevisionWrites(accountId: string, operations: readonly Ac
   }) }
 }
 
-/** Read authoritative projection cells, including known null memberships; never infer access from list absence. */
-export function messageAccessWrites(cells: ProjectionCache, accountId: string): ImMessageWrite[] {
+/**
+ * Access facts of the chats these keys name (a chat row, or my own membership row), read from authoritative cells,
+ * including known null memberships; never infer access from list absence.
+ */
+export function messageAccessWrites(cells: ProjectionCache, accountId: string, keys: Iterable<string>): ImMessageWrite[] {
+  const chatIds = new Set<string>()
+  for (const key of keys) {
+    if (key.startsWith('chat:')) chatIds.add(key.slice('chat:'.length))
+    else if (key.startsWith('membership:')) {
+      const { chatId, userId } = splitMembershipId(key.slice('membership:'.length))
+      if (userId === accountId) chatIds.add(chatId)
+    }
+  }
   const writes: ImMessageWrite[] = []
-  for (const [key, cell] of cells) if (key.startsWith('chat:') && cell.value) {
+  for (const chatId of chatIds) {
+    const cell = cells.get(entityKey('chat', chatId))
+    if (!cell?.value) continue
     const chat = cell.value as unknown as { id: string; source_chat_id?: string | null; status?: string }
     const member = cells.get(entityKey('membership', membershipId(chat.id, accountId)))
     writes.push({ type: 'chatAccess', access: { chatId: chat.id, sourceChatId: chat.source_chat_id ?? null,

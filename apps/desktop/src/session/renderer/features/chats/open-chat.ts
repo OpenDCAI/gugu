@@ -1,8 +1,9 @@
 import { isScreenView, showBesideOnScreen, showOnScreen } from '@renderer/app/screen-layout-actions';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
-import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { appState } from '@renderer/lib/stores/app-state';
 import type { ScreenBlockContent } from '@renderer/app/screen-layout';
 import { openOwnedAgentEntry } from '@/lib/ownedAgentConversation';
+import { requestComposerEntryFocus } from '@/lib/composerEntryFocus';
 
 /**
  * 壳要打开一条对话(侧栏「对话」里点一行、通知、链接、「发消息」……,gugu-dev#181):对话是这屏的一块。
@@ -11,9 +12,10 @@ import { openOwnedAgentEntry } from '@/lib/ownedAgentConversation';
  */
 export function openChatOnScreen(chatId: string, beside: boolean, purpose?: 'resource'): void {
   if (openOwnedAgentEntry(chatId, undefined, undefined, undefined, purpose)) return;
-  const projectId = projectGroupsStore.projectOfChat(chatId);
+  const projectId = projectGroupsStore.rowProjectOfChat(chatId);
   const content: ScreenBlockContent = projectId
-    ? { kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) }
+    ? { kind: 'project', projectId }
     : { kind: 'chat', chatId };
   (beside && isScreenView(appState.navigation.currentViewId) ? showBesideOnScreen : showOnScreen)(content);
+  requestComposerEntryFocus(purpose ? null : 'chat:' + chatId);
 }

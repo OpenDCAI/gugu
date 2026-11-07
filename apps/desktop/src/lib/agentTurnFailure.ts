@@ -15,6 +15,8 @@ export interface AgentTurnFailure {
   reason: AgentFailureReason
   /** 失败时刻（墙钟 ms），显示相对时间用。 */
   at: number
+  /** The agent has left this chat: nothing can redeliver to it here. */
+  departed: boolean
 }
 
 /** A failure row's line in the viewer's language (the chat row, the quick chat, the chat-list preview, the notification). */

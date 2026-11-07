@@ -28,7 +28,6 @@ import {
   type ExtensionInstallConsentResult,
 } from '@shared/extensions/host-actions';
 import {
-  APP_FORUM_CONSENT_EVENT,
   APP_FORWARD_FILES_EVENT,
   APP_OPEN_WITH_EVENT,
 } from '@shared/extensions/app-runtime-protocol';
@@ -278,10 +277,6 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     }
     case 'forwardFiles':
       window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail: action.detail }));
-      return;
-    // The shell draws the forum's consent sheet (ForumConsent), as the phone's page gives it.
-    case 'forumConsent':
-      window.dispatchEvent(new CustomEvent(APP_FORUM_CONSENT_EVENT, { detail: action.detail }));
       return;
     // Beside the page that asked, in the slot it is drawn in: that slot draws it (AppPeekSlot). A session already in a
     // block on screen is not drawn twice: that block is looked at instead (one session, one place — ScreenArea).

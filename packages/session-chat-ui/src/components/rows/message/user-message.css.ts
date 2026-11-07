@@ -74,6 +74,7 @@ export const card = recipe({
     borderColor: vars.userCardBorder,
     background: cardSurface,
     color: vars.bubbleUserFg,
+    colorScheme: vars.bubbleUserColorScheme,
     paddingLeft: cardVars.userCardPadX,
     paddingRight: cardVars.userCardPadX,
     paddingTop: cardVars.userCardPadY,

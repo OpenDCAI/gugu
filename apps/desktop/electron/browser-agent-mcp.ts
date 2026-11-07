@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { requireAgentFileAccess, requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary'
 import { pathToFileURL } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -69,8 +70,8 @@ export const PLAYWRIGHT_CONFIG = {
   // 页面自己注册的工具(实验中的 WebMCP)不收:网页内容对 agent 是不可信输入,❌ 让网页往 agent 的工具箱里加东西。
   webmcp: false,
   saveSession: false,
-  // 本机文件(file://、上传)放行:agent 在这台电脑上本来就能读写文件,Playwright 自己也说这道闸「不是安全边界」;
-  // 不放行时 agent 打不开刚写好的本地网页,而人在同一个页签里照样能打开 —— 只挡了 agent 一边。
+  // Ordinary local files remain available; the host's private-storage boundary checks every input/output path.
+  // Local-page navigation is separately refused by the page protocol.
   allowUnrestrictedFileAccess: true,
 } as const
 
@@ -80,6 +81,7 @@ export class SessionBrowserTools {
   /** Playwright 自动命名的输出(每个动作附带的页面快照、截图……)落在这里。 */
   readonly outputDir: string
   private connecting: Promise<Client> | null = null
+  private workspace: Promise<string | null> | null = null
   private closeServer: (() => Promise<void>) | null = null
   private transport: { close(): void } | null = null
   /**
@@ -105,11 +107,28 @@ export class SessionBrowserTools {
     return this.connecting
   }
 
+  private workspaceRoot(): Promise<string | null> {
+    this.workspace ??= this.bridge().workspaceRoot(this.sessionId)
+    return this.workspace
+  }
+
+  async checkFileArguments(args: Record<string, unknown> | undefined): Promise<void> {
+    const cwd = await this.workspaceRoot() ?? this.outputDir
+    await requireAgentFileTreeAccess(this.outputDir, { followLinks: true })
+    if (Array.isArray(args?.paths)) {
+      for (const file of args.paths) {
+        if (typeof file !== 'string') throw new Error('Invalid browser file path')
+        await requireAgentFileTreeAccess(resolve(cwd, file), { followLinks: true })
+      }
+    }
+    if (typeof args?.filename === 'string') await requireAgentFileAccess(resolve(cwd, args.filename))
+  }
+
   private async connect(): Promise<Client> {
     const { createConnection, chromium } = loadPlaywright()
     const signal = this.lifetime.signal
     const outputDir = this.outputDir
-    const workspace = await this.bridge().workspaceRoot(this.sessionId)
+    const workspace = await this.workspaceRoot()
     const server = await createConnection(
       { ...PLAYWRIGHT_CONFIG, outputDir },
       () => withoutBrowserCall(async () => {
@@ -230,6 +249,7 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
   const tools = toolsFor(sessionId, bridge)
   try {
     signal.throwIfAborted()
+    await tools.checkFileArguments(params.arguments)
     const client = await awaitBrowserCall(tools.client(), signal)
     signal.throwIfAborted()
     return await withBrowserCall(signal, () => client.callTool(params, undefined, { signal, timeout: SESSION_TOOL_TIMEOUT_MS })) as CallToolResult

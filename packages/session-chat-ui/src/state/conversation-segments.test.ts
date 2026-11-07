@@ -59,13 +59,13 @@ describe('replay conversation segment boundaries', () => {
     expect(segments[1].items.map(item => item.id)).toEqual(['stop', 'two', 'after']);
   });
 
-  it('keeps the latest live words in a bubble and earlier words in the process', () => {
+  it('keeps every panel message in an original bubble with its own process owner', () => {
     const record = turn([message('u', 'user'), call('one'), message('first', 'assistant'), call('two'), message('latest', 'assistant')]);
-    const rows = flattenTier([record], context(true), segmenters);
-    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 't:run:one', 'first', 't:run:two', 'latest']);
+    const rows = flattenTier([record], context(true, ['t:process']), segmenters);
+    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 't:run:one', 'first', 't:process@first:head', 't:run:two', 'latest']);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationNarration).toBeUndefined();
     expect(rows.find(row => row.itemId === 'latest')!.data).not.toHaveProperty('conversationCaret');
-    expect((rows.find(row => row.itemId === 'first')!.data as ChatMessage).conversationNarration).toBe(true);
+    expect((rows.find(row => row.itemId === 'first')!.data as ChatMessage).conversationNarration).toBeUndefined();
   });
 
   it('seals the entire pre-steer block above the input, both live and settled', () => {
@@ -79,7 +79,7 @@ describe('replay conversation segment boundaries', () => {
       expect(ids.indexOf('ready')).toBeLessThan(ids.indexOf('steer'));
       expect(ids.indexOf('steer')).toBeLessThan(ids.indexOf('t:process@steer:head'));
       const before = rows.find(row => row.itemId === 't:process:head')!.data as ChatMessage;
-      expect(before.conversationProcess).toMatchObject({ startedAt: 1000, endedAt: 5000 });
+      expect(before.conversationProcess).toMatchObject({ startedAt: 1000, endedAt: 2000 });
       expect(before.conversationProcess?.live).toBeUndefined();
       const after = rows.find(row => row.itemId === 't:process@steer:head')!.data as ChatMessage;
       expect(after.conversationProcess?.startedAt).toBe(5000);
@@ -157,7 +157,7 @@ describe('replay conversation segment boundaries', () => {
 
   it('excludes silence and the visible reply without dropping earlier live parts', () => {
     const record = turn([message('u', 'user'), call('one'), message('a', 'assistant'), call('two'), message('b', 'assistant'), call('three'), message('latest', 'assistant'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);
-    const rows = flattenTier([record], context(true), segmenters);
+    const rows = flattenTier([record], context(true, ['t:process']), segmenters);
     expect(rows.map(row => row.itemId)).not.toContain('t:process:earlier');
     expect(rows.map(row => row.itemId)).toContain('t:run:one');
     expect(rows.map(row => row.itemId)).toContain('a');
@@ -227,7 +227,7 @@ describe('replay conversation segment boundaries', () => {
       message('steer', 'user', 3000), message('second', 'assistant', 3500), stop,
       message('after-stop', 'assistant', 5000), message('send:sent:confirmed', 'assistant', 6000), message('after-send', 'assistant', 7000)]);
     const heads = flattenTier([record], context(active), segmenters).filter(row => (row.data as ChatMessage).conversationPart === 'head');
-    expect(heads).toHaveLength(4);
+    expect(heads).toHaveLength(5);
     for (const row of heads) expect((row.data as ChatMessage).conversationReply).toBeUndefined();
   });
 
@@ -244,8 +244,8 @@ describe('replay conversation segment boundaries', () => {
   it('does not add the generic message margin between process parts or after an action lane', () => {
     const record = turn([message('u', 'user', 1000), call('work'), message('first', 'assistant', 2000), call('more'), message('latest', 'assistant', 3000), message('steer', 'user', 4000)]);
     const rows = flattenTier([record], context(true, ['t:process']), segmenters);
-    expect(rows.find(row => row.itemId === 'first')?.gapBefore).toBe(0);
-    expect(rows.find(row => row.itemId === 'latest')?.gapBefore).toBe(8);
+    expect(rows.find(row => row.itemId === 'first')?.gapBefore).toBe(8);
+    expect(rows.find(row => row.itemId === 'latest')?.gapBefore).toBe(4);
     expect(rows.find(row => row.itemId === 'steer')?.gapBefore).toBe(0);
     expect(rows.at(-1)?.gapBefore).toBe(0);
   });

@@ -216,7 +216,8 @@ export class RemoteHostsStore {
             })));
         }),
         ...this.allListedSessions().map(({ summary }) => ({ projectId: summary.projectId, sessionId: summary.conversationId, agentUserId: summary.agent?.userId })),
-      ]
+      ],
+      () => sidebarStore.sidebarProjects.map(({ id }) => id)
     );
     subscribeDeviceSessions(() => runInAction(() => (this.directory = liveDeviceSessions())));
     onRemoteHostsBridgeChange(() => this.attach(findRemoteHostsBridge()));

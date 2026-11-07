@@ -1,6 +1,5 @@
 import type { IFileSystem } from '@gugu/session-core/files';
 import { eq } from 'drizzle-orm';
-import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
 import { db } from '@main/db/client';
 import { sessions, projects as projectsTable } from '@main/db/schema';
 import type {
@@ -35,11 +34,11 @@ function targetKey(target: ProjectSettingsWriteTarget): string {
 }
 
 /** 一条会话挂着的、不是项目根目录的工作区(它自己的 worktree):可以单独写一份配置。 */
-function resolveSessionWorkspaceTarget(
+async function resolveSessionWorkspaceTarget(
   project: ProjectProvider,
   session: { title: string; workspaceId: string | null }
-): ProjectSettingsResolvedTarget | null {
-  const workspace = session.workspaceId ? workspaceRegistry.get(session.workspaceId) : undefined;
+): Promise<ProjectSettingsResolvedTarget | null> {
+  const workspace = session.workspaceId ? await resolveWorkspace(project.projectId, session.workspaceId) : undefined;
   if (!session.workspaceId || !workspace || workspace.path === project.repoPath) return null;
   return {
     type: 'workspace',
@@ -80,7 +79,7 @@ export async function resolveAllProjectSettingsTargets(
   // 多条会话共享一个工作区时只列一次。
   const byWorkspace = new Map<string, ProjectSettingsResolvedTarget>();
   for (const session of sessionRows) {
-    const target = resolveSessionWorkspaceTarget(project, { title: taskName(session), workspaceId: session.workspaceId });
+    const target = await resolveSessionWorkspaceTarget(project, { title: taskName(session), workspaceId: session.workspaceId });
     if (target?.type === 'workspace' && !byWorkspace.has(target.workspaceId)) {
       byWorkspace.set(target.workspaceId, target);
     }
@@ -105,7 +104,7 @@ export async function resolveProjectSettingsTarget(
   if (target) return target;
 
   if (request.target.type === 'workspace') {
-    const workspace = resolveWorkspace(project.projectId, request.target.workspaceId);
+    const workspace = await resolveWorkspace(project.projectId, request.target.workspaceId);
     if (!workspace) return null;
     return {
       type: 'workspace',

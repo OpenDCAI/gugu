@@ -1,3 +1,5 @@
+import { replaceEqualDeep } from '@tanstack/react-query'
+import { memoizeByReference } from './memoizeByReference'
 import type { CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import type { CreateTopicInput } from './topics'
 import type {
@@ -15,6 +17,7 @@ import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { rendererLogger } from './log'
 import { initializeMessages, ingestMessages } from './messageIngest'
 import { platform } from '../platform'
+import { compareChatsByActivityDesc } from '@gugu/core/shared/ui/chatModels'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import { MAX_WINDOW } from '../store/chatMessageWindow'
 import {
@@ -31,7 +34,8 @@ type EntityValue = Record<string, unknown>
 const repositoryLog = rendererLogger('im/repository')
 
 export type IdentityRow = LocalImRow & { id: string; value: DisplayIdentity }
-export type ChatRow = LocalImRow & { id: string; order: number; value: ChatItem }
+export type ChatRow = LocalImRow & { id: string; value: ChatItem }
+type ChatRowChanges = { changed: readonly ChatItem[]; deleted: readonly string[] }
 export type MembershipRow = LocalImRow & { chatId: string; identityId: string; value: EntityValue }
 export type MessageRow = LocalImRow & {
   id: string
@@ -106,7 +110,7 @@ type Listener<T> = (value: T, snapshot: ImRepositorySnapshot) => void
 export interface ImRepositoryTransaction {
   clear(): void
   putIdentity(value: unknown): void
-  putChat(id: string, value: ChatItem, order?: number): void
+  putChat(id: string, value: ChatItem): void
   putMembership(chatId: string, identityId: string, value: EntityValue): void
   putMessage(value: MessageItem): void
   readView(key: string): unknown
@@ -134,25 +138,20 @@ export interface AccountImRepository {
  * 订阅身份或会话列表的每个组件整页重渲染 —— 藏着的通讯录随之每秒重画几百行(Chole 10-20 实测,渲染进程内存一路涨)。
  */
 function fromTable<S extends ImStoreName, T>(store: S, derive: (rows: ImRepositorySnapshot[S]) => T): Selector<T> {
-  let rows: ImRepositorySnapshot[S] | undefined
-  let result: T
-  return (snapshot) => {
-    if (snapshot[store] !== rows) {
-      rows = snapshot[store]
-      result = derive(rows)
-    }
-    return result
-  }
+  const project = memoizeByReference(derive)
+  return snapshot => project(snapshot[store], undefined)
 }
 
 export const imSelectors = {
   identitiesById: fromTable('identity', (rows) => Object.freeze(Object.fromEntries(
     rows.map((row) => [row.id, row.value]),
   )) as Readonly<Record<string, DisplayIdentity>>),
+  // List order is the projection's (activity, then id); it is sorted here, on a read, not stored per row — a stored
+  // position would make one moved conversation rewrite every row below it.
   chats: fromTable('chat', (rows) => rows
-    .slice()
-    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
-    .map((row) => row.value)),
+    .map((row) => row.value)
+    .sort((a, b) => compareChatsByActivityDesc(a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))),
+  chatRowsById: fromTable('chat', (rows) => new Map(rows.map(row => [row.id, row.value]))),
   membershipsForChat: (chatId: string) => fromTable('membership', (rows) =>
     rows.filter((row) => row.chatId === chatId)),
   messagesForChat: (chatId: string) => fromTable('message', (rows) => rows
@@ -203,6 +202,9 @@ function createAccountRepository(
   initial: Record<ImStoreName, LocalImRow[]>,
   ownsAdapter: boolean,
 ): AccountImRepository {
+  for (const store of IM_STORE_NAMES) {
+    if (initial[store].some(row => row.accountId !== accountId)) throw new Error(`snapshot ${store} crossed account boundary`)
+  }
   let current = freezeSnapshot(initial)
   let closed = false
   let writeChain = Promise.resolve()
@@ -283,18 +285,27 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[], 
     }
     return imSelectors.view(key)(stored)
   }
-  let removed: Set<string> | null = null
+  const removed = new Set<string>()
+  const identityWrites = new Set<string>()
+  let cleared = false
   return {
-    clear: () => operations.push({ type: 'clearAccount', accountId }),
+    clear: () => { cleared = true; operations.push({ type: 'clearAccount', accountId }) },
     putIdentity: (value) => {
-      const identity = displayIdentityFromRow(value)
+      const id = value && typeof value === 'object' && 'id' in value ? value.id : undefined
+      const previous = typeof id === 'string' ? imSelectors.identitiesById(stored)[id] : undefined
+      if (previous && !cleared && !identityWrites.has(previous.id) && replaceEqualDeep(previous, value) === previous) return
+      // An identity the projection already parsed is kept as that object (parsing it again only makes an equal
+      // copy, see @@@one-row-object); a raw row becomes its parsed form.
+      const parsed = displayIdentityFromRow(value)
+      const identity = replaceEqualDeep(value, parsed) === value ? value as DisplayIdentity : parsed
       // Removal is terminal on the server (a removed identity is immutable), so a row without
       // removed_at is an older observation and cannot bring a removed identity back.
-      removed ??= new Set(stored.identity.filter((row) => row.value.removed_at).map((row) => row.id))
-      if (!identity.removed_at && removed.has(identity.id)) return
+      if (!identity.removed_at && (previous?.removed_at || removed.has(identity.id))) return
+      if (identity.removed_at) removed.add(identity.id)
+      identityWrites.add(identity.id)
       put('identity', { accountId, id: identity.id, value: identity })
     },
-    putChat: (id, value, order = 0) => put('chat', { accountId, id: nonEmpty(id, 'chat.id'), order, value }),
+    putChat: (id, value) => put('chat', { accountId, id: nonEmpty(id, 'chat.id'), value }),
     putMembership: (chatId, identityId, value) => put('membership', {
       accountId,
       chatId: nonEmpty(chatId, 'membership.chatId'),
@@ -328,40 +339,65 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[], 
     },
     putView: (key, value) => put('view', { accountId, key: nonEmpty(key, 'view.key'), value }),
     putSyncState: (key, value) => put('sync_state', { accountId, key: nonEmpty(key, 'sync_state.key'), value }),
-    delete: (store, key) => operations.push({ type: 'delete', store, key }),
+    delete: (store, key) => {
+      if (store === 'identity' && Array.isArray(key) && typeof key[1] === 'string') identityWrites.add(key[1])
+      operations.push({ type: 'delete', store, key })
+    },
   }
 }
 
-export async function replaceChatRows(repository: AccountImRepository, chats: ChatItem[]): Promise<void> {
+export async function replaceChatRows(repository: AccountImRepository, chats: readonly ChatItem[]): Promise<void> {
   await repository.transaction((transaction) => {
     writeChatRows(repository, transaction, chats)
   })
 }
 
-export function writeChatRows(repository: AccountImRepository, transaction: ImRepositoryTransaction, chats: ChatItem[]): void {
-  const ids = new Set(chats.map((chat) => chat.id))
-  for (const row of repository.snapshot().chat) {
-    if (!ids.has(row.id)) transaction.delete('chat', [repository.accountId, row.id])
+// @@@one-row-object: the stored (durable-shaped) row → the list row it was written from. A list row that is still the
+// object the stored row came from has not changed, so it is not written again (no copy, no JSON comparison) —
+// the conversation list is handed over on every update, and only the rows that changed cost anything.
+const storedFrom = new WeakMap<object, ChatItem>()
+
+export function writeChatRows(repository: AccountImRepository, transaction: ImRepositoryTransaction, chats: readonly ChatItem[]): void {
+  writeChatRowChanges(repository, transaction, diffChatRows(imSelectors.chatRowsById(repository.snapshot()), chats))
+}
+
+/** Reference comparisons only; parsing and durable copies belong to the changed rows. */
+function diffChatRows(current: ReadonlyMap<string, ChatItem>, next: readonly ChatItem[]): ChatRowChanges {
+  const ids = new Set<string>()
+  const changed: ChatItem[] = []
+  for (const row of next) {
+    ids.add(row.id)
+    const stored = current.get(row.id)
+    if (stored !== row && (!stored || storedFrom.get(stored) !== row)) changed.push(row)
   }
-  chats.forEach((chat, order) => {
+  return { changed, deleted: [...current.keys()].filter(id => !ids.has(id)) }
+}
+
+function writeChatRowChanges(repository: AccountImRepository, transaction: ImRepositoryTransaction, changes: ChatRowChanges): void {
+  for (const id of changes.deleted) transaction.delete('chat', [repository.accountId, id])
+  for (const chat of changes.changed) {
     const { read_state_version: _discarded, ...projection } = chat
-    transaction.putChat(chat.id, projection as ChatItem, order)
-  })
+    storedFrom.set(projection, chat)
+    transaction.putChat(chat.id, projection as ChatItem)
+  }
 }
 
 /** Publish the conversation list with the identities it needs as one snapshot. */
 export async function replaceChatRowsAndIdentities(
   repository: AccountImRepository,
-  chats: ChatItem[],
+  chats: readonly ChatItem[] | (() => readonly ChatItem[]),
   identities: readonly unknown[],
   isConversationDeleted?: (id: string) => boolean,
-  readChats?: () => ChatItem[],
 ): Promise<void> {
   await repository.transaction((transaction) => {
     // Evaluate inside the serialized write: an older queued snapshot cannot undo a confirmed deletion.
-    const published = (readChats ? readChats() : chats).filter(chat => !isConversationDeleted?.(chat.id))
-    assertIdentityClosure('conversation list', published.flatMap((chat) => [chat.peer_user_id, ...(chat.member_user_ids ?? [])]), identities)
-    writeChatRows(repository, transaction, published)
+    const changes = diffChatRows(imSelectors.chatRowsById(repository.snapshot()),
+      (typeof chats === 'function' ? chats() : chats).filter(chat => !isConversationDeleted?.(chat.id)))
+    for (const chat of changes.changed) {
+      assertIdentityClosure('conversation list', chat.member_user_ids ?? [], identities)
+      if (chat.peer_user_id) assertIdentityClosure('conversation list', [chat.peer_user_id], identities)
+    }
+    writeChatRowChanges(repository, transaction, changes)
     for (const identity of identities) transaction.putIdentity(identity)
   })
 }
@@ -497,15 +533,7 @@ export async function replaceGroupRoster(
     }
     // 成员行和它们的身份写在同一个事务里 —— 与 replaceChatRowsAndIdentities 同构。分开写就会有一段
     // 「行已落库、身份还没有」的窗口,而那段窗口正是下游拿空名字当 @ 匹配 key 的时机。
-    // 名册在 agent 运行期间按 300ms 合并一次地反复刷新,身份多半没变:与已落库的值相同的行不再 put,
-    // 省的是每行的 zod 解析、structuredClone 与 IndexedDB 写(订阅者通知不省 —— 事务提交后一律 publish)。
-    const stored = new Map(repository.snapshot().identity.map((row) => [row.id, row.value]))
-    for (const identity of identities) {
-      const id = (identity as { id?: unknown }).id
-      const current = typeof id === 'string' ? stored.get(id) : undefined
-      if (current !== undefined && JSON.stringify(current) === JSON.stringify(identity)) continue
-      transaction.putIdentity(identity)
-    }
+    for (const identity of identities) transaction.putIdentity(identity)
   })
 }
 
@@ -651,7 +679,7 @@ function applyOperations(
   const rowsOf = (store: ImStoreName) => {
     let rows = edits.get(store)
     if (!rows) {
-      rows = new Map(next[store].map((row) => [JSON.stringify(keyForRow(store, row)), row]))
+      rows = new Map(tableIndex(store, next[store]))
       edits.set(store, rows)
     }
     return rows
@@ -669,10 +697,18 @@ function applyOperations(
     const key = JSON.stringify(operation.type === 'put' ? keyForRow(operation.store, operation.value) : operation.key)
     if (operation.type === 'put') {
       const existing = rows.get(key)
-      if (existing && JSON.stringify(existing) === JSON.stringify(operation.value)) continue
-      rows.set(key, structuredClone(operation.value))
+      if (existing && JSON.stringify(existing) === JSON.stringify(operation.value)) {
+        if (operation.store === 'chat') {
+          const source = storedFrom.get(operation.value.value as object)
+          if (source) storedFrom.set(existing.value as object, source)
+        }
+        continue
+      }
+      // @@@one-row-object: the snapshot holds the value it was handed (frozen below), not a clone of it — an identity
+      // the projection read is then one object in both. Writers hand over values they no longer change.
+      rows.set(key, operation.value)
       changed.add(operation.store)
-      effective.push({ ...operation, value: rows.get(key)! })
+      effective.push(operation)
     } else if (rows.delete(key)) {
       changed.add(operation.store)
       effective.push(operation)
@@ -711,10 +747,19 @@ function applyOperations(
   }
   for (const store of changed) {
     next[store] = [...edits.get(store)!.values()]
-    if (next[store].some((row) => row.accountId !== accountId)) throw new Error(`snapshot ${store} crossed account boundary`)
+    tableIndexes.set(next[store], edits.get(store)!)
   }
   // Prepare with the existing row comparison before persistence; publish only after this batch commits.
   return { snapshot: freezeSnapshot(next), operations: effective }
+}
+
+// A table's rows by key, built once per table array: a transaction copies it (pointers) instead of re-keying every
+// row with JSON.stringify — the cost of a write no longer grows with the table.
+const tableIndexes = new WeakMap<readonly LocalImRow[], Map<string, LocalImRow>>()
+function tableIndex(store: ImStoreName, rows: readonly LocalImRow[]): Map<string, LocalImRow> {
+  let index = tableIndexes.get(rows)
+  if (!index) tableIndexes.set(rows, index = new Map(rows.map((row) => [JSON.stringify(keyForRow(store, row)), row])))
+  return index
 }
 
 function keyForRow(store: ImStoreName, row: LocalImRow): IDBValidKey {

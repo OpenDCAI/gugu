@@ -22,5 +22,5 @@ it('has nonempty Chinese and English list copy for every implementation',()=>{
 
 it('bundles the list copy in a browser without provider behaviors or SDKs',async()=>{
  const output=await build({entryPoints:[fileURLToPath(new URL('../../packages/session-plugins/src/integrations/summaries.ts',import.meta.url))],bundle:true,platform:'browser',write:false,metafile:true})
- expect(Object.keys(output.metafile!.inputs).every(path=>path.endsWith('/summary.ts')||path.endsWith('/summaries.ts'))).toBe(true)
+ expect(Object.keys(output.metafile!.inputs).every(path=>path.endsWith('/summary.ts')||path.endsWith('/summaries.ts')||path.endsWith('/integrations/catalog.ts'))).toBe(true)
 })

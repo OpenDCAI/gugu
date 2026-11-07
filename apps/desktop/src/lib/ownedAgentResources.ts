@@ -17,6 +17,7 @@ export function ownedAgentResourceHost(ownerId: string, chatId: string): OwnedAg
   return read().find(one => one.ownerId === ownerId && one.chatId === chatId)
 }
 export function suspendOwnedAgentResources(ownerId: string, chatId: string): void { pending().add(requestKey(ownerId, chatId)) }
+export function resumeOwnedAgentResources(ownerId: string, chatId: string): void { pending().delete(requestKey(ownerId, chatId)) }
 export function canTakeOwnedAgentResource(ownerId: string, chatId: string): boolean {
   return Boolean(ownedAgentResourceHost(ownerId, chatId)) && !pending().has(requestKey(ownerId, chatId))
 }

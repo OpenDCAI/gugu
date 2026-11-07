@@ -30,6 +30,31 @@ beforeEach(() => {
 afterEach(() => { act(() => { tabFullscreen.exit(); root.unmount(); }); vi.unstubAllGlobals(); });
 
 describe('each actual pane owns its content', () => {
+  it('pairs a beside request with activate false and leaves input focus in the chat', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const chat = createTabProvider({ ...provider, kind: 'conversation', conversation: true, TabContent: () => <input data-chat-input="" /> });
+    const layout = new PaneLayoutStore(createTabRegistry([provider, chat]), { viewId: 'agent-beside-chat-focus' });
+    const conversation = layout.open('conversation', { id: 'chat' }, { from: null, intent: 'newTab' })!;
+    const main = layout.mainGroup;
+    const Surface = observer(() => <>{layout.groups.map((group) => <PaneContext.Provider key={group.paneId} value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: layout.activePaneId === group.paneId }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>);
+    const flush = () => { for (const frame of frames.splice(0)) frame(0); };
+    try {
+      await act(async () => { root.render(<Surface />); });
+      await act(async () => { flush(); });
+      const input = dom.window.document.querySelector<HTMLInputElement>('[data-chat-input]')!;
+      input.focus();
+      let page: string | undefined;
+      await act(async () => { page = layout.open('page', { id: 'example.com' }, { from: conversation, intent: 'beside', activate: false }); });
+      await act(async () => { flush(); });
+      expect(layout.pair).toEqual({ pinned: conversation, side: page });
+      expect(layout.focusedPane).toBe(main.pane);
+      expect(layout.focusedPane.resolvedActiveTabId).toBe(conversation);
+      expect(dom.window.document.activeElement).toBe(input);
+    } finally { layout.dispose(); }
+  });
+
   it('hands focus from the retained folder guest to the new page before history shortcuts are used', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
     vi.stubGlobal('cancelAnimationFrame', () => {});

@@ -1,20 +1,20 @@
 import { useForm } from '@tanstack/react-form';
-import { ChevronDown, ChevronRight, Plus, RotateCcw, Trash2 } from '@/lib/icons'
+import { ChevronRight, Plus, RotateCcw, Trash2 } from '@/lib/icons';
 import { observer } from 'mobx-react-lite';
 import React, { useCallback, useEffect, useState } from 'react';
 import { parseEnvAssignmentPaste, replaceEnvEntryWithPaste } from '@renderer/lib/env-paste';
 import { Button } from '@renderer/lib/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@renderer/lib/ui/collapsible';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@renderer/lib/ui/dropdown-menu';
-import { Input } from '@renderer/lib/ui/input';
-import { Label } from '@renderer/lib/ui/label';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@renderer/lib/ui/select';
+import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsPrimitives';
 import { InfoTooltip } from '@renderer/lib/ui/info-tooltip';
+import { Input } from '@renderer/lib/ui/input';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { log } from '@renderer/utils/logger';
 import { cn } from '@renderer/utils/utils';
@@ -41,7 +41,7 @@ function makeDefaultValues(cfg: ProviderCustomConfig | undefined) {
     extraArgs: cfg?.extraArgs ?? '',
     envEntries: cfg?.env
       ? (Object.entries(cfg.env).map(([key, value]) => ({ key, value })) as EnvEntry[])
-      : ([] as EnvEntry[]),
+      : ([] as EnvEntry[])
   };
 }
 
@@ -66,7 +66,7 @@ export const AgentAdvancedSection = observer(function AgentAdvancedSection({
   compact = false,
   registries,
   registry,
-  onRegistryChange,
+  onRegistryChange
 }: AgentAdvancedSectionProps) {
   const [open, setOpen] = useState(false);
   const { translate } = useSessionMessages();
@@ -96,16 +96,16 @@ export const AgentAdvancedSection = observer(function AgentAdvancedSection({
 
     if (isAtDefaults) {
       reset(undefined, {
-        onError: (err) => log.error('Failed to reset agent config:', err),
+        onError: (err) => log.error('Failed to reset agent config:', err)
       });
     } else {
       const config: ProviderCustomConfig = {
         ...(storedConfig ?? {}),
         extraArgs: extraArgs.trim() || undefined,
-        env: Object.keys(envRecord).length > 0 ? envRecord : undefined,
+        env: Object.keys(envRecord).length > 0 ? envRecord : undefined
       };
       update(config, {
-        onError: (err) => log.error('Failed to save agent config:', err),
+        onError: (err) => log.error('Failed to save agent config:', err)
       });
     }
   }, [form, storedConfig, reset, update]);
@@ -114,218 +114,192 @@ export const AgentAdvancedSection = observer(function AgentAdvancedSection({
     form.setFieldValue('extraArgs', '');
     form.setFieldValue('envEntries', []);
     reset(undefined, {
-      onError: (err) => log.error('Failed to reset agent config:', err),
+      onError: (err) => log.error('Failed to reset agent config:', err)
     });
   }, [form, reset]);
 
-  // @@@6088 这一层从前自带 `min-h-0 flex-1 overflow-y-auto px-4`,因为抽屉里它是与上半部分
-  // 并列的第二个滚动区。居中模态框只有**一个**滚动区(`DialogContentArea`),这里再开一个
-  // 会让「高级设置」展开后在弹窗内部套出第二条滚动条,而上半部分反而钉住不动。
-  // 高级排在最后,上边一条细线与账号 / 状态分开(line budget:段与段之间一条线,段内不再加框)。
   return (
-    <div className="border-t pt-2">
-      <Collapsible open={open} onOpenChange={setOpen}>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="relative flex items-center justify-between gap-3">
         <CollapsibleTrigger
           type="button"
           data-testid="agent-advanced-trigger"
-          className="flex w-full items-center justify-between rounded-md py-2 text-sm font-medium text-foreground-muted hover:text-foreground"
+          className="flex w-full items-center justify-between text-sm font-semibold"
         >
-          <span className="flex h-6 items-center gap-1.5">
-            <Label>{translate(compact ? 'agentsPage.advanced' : 'agentsPage.advancedSettings')}</Label>
-            <ChevronRight
-              className={cn('size-3.5', 'transition-transform', open ? 'rotate-90' : '')}
-            />
-          </span>
-          {isOverridden && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 gap-1.5 px-2 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleResetToDefaults();
-              }}
-            >
-              <RotateCcw className="size-3.5" />
-              {translate('agentsPage.resetToDefaults')}
-            </Button>
-          )}
+          {translate(compact ? 'agentsPage.advanced' : 'agentsPage.advancedSettings')}
+          <ChevronRight className={cn('absolute right-0 size-3.5 transition-transform', open && 'rotate-90')} />
         </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          {children}
-          <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-start gap-x-4 gap-y-4 pt-2 pb-3">
-            {/* 下载源。默认「自动」—— 主进程按测速自己挑(spec:下载源不让用户选,这里是覆盖口)。 */}
-            {registries.length > 0 && (
-              <>
-                <RowLabel>{translate('agentsPage.manualRegistry')}</RowLabel>
-                <div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      data-testid="registry-trigger"
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-sm text-foreground outline-none hover:bg-row-hover focus-visible:bg-row-hover"
-                    >
+        {isOverridden && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mr-6 shrink-0 gap-1.5 text-xs"
+            onClick={handleResetToDefaults}
+          >
+            <RotateCcw className="size-3.5" />
+            {translate('agentsPage.resetToDefaults')}
+          </Button>
+        )}
+      </div>
+      <CollapsibleContent className="pt-2">
+        {children}
+        <SettingsGroup>
+          {registries.length > 0 && (
+            <SettingsRow
+              title={translate('agentsPage.manualRegistry')}
+              description={translate('agentsPage.registryHint')}
+              control={
+                <Select
+                  value={registry ?? ''}
+                  onValueChange={(value) =>
+                    onRegistryChange(value === '' ? undefined : String(value))
+                  }
+                >
+                  <SelectTrigger
+                    className="w-[156px]"
+                    aria-label={translate('agentsPage.manualRegistry')}
+                    data-testid="registry-trigger"
+                  >
+                    <SelectValue>
                       {registries.find((r) => r.registry === registry)?.label ??
                         translate('agentsPage.sourceAuto')}
-                      <ChevronDown className="size-3.5 text-foreground-passive" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuRadioGroup
-                        value={registry ?? ''}
-                        onValueChange={(next) => onRegistryChange(next === '' ? undefined : next)}
-                      >
-                        {/* 「自动」是**默认**,所以它是这一组的第一行。 */}
-                        <DropdownMenuRadioItem value="">
-                          {translate('agentsPage.sourceAuto')}
-                        </DropdownMenuRadioItem>
-                        {registries.map((r) => (
-                          <DropdownMenuRadioItem key={r.registry} value={r.registry} disabled={r.unusable}>
-                            <span className="truncate">{r.label}</span>
-                            <span className="font-mono text-xs text-foreground-passive">
-                              {r.unusable
-                                ? translate('agentsPage.sourceMissingPlatformBuild')
-                                : r.loading
-                                  ? translate('agentsPage.sourceVersionChecking')
-                                  : r.version
-                                    ? `v${r.version}`
-                                    : translate('agentsPage.sourceVersionUnknown')}
-                            </span>
-                            {r.outdated && <OutdatedSourceBadge />}
-                          </DropdownMenuRadioItem>
-                        ))}
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </>
-            )}
-
-            {/* 附加参数 */}
-            <form.Field name="extraArgs">
-              {(field) => (
-                <>
-                  <RowLabel htmlFor="agent-extraArgs" tooltip={translate('agentsPage.extraArgsTooltip')}>
-                    {translate('agentsPage.additionalParameters')}
-                  </RowLabel>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="">{translate('agentsPage.sourceAuto')}</SelectItem>
+                    {registries.map((r) => (
+                      <SelectItem key={r.registry} value={r.registry} disabled={r.unusable}>
+                        <span>{r.label}</span>
+                        <span className="font-mono text-xs text-foreground-muted">
+                          {r.unusable
+                            ? translate('agentsPage.sourceMissingPlatformBuild')
+                            : r.loading
+                              ? translate('agentsPage.sourceVersionChecking')
+                              : r.version
+                                ? `v${r.version}`
+                                : translate('agentsPage.sourceVersionUnknown')}
+                        </span>
+                        {r.outdated && <OutdatedSourceBadge />}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              }
+            />
+          )}
+          <form.Field name="extraArgs">
+            {(field) => (
+              <SettingsRow
+                title={
+                  <>
+                    <label htmlFor="agent-extraArgs">
+                      {translate('agentsPage.additionalParameters')}
+                    </label>
+                    <InfoTooltip
+                      label={translate('agentsPage.moreInformation')}
+                      content={translate('agentsPage.extraArgsTooltip')}
+                    />
+                  </>
+                }
+                description={translate('agentsPage.extraArgsHint')}
+                stack
+                control={
                   <Input
                     id="agent-extraArgs"
+                    className="w-[184px] font-mono text-sm"
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    onBlur={() => commit()}
+                    onBlur={commit}
                     placeholder={translate('agentsPage.additionalParametersPlaceholder')}
-                    className="font-mono text-sm"
                   />
-                </>
-              )}
-            </form.Field>
-
-            {/* 环境变量 */}
-            <form.Field name="envEntries">
-              {(field) => (
-                <>
-                  <RowLabel tooltip={translate('agentsPage.environmentVariablesTooltip')}>
+                }
+              />
+            )}
+          </form.Field>
+          <form.Field name="envEntries">
+            {(field) => (
+              <SettingsRow
+                title={
+                  <>
                     {translate('agentsPage.environmentVariables')}
-                  </RowLabel>
-                  <div className="flex min-w-0 flex-col items-start gap-2">
-                    {field.state.value.map((entry, i) => (
-                      <div key={i} className="flex w-full min-w-0 items-center gap-2">
-                        <Input
-                          value={entry.key}
-                          placeholder={translate('agentsPage.envKeyPlaceholder')}
-                          className="min-w-0 flex-1 font-mono text-sm"
-                          onChange={(e) =>
-                            field.handleChange(
-                              field.state.value.map((v, idx) =>
-                                idx === i ? { ...v, key: e.target.value } : v
-                              )
-                            )
-                          }
-                          onBlur={() => commit()}
-                          onPaste={(e) => {
-                            const pasted = parseEnvAssignmentPaste(e.clipboardData.getData('text'));
-                            if (pasted.length === 0) return;
-                            e.preventDefault();
-                            field.handleChange(
-                              replaceEnvEntryWithPaste(field.state.value, i, pasted)
-                            );
-                          }}
-                        />
-                        <Input
-                          value={entry.value}
-                          placeholder={translate('agentsPage.envValuePlaceholder')}
-                          className="min-w-0 flex-1 font-mono text-sm"
-                          onChange={(e) =>
-                            field.handleChange(
-                              field.state.value.map((v, idx) =>
-                                idx === i ? { ...v, value: e.target.value } : v
-                              )
-                            )
-                          }
-                          onBlur={() => commit()}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 shrink-0"
-                          aria-label={translate('agentsPage.removeEnvEntry')}
-                          onClick={() => {
-                            field.handleChange(field.state.value.filter((_, idx) => idx !== i));
-                            commit();
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ))}
+                    <InfoTooltip
+                      label={translate('agentsPage.moreInformation')}
+                      content={translate('agentsPage.environmentVariablesTooltip')}
+                    />
+                  </>
+                }
+                description={translate('agentsPage.envHint')}
+                control={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      field.handleChange([...field.state.value, { key: '', value: '' }])
+                    }
+                  >
+                    <Plus className="size-3.5" />
+                    {translate('agentsPage.addVariable')}
+                  </Button>
+                }
+              >
+                {field.state.value.map((entry, i) => (
+                  <div key={i} className="mt-2 flex min-w-0 items-center gap-2">
+                    <Input
+                      aria-label={translate('agentsPage.envKeyPlaceholder')}
+                      value={entry.key}
+                      placeholder={translate('agentsPage.envKeyPlaceholder')}
+                      className="min-w-0 flex-1 font-mono text-sm"
+                      onChange={(e) =>
+                        field.handleChange(
+                          field.state.value.map((v, n) =>
+                            n === i ? { ...v, key: e.target.value } : v
+                          )
+                        )
+                      }
+                      onBlur={commit}
+                      onPaste={(e) => {
+                        const pasted = parseEnvAssignmentPaste(e.clipboardData.getData('text'));
+                        if (!pasted.length) return;
+                        e.preventDefault();
+                        field.handleChange(replaceEnvEntryWithPaste(field.state.value, i, pasted));
+                      }}
+                    />
+                    <Input
+                      aria-label={translate('agentsPage.envValuePlaceholder')}
+                      value={entry.value}
+                      placeholder={translate('agentsPage.envValuePlaceholder')}
+                      className="min-w-0 flex-1 font-mono text-sm"
+                      onChange={(e) =>
+                        field.handleChange(
+                          field.state.value.map((v, n) =>
+                            n === i ? { ...v, value: e.target.value } : v
+                          )
+                        )
+                      }
+                      onBlur={commit}
+                    />
                     <Button
                       type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5"
-                      onClick={() =>
-                        field.handleChange([...field.state.value, { key: '', value: '' }])
-                      }
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      aria-label={translate('agentsPage.removeEnvEntry')}
+                      onClick={() => {
+                        field.handleChange(field.state.value.filter((_, n) => n !== i));
+                        commit();
+                      }}
                     >
-                      <Plus className="h-3.5 w-3.5" />
-                      {translate('agentsPage.addVariable')}
+                      <Trash2 className="size-3.5" />
                     </Button>
                   </div>
-                </>
-              )}
-            </form.Field>
-
-            {/* 改过默认值时一句话说清,❌ 不画黄色警告框:这是事实陈述,不是出了问题。 */}
-            {isOverridden && (
-              <p className="col-start-2 m-0 text-sm text-foreground-muted">
-                {translate('agentsPage.customConfigurationApplied')}
-              </p>
+                ))}
+              </SettingsRow>
             )}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
+          </form.Field>
+        </SettingsGroup>
+      </CollapsibleContent>
+    </Collapsible>
   );
 });
-
-/** 高级里左边那一列的标签。控件在右列,标签与控件第一行对齐。 */
-function RowLabel({
-  children,
-  htmlFor,
-  tooltip,
-}: {
-  children: React.ReactNode;
-  htmlFor?: string;
-  tooltip?: string;
-}) {
-  const { translate } = useSessionMessages();
-  return (
-    <div className="flex min-h-8 items-center gap-1.5">
-      <label htmlFor={htmlFor} className="text-sm text-foreground-muted">
-        {children}
-      </label>
-      {tooltip && <InfoTooltip label={translate('agentsPage.moreInformation')} content={tooltip} contentClassName="max-w-[200px]" />}
-    </div>
-  );
-}

@@ -19,6 +19,7 @@ vi.mock('@renderer/lib/chat/sender-avatar', () => ({ senderAvatarUrl: () => null
 vi.mock('@renderer/lib/chat/chat-mention-provider', () => ({ chatMentionProvider: {}, registerIssueMentionIcons: () => {} }))
 vi.mock('@renderer/localization/locale-store', () => ({ getSessionLocaleSnapshot: () => ({ resolvedLocale: 'en-US' }), subscribeSessionLocale: () => () => {}, translateSessionMessage: () => '' }))
 vi.mock('@renderer/lib/chat/chat-name', () => ({ chatDisplayName: () => null }))
+vi.mock('@renderer/lib/chat/actor-identity', () => ({ chatActor: () => null }))
 
 const group = () => ({ id: 'chat', name: 'Review', kind: 'group', public_id: 123, peer_user_id: null as string | null, unread_count: 0, last_message_at: 'now', last_message_preview: 'old' })
 const disposals: (() => void)[] = []

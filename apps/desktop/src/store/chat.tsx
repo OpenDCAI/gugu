@@ -23,6 +23,7 @@ import {
   type AccountImRepository,
 } from '../lib/imRepository'
 import { closeImRepository, publishMessageWindow } from '../lib/chatMessageWindowPublication'
+import { messageWindow } from '../lib/messageWindows'
 import { paintLocalChats, publishLocalFirstFrame } from '../lib/chatSnapshotPublication'
 import { createChatListProjectionLedger, useChatProjectionBinding, notifyForIngestedMessage } from './chatListProjection'
 import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
@@ -566,7 +567,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     })
     const stop = subscribeChatLineRevisions(subscribeAccountRevision, {
       userId: userId!, chatId: () => cancelled ? null : chatId,
-      readCommittedMessage: id => imRepositoryRef.current?.snapshot().message.find(row => row.id === id)?.value,
+      readCommittedMessage: id => (messageWindow(userId!, chatId) ?? cache.rows(chatId)).find(message => message.id === id),
       hasMessageGap: id => imRepositoryRef.current ? readMessageWindow(imRepositoryRef.current, id)?.sparse === true : true,
       noteCommittedMessages,
       maxSeqOf, getMessageSnapshotEpoch, applyMessagesSnapshot, healMessageGap, revalidateWindowOverlays,
@@ -582,7 +583,6 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }
   useEffect(() => userId ? subscribeAccountRevision('gugu_decision_event', () => loadChats({ acceptEmpty: true, throwOnError: true })) : undefined,
     [userId, loadChats, subscribeAccountRevision])
-
   // ── Actions ────────────────────────────────────────────────────────────────
   const setActiveChatId = useCallback((id: string | null) => {
     if (activeChatIdRef.current === id) return

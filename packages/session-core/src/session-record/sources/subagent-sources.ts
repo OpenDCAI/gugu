@@ -91,15 +91,16 @@ export function withSubagentSources(
     // The position names its own file (a child's pictures are in the child's record), so any reader of this harness reads it.
     ...(root.readImage ? { readImage: (ref: RecordImageRef) => root.readImage!(ref) } : {}),
     ...(root.getLineage ? { getLineage: () => root.getLineage!() } : {}),
-    async resumePoint() {
-      if (replacement) return replacement.resumePoint!();
+    async resumePoint(budget) {
+      if (replacement) return replacement.resumePoint!(budget);
       // The host starts archiving and immediately stops the source. Start every
       // cursor read before yielding, while the child sources still own their readers.
       const [point, childPoints] = await Promise.all([
-        root.resumePoint!(),
-        Promise.all([...children].map(async ([id, child]) => [id, await child.resumePoint?.()] as const)),
+        root.resumePoint!(budget),
+        Promise.all([...children].map(async ([id, child]) => [id, await child.resumePoint?.(budget)] as const)),
       ]);
-      if (!point) return null;
+      if (!point || (budget && (budget.remainingBytes < 0
+        || childPoints.some(([, child]) => !child)))) return null;
       const savedChildren = Object.fromEntries(childPoints.filter((point): point is readonly [string, SessionRecordResume] => Boolean(point[1])));
       return { data: { nativeChildren: 2, root: point, children: savedChildren }, fingerprint: [point.fingerprint, ...Object.entries(savedChildren).sort(([a], [b]) => a.localeCompare(b)).map(([id, value]) => `${id}:${value.fingerprint}`)].join('|') };
     },

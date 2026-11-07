@@ -183,6 +183,40 @@ describe('ImagePreviewProvider', () => {
     expect(byTestId(AUTOMATION_TEST_IDS.imagePreviewNext)).toBeNull()
   })
 
+  it('rapid repeat clicks while the viewer is loading or animating open leave exactly one viewer', async () => {
+    // Animations on: PhotoSwipe stays in its opening transition in jsdom, the window where a second layer used to stack.
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} }))
+    const release = vi.fn()
+    const { default: PhotoSwipeCtor } = await import('photoswipe')
+    const init = PhotoSwipeCtor.prototype.init
+    const instances: PhotoSwipe[] = []
+    vi.spyOn(PhotoSwipeCtor.prototype, 'init').mockImplementation(function (this: PhotoSwipe) {
+      instances.push(this)
+      return init.call(this)
+    })
+    await renderWithAppProviders(harness, createNode(ImagePreviewProvider, null))
+    await act(async () => { openImageViewer(IMAGES, 0); openImageViewer([{ ...IMAGES[1], release }], 0) })
+    await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewClose) !== null, 'viewer toolbar never mounted')
+    await act(async () => openImageViewer(IMAGES, 1))
+    await act(async () => { await import('photoswipe') })
+    expect(instances).toHaveLength(1)
+    expect(document.querySelectorAll('.pswp')).toHaveLength(1)
+    expect(release).toHaveBeenCalledOnce()
+    // PhotoSwipe's own transition fallback timer settles the opening; then the one layer closes cleanly.
+    await waitForCondition(() => !instances[0].opener.isOpening, 'opening animation never settled')
+    await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewClose)!)
+    await waitForCondition(() => document.querySelector('.pswp') === null, 'viewer did not close')
+  })
+
+  it('opens again after the previous viewer closed', async () => {
+    await openViewer()
+    await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewClose)!)
+    await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay) === null, 'overlay was not removed')
+    await act(async () => openImageViewer(IMAGES, 1))
+    await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)?.textContent?.includes('2 / 2') ?? false, 'viewer did not reopen')
+    expect(document.querySelectorAll('.pswp')).toHaveLength(1)
+  })
+
   it('关闭后整层从 DOM 里拿掉', async () => {
     await openViewer()
     await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewClose)!)

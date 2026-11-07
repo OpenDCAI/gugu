@@ -60,7 +60,8 @@ function List({ rows, landing, resetKey = 'k', followTail = true }: { rows: Row[
 const scroller = () => harness.container.querySelector<HTMLElement>('[data-scroller]')!
 const rendered = () => Array.from(scroller().firstElementChild!.children).map((row) => (row as HTMLElement).dataset.id)
 const topOf = (id: string) => harness.container.querySelector<HTMLElement>(`[data-id="${id}"]`)!.getBoundingClientRect().top
-const scrollTo = (top: number) => act(async () => { scroller().scrollTop = top; scroller().dispatchEvent(new Event('scroll')) })
+// Scroll-driven reads land after the frame is painted (lib/afterPaint).
+const scrollTo = (top: number) => act(async () => { scroller().scrollTop = top; scroller().dispatchEvent(new Event('scroll')); await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))) })
 
 beforeEach(() => {
   Object.defineProperties(HTMLElement.prototype, descriptors)
@@ -179,6 +180,20 @@ describe('useFlowList 句柄与回调', () => {
     expect(topOf('r2')).toBe(0)
     act(() => handleRef.current!.autoscrollToBottom())
     expect(scroller().scrollTop).toBe(1700)
+  })
+  it('a scroll event reads no layout (no forced layout per frame); at-bottom / at-top land after the frame is painted', async () => {
+    await harness.render(createElement(List, { rows: rowsOf(20), landing: { index: 'LAST', align: 'end' } }))
+    await nextFrames()
+    scroller().scrollTop = 50
+    const rects = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
+    const height = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+    const top = vi.spyOn(HTMLElement.prototype, 'scrollTop', 'get')
+    rects.mockClear()
+    act(() => { scroller().dispatchEvent(new Event('scroll')) })
+    expect(rects.mock.calls.length + height.mock.calls.length + top.mock.calls.length, 'layout reads inside the scroll event').toBe(0)
+    await act(async () => { await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))) })
+    expect(events.atBottom.at(-1)).toBe(false)
+    expect(events.startReached).toBe(1)
   })
   it('滚到离顶 120px 以内就报到顶(交给调用方翻页)', async () => {
     await harness.render(createElement(List, { rows: rowsOf(20), landing: { index: 'LAST', align: 'end' } }))

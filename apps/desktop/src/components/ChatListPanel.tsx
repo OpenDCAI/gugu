@@ -1,5 +1,7 @@
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
+import { createChatMembershipProjection } from '@/lib/chatRowDerivations'
+import { memoizeByReference } from '@/lib/memoizeByReference'
 import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStableHandler } from '@/hooks/useStableHandler'
@@ -33,7 +35,8 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
-import { openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
+import { isOwnedAgentPeer, openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
+import { mobileListDiagnostics } from '@/mobile/mobileListDiagnostics'
 import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, useSidebarNotificationsOpen, type ShellChatDialog } from '../lib/sidebarChatsBridge'
 import { NotificationSlot } from './needsYou/NotificationSlot'
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '../lib/retainedSurface'
@@ -47,7 +50,7 @@ import { openGlobalSearch } from '../session/renderer/features/global-search/sea
 import { useShownAgentStatus, type ShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { AgentHostStaleBadge } from './AgentHostStaleBadge'
 import { aggregateGroupAgentStatus } from '../lib/groupAgentStatus'
-import { chatActivityAt, chatDisplayName, compareChatsByActivityDesc, isChatListed, isRoomChat, isSunkTopic } from '@gugu/core/shared/ui/chatModels'
+import { chatActivityAt, chatDisplayName, isChatListed, isRoomChat, isSunkTopic, TOPIC_SINK_AFTER_DAYS } from '@gugu/core/shared/ui/chatModels'
 import { platform } from '../platform'
 import type { AgentDisplayStatus, ChatItem, NotificationLevel } from '@gugu/core/shared/types/chat'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
@@ -70,13 +73,13 @@ function rowAgentStatus(
   identities: Readonly<Record<string, { type: 'human' | 'agent' }>>,
   statuses: Record<string, AgentDisplayStatus>,
   shown: ShownAgentStatus,
+  agentIds: readonly string[],
 ): AgentDisplayStatus | undefined {
   if (chatIsAgent(chat, identities[chat.peer_user_id ?? ''])) {
     return shown.status(chat.peer_user_id, statuses[chat.peer_user_id ?? ''] ?? 'pending')
   }
   // 场所(群 + 话题)都有成员名单,聚合判据同形 —— ❌ 不是只有群才聚合。
   if (isRoomChat(chat.kind)) {
-    const agentIds = (chat.member_user_ids ?? []).filter((id) => identities[id]?.type === 'agent')
     return aggregateGroupAgentStatus(shown.members(agentIds, statuses), statuses)
   }
   return undefined
@@ -545,15 +548,12 @@ export function ChatListPanel({
   const chats = useNativeAgentChats(imChats)
   useOwnedAgentEntries()
   const projectGroupChats = useProjectGroupChats()
-  const workrooms = useAssistantWorkrooms(assistantShell, chats.filter((chat) => chat.kind === 'group')
-    .map((chat) => `${chat.id}:${[...(chat.member_user_ids ?? [])].sort().join(',')}`).sort().join('|'))
+  const membershipProjection = useMemo(createChatMembershipProjection, [])
+  const membership = membershipProjection(chats, identitiesById)
+  const workrooms = useAssistantWorkrooms(assistantShell, membership.key)
   // @@@chat-list-agent-status (#437/#33) - one batched presence subscription for every agent shown in
   // the list: DM-with-agent peers + all group agent members (so the group dot can aggregate).
-  const agentIdsForStatus = [
-    ...chats.filter((chat) => chatIsAgent(chat, identitiesById[chat.peer_user_id ?? ''])).map((c) => c.peer_user_id ?? '').filter(Boolean),
-    ...chats.flatMap((c) => (c.member_user_ids ?? []).filter((id) => identitiesById[id]?.type === 'agent')),
-  ]
-  const agentStatuses = useAgentDisplayStatuses(agentIdsForStatus)
+  const agentStatuses = useAgentDisplayStatuses(membership.agentIds)
   const shownAgent = useShownAgentStatus() // #7199 宿主闲时收回着的自己的 agent:不画睡团 / 「不在线」
   const [showGroupModal, setShowGroupModal] = useState<boolean | string>(false)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false)
@@ -595,7 +595,13 @@ export function ChatListPanel({
   // 无消息的新会话按创建时刻置顶后正常老化——替换掉 #1953 的 null→Infinity 哨兵(#2208 移除建号
   // 问候语后它把空会话永久钉顶,发送后的会话永远排不到它前面,即 #2264)。
   // 现在能走到这个排序键的「无消息会话」只剩群、以及被置顶/标未读/有草稿的单聊(见下面 isListed)。
-  const byTime = compareChatsByActivityDesc
+  const timesOf = useMemo(() => memoizeByReference((chat: ChatItem) => {
+    const activity = new Date(chatActivityAt(chat)).getTime()
+    const threshold = activity + TOPIC_SINK_AFTER_DAYS * 24 * 60 * 60 * 1000
+    return { activity, sinkAt: isSunkTopic(chat, threshold) ? threshold : Number.POSITIVE_INFINITY }
+  }), [])
+  const activityOf = (chat: ChatItem) => timesOf(chat, undefined).activity
+  const byTime = (left: ChatItem, right: ChatItem) => activityOf(right) - activityOf(left)
   // 侧栏那一份不搜:搜索是 ⌘K 那一个面板(gugu-dev#181 ⑯);这里只有对话页自己那个搜索框。
   const listQuery = searchQuery
   // 高亮哪一行:侧栏那一份认会话页正看着的那块对话,对话页那一份认它自己打开的那条。
@@ -625,7 +631,7 @@ export function ChatListPanel({
   // 沉降判据要一个「当下」。它随每次渲染重取即可 —— ❌ 不 memo 到 chats 上(那是假依赖:
   // chats 没变而时间过去了,沉降照样该发生)。逐渲染取一次 Date.now 的成本可忽略。
   const nowMs = Date.now()
-  const isSunk = (chat: ChatItem) => !hasSearchQuery && isSunkTopic(chat, nowMs) && chat.id !== activeChatId
+  const isSunk = (chat: ChatItem) => !hasSearchQuery && nowMs >= timesOf(chat, undefined).sinkAt && chat.id !== activeChatId
   // @@@5856 话题**不占一行平级的会话**(owner 2026-09-19:「怎么还有把一个 topic 当做群的形式表达」)。
   // 它挂在来源那条线底下,缩进 + 一条竖轨(见 tokens.css 的 .gg-topic-subrows)。
   // 搜索时例外:搜索是一次指名道姓,搜得到就得点得开 —— 那时它照常出现在结果里(按来源线归组)。
@@ -668,6 +674,18 @@ export function ChatListPanel({
   const visibleChatIds = useMemo(() => visibleChats.map((chat) => chat.id), [visibleChats])
 
   useEffect(() => {
+    if (!mobile || inSidebar) return
+    const visible = new Set(visibleChatIds), source = new Map(imChats.map(chat => [chat.id, chat]))
+    mobileListDiagnostics.rows(chats.map(chat => ({ id: chat.id, facts: {
+      kind: chat.kind, listed: isListed(chat), rendered: visible.has(chat.id), searchMatch: matchesSearch(chat),
+      owned: isOwnedAgentPeer(chat.peer_user_id), imActivity: !!source.get(chat.id)?.last_message_at,
+      projectedActivity: !!chat.last_message_at, selected: chat.id === selectedChatId, draft: !!drafts[chat.id]?.trim(),
+    } })), loadingChats)
+    // Read the exact render predicates; the diagnostic never changes their decisions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobile, inSidebar, imChats, chats, visibleChatIds, loadingChats, selectedChatId, drafts, listQuery, assistantShell, workrooms, shownAsLead, projectGroupChats])
+
+  useEffect(() => {
     if (focusedChatId && visibleChatIds.includes(focusedChatId)) return
     setFocusedChatId(activeChatId && visibleChatIds.includes(activeChatId) ? activeChatId : (visibleChatIds[0] ?? null))
   }, [activeChatId, focusedChatId, visibleChatIds])
@@ -697,7 +715,7 @@ export function ChatListPanel({
         unreadCount={phoneUnread ? phoneUnread.get(chat.id) ?? 0 : chat.unread_count}
         joinPos={hasTopics ? undefined : join?.pos}
         joinOnScreen={hasTopics ? undefined : join?.onScreen}
-        agentStatus={rowAgentStatus(chat, identitiesById, agentStatuses, shownAgent)}
+        agentStatus={rowAgentStatus(chat, identitiesById, agentStatuses, shownAgent, membership.parts.get(chat.id)!.agents)}
         isActive={chat.id === selectedChatId}
         topicsExpanded={hasTopics ? topicsExpanded : undefined}
         mobile={mobile}

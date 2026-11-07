@@ -11,6 +11,10 @@ import { createFilesFamily } from '../../../../apps/desktop/electron/device-acti
 import { createDeviceActionGrantsStore } from '../../../../apps/desktop/electron/device-actions/grants-store'
 import { NativeCallError, type MacHelperClient } from '../../../../apps/desktop/electron/device-actions/native/mac-helper-client'
 import { createDeviceActionsProvider } from '../../../../apps/desktop/electron/device-actions/provider'
+import { PrivatePermissionRecords } from '../../../../apps/desktop/electron/permissions/private-records'
+import { defaultPermissionPolicy } from '../../../../apps/desktop/electron/permissions/rules'
+import { ServicePermissionRuntime } from '../../../../apps/desktop/electron/permissions/runtime'
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary'
 
 let dir: string
 let home: string
@@ -20,6 +24,7 @@ const realHome = process.env.HOME
 /** 结果里的路径都是真实位置(macOS 的临时目录在 /private 下)。 */
 const real = (p: string) => path.join(fs.realpathSync(home), path.relative(home, p))
 const H = (rel: string) => path.join(home, rel)
+const hasRipgrep = (() => { try { execFileSync('rg', ['--version'], { stdio: 'ignore' }); return true } catch { return false } })()
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-files-'))
@@ -39,9 +44,225 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   process.env.HOME = realHome
   for (const d of ['Desktop', 'Downloads']) fs.chmodSync(path.join(home, d), 0o755)
   fs.rmSync(dir, { recursive: true, force: true })
+})
+
+describe('owner-private permission state is excluded from Agent file actions', () => {
+  async function privateState() {
+    const guguHome = H('Elsewhere/gugu-state')
+    vi.stubEnv('GUGU_HOME', guguHome)
+    const root = path.join(guguHome, 'private-service-permissions')
+    const records = new PrivatePermissionRecords(root)
+    const runtime = new ServicePermissionRuntime({ records, readPolicy: async () => ({ policy: defaultPermissionPolicy() }) })
+    await runtime.begin({ ownerId: 'owner', subjectId: 'private-agent', sessionId: 'private-session', toolScope: 'gugu' }, 'guide_topics', {}, new AbortController().signal)
+    const ownerDirectory = path.join(root, fs.readdirSync(root)[0]!)
+    const journal = path.join(ownerDirectory, fs.readdirSync(ownerDirectory).find(name => name.endsWith('.jsonl'))!)
+    return { root, records, ownerDirectory, journal, guguHome }
+  }
+  it('refuses native fs.read of an observed private journal even with files.other granted', async () => {
+    const f = await privateState()
+    const { run } = setup({ grant: ['files.other'] })
+    expect(await run('fs.read', { path: f.journal })).toMatchObject({ ok: false, code: 'invalid_args' })
+  })
+  it('refuses reading a real hard link to a private journal', async () => {
+    const f = await privateState()
+    const alias = H('Elsewhere/journal-alias')
+    fs.linkSync(f.journal, alias)
+    const { run } = setup({ grant: ['files.other'] })
+    expect(await run('fs.read', { path: alias })).toMatchObject({ ok: false, code: 'invalid_args' })
+  })
+  it('refuses an actual native copy of a hard-linked journal before copying any bytes', async () => {
+    const f = await privateState()
+    const alias = H('Elsewhere/journal-alias')
+    const destination = H('Elsewhere/copied.txt')
+    fs.linkSync(f.journal, alias)
+    const { run, exec } = setup({ grant: ['files.other'], exec: (file, args) => execFileAsync(file, args) })
+    expect(await run('fs.copy', { source: alias, destination })).toMatchObject({ ok: false, code: 'invalid_args' })
+    expect(exec).not.toHaveBeenCalled()
+    expect(fs.existsSync(destination)).toBe(false)
+  })
+  it('refuses appending through a hard link to an existing enforcement file', async () => {
+    const f = await privateState()
+    await f.records.setEnforcement({ kind: 'person', userId: 'owner' }, 'owner', false)
+    const flag = path.join(f.ownerDirectory, 'enforcement.json')
+    const original = fs.readFileSync(flag, 'utf8')
+    const alias = H('Elsewhere/flag-alias')
+    fs.linkSync(flag, alias)
+    const { run } = setup({ grant: ['files.other'] })
+    expect(await run('fs.write', { path: alias, mode: 'append', content: '\n{"enabled":true}' })).toMatchObject({ ok: false, code: 'invalid_args' })
+    expect(fs.readFileSync(flag, 'utf8')).toBe(original)
+  })
+  it('refuses containing-directory copying and grep before a private hard link is read', async () => {
+    const f = await privateState()
+    const folder = H('Elsewhere/export')
+    fs.mkdirSync(folder)
+    fs.linkSync(f.journal, path.join(folder, 'innocent.txt'))
+    const { run, exec } = setup({ grant: ['files.other'], exec: (file, args) => execFileAsync(file, args), ripgrep: 'rg' })
+    expect(await run('fs.copy', { source: folder, destination: H('Elsewhere/copied-folder') })).toMatchObject({ ok: false })
+    expect(await run('fs.grep', { path: folder, pattern: 'private-session' })).toMatchObject({ ok: false })
+    expect(exec).not.toHaveBeenCalled()
+    expect(await run('fs.move', { source: path.join(folder, 'innocent.txt'), destination: H('Elsewhere/moved') })).toMatchObject({ ok: false })
+    expect(JSON.stringify(data(await run('fs.list', { path: folder, recursive: true })))).not.toContain('innocent.txt')
+  })
+  it('permits ordinary hard links whose identities are unrelated to protected files', async () => {
+    await privateState()
+    const original = H('Elsewhere/ordinary.txt')
+    const alias = H('Elsewhere/ordinary-alias')
+    fs.writeFileSync(original, 'ordinary hard-link bytes')
+    fs.linkSync(original, alias)
+    const { run } = setup({ grant: ['files.other'], exec: (file, args) => execFileAsync(file, args) })
+    expect(await run('fs.read', { path: alias })).toMatchObject({ ok: true, data: { content: 'ordinary hard-link bytes' } })
+    expect(await run('fs.copy', { source: alias, destination: H('Elsewhere/ordinary-copy') })).toMatchObject({ ok: true })
+    expect(fs.readFileSync(H('Elsewhere/ordinary-copy'), 'utf8')).toBe('ordinary hard-link bytes')
+  })
+  it('refuses native fs.write creating an absent enforcement switch without confirmation', async () => {
+    const f = await privateState()
+    const { run } = setup({ grant: ['files.other'] })
+    const flag = path.join(f.ownerDirectory, 'enforcement.json')
+    expect(fs.existsSync(flag)).toBe(false)
+    expect(await run('fs.write', { path: flag, content: '{"enabled":true}', mode: 'create' })).toMatchObject({ ok: false, code: 'invalid_args' })
+    expect(await f.records.enforcement('owner')).toBe(false)
+    expect(fs.existsSync(flag)).toBe(false)
+  })
+  it.each(['absolute dangling', 'relative dangling', 'absolute chain', 'relative chain', 'directory link', 'dangling directory link'])('resolves the final private write target through %s', async kind => {
+    const f = await privateState()
+    const flag = path.join(f.ownerDirectory, 'enforcement.json')
+    const alias = H('Elsewhere/alias')
+    const second = H('Elsewhere/second')
+    let request = alias
+    if (kind === 'absolute dangling') fs.symlinkSync(flag, alias)
+    if (kind === 'relative dangling') fs.symlinkSync(path.relative(path.dirname(alias), flag), alias)
+    if (kind.endsWith('chain')) {
+      fs.symlinkSync(kind.startsWith('relative') ? path.relative(path.dirname(second), flag) : flag, second)
+      fs.symlinkSync(kind.startsWith('relative') ? 'second' : second, alias)
+    }
+    if (kind.includes('directory link')) {
+      fs.symlinkSync(kind.startsWith('dangling') ? path.join(f.ownerDirectory, 'absent') : f.ownerDirectory, alias)
+      request = path.join(alias, 'enforcement.json')
+    }
+    const { run } = setup({ grant: ['files.other'] })
+    const outcome = await run('fs.write', { path: request, content: '{"enabled":true}', mode: 'append' })
+    expect({ outcome, enabled: await f.records.enforcement('owner') }).toMatchObject({
+      outcome: { ok: false, code: 'invalid_args', message: expect.stringContaining('protected private storage') }, enabled: false,
+    })
+    await expect(requireAgentFileAccess(request)).rejects.toThrow('protected private storage')
+    expect(fs.existsSync(flag)).toBe(false)
+  })
+  it.skipIf(process.platform !== 'darwin')('resolves differently cased dangling link names and private targets on macOS', async () => {
+    const f = await privateState()
+    const alias = H('Elsewhere/MixedAlias')
+    fs.symlinkSync(path.join(f.ownerDirectory.toUpperCase(), 'ENFORCEMENT.JSON'), alias)
+    const { run } = setup({ grant: ['files.other'] })
+    const outcome = await run('fs.write', { path: H('Elsewhere/mIXEDaLIAS'), content: '{"enabled":true}', mode: 'append' })
+    expect({ outcome, enabled: await f.records.enforcement('owner') }).toMatchObject({ outcome: { ok: false, code: 'invalid_args' }, enabled: false })
+  })
+  it('protects a future private directory reached through a dangling directory link at the private root', async () => {
+    const guguHome = H('Elsewhere/linked-state')
+    vi.stubEnv('GUGU_HOME', guguHome)
+    fs.mkdirSync(guguHome)
+    const root = path.join(guguHome, 'private-service-permissions')
+    const future = H('Elsewhere/future-private')
+    fs.symlinkSync(path.relative(guguHome, future), root)
+    const records = new PrivatePermissionRecords(root)
+    const flag = path.join(future, 'owner', 'enforcement.json')
+    const { run } = setup({ grant: ['files.other'] })
+    const outcome = await run('fs.write', { path: flag, content: '{"enabled":true}', mode: 'append' })
+    expect(outcome).toMatchObject({ ok: false, code: 'invalid_args' })
+    expect(fs.existsSync(future)).toBe(false)
+    expect(await records.enforcement('owner')).toBe(false)
+  })
+  it('allows an ordinary dangling relative chain while rejecting link cycles', async () => {
+    await privateState()
+    const target = H('Elsewhere/ordinary.txt')
+    fs.symlinkSync('ordinary.txt', H('Elsewhere/second'))
+    fs.symlinkSync('second', H('Elsewhere/alias'))
+    const { run } = setup({ grant: ['files.other'] })
+    expect(await run('fs.write', { path: H('Elsewhere/alias'), mode: 'append', content: 'ordinary' })).toMatchObject({ ok: true })
+    expect(fs.readFileSync(target, 'utf8')).toBe('ordinary')
+    fs.symlinkSync('cycle-b', H('Elsewhere/cycle-a'))
+    fs.symlinkSync('cycle-a', H('Elsewhere/cycle-b'))
+    await expect(requireAgentFileAccess(H('Elsewhere/cycle-a'))).rejects.toThrow('Too many symbolic links')
+    expect(await run('fs.write', { path: H('Elsewhere/cycle-a'), mode: 'append', content: 'blocked' })).toMatchObject({ ok: false })
+  })
+  it('resolves parent components after a directory link instead of collapsing them lexically', async () => {
+    const f = await privateState()
+    fs.mkdirSync(path.join(f.ownerDirectory, 'nested'))
+    const alias = H('Elsewhere/parent-link')
+    fs.symlinkSync(path.join(f.ownerDirectory, 'nested'), alias)
+    await expect(requireAgentFileAccess(`${alias}/../enforcement.json`)).rejects.toThrow('protected private storage')
+  })
+  it('refuses symlink aliases and copying or moving the containing directory', async () => {
+    const f = await privateState()
+    const alias = H('Elsewhere/private-alias')
+    fs.symlinkSync(f.root, alias)
+    const { run, exec, trashItem } = setup({ grant: ['files.other'] })
+    expect(await run('fs.read', { path: path.join(alias, path.relative(f.root, f.journal)) })).toMatchObject({ ok: false })
+    expect(await run('fs.write', { path: path.join(alias, 'new/enforcement.json'), content: '{"enabled":true}', confirmed: true })).toMatchObject({ ok: false })
+    for (const name of ['fs.copy', 'fs.move']) {
+      expect(await run(name, { source: f.guguHome, destination: H('Elsewhere/exposed'), confirmed: true })).toMatchObject({ ok: false })
+    }
+    expect(await run('fs.trash', { path: f.guguHome, confirmed: true })).toMatchObject({ ok: false })
+    expect(trashItem).not.toHaveBeenCalled()
+    expect(exec).not.toHaveBeenCalled()
+  })
+  it('refuses creating the private tree before the host has ever written a journal', async () => {
+    const guguHome = H('Elsewhere/new-state')
+    vi.stubEnv('GUGU_HOME', guguHome)
+    const flag = path.join(guguHome, 'private-service-permissions', 'owner', 'enforcement.json')
+    const { run } = setup({ grant: ['files.other'] })
+    expect(await run('fs.write', { path: flag, content: '{"enabled":true}', mode: 'create' })).toMatchObject({ ok: false })
+    expect(fs.existsSync(guguHome)).toBe(false)
+  })
+  it('omits private journal entries during recursive listing of a parent directory', async () => {
+    const f = await privateState()
+    const { run } = setup({ grant: ['files.other'] })
+    const result = data(await run('fs.list', { path: f.guguHome, recursive: true, showHidden: true }))
+    expect(JSON.stringify(result)).not.toContain('jsonl')
+    expect(JSON.stringify(result)).not.toContain('private-service-permissions')
+  })
+  it.skipIf(!hasRipgrep).each([undefined, '**'])('excludes the private tree from a real ripgrep search of its visible parent (glob: %s)', async glob => {
+    const f = await privateState()
+    fs.writeFileSync(path.join(f.guguHome, 'ordinary.txt'), 'private-session ordinary-marker')
+    const outputs: string[] = []
+    const { run } = setup({ grant: ['files.other'], ripgrep: 'rg', exec: async (file, args) => {
+      const result = await execFileAsync(file, args, { timeoutMs: 10_000 })
+      outputs.push(result.stdout)
+      return result
+    } })
+    const result = data(await run('fs.grep', { path: f.guguHome, pattern: 'private-session', ...(glob ? { glob } : {}) }))
+    expect(result.total).toBe(1)
+    expect(JSON.stringify(result)).toContain('ordinary-marker')
+    expect(outputs).toHaveLength(1)
+    const stdout = outputs.join('')
+    expect(stdout).toContain('ordinary-marker')
+    expect(stdout).not.toContain('private-agent')
+    expect(stdout).not.toContain('.jsonl')
+  })
+  it.skipIf(!hasRipgrep).each([undefined, '**'])('protects a root that is itself a regular file before real ripgrep reads it (glob: %s)', async glob => {
+    const guguHome = H('Elsewhere/single-file-root')
+    vi.stubEnv('GUGU_HOME', guguHome)
+    fs.mkdirSync(guguHome)
+    const protectedFile = path.join(guguHome, 'private-service-permissions')
+    fs.writeFileSync(protectedFile, 'single-file-canary private-data')
+    fs.writeFileSync(path.join(guguHome, 'ordinary.txt'), 'single-file-canary ordinary-data')
+    const outputs: string[] = []
+    const { run } = setup({ grant: ['files.other'], ripgrep: 'rg', exec: async (file, args) => {
+      const result = await execFileAsync(file, args)
+      outputs.push(result.stdout)
+      return result
+    } })
+    const result = data(await run('fs.grep', { path: guguHome, pattern: 'single-file-canary', ...(glob ? { glob } : {}) }))
+    expect(result.total).toBe(1)
+    expect(outputs).toHaveLength(1)
+    expect(outputs.join('')).toContain('ordinary-data')
+    expect(outputs.join('')).not.toContain('private-data')
+    const alias = H('Elsewhere/single-file-alias')
+    fs.linkSync(protectedFile, alias)
+    expect(await run('fs.read', { path: alias })).toMatchObject({ ok: false, code: 'invalid_args' })
+  })
 })
 
 const OK: ExecResult = { stdout: '', stderr: '', code: 0 }

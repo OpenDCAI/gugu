@@ -381,12 +381,13 @@ export class MemoryRuntimeInstanceTable {
   }
 
   select(columns: string) {
-    const filters: [string, string][] = []
+    const filters: Array<(row: Record<string, unknown>) => boolean> = []
     const rows = () => [...this.instances.values()]
-      .filter((row) => filters.every(([column, value]) => String((row as Record<string, unknown>)[column] ?? '') === value))
+      .filter((row) => filters.every((keep) => keep(row as Record<string, unknown>)))
       .map((row) => projectRow(row as Record<string, unknown>, columns))
     const builder = {
-      eq(column: string, value: string) { filters.push([column, value]); return builder },
+      eq(column: string, value: string) { filters.push((row) => String(row[column] ?? '') === value); return builder },
+      gt(column: string, value: string) { filters.push((row) => Date.parse(String(row[column])) > Date.parse(value)); return builder },
       then<TResult1 = { data: unknown[]; error: null }, TResult2 = never>(
         onfulfilled?: ((value: { data: unknown[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
         onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
-import { createMemoryLocalSyncDb, type LocalImDbAdapter } from '../../../../apps/desktop/src/lib/localSyncDb'
+import { createMemoryLocalSyncDb, openLocalSyncDb, type LocalImDbAdapter } from '../../../../apps/desktop/src/lib/localSyncDb'
 import {
   ackOutboxRecord,
   imSelectors,
@@ -15,18 +16,10 @@ import {
   replaceMessageWindow,
   type OutboxRecord,
 } from '../../../../apps/desktop/src/lib/imRepository'
-import { message as messageFixture } from '../../../support/testHarness'
-import type { DisplayIdentity } from '../../../../apps/desktop/src/lib/displayIdentity'
+import { message as messageFixture, displayIdentity as identity } from '../../../support/testHarness'
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
 import { readCompleteCachedChats } from '../../../../apps/desktop/src/lib/chatSnapshotPublication'
-function identity(id: string, over: Partial<DisplayIdentity> = {}): DisplayIdentity {
-  return {
-    id, type: 'human', display_name: id, nameSerial: null, avatar: null, gugu_number: null, bio: null,
-    owner_user_id: null, agent_public: null, desired_status: null, device_id: null,
-    category: null, is_official: null, local_path: null,
-    created_at: null, updated_at: '2026-08-09T00:00:00.000Z', ...over,
-  }
-}
+import * as displayIdentityModule from '../../../../apps/desktop/src/lib/displayIdentity'
 function chat(id: string): ChatItem {
   return {
     id,
@@ -94,6 +87,18 @@ describe('account-scoped normalized IM repository', () => {
     await repository.transaction(() => undefined)
     await expect(repository.transaction(() => { throw new Error('rejected mutation') })).rejects.toThrow('rejected mutation')
     expect(readPerfCounters().imTransactions - before).toBe(2)
+  })
+  it.each(['clear', 'delete', 'replace'])('restores a held identity after an earlier %s in the same transaction', async action => {
+    const repository = await openImRepository('account-a', { adapter })
+    await repository.putIdentities([identity('person')])
+    const held = imSelectors.identitiesById(repository.snapshot()).person!
+    await repository.transaction(tx => {
+      if (action === 'clear') tx.clear()
+      else if (action === 'delete') tx.delete('identity', ['account-a', held.id])
+      else tx.putIdentity({ ...held, display_name: 'temporary' })
+      tx.putIdentity(held)
+    })
+    expect(imSelectors.identitiesById(repository.snapshot()).person).toEqual(held)
   })
   it('writes nine normalized tables atomically, selects them, and publishes once after commit', async () => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
@@ -170,11 +175,37 @@ describe('account-scoped normalized IM repository', () => {
   })
   it.each(['chats', 'chats and identities'])('persists a complete %s snapshot beyond 300 conversations', async (kind) => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
-    const rows = Array.from({ length: 420 }, (_, index) => chat(`chat-${index}`))
+    const rows = Array.from({ length: 420 }, (_, index) => ({ ...chat(`chat-${index}`), last_message_at: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString() }))
     if (kind === 'chats') await replaceChatRows(repository, rows)
     else await replaceChatRowsAndIdentities(repository, rows, [])
     const reopened = await openImRepository('account-a', { adapter, storage: window.localStorage })
-    expect(readChatRows(reopened).map((row) => row.id)).toEqual(rows.map((row) => row.id))
+    expect(readChatRows(reopened).map((row) => row.id)).toEqual(rows.map((row) => row.id).reverse())
+  })
+  it('reopens durable rows without positional order in activity order, keeping the revision cursor', async () => {
+    vi.stubGlobal('IDBKeyRange', IDBKeyRange)
+    const factory = new IDBFactory()
+    let durable = await openLocalSyncDb(factory)
+    let repository = await openImRepository('account-a', { adapter: durable, storage: window.localStorage })
+    try {
+      await replaceChatRows(repository, [
+        { ...chat('older'), last_message_at: '2026-08-09T01:00:00Z' },
+        { ...chat('newer'), last_message_at: '2026-08-09T03:00:00Z' },
+        { ...chat('middle'), last_message_at: '2026-08-09T02:00:00Z' },
+      ])
+      await repository.transaction(tx => tx.putSyncState('account-revision-cursor', { revision: '10' }))
+      for (const row of repository.snapshot().chat) expect(row).not.toHaveProperty('order')
+      repository.close()
+      durable.close()
+      durable = await openLocalSyncDb(factory)
+      repository = await openImRepository('account-a', { adapter: durable, storage: window.localStorage })
+      expect(readChatRows(repository).map(row => row.id)).toEqual(['newer', 'middle', 'older'])
+      expect((await durable.loadAccount('account-a')).chat).toHaveLength(3)
+      expect(imSelectors.syncState('account-revision-cursor')(repository.snapshot())).toEqual({ revision: '10' })
+    } finally {
+      repository.close()
+      durable.close()
+      vi.unstubAllGlobals()
+    }
   })
   it('keeps outbox durable across reopen and atomically replaces it with the acknowledged message', async () => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
@@ -372,20 +403,44 @@ describe('account-scoped normalized IM repository', () => {
     expect(commit.mock.calls[0][0]).toEqual([])
     expect(repository.snapshot().chat).toBe(before.chat)
     await replace([rows[1], rows[0], rows[2]])
-    expect(commit.mock.calls[1][0]).toEqual([
-      { type: 'put', store: 'chat', value: expect.objectContaining({ id: 'b', order: 0 }) },
-      { type: 'put', store: 'chat', value: expect.objectContaining({ id: 'a', order: 1 }) },
-    ])
-    expect(readChatRows(repository).map((row) => row.id)).toEqual(['b', 'a', 'c'])
-    await replace([rows[1], rows[2]])
+    expect(commit.mock.calls[1][0]).toEqual([])
+    expect(repository.snapshot().chat).toBe(before.chat)
+    const moved = { ...rows[1]!, last_message_at: '2026-08-10T00:00:00.000Z' }
+    await replace([moved, rows[0], rows[2]])
     expect(commit.mock.calls[2][0]).toEqual([
+      { type: 'put', store: 'chat', value: expect.objectContaining({ id: 'b', value: moved }) },
+    ])
+    expect(repository.snapshot().chat.every(row => !('order' in row))).toBe(true)
+    expect(readChatRows(repository).map((row) => row.id)).toEqual(['b', 'a', 'c'])
+    await replace([moved, rows[2]])
+    expect(commit.mock.calls[3][0]).toEqual([
       { type: 'delete', store: 'chat', key: ['account-a', 'a'] },
-      { type: 'put', store: 'chat', value: expect.objectContaining({ id: 'c', order: 1 }) },
     ])
     const reopened = await openImRepository('account-a', { adapter, storage: window.localStorage })
-    expect(readChatRows(reopened)).toEqual([rows[1], rows[2]])
+    expect(readChatRows(reopened)).toEqual([moved, rows[2]])
     await replace([])
     expect(repository.snapshot().chat).toEqual([])
+  })
+  it('keeps an equal row source fresh without replacing the table and removes confirmed rows inside publication', async () => {
+    const repository = await openImRepository('account-a', { adapter })
+    await replaceChatRows(repository, [chat('keep'), chat('gone')])
+    const table = repository.snapshot().chat
+    const equal = [chat('keep'), chat('gone')]
+    await replaceChatRows(repository, equal)
+    expect(repository.snapshot().chat).toBe(table)
+    const serialized = vi.spyOn(JSON, 'stringify')
+    try {
+      await replaceChatRows(repository, equal)
+      expect(serialized).not.toHaveBeenCalled()
+    } finally { serialized.mockRestore() }
+    await replaceChatRowsAndIdentities(repository, () => equal, [], id => id === 'gone')
+    expect(readChatRows(repository).map(row => row.id)).toEqual(['keep'])
+  })
+  it('holds the identity object it is handed, not a parsed copy of it (one object per person in memory)', async () => {
+    const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
+    const person = identity('identity-1')
+    await replaceChatRowsAndIdentities(repository, [chat('a')], [person])
+    expect(imSelectors.identitiesById(repository.snapshot())['identity-1']).toBe(person)
   })
   it('deduplicates identities before commit but writes real canonical changes with the same timestamp', async () => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
@@ -401,6 +456,22 @@ describe('account-scoped normalized IM repository', () => {
     ])
     const reopened = await openImRepository('account-a', { adapter, storage: window.localStorage })
     expect(imSelectors.identitiesById(reopened.snapshot())[original.id]).toEqual(updated)
+  })
+  it.each([10, 100, 1000])('does not reparse or persist %i unchanged identities', async size => {
+    const repository = await openImRepository('account-a', { adapter })
+    await repository.putIdentities(Array.from({ length: size }, (_, index) => identity(`p${index}`)))
+    const held = Object.values(imSelectors.identitiesById(repository.snapshot()))
+    const parsing = vi.spyOn(displayIdentityModule, 'displayIdentityFromRow')
+    const commit = vi.spyOn(adapter, 'commit')
+    try {
+      await repository.putIdentities(held)
+      await repository.putIdentities(held.map(row => ({ ...row })))
+      const writes = commit.mock.calls.flatMap(([operations]) => operations)
+      console.info('identity parse inputs', parsing.mock.calls.map(([row]) => (row as { id: string }).id))
+      console.info('identity persistence writes', writes)
+      expect(parsing).not.toHaveBeenCalled()
+      expect(writes).toEqual([])
+    } finally { parsing.mockRestore(); commit.mockRestore(); repository.close() }
   })
   it('prepares queued diffs from the latest successful commit and publishes only after durability', async () => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
@@ -476,6 +547,31 @@ describe('account-scoped normalized IM repository', () => {
     quiet.mockRestore()
   })
 })
+describe('incremental repository work', () => {
+  it.each([10, 100, 1000])('serializes only the changed chat among %i stored rows', async (size) => {
+    const adapter = createMemoryLocalSyncDb()
+    const repository = await openImRepository('account-budget', { adapter })
+    const rows = Array.from({ length: size }, (_, index) => chat(`c${index}`))
+    await replaceChatRows(repository, rows)
+    const commit = vi.spyOn(adapter, 'commit')
+    const serialized = vi.spyOn(JSON, 'stringify')
+    const changed = { ...rows[0]!, last_message_preview: 'new', read_state_version: 9 }
+    try {
+      await replaceChatRows(repository, [changed, ...rows.slice(1)])
+      console.info('repository serialization inputs', serialized.mock.calls.map(([value]) => Array.isArray(value) ? value : (value as { id?: string })?.id))
+      expect(serialized.mock.calls.length).toBeLessThanOrEqual(8)
+      expect(commit.mock.calls[0]![0]).toEqual([
+        { type: 'put', store: 'chat', value: expect.objectContaining({ id: changed.id, value: expect.objectContaining({ last_message_preview: 'new' }) }) },
+      ])
+      expect(repository.snapshot().chat.find(row => row.id === changed.id)!.value).not.toHaveProperty('read_state_version')
+      expect(repository.snapshot().chat).toHaveLength(size)
+    } finally {
+      serialized.mockRestore()
+      repository.close()
+    }
+  })
+})
+
 describe('legacy chat-list migration', () => {
   beforeEach(() => window.localStorage.clear())
   it('migrates only the exact account key, re-reads canonical order, then deletes that key', async () => {
@@ -483,7 +579,7 @@ describe('legacy chat-list migration', () => {
     window.localStorage.setItem('gugu.chatListCache.v2:account-a', JSON.stringify([chat('a-2'), chat('a-1')]))
     window.localStorage.setItem('gugu.chatListCache.v2:account-b', JSON.stringify([chat('b-1')]))
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
-    expect(readChatRows(repository).map((row) => row.id)).toEqual(['a-2', 'a-1'])
+    expect(readChatRows(repository).map((row) => row.id)).toEqual(['a-1', 'a-2'])
     expect(window.localStorage.getItem('gugu.chatListCache.v2:account-a')).toBeNull()
     expect(window.localStorage.getItem('gugu.chatListCache.v2:account-b')).not.toBeNull()
   })

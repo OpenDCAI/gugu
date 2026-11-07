@@ -1,6 +1,7 @@
 import { installAssistantWorkLedgerHost } from '../../../../sessionpage/assistant-work-ledger';
 import { formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { openFixture } from '@tooling/utils/db';
+import { HarnessNotInstalledError } from './impl/resolve-agent-executable';
 import { err, ok } from '@gugu/session-shared';
 import { setProjectGroupHost } from '../projects/project-group-host';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@shared/core/projects/session-home-project';
@@ -57,6 +58,8 @@ const mocks = vi.hoisted(() => ({
   listLocalModels: vi.fn(),
   listLocalPlatformModels: vi.fn(),
   assertLocalHarnessLaunchable: vi.fn(async (_pluginId: string, _transport: string) => {}),
+  /** This suite supplies its host catalogue; production discovery belongs to its own tests. */
+  listLocalHarnesses: vi.fn(),
   resolveProjectWorkspace: vi.fn(),
   resolveCreateEffort: vi.fn(),
   /** The new-session box's two reads (`useEffectiveProvider`): the listed agents and which are installed. */
@@ -160,15 +163,20 @@ vi.mock('../extensions/extensions-root', () => ({
     list: () => ({ extensions: mocks.installedExtensions, invalid: [] }),
   }),
 }));
-vi.mock('../agents/session-discovery', async () => ({
-  ...(await vi.importActual('../agents/session-discovery')),
+vi.mock('../agents/session-discovery', async () => {
+  const actual = await vi.importActual<typeof import('../agents/session-discovery')>('../agents/session-discovery');
+  return {
+  ...actual,
+  listLocalHarnesses: () => mocks.listLocalHarnesses(),
   listLocalModels: (...args: unknown[]) => mocks.listLocalModels(...args),
   listLocalPlatformModels: (...args: unknown[]) => mocks.listLocalPlatformModels(...args),
   // 启动那道闸要起真的版本探针、解析真的可执行文件;这里只判编排在闸之后做什么。
   assertLocalHarnessLaunchable: (pluginId: string, transport: string) => mocks.assertLocalHarnessLaunchable(pluginId, transport),
-}));
+  };
+});
 
 import {
+  agentInstallationStatusUpdatedChannel,
   sessionOpenBrowserInPaneChannel,
   sessionOpenExtensionInPaneChannel,
   sessionOpenFileInPaneChannel,
@@ -282,6 +290,10 @@ describe('session orchestration', () => {
     mocks.localAgentForSession.mockResolvedValue(null);
     mocks.listLocalModels.mockReset();
     mocks.listLocalModels.mockResolvedValue({ models: [] });
+    mocks.listLocalHarnesses.mockReset();
+    mocks.listLocalHarnesses.mockResolvedValue(['codex', 'claude'].map((id) => ({
+      id, name: id, description: '', status: 'available', version: null, surfaces: ['acp', 'pty'], spawnable: true,
+    })));
     mocks.listLocalPlatformModels.mockReset();
     mocks.listLocalPlatformModels.mockResolvedValue({
       models: [],
@@ -1559,6 +1571,19 @@ describe('session orchestration', () => {
     expect(childRows()).toEqual([]);
   });
 
+  it('refuses a harness this machine lacks with the installed ones to use instead and how to install it', async () => {
+    mocks.assertLocalHarnessLaunchable.mockRejectedValueOnce(new HarnessNotInstalledError('claude', 'claude', 'Could not resolve harness "claude" before spawn.'));
+    const row = (id: string, name: string, spawnable: boolean) =>
+      ({ id, name, description: '', status: spawnable ? 'available' : 'missing', version: null, surfaces: ['acp'], spawnable });
+    mocks.listLocalHarnesses.mockResolvedValueOnce([row('codex', 'Codex', true), row('claude', 'Claude Code', false), row('pi', 'Pi', false)]);
+    const refusal = runSessionAction(context, { action: 'spawn', prompt: 'This should fail.', harness: 'claude', transport: 'pty' });
+    await expect(refusal).rejects.toThrow('claude not installed: Could not resolve harness "claude" before spawn.\n'
+      + 'Installed here and spawnable instead: codex.\n'
+      + 'session_spawn does not install harnesses: a person installs Claude Code on this machine in Gugu → Library → Agents → Claude Code → Install'
+      + ' (a Gugu-managed download, usually a few minutes), then retries.');
+    expect(childRows()).toEqual([]);
+  });
+
   it('rejects an unknown harness before creating a child conversation', async () => {
     await expect(runSessionAction(context, {
       action: 'spawn',
@@ -2664,6 +2689,30 @@ describe('session_archive', () => {
         .resolves.toEqual({ opened: true, path: '/repo/ws-1/data/report.csv', intent: 'preview' });
       expect(open).toHaveBeenCalledWith('caller', { kind: 'file', path: '/repo/ws-1/data/report.csv' }, 'preview', undefined);
       expect(mocks.emit).not.toHaveBeenCalled();
+    });
+
+    it('keeps remote pane routing isolated from delayed host inventory broadcasts', async () => {
+      const discovery = await vi.importActual<typeof import('../agents/session-discovery')>('../agents/session-discovery');
+      let completeInventory = () => {};
+      const discoverHost = vi.spyOn(discovery, 'listLocalHarnesses').mockImplementation(async () => {
+        // A real inventory can finish its installation scans after list_harnesses has answered.
+        completeInventory = () => mocks.emit(agentInstallationStatusUpdatedChannel, { id: 'opencode', status: 'available' });
+        return [];
+      });
+      try {
+        await runSessionAction(context, { action: 'list_harnesses' });
+        open.mockImplementation(async () => {
+          completeInventory();
+          return { opened: true };
+        });
+        await expect(runSessionAction(context, { action: 'open_in_tab', path: 'data/report.csv', intent: 'preview' }))
+          .resolves.toEqual({ opened: true, path: '/repo/ws-1/data/report.csv', intent: 'preview' });
+        expect(open).toHaveBeenCalledWith('caller', { kind: 'file', path: '/repo/ws-1/data/report.csv' }, 'preview', undefined);
+        expect(mocks.emit).not.toHaveBeenCalled();
+        expect(discoverHost).not.toHaveBeenCalled();
+      } finally {
+        discoverHost.mockRestore();
+      }
     });
 
     it('answers at once with a queued result when no desktop has the session open', async () => {

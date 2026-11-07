@@ -6,6 +6,10 @@ import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNo
 import { createPortal } from 'react-dom';
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript';
 import { ConversationCreditNotice } from '@/components/chat/ConversationCreditNotice';
+import type { ChatView } from '@gugu/session-chat-ui';
+import { ThreadScrollToBottom } from '@renderer/lib/ui/assistant-ui/thread-scroll-to-bottom';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { useLocale } from '@/i18n';
 
 /** Every agent conversation uses the project page's transcript and composer. Hosts own data and navigation. */
 export type AgentConversationViewProps = ChatTranscriptProps & {
@@ -15,7 +19,10 @@ export type AgentConversationViewProps = ChatTranscriptProps & {
 };
 
 export function AgentConversationView({ layout, composerContent, shown = true, onVisibleItems, style, className, onReady, ...props }: AgentConversationViewProps) {
+  useLocale(); // Keep the recovery control in the current UI language.
   const root = useRef<HTMLDivElement>(null);
+  const view = useRef<ChatView | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const hostCommands = props.commands;
   // Composer-only renders must not republish commands and remeasure history.
@@ -37,6 +44,7 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     let observer: IntersectionObserver;
     let frame = 0;
     let settle: ReturnType<typeof setTimeout> | undefined;
+    const readableRows = '[data-agent-conversation-message], [data-activity-read-ids]';
     const candidates = new Map<Element, { geometry: string; since: number }>();
     const readable = (element: Element) => {
       const viewport = host.getBoundingClientRect();
@@ -58,17 +66,19 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       for (const element of elements) {
         if (!readable(element)) { candidates.delete(element); continue; }
         const rect = element.getBoundingClientRect();
-        const geometry = `${rect.top}/${rect.bottom}/${slot?.getBoundingClientRect().top ?? ''}`;
+        const activityIds = element.getAttribute('data-activity-read-ids');
+        const geometry = `${rect.top}/${rect.bottom}/${slot?.getBoundingClientRect().top ?? ''}/${activityIds ?? ''}`;
         const candidate = candidates.get(element);
         if (!candidate || candidate.geometry !== geometry) candidates.set(element, { geometry, since: performance.now() });
         else if (performance.now() - candidate.since >= 250) {
           const id = element.getAttribute('data-agent-conversation-message');
           if (id) ids.push(id);
+          if (activityIds) ids.push(...JSON.parse(activityIds) as string[]);
         }
       }
       if (settle === undefined && elements.some(element => { const candidate = candidates.get(element); return candidate && performance.now() - candidate.since < 250; })) settle = setTimeout(() => {
         settle = undefined;
-        report([...host.querySelectorAll('[data-agent-conversation-message]')]);
+        report([...host.querySelectorAll(readableRows)]);
       }, 260);
       if (ids.length) onVisibleItems(ids);
     };
@@ -78,10 +88,10 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        report([...host.querySelectorAll('[data-agent-conversation-message]')]);
+        report([...host.querySelectorAll(readableRows)]);
       });
     };
-    const observe = () => host.querySelectorAll('[data-agent-conversation-message]').forEach(element => {
+    const observe = () => host.querySelectorAll(readableRows).forEach(element => {
       if (!seen.has(element)) { seen.add(element); observer.observe(element); }
     });
     const resetObserver = () => {
@@ -100,15 +110,15 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     resize?.observe(host);
     if (slot) resize?.observe(slot);
     const mutations = new MutationObserver(records => {
-      for (const record of records) if (record.type === 'attributes' && (record.target as Element).hasAttribute('data-agent-conversation-message')) { observer.unobserve(record.target as Element); observer.observe(record.target as Element); }
+      for (const record of records) if (record.type === 'attributes' && (record.target as Element).matches(readableRows)) { observer.unobserve(record.target as Element); observer.observe(record.target as Element); }
       observe();
       schedule();
     });
-    mutations.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-agent-conversation-message', 'style'] });
+    mutations.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-agent-conversation-message', 'data-activity-read-ids', 'style'] });
     observe();
     const visibleAgain = () => {
       if (!observing || document.visibilityState === 'hidden') return;
-      host.querySelectorAll('[data-agent-conversation-message]').forEach(element => { observer.unobserve(element); observer.observe(element); });
+      host.querySelectorAll(readableRows).forEach(element => { observer.unobserve(element); observer.observe(element); });
       schedule();
     };
     document.addEventListener('visibilitychange', visibleAgain);
@@ -119,10 +129,13 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     <ChatTranscript stickToBottom pinUserMessages {...props}
       composer={composerContent ? 'slot' : props.composer}
       commands={commands}
-      onReady={view => { setSlot(view.composerSlot); onReady?.(view); }}
-      onDisposed={() => { setSlot(null); props.onDisposed?.(); }}
+      onReady={ready => { view.current = ready; setSlot(ready.composerSlot); onReady?.(ready); }}
+      onAtBottomChange={bottom => { setAtBottom(bottom); props.onAtBottomChange?.(bottom); }}
+      onDisposed={() => { view.current = null; setSlot(null); setAtBottom(true); props.onDisposed?.(); }}
       layout={{ preset: 'double', userGutter: 0, ...layout, agentConversation: true }} style={{ position: 'absolute', inset: 0 }} />
-    {slot && composerContent ? createPortal(composerContent, slot) : null}
+    {slot ? createPortal(<>{composerContent}<ThreadScrollToBottom atBottom={atBottom}
+      label={translateSessionMessage('chat.scrollToBottom')}
+      onScrollToBottom={() => view.current?.scrollToBottom({ behavior: 'smooth' })} /></>, slot) : null}
   </div>;
 }
 

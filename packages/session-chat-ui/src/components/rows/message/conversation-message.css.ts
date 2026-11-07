@@ -24,9 +24,10 @@ globalStyle(`${conversationRoot}[data-side="right"] ${conversationTime}`, { just
 // 要自己一套颜色的宿主(助理 App、手机外观)设 `--conversation-bubble-mine(-fg)`。
 const MINE_BG = 'var(--conversation-bubble-mine, var(--chat-bubble-user))';
 const MINE_FG = 'var(--conversation-bubble-mine-fg, var(--chat-bubble-user-fg))';
+const MINE_SCHEME = 'var(--conversation-bubble-mine-color-scheme, var(--chat-bubble-user-color-scheme))';
 globalStyle(`${conversationRoot} [data-user-card]`, { background: MINE_BG, color: vars.fgBody, borderColor: 'transparent' });
-globalStyle(`${conversationRoot}[data-side="right"] [data-user-card]`, { vars: { [vars.fgBody]: MINE_FG, [vars.link]: MINE_FG } });
-globalStyle(`${conversationRoot}[data-side="left"] [data-user-card]`, { background: 'var(--bubble-other, var(--chat-bg-2))' });
+globalStyle(`${conversationRoot}[data-side="right"] [data-user-card]`, { colorScheme: MINE_SCHEME, vars: { [vars.fgBody]: MINE_FG, [vars.link]: MINE_FG } });
+globalStyle(`${conversationRoot}[data-side="left"] [data-user-card]`, { background: 'var(--bubble-other, var(--chat-bg-2))', colorScheme: 'inherit' });
 
 
 

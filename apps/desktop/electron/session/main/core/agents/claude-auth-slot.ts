@@ -1,6 +1,6 @@
 import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import lockfile from 'proper-lockfile';
+import lockfile from '../../lib/proper-lockfile';
 import type { ClaudeCredentialLocation, ClaudeCredentialStore } from './claude-credential-store';
 
 /**

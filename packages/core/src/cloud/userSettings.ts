@@ -9,6 +9,10 @@ type SettingsQueryResult = {
   data: unknown
   error: { message: string; code?: string } | null
 }
+type SettingsRead = {
+  maybeSingle(): PromiseLike<SettingsQueryResult>
+  abortSignal?(signal: AbortSignal): SettingsRead
+}
 
 type SettingsConditionalUpdate = {
   eq(column: 'user_id' | 'scope' | 'updated_at', value: string): SettingsConditionalUpdate
@@ -31,9 +35,7 @@ export interface SettingsTableClient {
         column: 'user_id',
         value: string
       ): {
-        eq(column: 'scope', value: string): {
-          maybeSingle(): PromiseLike<SettingsQueryResult>
-        }
+        eq(column: 'scope', value: string): SettingsRead
       }
     }
     upsert(
@@ -65,18 +67,19 @@ export function normalizeSettingsRow(value: unknown): GuguSettingsRow | null {
 export async function readUserSettingsConfig(
   client: SettingsTableClient,
   userId: string,
-  scope: GuguSettingsScope
+  scope: GuguSettingsScope,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
-  return (await readUserSettingsRow(client, userId, scope))?.config ?? {}
+  return (await readUserSettingsRow(client, userId, scope, signal))?.config ?? {}
 }
 
-async function readUserSettingsRow(client: SettingsTableClient, userId: string, scope: GuguSettingsScope): Promise<GuguSettingsRow | null> {
-  const { data, error } = await client
+async function readUserSettingsRow(client: SettingsTableClient, userId: string, scope: GuguSettingsScope, signal?: AbortSignal): Promise<GuguSettingsRow | null> {
+  const query = client
     .from('user_settings')
     .select(SETTINGS_COLUMNS)
     .eq('user_id', userId)
     .eq('scope', scope)
-    .maybeSingle()
+  const { data, error } = await (signal && query.abortSignal ? query.abortSignal(signal) : query).maybeSingle()
   if (error) throw new Error(error.message)
   return normalizeSettingsRow(data)
 }

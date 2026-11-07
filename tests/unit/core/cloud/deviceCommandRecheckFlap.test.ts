@@ -42,4 +42,44 @@ describe('lease recheck 没有回答时,投递不落终态', () => {
     expect(db.row('eff4a05b').status).toBe('done')
     expect(delivered).toBe(1)
   })
+
+  it('recheck 回 false 是终态:handler 不跑,行落 error,记「未送达」', async () => {
+    const db = new MemoryDeviceCommandClient([
+      deviceCommandRow({ id: 'c3c34409', deviceId: DEVICE, type: 'agent.deliver', payload: { agent_user_id: 'agent-1', chat_id: 'c', message_id: 'm' }, createdAt: NOW }),
+    ])
+    const refusing: DeviceCommandTableClient = {
+      from: db.from.bind(db) as DeviceCommandTableClient['from'],
+      rpc: (fn, args) => fn === 'recheck_device_command_execution' ? Promise.resolve({ data: false, error: null }) : db.rpc(fn, args),
+    }
+    let delivered = 0
+    const handlers = { 'agent.deliver': async () => { delivered += 1; return { delivered: true } } }
+
+    const results = await processPendingDeviceCommandsOnce(refusing, DEVICE, handlers, { nowIso: () => NOW, sleep: async () => {} })
+    expect(results).toMatchObject([{ commandId: 'c3c34409', status: 'error' }])
+    expect(db.row('c3c34409')).toMatchObject({ status: 'error', result: { reply_notice: 'context', reason: 'deliveryRejected' } })
+    expect(delivered).toBe(0)
+  })
+
+  it('a raise in the recheck is a refusal too: the row ends, and the next delivery of the agent gets its turn', async () => {
+    const db = new MemoryDeviceCommandClient([
+      deviceCommandRow({ id: 'gone-post', deviceId: DEVICE, type: 'agent.deliver', createdAt: '2026-11-05T01:00:00.000Z', payload: { agent_user_id: 'agent-1', source: 'forum' } }),
+      deviceCommandRow({ id: 'live-post', deviceId: DEVICE, type: 'agent.deliver', createdAt: '2026-11-05T01:10:00.000Z', payload: { agent_user_id: 'agent-1', source: 'forum' } }),
+    ])
+    const raising: DeviceCommandTableClient = {
+      from: db.from.bind(db) as DeviceCommandTableClient['from'],
+      rpc: (fn, args) => fn === 'recheck_device_command_execution' && args.p_id === 'gone-post'
+        ? Promise.resolve({ data: null, error: { message: 'delivery is not live', details: null, hint: null, code: 'P0001' } })
+        : db.rpc(fn, args),
+    }
+    const delivered: string[] = []
+    const handlers = { 'agent.deliver': async (command: { id: string }) => { delivered.push(command.id); return { delivered: true } } }
+
+    const first = await processPendingDeviceCommandsOnce(raising, DEVICE, handlers, { nowIso: () => NOW, sleep: async () => {} })
+    expect(first).toMatchObject([{ commandId: 'gone-post', status: 'error' }])
+    expect(db.row('gone-post')).toMatchObject({ status: 'error', result: { reason: 'deliveryRejected' } })
+
+    const second = await processPendingDeviceCommandsOnce(raising, DEVICE, handlers, { nowIso: () => NOW, sleep: async () => {} })
+    expect(second).toMatchObject([{ commandId: 'live-post', status: 'done' }])
+    expect(delivered).toEqual(['live-post'])
+  })
 })
