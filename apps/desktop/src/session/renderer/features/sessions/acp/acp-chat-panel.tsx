@@ -114,7 +114,7 @@ import { useSessionSchedules } from '@renderer/features/automations/use-session-
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
-import { registerPastedScreenshot, screenshotQuality } from '@/lib/pastedScreenshot';
+import { registerPastedScreenshot } from '@/lib/pastedScreenshot';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { shellPort } from '@renderer/lib/shell-port';
 import { getRendererSession } from '@/lib/sessionPublication';
@@ -242,15 +242,6 @@ function issueMatchesQuery(issue: LinkedIssue, query: string): boolean {
   return [issue.identifier, issue.displayIdentifier, issue.title]
     .filter((value): value is string => !!value)
     .some((value) => value.toLowerCase().includes(normalized));
-}
-
-function readFileAsDataUrl(file: File): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : undefined);
-    reader.onerror = () => resolve(undefined);
-    reader.readAsDataURL(file);
-  });
 }
 
 function resolveAttachmentDataUrl(store: AcpChatStore, id: string): Promise<string | null> {
@@ -511,10 +502,7 @@ const ComposerForStore = observer(function ComposerForStore({
         };
         if (source === 'paste') registerPastedScreenshot(file);
         void fileUploads.add(chip, file);
-        if (isImage && !screenshotQuality(file)) {
-          const previewUrl = await readFileAsDataUrl(file);
-          if (previewUrl) setAttachments(current => current.map(att => att.id === chip.id ? { ...att, previewUrl } : att));
-        } else if (!isImage) {
+        if (!isImage) {
           // 文本类附件的内容在入列时读一份,chip 点开看的就是它(#5269)。
           const preview = await readAttachmentPreviewText(file);
           if (preview) {
