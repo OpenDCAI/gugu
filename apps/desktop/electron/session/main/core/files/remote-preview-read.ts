@@ -9,6 +9,7 @@
  *  · 那台机器说读不了(不存在 / 在目录外 / 没权限)⇒ 带上它的原因码,协议答 404 / 403。
  */
 import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
+import { readOneVersion } from '@shared/extensions/working-copy-upload';
 
 export type RemoteChunk = { size: number; etag: string | null; data: string };
 
@@ -18,49 +19,31 @@ export type RemotePreviewBytes =
   | { ok: true; bytes: Uint8Array }
   | { ok: false; reason: 'too_large' | 'changing' | 'unreadable'; code?: string };
 
-function errorCode(error: unknown): string | undefined {
-  const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === 'string' ? code : undefined;
-}
-
 export async function readRemotePreviewBytes(
   read: ReadRemoteChunk,
   path: string,
   maxBytes: number,
-  signal?: AbortSignal,
-  attempt = 0
+  signal?: AbortSignal
 ): Promise<RemotePreviewBytes> {
-  const aborted = { ok: false as const, reason: 'unreadable' as const, code: 'aborted' };
-  if (signal?.aborted) return aborted;
-  let first: RemoteChunk;
+  const failed = (reason: 'unreadable' | 'changing', code?: unknown) => Object.assign(new Error(reason), { failed: { ok: false as const, reason, ...(typeof code === 'string' ? { code } : {}) } });
+  const parts: Uint8Array[] = [];
   try {
-    first = await read({ path, offset: 0, length: REMOTE_WORKSPACE_CHUNK_BYTES });
+    const whole = await readOneVersion(async (offset, length) => {
+      const chunk = await read({ path, offset, length }).catch((error: unknown) => { throw failed('unreadable', (error as { code?: unknown } | null)?.code); });
+      return { ...chunk, data: new Uint8Array(Buffer.from(chunk.data, 'base64')) };
+    }, {
+      ...(signal ? { signal } : {}),
+      firstPart: REMOTE_WORKSPACE_CHUNK_BYTES,
+      begin: (size) => { parts.length = 0; return size <= maxBytes; },
+      piece: (bytes) => { parts.push(bytes); },
+      stopped: () => failed('unreadable', 'aborted'),
+      changing: () => failed('changing'),
+    });
+    return whole ? { ok: true, bytes: new Uint8Array(Buffer.concat(parts)) } : { ok: false, reason: 'too_large' };
   } catch (error) {
-    return { ok: false, reason: 'unreadable', code: errorCode(error) };
+    if (!(error as { failed?: RemotePreviewBytes }).failed) throw error;
+    return (error as { failed: RemotePreviewBytes }).failed;
   }
-  if (signal?.aborted) return aborted;
-  if (first.size > maxBytes) return { ok: false, reason: 'too_large' };
-  const parts: Buffer[] = [Buffer.from(first.data, 'base64')];
-  let offset = parts[0]!.length;
-  while (offset < first.size) {
-    if (signal?.aborted) return aborted;
-    let chunk: RemoteChunk;
-    try {
-      chunk = await read({ path, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
-    } catch (error) {
-      return { ok: false, reason: 'unreadable', code: errorCode(error) };
-    }
-    if (signal?.aborted) return aborted;
-    if (chunk.etag !== first.etag) {
-      if (attempt >= 2) return { ok: false, reason: 'changing' };
-      return readRemotePreviewBytes(read, path, maxBytes, signal, attempt + 1);
-    }
-    const bytes = Buffer.from(chunk.data, 'base64');
-    if (bytes.length === 0) break;
-    parts.push(bytes);
-    offset += bytes.length;
-  }
-  return { ok: true, bytes: new Uint8Array(Buffer.concat(parts)) };
 }
 
 /** 那台机器说读不了时,协议答什么:在目录外 = 围栏在起作用(403),其余当「没有这个文件」(404)。 */

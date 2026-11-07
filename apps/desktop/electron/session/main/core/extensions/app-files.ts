@@ -61,7 +61,7 @@ import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { events } from '@main/lib/events';
 import { appFileHeardElsewhereChannel, appFileWatchElsewhereChannel, workingCopyMovedChannel } from '@shared/events/appEvents';
 import type { ExtensionFileChangeBatch, PlaceVerb } from '@shared/extensions/bridge-protocol';
-import { nextPartBytes, SMALLEST_PART_BYTES, uploadInParts } from '@shared/extensions/working-copy-upload';
+import { readOneVersion, uploadInParts } from '@shared/extensions/working-copy-upload';
 import { log } from '@main/lib/logger';
 import { isValidOpenInAppId } from '@shared/openInApps';
 
@@ -385,41 +385,16 @@ function wholeFileRef(page: DesktopFilePage, value: unknown, capability: 'files:
   return ref as WorkspaceFileRef & { id: string };
 }
 
-/**
- * One version of a working copy's file, piece after piece, on the machine it is on: the one reading of a whole file. Changed
- * while it is read, pieces of two versions are neither: `begin` hears it read once more from the start, and still moving is said.
- */
-async function readOneVersion(page: DesktopFilePage, ref: WorkspaceFileRef, reader: {
-  /** Before the first piece of each try. `false`: not read at all. */
-  begin(size: number): boolean | void | Promise<boolean | void>;
-  piece(bytes: Uint8Array<ArrayBuffer>, at: number, size: number): void | Promise<void>;
-  signal?: AbortSignal;
-}): Promise<{ size: number; etag: string } | null> {
-  for (let attempt = 0; ; attempt++) {
-    let at = 0;
-    let part = SMALLEST_PART_BYTES;
-    let started = Date.now();
-    if (reader.signal?.aborted) throw stopped();
-    let next = await workingCopyPiece(page, ref, 0, part);
-    const { size, etag } = next;
-    if (await reader.begin(size) === false) return null;
-    let moved = false;
-    for (;;) {
-      const bytes = workspaceAppFileChunk(next).data;
-      if (bytes.byteLength > 0) {
-        at += bytes.byteLength;
-        await reader.piece(bytes, at, size);
-      }
-      if (at >= size || bytes.byteLength === 0) break;
-      if (reader.signal?.aborted) throw stopped();
-      part = nextPartBytes(part, Date.now() - started);
-      started = Date.now();
-      next = await workingCopyPiece(page, ref, at, part);
-      if (next.etag !== etag) { moved = true; break; }
-    }
-    if (!moved) return { size, etag };
-    if (attempt > 0) throw new AppFileError('content-changed', `${pathOfRef(ref)} keeps changing on its computer while it is read`);
-  }
+/** One version of a working copy's file, on the machine it is on (`readOneVersion`). */
+async function readWorkingCopyVersion(page: DesktopFilePage, ref: WorkspaceFileRef, reader: Pick<Parameters<typeof readOneVersion>[1], 'begin' | 'piece' | 'signal'>) {
+  return await readOneVersion(async (offset, length) => {
+    const piece = await workingCopyPiece(page, ref, offset, length);
+    return { ...piece, data: workspaceAppFileChunk(piece).data };
+  }, {
+    ...reader,
+    stopped,
+    changing: () => new AppFileError('content-changed', `${pathOfRef(ref)} keeps changing on its computer while it is read`),
+  }) as { size: number; etag: string } | null;
 }
 
 const versionKey = (ref: WorkspaceFileRef & { id: string }) => `${ref.workspace}\0${ref.id}`;
@@ -435,7 +410,7 @@ export async function readAppFileText(page: DesktopFilePage, args: { ref?: unkno
   const entry = workingCopyEntry({ workspace: ref.workspace }, ref.id, null);
   let pieces: Uint8Array[] = [];
   let tooLarge = 0;
-  const read = await readOneVersion(page, ref, {
+  const read = await readWorkingCopyVersion(page, ref, {
     begin(size) {
       pieces = [];
       if (size <= maxBytes) return;
@@ -922,7 +897,7 @@ const stopped = () => new AppFileError('invalid', 'The download was stopped');
 /** All of a working copy's file in one buffer, up to `max`: pieces kept until the end would hold it twice. */
 async function wholeWorkingCopyFile(page: DesktopFilePage, ref: WorkspaceFileRef, max: number, signal: AbortSignal, heard: (done: number, size: number) => void): Promise<Uint8Array<ArrayBuffer>> {
   let whole = new Uint8Array(0);
-  await readOneVersion(page, ref, {
+  await readWorkingCopyVersion(page, ref, {
     signal,
     begin(size) {
       if (size > max) throw new AppFileError('too-large', `${pathOfRef(ref)} is ${size} bytes; at most ${FORWARD_MAX_BYTES} are forwarded at once`);
@@ -941,7 +916,7 @@ async function savePieces(page: DesktopFilePage, ref: WorkspaceFileRef, filePath
   const out = await fs.open(filePath, 'w');
   try {
     let told = 0;
-    await readOneVersion(page, ref, {
+    await readWorkingCopyVersion(page, ref, {
       ...(saving.signal ? { signal: saving.signal } : {}),
       async begin(size) {
         await out.truncate(0);

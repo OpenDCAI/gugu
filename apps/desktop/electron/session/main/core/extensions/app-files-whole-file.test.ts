@@ -119,7 +119,7 @@ it('another file of the working copy needs files:read', async () => {
 
 it('a relative path cannot climb out of the working copy', async () => {
   f.capabilities.add('files:read');
-  await expect(readAppFileText(page(), { ref: { workspace, id: `../${path.basename(outside)}/notes.md` } })).rejects.toBeDefined();
+  await expect(readAppFileText(page(), { ref: { workspace, id: `../${path.basename(outside)}/notes.md` } })).rejects.toThrow('path is outside this workspace: ');
 });
 
 it('says a file is gone', async () => {
@@ -217,7 +217,7 @@ it('hears a file on another machine through the window, which has that machine\'
 it('on the machine a file is on: a relative path stays in the working copy, reading and writing', async () => {
   const { machineVerbs } = await import('./machine-verbs');
   const climb = `../${path.basename(outside)}/notes.md`;
-  await expect(machineVerbs.filesRead('reader', { ref: { workspace, id: climb }, offset: 0, length: 10 })).rejects.toBeDefined();
-  await expect(machineVerbs.filesWriteChunk('reader', { place: { workspace }, path: climb, uploadId: 'c', offset: 0, data: 'bm8=', total: 2, final: true, expectedEtag: 'force' })).rejects.toBeDefined();
+  await expect(machineVerbs.filesRead('reader', { ref: { workspace, id: climb }, offset: 0, length: 10 })).rejects.toThrow('path is outside this workspace: ');
+  await expect(machineVerbs.filesWriteChunk('reader', { place: { workspace }, path: climb, uploadId: 'c', offset: 0, data: 'bm8=', total: 2, final: true, expectedEtag: 'force' })).rejects.toThrow(`${climb} is outside this working copy`);
   expect(await fsp.readFile(path.join(outside, 'notes.md'), 'utf8')).toBe('# outside');
 });
