@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { afterEach, expect, it, vi } from 'vitest'
 import { conversationLink, groupFileLink } from '@gugu/core/shared/ui/guguLink'
-import { privateServicePermissionDirectory } from '@gugu/core/local/state/agentFileBoundary'
+import { PRIVATE_PERMISSION_STATE_REFUSAL, privateServicePermissionDirectory } from '@gugu/core/local/state/agentFileBoundary'
 import { sendReceipt } from '../../../../packages/session-core/src/session-record/send-receipt'
 import { GuguMcpHost } from '../../../../apps/desktop/electron/gugu-mcp-host'
 import { PrivatePermissionRecords } from '../../../../apps/desktop/electron/permissions/private-records'
@@ -84,7 +84,7 @@ it('keeps URI file sends behind the native private-file boundary through authent
     expect(publishFile).toHaveBeenLastCalledWith(chat, expect.objectContaining({ path: ordinary }), agent,
       expect.objectContaining({ chat_id: chat }), { itemId: file, expectedVersion: 1 })
     const refused = await client.callTool({ name: 'message_send_file', arguments: { ...args, file_path: denied } })
-    expect(refused).toMatchObject({ isError: true, content: [{ type: 'text', text: 'error: Agent file access to private permission state is forbidden' }] })
+    expect(refused).toMatchObject({ isError: true, content: [{ type: 'text', text: `error: ${PRIVATE_PERMISSION_STATE_REFUSAL}` }] })
     expect(JSON.stringify(refused)).not.toContain('private fixture canary')
     expect(publishFile).toHaveBeenCalledTimes(before + 1)
   }

@@ -11,6 +11,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 // @ts-expect-error — 注入式 MCP server 是无类型 .mjs;运行时 import 可用。
 import { callTool, createGuguImServer, RpcHttpError, serveToolsList } from '../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
 import { createGroupWithInvitations } from '../../../packages/core/src/cloud/groupChat'
+import { conversationLink } from '../../../packages/core/src/shared/ui/guguLink'
 
 interface DatabaseClient {
   connect(): Promise<void>
@@ -226,16 +227,17 @@ describe('#6492 group_list against the migrated database', () => {
     const listed = await tools(w)('group_list', {}) as { total: number; items: Array<Record<string, unknown>> }
     const rows = listed.items
     const byId = new Map(rows.map((row) => [row.chat_id, row]))
-    expect(byId.get(outside)).toMatchObject({ name: 'Agent outside', member_count: 2, joined: false, agent_join_needs_approval: false, pinned: false })
-    expect(byId.get(inside)).toMatchObject({ joined: true, pinned: true })
-    expect(byId.get(approval)).toMatchObject({ joined: false, agent_join_needs_approval: true })
-    expect(byId.has(foreign)).toBe(false)
+    expect([...byId.keys()].sort()).toEqual([outside, inside, approval].map(id => conversationLink(id)).sort())
+    expect(byId.get(conversationLink(outside))).toMatchObject({ name: 'Agent outside', member_count: 2, joined: false, agent_join_needs_approval: false, pinned: false })
+    expect(byId.get(conversationLink(inside))).toMatchObject({ joined: true, pinned: true })
+    expect(byId.get(conversationLink(approval))).toMatchObject({ joined: false, agent_join_needs_approval: true })
+    expect(byId.has(conversationLink(foreign))).toBe(false)
     expect(listed.total).toBe(rows.length)
-    expect(Object.keys(byId.get(outside)!).sort()).toEqual(
+    expect(Object.keys(byId.get(conversationLink(outside))!).sort()).toEqual(
       ['agent_join_needs_approval', 'chat_id', 'joined', 'member_count', 'name', 'pinned', 'public_id'],
     )
     const pinnedOnly = await tools(w)('group_list', { pinned: true }) as { items: Array<Record<string, unknown>> }
-    expect(pinnedOnly.items.map((row) => row.chat_id)).toEqual([inside])
+    expect(pinnedOnly.items.map((row) => row.chat_id)).toEqual([conversationLink(inside)])
   })
 })
 
