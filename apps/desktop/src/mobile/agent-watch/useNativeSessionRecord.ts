@@ -51,8 +51,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
       const last = previous?.turns.at(-1)?.seq
       const tail = mode !== 'older' && (mode === 'tail' || tailRequested.current)
       const input = mode === 'older' ? { before: previous?.nextCursor ?? undefined }
-        : tail ? { tail: true } : mode === 'newer' && last !== undefined ? { after: last }
-        : previous?.hasNewer && last !== undefined ? { before: last + 1 }
+        : tail ? { tail: true } : (mode === 'newer' || previous?.hasNewer) && last !== undefined ? { after: last }
         : last !== undefined ? { after: Math.max(-1, last - 29) } : {}
       const page = await recoverTimelineRead(async () => {
         const result = await machineRpc(deviceId, local).sessionTimeline.sessionNativeRecord({ conversationId: sessionId, ...input })

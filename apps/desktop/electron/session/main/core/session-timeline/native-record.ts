@@ -32,9 +32,9 @@ async function nativeRecord(input: { conversationId: string; before?: number; af
       const { trimTurnsForTransport } = await import('@gugu/session-core/session-record');
       const active = deps.activeTurn(input.conversationId);
       if (ownerNotificationEpoch(input.conversationId) !== epoch) continue;
-      // Pages carry raw commits. Projection happens after the reader has merged every loaded page.
+      // Pages carry raw commits. The live turn is independent of how far the archive page has caught up.
       return { ...page, turns, originTurnIds: selected.map(one => one.origin), latestStoredSeq, hasNewer, nativeOwnerNotificationEpoch: epoch,
-        activeTurn: !hasNewer && active && !page.originTurnIds.includes(active.id) ? trimTurnsForTransport([active])[0]! : null };
+        activeTurn: active && !page.originTurnIds.includes(active.id) ? trimTurnsForTransport([active])[0]! : null };
     }
   });
 }
