@@ -51,6 +51,32 @@ jobs:
       - uses: actions/checkout@v4
       - id: setup
         uses: ./.github/actions/setup-community
+      # Seed Gradle once inside the existing serial matrix; no additional background job.
+      - if: matrix.shard == 1
+        id: java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            apps/mobile/android/**/*.gradle*
+            apps/mobile/android/**/gradle-wrapper.properties
+            apps/mobile/android/gradle.properties
+      - if: matrix.shard == 1 && steps.java.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends icu-devtools llvm clang lld
+      - if: matrix.shard == 1 && steps.java.outputs.cache-hit != 'true'
+        uses: ./.github/actions/build-android-ci
+        env:
+          GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+          VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+          GUGU_PLATFORM_MODELS_ENABLED: 'false'
+          VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+          NODE_OPTIONS: --max-old-space-size=6144
+      - if: matrix.shard == 1 && steps.java.outputs.cache-hit != 'true'
+        name: Run Android JVM unit tests while seeding
+        run: bash scripts/build/android-gradle-build.sh testDebugUnitTest
       - if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         uses: actions/cache@v4
         with:

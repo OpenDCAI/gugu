@@ -15,6 +15,7 @@
 import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { createInterface } from 'node:readline'
+import { resolve as resolvePath } from 'node:path'
 import { browserShardPlan } from './vitest-browser-shard-plan.mjs'
 
 const slots = Number(process.env.GUGU_CI_SLOT_COUNT)
@@ -26,7 +27,12 @@ const { args, total, shards } = browserShardPlan(process.argv.slice(2), cores)
 const children = []
 const run = ({ index, total: globalTotal }) => new Promise(resolve => {
   const shardArgs = globalTotal > 1 ? [`--shard=${index}/${globalTotal}`] : []
-  const child = spawn(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', ...args, ...shardArgs], {
+  // Keep both normal reporters; the JSON is additional evidence, one file per global shard.
+  const reportArgs = process.env.GUGU_CI_TEST_REPORT_DIR ? [
+    '--reporter=default', '--reporter=./scripts/test-infra/vitest-worker-attribution-reporter.ts', '--reporter=json',
+    `--outputFile.json=${resolvePath(process.env.GUGU_CI_TEST_REPORT_DIR, `browser-${index}-${globalTotal}.json`)}`,
+  ] : []
+  const child = spawn(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', ...args, ...shardArgs, ...reportArgs], {
     stdio: total > 1 ? ['ignore', 'pipe', 'pipe'] : 'inherit',
   })
   children.push(child)
