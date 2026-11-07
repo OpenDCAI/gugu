@@ -326,5 +326,5 @@ it('projects task file references into existing name chips without changing the 
 
 it('projects a task image reference as an image the host can resolve', () => {
   const item = normalizeMessage({ ...SHORT, files: [{ itemId: 'shot', version: 2, name: 'shot.jpg', mimeType: 'image/jpeg', sizeBytes: 3 }] });
-  expect(item.attachments).toEqual([{ id: 'gugu-file://shot?v=2', name: 'shot.jpg', kind: 'image' }]);
+  expect(item.attachments).toEqual([{ id: 'gugu-file://shot?v=2', href: 'gugu-file://shot?v=2', name: 'shot.jpg', kind: 'image' }]);
 });
