@@ -35,6 +35,9 @@ type Deps = {
 
 export function useChatUnreadStreamNavigation(deps: Deps) {
   const { getMessageSnapshotEpoch } = deps
+  // Callers pass a fresh deps object each render; the navigation callbacks read the latest one so they keep their identity.
+  const latestDeps = useRef(deps)
+  latestDeps.current = deps
   const chatOpenInFlightRef = useRef(new Set<string>())
   const chatOpenWaitersRef = useRef(new Map<string, Set<{ resolve: () => void; reject: (error: Error) => void }>>())
   const locatorNavigationRef = useRef(new Map<HTMLElement | 'primary', OpenableUnreadTarget & { epoch: number }>())
@@ -70,6 +73,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
       && target.locator.stream_kind === 'thread' && target.locator.thread_root_id === rootId), [getMessageSnapshotEpoch])
 
   const openStreamAtLocator = useCallback(async (chatId: string, saved?: ChatUnreadLocator, viewport?: HTMLElement | null): Promise<void> => {
+    const deps = latestDeps.current
     const locator = saved ?? deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
     if (!locator) {
       deps.setActiveChatId(chatId)
@@ -149,7 +153,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     } finally {
       if (locatorNavigationRef.current.get(viewportTarget) === target) locatorNavigationRef.current.delete(viewportTarget)
     }
-  }, [deps, waitForChatOpen, consumeUnreadEntry])
+  }, [waitForChatOpen, consumeUnreadEntry])
 
   // @@@6530 微信式打开:有未读的会话也停在最新处,与已读会话同一条路(尾部对账落定时水位提交到尾、角标清零)。
   // 第一条未读只记下来给「↑ N 条新消息」,点了才走上面的定位;话题流未读、当前会话再点仍直接定位。
@@ -161,12 +165,13 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
       setUnreadEntries((previous) => ({ ...previous, [chatId]: entry }))
     }
   }, [deps.chatsRef, getMessageSnapshotEpoch, consumeUnreadEntry])
-  const openUnreadChat = useCallback(async (chatId: string, alreadyOpen = deps.activeChatIdRef.current === chatId): Promise<void> => {
+  const openUnreadChat = useCallback(async (chatId: string, alreadyOpen = latestDeps.current.activeChatIdRef.current === chatId): Promise<void> => {
+    const deps = latestDeps.current
     const locator = deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
     if (locator && (locator.stream_kind === 'thread' || alreadyOpen)) return openStreamAtLocator(chatId)
     captureUnreadEntry(chatId)
     deps.setActiveChatId(chatId)
-  }, [deps, captureUnreadEntry, openStreamAtLocator])
+  }, [captureUnreadEntry, openStreamAtLocator])
   // 离开这个会话、或它的窗口被换掉(点了标签跳过去、回到最新页)都作废:epoch 与 ownsChat 同一把尺子。
   const entryFor = useCallback((chatId: string | null) => {
     const entry = chatId ? unreadEntries[chatId] : null

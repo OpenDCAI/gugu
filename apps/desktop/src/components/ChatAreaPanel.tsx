@@ -336,8 +336,8 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const openTopicFromAnchor = useCallback((topicChatId: string) => {
     const topic = topicSurface.topics.find((item) => item.chat_id === topicChatId)
     if (!topic) return
-    topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name })
-  }, [topicSurface])
+    openSplit({ chatId: topic.chat_id, name: topic.name })
+  }, [topicSurface.topics, openSplit])
   const agentFlood = useAgentFloodNotice(activeChatId, messages)
 
   // @@@1503 — 原「切换聊天关历史/群 thread 面板」那个 reset effect 已并入上方主 reset 的

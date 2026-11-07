@@ -599,6 +599,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     setThreadMessages: (update, id) => setThreadMessagesFor(id, update),
     loadChats, cancelChatOpenRef })
   unreadNavigationRef.current = unreadNavigation
+  const { openUnreadChat, entryFor, jumpToUnreadEntry } = unreadNavigation
   // @@@threads — 打开/关闭话题视图。传 rootId 打开并拉取该话题的 root+回复；传 null 回主时间线。
   const openThread = useCallback((rootId: string | null, chatId = activeChatIdRef.current) => {
     if (!chatId) return
@@ -858,11 +859,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     markMessageVisible,
     clearMessages: () => clearMessages(chatId), removeMessage: (id) => removeMessage(id, chatId),
     deleteMessage: (id) => deleteMessage(id, chatId), appendMessage, openThread: (rootId) => openThread(rootId, chatId),
-    openUnreadChat: unreadNavigation.openUnreadChat,
-    unreadEntry: unreadNavigation.entryFor(chatId),
-    jumpToUnreadEntry: (viewport) => unreadNavigation.jumpToUnreadEntry(chatId, viewport),
+    openUnreadChat, unreadEntry: entryFor(chatId),
+    jumpToUnreadEntry: (viewport) => jumpToUnreadEntry(chatId, viewport),
   }), [cache, sendAttachmentsToChat, sendMessageToChat, toggleReaction, refreshMessages, loadHistoryPage, loadMessageAnchor,
-    markMessageVisible, clearMessages, removeMessage, deleteMessage, appendMessage, openThread, unreadNavigation])
+    markMessageVisible, clearMessages, removeMessage, deleteMessage, appendMessage, openThread, openUnreadChat, entryFor, jumpToUnreadEntry])
   const conversations = useMemo<ChatConversationAccess>(() => ({
     read: (id, viewport) => { readChatWindow(id); return cache.view(id, viewport) }, subscribe: subscribeChatWindow,
     actions: conversationActions, setFollowingTail: cache.setFollowingTail, errorOf: messageReadFailureOf,
