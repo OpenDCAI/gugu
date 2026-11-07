@@ -317,6 +317,37 @@ describe('ImagePreviewProvider', () => {
     }
   })
 
+  it.each([
+    ['mac', 'Escape'], ['mac', 'w'], ['win', 'Escape'], ['win', 'w'],
+  ] as const)('leaves %s %s to the composing input', async (platform, key) => {
+    const previousPlatform = document.documentElement.dataset.platform
+    document.documentElement.dataset.platform = platform
+    try {
+      await openViewer()
+      const overlay = byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)!
+      const input = document.createElement('input')
+      overlay.append(input)
+      await act(async () => {
+        input.focus()
+        input.dispatchEvent(new CompositionEvent('compositionstart', { data: 'zhong', bubbles: true }))
+      })
+      const event = new KeyboardEvent('keydown', {
+        key, code: key === 'w' ? 'KeyW' : 'Escape', metaKey: key === 'w' && platform === 'mac',
+        ctrlKey: key === 'w' && platform === 'win', isComposing: true, bubbles: true, cancelable: true,
+      })
+      await act(async () => { input.dispatchEvent(event) })
+      expect(event.defaultPrevented).toBe(false)
+      expect(document.activeElement).toBe(input)
+      expect(byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)).toBe(overlay)
+      await act(async () => { input.dispatchEvent(new CompositionEvent('compositionend', { data: '中', bubbles: true })) })
+      await act(async () => { overlay.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+      await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay) === null, 'viewer did not close after composition')
+    } finally {
+      if (previousPlatform === undefined) delete document.documentElement.dataset.platform
+      else document.documentElement.dataset.platform = previousPlatform
+    }
+  })
+
   it.each(['mac', 'win'] as const)('closes the viewer with the %s platform shortcut', async (platform) => {
     const previousPlatform = document.documentElement.dataset.platform
     document.documentElement.dataset.platform = platform
