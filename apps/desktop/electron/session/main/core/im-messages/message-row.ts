@@ -8,6 +8,20 @@ export interface MessageSqlDatabase {
   }
   transaction<Args extends unknown[], Result>(body: (...args: Args) => Result): (...args: Args) => Result
 }
+type Statement = ReturnType<MessageSqlDatabase['prepare']>
+
+/** Each SQL text compiles once per connection; every later prepare of the same text returns that statement. */
+export function reusingStatements(connection: MessageSqlDatabase): MessageSqlDatabase {
+  const statements = new Map<string, Statement>()
+  return {
+    prepare(sql) {
+      let statement = statements.get(sql)
+      if (!statement) statements.set(sql, statement = connection.prepare(sql))
+      return statement
+    },
+    transaction: body => connection.transaction(body),
+  }
+}
 export type StoredMessage = { rowid: number; id: string; chat_id: string; thread_root_id: string | null;
   seq: number; sender_user_id: string | null; created_at: string; content_type: MessageItem['content_type'];
   content: string | null; is_whisper: number; to_user_ids: string; file_item_id: string | null; rest: string }

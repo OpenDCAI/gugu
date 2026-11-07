@@ -526,7 +526,7 @@ function validateCurrentRow(store: ImStoreName, raw: unknown, accountId: string)
       if (!isRecord(raw.value)) throw new Error('value')
     } else if (store === 'chat') {
       const value = raw.value
-      if (!Number.isInteger(raw.order) || !isRecord(value) || value.id !== raw.id
+      if (!isRecord(value) || value.id !== raw.id
         || typeof value.kind !== 'string' || typeof value.name !== 'string' || typeof value.created_at !== 'string') throw new Error('chat')
       // 10-28 之前的客户端落的行没有 addressed_count:按无效缓存走快照重建,❌ 拿全部未读顶上。
       if (value.unread_locator != null && (!isRecord(value.unread_locator) || !Number.isInteger(value.unread_locator.addressed_count))) throw new Error('chat unread_locator')

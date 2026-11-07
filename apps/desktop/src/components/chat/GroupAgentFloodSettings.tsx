@@ -30,10 +30,11 @@ function GroupThreshold({ chatId }: { chatId: string }) {
 function TopicThresholds({ chatId }: { chatId: string }) {
   const { t } = useTranslation('messaging')
   const subscribeChatChanged = useChatChangedSubscription()
+  const { subscribeAccountRevision } = useChatStore('subscribeAccountRevision')
   const selectId = useId()
   const [selectedId, setSelectedId] = useState('')
   const [revision, setRevision] = useState(0)
-  const { topics, loading, error, reload } = useTopicsOfChat(chatId, subscribeChatChanged)
+  const { topics, loading, error, reload } = useTopicsOfChat(chatId, subscribeAccountRevision)
   const selected = topics.find((topic) => topic.chat_id === selectedId) ?? topics[0]
   useEffect(() => subscribeChatChanged((ids) => {
     if (ids.includes(chatId) || (selected && ids.includes(selected.chat_id))) setRevision((value) => value + 1)

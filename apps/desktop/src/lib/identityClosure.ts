@@ -1,3 +1,5 @@
+import { memoizeByReference } from './memoizeByReference'
+
 /**
  * 写入侧的引用完整性:**这一次要写进状态的引用 id 集合 ⊆ 这一次提交的身份**。
  *
@@ -7,16 +9,22 @@
  * 的 hasCompleteChatListIdentities),但只接在读取侧。这里把同一条判据接到写入侧,让契约从「靠人记」变成
  * 「忘了就在写入那一刻报」—— 报在 async 写路径里,是一条能定位的错误,不是某个 render 里的白屏。
  */
+function collect(identities: readonly unknown[]): ReadonlySet<string> {
+  const ids = new Set<string>()
+  for (const identity of identities) {
+    const id = (identity as { id?: unknown } | null)?.id
+    if (typeof id === 'string') ids.add(id)
+  }
+  return ids
+}
+const idsOf = memoizeByReference(collect)
+
 export function assertIdentityClosure(
   context: string,
   requiredIds: Iterable<string | null | undefined>,
   identities: readonly unknown[],
 ): void {
-  const present = new Set<string>()
-  for (const identity of identities) {
-    const id = (identity as { id?: unknown } | null)?.id
-    if (typeof id === 'string') present.add(id)
-  }
+  const present = Object.isFrozen(identities) ? idsOf(identities, undefined) : collect(identities)
   const missing = new Set<string>()
   for (const id of requiredIds) if (typeof id === 'string' && id !== '' && !present.has(id)) missing.add(id)
   if (missing.size === 0) return

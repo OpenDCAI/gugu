@@ -99,9 +99,12 @@ export const topicService = {
   /**
    * 一条线上长出来的全部话题。锚点卡与话题清单共用这一个数据源。
    * 可见继承来源 ⇒ 只要我在来源线里就列得出;是不是参与者由 is_participant 说清,两件事不混。
+   * 给了 topicChatId 就只读那一条(不在这条线上、已归档或看不见 ⇒ 空)。
    */
-  async listTopicsOfChat(sourceChatId: string): Promise<TopicSummary[]> {
-    const { data, error } = await chatDb.rpc('list_topics_of_chat', { p_source_chat_id: sourceChatId })
+  async listTopicsOfChat(sourceChatId: string, topicChatId?: string): Promise<TopicSummary[]> {
+    const { data, error } = await chatDb.rpc('list_topics_of_chat', topicChatId
+      ? { p_source_chat_id: sourceChatId, p_topic_chat_id: topicChatId }
+      : { p_source_chat_id: sourceChatId })
     if (error) throw new Error(error.message)
     const rows: TopicSummary[] = []
     for (const raw of (data ?? []) as RawTopicSummary[]) {
