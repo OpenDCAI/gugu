@@ -31,6 +31,7 @@ import {
 import { advanceReadWatermark, applyThreadSnapshot, type PatchChat } from './chatRealtimeMutations'
 import { createChatOutbox, type ChatOutbox } from './chatOutbox'
 import { i18n } from '@/i18n'
+import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { rendererLogger } from '@/lib/log'
 import { chatSendTimings, finishChatSendTiming } from '../lib/chatSendTiming'
 
@@ -187,7 +188,12 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       const onScreen = record.payload.threadRootId
         ? io.activeChatId() === record.chatId && io.activeThreadRootId() === record.payload.threadRootId
         : io.activeChatId() === record.chatId
-      if (!onScreen) io.toast(i18n.t('outbox.offscreenFailure', { ns: 'messaging' }), 'error')
+      if (!onScreen) {
+        const chat = io.chats().find((item) => item.id === record.chatId)
+        const name = chat && chatDisplayName(chat, chat.peer_user_id ? io.identity(chat.peer_user_id)?.display_name : null)
+        const chatName = name || i18n.t('outbox.chatById', { ns: 'messaging', id: record.chatId })
+        io.toast(i18n.t('outbox.offscreenFailure', { ns: 'messaging', chatName }), 'error')
+      }
     }
   }
 

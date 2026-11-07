@@ -15,6 +15,8 @@ import {
   type OutboxWiringIo,
 } from '../../../../apps/desktop/src/store/chatOutboxWiring'
 import type { OutboxRecord } from '../../../../apps/desktop/src/lib/imRepository'
+import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
+import { chat } from '../../../support/testHarness'
 const logError = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: logError }) }))
 
@@ -49,7 +51,7 @@ function optimisticMessage(id: string): MessageItem {
   }
 }
 
-function wiringHarness(messageId: string) {
+function wiringHarness(messageId: string, overrides: Partial<OutboxWiringIo> = {}) {
   let messages = [optimisticMessage(messageId)]
   let threadMessages: MessageItem[] = []
   const toast = vi.fn<OutboxWiringIo['toast']>()
@@ -77,6 +79,7 @@ function wiringHarness(messageId: string) {
     patchChat,
     toast,
     appendMessage,
+    ...overrides,
   }
   return {
     repository,
@@ -113,6 +116,7 @@ async function flushMicrotasks(rounds = 10): Promise<void> {
 }
 
 afterEach(() => {
+  setLocalePreference('zh-CN')
   logError.mockClear()
   vi.clearAllTimers()
   vi.useRealTimers()
@@ -283,6 +287,40 @@ describe('投递前置:乐观行先上屏,就绪/对端解析在投递阶段 (C1
     expect(beforeDeliver).toHaveBeenCalledTimes(4)
     expect(send).toHaveBeenCalledTimes(1)
     expect(harness.messages()[0]).toMatchObject({ seq: 42, local_send_state: null })
+  })
+
+  it.each(['zh-CN', 'en-US'] as const)('names the original conversation in an off-screen failure (%s)', async (locale) => {
+    setLocalePreference(locale)
+    vi.useFakeTimers()
+    const harness = wiringHarness('offscreen', {
+      activeChatId: () => 'other-chat',
+      chats: () => [chat({ id: 'chat-1', kind: 'group', name: 'Research files', alias: '论文附件' })],
+    })
+    await harness.wiring.enqueue({ ...enqueueInput('offscreen'), beforeDeliver: async () => { throw new Error('private transport error') } })
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(harness.toast).toHaveBeenCalledExactlyOnceWith(locale === 'zh-CN'
+      ? '「论文附件」中的消息未送达，回到该对话可重试或丢弃'
+      : 'A message in “论文附件” was not delivered. Return to that conversation to retry or discard it.', 'error')
+    harness.wiring.dispose()
+  })
+
+  it.each([
+    { row: chat({ id: 'chat-1', kind: 'dm', peer_user_id: 'peer', peer_alias: '小林' }), name: '小林' },
+    { row: chat({ id: 'chat-1', kind: 'dm', peer_user_id: 'peer' }), name: 'Lin' },
+    { row: chat({ id: 'chat-1', kind: 'topic', name: '附件讨论' }), name: '附件讨论' },
+    { row: null, name: '会话 chat-1' },
+  ])('resolves the off-screen target as $name', async ({ row, name }) => {
+    setLocalePreference('zh-CN')
+    vi.useFakeTimers()
+    const harness = wiringHarness('target-name', {
+      activeChatId: () => null,
+      chats: () => row ? [row] : [],
+      identity: () => ({ type: 'human', display_name: 'Lin', avatar: null }),
+    })
+    await harness.wiring.enqueue({ ...enqueueInput('target-name'), beforeDeliver: async () => { throw new Error('failed') } })
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(harness.toast).toHaveBeenCalledExactlyOnceWith(`「${name}」中的消息未送达，回到该对话可重试或丢弃`, 'error')
+    harness.wiring.dispose()
   })
 })
 
