@@ -38,6 +38,18 @@ beforeEach(() => {
 afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 
 describe('phone missing-session recovery (#996)', () => {
+  it('retries a lifecycle observation failure without repeating the user startup action', async () => {
+    await harness.render(<Fixture />); await tick()
+    host.life.mockRejectedValueOnce(new Error('Observation timed out')).mockResolvedValue(view('ready'))
+    await act(async () => { freshButton()!.click() }); await tick()
+    expect(recovery.error).toBeNull()
+    expect(host.ready).not.toHaveBeenCalled()
+    await tick(600)
+    expect(recovery.error).toBeNull()
+    expect(host.ready).toHaveBeenCalledOnce()
+    expect(host.restart).toHaveBeenCalledExactlyOnceWith('p', 's')
+    expect(host.retry).not.toHaveBeenCalled()
+  })
   it('offers the desktop action for a missing record with a recorded first utterance', async () => {
     await harness.render(<Fixture />); await tick()
     expect(freshButton()).toBeDefined()

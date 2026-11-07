@@ -5,6 +5,7 @@ import { canStartFreshSession } from '@/session/shared/core/sessions/session-rec
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox'
 import { messageForUser } from '@/lib/userFacingError'
 import { machineRpc } from './sessionpage-rpc'
+import { recoverTimelineRead } from './timeline-read-recovery'
 
 type RestartAttempt = { key: string; afterVersion: number }
 
@@ -43,10 +44,11 @@ export function useSessionRestart({ deviceId, projectId, sessionId, missing, onl
   useEffect(() => {
     if (attempt?.key !== key || !online) return
     let active = true
+    const recoveryAbort = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     const poll = async () => {
       try {
-        const next = await machineRpc(deviceId, local).sessions.lifeView(sessionId)
+        const next = await recoverTimelineRead(() => machineRpc(deviceId, local).sessions.lifeView(sessionId), recoveryAbort.signal)
         if (!active) return
         if (next.version > attempt.afterVersion) {
           observed.current = attempt
@@ -66,7 +68,7 @@ export function useSessionRestart({ deviceId, projectId, sessionId, missing, onl
       if (active) timer = setTimeout(() => { void poll() }, 500)
     }
     void poll()
-    return () => { active = false; clearTimeout(timer) }
+    return () => { active = false; recoveryAbort.abort(); clearTimeout(timer) }
   }, [attempt, key, deviceId, sessionId, online, local])
 
   const start = async (fresh: boolean) => {

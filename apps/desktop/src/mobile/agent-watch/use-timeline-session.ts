@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { rendererLogger } from '@/lib/log'
+import { messageForUser } from '@/lib/userFacingError'
+import { recoverTimelineRead } from './timeline-read-recovery'
 import type {
   RecordCursor,
   SettlementResponse,
@@ -19,7 +22,7 @@ import {
   type AgentWatchTimeline,
 } from './agent-watch-store'
 import { settlePendingSends, userMessageIds, type PendingSend } from './pending-sends'
-import { loadRetryDelay, TRANSIENT_LOAD_CODES } from './record-wait'
+import { loadRetryDelay, LOAD_RETRY_DELAYS_MS } from './record-wait'
 import { hydrateCachedTimeline, readCachedTimeline, writeCachedTimeline } from './timeline-cache'
 
 /** 读写**另一台机器**上一条会话所需的那几问(手机用 sessionpage-rpc.ts 那一组;单测换成假的)。 */
@@ -107,6 +110,7 @@ export type AgentWatchSession = {
 const HYDRATE_BUDGET_MS = 400
 
 const NO_SENDS: readonly PendingSend[] = []
+const timelineLog = rendererLogger('agent-watch/timeline')
 
 function newLocalId(): string {
   const randomUUID = globalThis.crypto?.randomUUID
@@ -182,6 +186,7 @@ export function useTimelineSession(
       cursorRef.current = next.cursor
       return next
     })
+    if (!result.ok) timelineLog.info({ reason: result.reset }, 'Timeline snapshot reset')
   }, [])
 
   const reload = useCallback(() => setReloadNonce((n) => n + 1), [])
@@ -200,6 +205,7 @@ export function useTimelineSession(
       return () => { cancelled = true }
     }
     let cancelled = false
+    const recoveryAbort = new AbortController()
     const subscriptionId = newLocalId()
     const cacheKey = { deviceId, sessionId }
     readyRef.current = false
@@ -224,16 +230,18 @@ export function useTimelineSession(
     }
 
     /*
-     * 补缺口失败不清空已有的那一份:屏幕上那段仍然是真的,只是没有更新。会自己好的那类(与首读同一张
-     * `TRANSIENT_LOAD_CODES`)只把链路标成断开,❌ 报红(#6738);窗口重开、回前台都会再补。
-     * 机器明确拒绝的才如实报原文,补上了就收回这一条 —— 别的路报的错(比如订阅没订上)不归这里管。
+     * 补缺口失败不清空已有的那一份:屏幕上那段仍然是真的,只是没有更新。会自己好的读失败按既有退避自动补几次，
+     * 耗尽才交统一出口，期间不把重试按钮留给用户；窗口重开、回前台也能重新驱动。
+     * 失败耗尽后仍如实报原文，补上了就收回这一条 —— 别的路报的错(比如订阅没订上)不归这里管。
      * 补上一次就算和那台机器对过账了(syncedRef)。
      */
     let catchUpReported = false
+    let catchUpRunning = false
     const catchUp = () => {
       const cursor = cursorRef.current
-      if (!readyRef.current || !cursor) return
-      void client.fetchAfter(deviceId, sessionId, cursor)
+      if (cancelled || catchUpRunning || !readyRef.current || !cursor) return
+      catchUpRunning = true
+      void recoverTimelineRead(() => client.fetchAfter(deviceId, sessionId, cursor), recoveryAbort.signal)
         .then((result) => {
           if (cancelled) return
           setLink('ok')
@@ -249,11 +257,10 @@ export function useTimelineSession(
           if (cancelled) return
           setLink('lost')
           const code = rpcErrorCode(err)
-          if (code === null || TRANSIENT_LOAD_CODES.has(code)) return
           catchUpReported = true
-          setError(describe(err))
+          setError(messageForUser(err))
           setErrorCode(code)
-        })
+        }).finally(() => { catchUpRunning = false })
     }
 
     /*
@@ -283,13 +290,10 @@ export function useTimelineSession(
       if (cancelled || !readyRef.current) return
       applyResult(result)
     })
-    const stopErrors = client.subscribeSessionErrors?.(deviceId, subscriptionId, (err) => {
+    const stopErrors = client.subscribeSessionErrors?.(deviceId, subscriptionId, () => {
       if (cancelled) return
       setLink('lost')
-      const code = rpcErrorCode(err)
-      if (code === null || TRANSIENT_LOAD_CODES.has(code)) return
-      setError(describe(err))
-      setErrorCode(code)
+      catchUp()
     })
     // 窗口断了:标断开;又通了:那台机器已经拆了这条订阅(订阅跟着窗口生灭),整个重来 —— 手里有游标就只重订 + 补差量。
     const stopLink = client.onLinkChange(deviceId, (open) => {
@@ -330,7 +334,6 @@ export function useTimelineSession(
         if (cancelled) return
         setWaitingForRecord(false)
         setError(null)
-        attempt = 0
         setTimeline((current) => applySnapshot(current, snapshot))
         cursorRef.current = snapshot.cursor
         readyRef.current = true
@@ -338,6 +341,7 @@ export function useTimelineSession(
         setPhase('ready')
         await client.subscribeSession(deviceId, sessionId, subscriptionId, snapshot.cursor)
         if (cancelled) return
+        attempt = 0
         setErrorCode(null)
         setLink('ok')
       } catch (err) {
@@ -349,7 +353,8 @@ export function useTimelineSession(
          * owner 2026-09-08:「不应该是先报一个红色的报错、等我刷新之后才显示出来」。
          * 判据在 record-wait.ts(纯函数),三类各有一条会红的用例。
          */
-        const delay = loadRetryDelay({ code, attempt, elapsedMs: Date.now() - startedAt })
+        const delay = readyRef.current ? LOAD_RETRY_DELAYS_MS[attempt - 1] ?? null
+          : loadRetryDelay({ code, attempt, elapsedMs: Date.now() - startedAt })
         if (delay !== null) {
           // That machine did not answer: still tried again, but the page can say so meanwhile (link), ❌ a silent spinner.
           if (code === 'timeout') setLink('lost')
@@ -360,7 +365,7 @@ export function useTimelineSession(
           return
         }
         setWaitingForRecord(false)
-        setError(describe(err))
+        setError(messageForUser(err))
         setErrorCode(code)
         setLink('lost')
         setPhase(readyRef.current ? 'ready' : 'error')
@@ -370,6 +375,7 @@ export function useTimelineSession(
 
     return () => {
       cancelled = true
+      recoveryAbort.abort()
       if (retryTimer) clearTimeout(retryTimer)
       stopLink()
       readyRef.current = false
