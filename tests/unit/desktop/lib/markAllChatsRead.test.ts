@@ -124,33 +124,18 @@ describe('markChatsReadAndRefresh', () => {
     expect(rpc).toHaveBeenCalledWith('mark_stream_read', { p_chat_id: 'root', p_stream_id: 'main:root', p_seq: 9, p_thread_root_id: null })
   })
 
-  it.each([false, true])('preserves server manual marks only for automatic reads (automatic=%s)', async (automatic) => {
+  it('reads what was marked unread at click time, and keeps a mark that landed after it', async () => {
     // Put the thread first: a later manual main row protects every stream of that topic.
     const rows = [unreadRow('a', 4, 'root'), { ...unreadRow('a', 3), is_marked_unread: true }, unreadRow('b', 2)]
     rpc.mockImplementation(async (name: string, args?: Record<string, unknown>) => {
       if (name === 'list_unread_locators') return { data: rows, error: null }
             return { data: [{ ...readState, stream_id: args?.p_stream_id }], error: null }
     })
-    await markChatsReadAndRefresh({ chats: [{ ...chat('a', 10), is_marked_unread: true }, chat('b', 10)], refresh: async () => {}, ...(automatic ? { preserveManualUnread: true } : {}) })
-    expect(rpc.mock.calls.filter(([name]) => name !== 'list_unread_locators')).toEqual(automatic ? [
-      ['mark_stream_read', { p_chat_id: 'b', p_stream_id: 'main:b', p_seq: 9, p_thread_root_id: null }],
-    ] : [
+    await markChatsReadAndRefresh({ chats: [{ ...chat('a', 10), is_marked_unread: true }, chat('b', 10)], refresh: async () => {} })
+    expect(rpc.mock.calls.filter(([name]) => name !== 'list_unread_locators')).toEqual([
       ['mark_stream_read', { p_chat_id: 'a', p_stream_id: 'thread:a:root', p_seq: 9, p_thread_root_id: 'root' }],
       ['mark_stream_read', { p_chat_id: 'a', p_stream_id: 'main:a', p_seq: 9, p_thread_root_id: null }],
       ['mark_stream_read', { p_chat_id: 'b', p_stream_id: 'main:b', p_seq: 9, p_thread_root_id: null }],
     ])
-  })
-
-  it('rechecks automatic eligibility after awaiting the unread projection', async () => {
-    let current = true
-    rpc.mockImplementation(async (name: string, args?: Record<string, unknown>) => {
-      if (name === 'list_unread_locators') {
-        current = false // a manual mark or closed opening superseded this pending automatic read
-        return { data: [unreadRow('a', 3)], error: null }
-      }
-      return { data: [{ ...readState, stream_id: args?.p_stream_id }], error: null }
-    })
-    await markChatsReadAndRefresh({ chats: [chat('a', 10)], refresh: async () => {}, canMarkRead: () => current })
-    expect(rpc.mock.calls.filter(([name]) => name !== 'list_unread_locators')).toEqual([])
   })
 })

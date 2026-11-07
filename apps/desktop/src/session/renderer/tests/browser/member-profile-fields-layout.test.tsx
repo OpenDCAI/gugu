@@ -9,9 +9,6 @@ import { createReactHarness, renderWithAppProviders } from '../../../../../../..
 import { until } from '../../../../../../../tests/support/awaitCondition'
 
 vi.mock('@/hooks/useAgentDisplayStatus', () => import('../../../../../../../tests/support/agentDisplayStatusTestDouble'))
-vi.mock('@/lib/identityReadAdapter', async (original) => ({
-  ...(await original<object>()), readCommunityPoints: async () => 10,
-}))
 
 // Synthetic public fixture: no owner screenshot/profile data.
 const member: MemberProfileCardModel = {
@@ -38,7 +35,7 @@ async function draw(language: string, theme: string, fill = false) {
   await i18n.changeLanguage(language)
   h.container.style.width = fill ? '240px' : '600px'
   await renderWithAppProviders(h, <MemberProfileCard member={member} fill={fill} aliasControls={{ alias: 'Test alias', onSave: vi.fn() }} />, { contacts: {} })
-  await until('the real profile fields are rendered', () => h.container.querySelector('[data-profile-field="role"]') !== null && h.container.querySelector('[data-testid="profile-community-points"]') !== null)
+  await until('the real profile fields are rendered', () => h.container.querySelector('[data-profile-field="role"]') !== null)
   await document.fonts.ready
 }
 

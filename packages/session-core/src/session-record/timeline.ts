@@ -31,6 +31,7 @@ import type {
 import { TOOL_IMAGE_FETCH_LIMIT } from './contract';
 import { questionAnswered, readQuestion } from './sources/question-tools';
 import { findToolImage, findToolItem } from './tool-image';
+import { TIMELINE_ARCHIVE_MAX_SOURCE_BYTES } from './archive-budget';
 
 /**
  * 一条已经折算好的时间线的存档。
@@ -47,6 +48,8 @@ export const TIMELINE_ARCHIVE_VERSION = 7;
 
 export type TimelineArchive = {
   readonly version: number;
+  /** Total native transcript bytes consumed, including children; absent in legacy caches. */
+  readonly sourceBytes?: number;
   /** 记录源自己的续读点（含它的身份指纹）。 */
   readonly resume: SessionRecordResume;
   readonly epoch: string;
@@ -317,8 +320,11 @@ class RecordTimeline implements SessionTimeline {
    */
   async archive(): Promise<TimelineArchive | null> {
     if (this.disposed) return null;
-    const resume = await this.source.resumePoint?.();
-    if (!resume) return null;
+    // Each source debits its already-known byte offset before copying resume
+    // state. No JSON-value walk, entry limit, or native-source-count limit.
+    const budget = { remainingBytes: TIMELINE_ARCHIVE_MAX_SOURCE_BYTES };
+    const resume = await this.source.resumePoint?.(budget);
+    if (!resume || budget.remainingBytes < 0) return null;
     const { parser, images } = this.parserForArchive();
     const published: TurnPublishArchive[] = [];
     for (const [turnId, entry] of this.published) {
@@ -332,6 +338,7 @@ class RecordTimeline implements SessionTimeline {
     }
     return {
       version: TIMELINE_ARCHIVE_VERSION,
+      sourceBytes: TIMELINE_ARCHIVE_MAX_SOURCE_BYTES - budget.remainingBytes,
       resume,
       epoch: this.epochValue,
       seq: this.seq,

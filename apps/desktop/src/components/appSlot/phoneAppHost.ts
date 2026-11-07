@@ -13,15 +13,15 @@ import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
 import { AppFileError, contentTypeOf, createAppFiles, rosterMoved, tooLargeError, type ChatFileRef, type FileSurface, type MemberChange } from '../../session/shared/extensions/app-files-core'
 import { AppSendError, dispatchFromApp, type AppSendPlatform } from '../../session/shared/extensions/app-send-core'
+import { answerAgentPick, pickAgentAsk } from '../../session/shared/extensions/app-dispatch-core'
 import { pickDispatchTarget } from '../chat/dispatchAsk'
 import { chatOf, createAppMessages } from '../../session/shared/extensions/app-messages-core'
-import { createAppForum, type ForumChannel } from '../../session/shared/extensions/app-forum-core'
+import { createAppCloud, type CloudChannel } from '../../session/shared/extensions/app-cloud-core'
 import { dataClient } from '../../lib/supabase'
 import { subscribeAuthenticatedRealtimeChannel, unsubscribeAuthenticatedRealtimeChannel } from '../../lib/realtimeChannel'
 import { FileSyncRelay, webSocketUrl, type PageSync } from '../../session/shared/extensions/file-sync-core'
 import { userIdFromSupabaseAccessToken } from '@gugu/core/cloud/runtimeAuthProvider'
 import {
-  APP_FORUM_CONSENT_EVENT,
   APP_FILE_MAX_BYTES,
   APP_FRAME_MARKER,
   SYNC_PORT_WINDOW_MESSAGE,
@@ -35,7 +35,6 @@ import {
   workspaceAppFileChunk,
   placeOf,
   sessionIdOf,
-  type AppForumConsentDetail,
   type AppFileUpload,
   type AppOpenWithDetail,
   type AppShowMessageDetail,
@@ -180,26 +179,21 @@ const sendPlatform: AppSendPlatform = {
 }
 /** `gugu.messages`: the desktop's answer (`app-messages-core.ts`), as the person signed in to this page. */
 const messagesForApp = createAppMessages(sendPlatform)
-/** A forum channel on this page's realtime client (signed in as the person; re-subscribed when it drops). */
-const forumChannel: ForumChannel = (topic, event, onPayload, onSubscribed) => {
+/** A cloud channel on this page's realtime client (signed in as the person; re-subscribed when it drops). */
+const cloudChannel: CloudChannel = (topic, event, onPayload, onSubscribed) => {
   const channel = subscribeAuthenticatedRealtimeChannel(
     () => dataClient
       .channel(topic, { config: { private: true, broadcast: { self: false, ack: true } } })
       .on('broadcast', { event }, (message) => onPayload((message.payload ?? {}) as Record<string, unknown>)),
-    `forum:${topic}`,
+    `cloud:${topic}`,
     { onSubscribed, reconnectWhenIdle: false },
   )
   return () => {
     void unsubscribeAuthenticatedRealtimeChannel(channel)
   }
 }
-/** `gugu.forum`: the desktop's answer (`app-forum-core.ts`), as the person signed in to this page. */
-const forumForApp = createAppForum({ account: () => sendPlatform.account(), channel: forumChannel })
-/** The forum consent sheet (ForumConsent: points, assigning), drawn by this page's shell as the desktop window draws it. */
-const askForumConsent = (detail: AppForumConsentDetail) => {
-  window.dispatchEvent(new CustomEvent<AppForumConsentDetail>(APP_FORUM_CONSENT_EVENT, { detail }))
-  return { confirming: true }
-}
+/** `gugu.cloud`: the desktop's answer (`app-cloud-core.ts`), as the person signed in to this page. */
+const cloudForApp = createAppCloud({ account: () => sendPlatform.account(), channel: cloudChannel })
 
 const files = createAppFiles({
   async resolveFile(ref, actorId, options) {
@@ -416,8 +410,9 @@ export function hostAppFrame(
   frames.set(pageId, hosted)
 
   const send = (message: HostToFrame) => channel.post(message)
-  /** This page's forum subscriptions (`gugu.forum.onChanged`), by post id or 'feed': gone with the page. */
-  const forumWatches = new Map<string, () => void>()
+  /** This page's cloud subscriptions (`gugu.cloud.on`), by topic and event: gone with the page. */
+  const cloudWatches = new Map<string, () => void>()
+  const cloudApp = () => ({ id: hosted.binding.extensionId, origin: installedExtensionsStore.origins[hosted.binding.extensionId] })
   const event = (hostEvent: ExtensionHostEvent) => send({ m: APP_FRAME_MARKER, t: 'event', event: hostEvent })
   /** The page, and the one chat file the host handed it (`ctx.file`): every call names its own target (真源原则 13). */
   const surface = (): FileSurface => ({
@@ -650,38 +645,26 @@ export function hostAppFrame(
         return files.chats().then((chats) => ({ chats }))
       case 'chatsMembers':
         return Promise.resolve().then(() => files.members(chatOf(args))).then((members) => ({ members }))
-      // 论坛 (9): as the person; a bounty's points move only behind the shell's own sheet.
-      case 'forumList':
-        return forumForApp.list(args)
-      case 'forumRead':
-        return forumForApp.read(args.postId)
-      case 'forumReply':
-        return forumForApp.reply(args.postId, args.text, { replyTo: args.replyTo })
-      case 'forumReact':
-        return forumForApp.react(args)
-      case 'forumRemove':
-        return forumForApp.remove(args)
-      case 'forumBlock':
-        return forumForApp.block(args.userId, args.on)
-      case 'forumAssign':
-        return forumForApp.assign(args.postId, args.agentId, pickDispatchTarget)
-      case 'forumPost':
-        return args.bounty === undefined || args.bounty === null
-          ? forumForApp.postPlain(args)
-          : Promise.resolve().then(() => askForumConsent({ type: 'bounty', draft: forumForApp.bountyDraft(args) }))
-      case 'forumAward':
-        return forumForApp.awardDraft(args.postId, args.awards).then((draft) => askForumConsent({ type: 'award', draft }))
-      case 'forumSubscribe':
+      // `gugu.cloud` (31), as the person.
+      case 'cloudRead':
+        return cloudForApp.read(cloudApp(), args.name, (args.args ?? {}) as Record<string, unknown>)
+      case 'cloudWrite':
+        return cloudForApp.write(cloudApp(), args.name, (args.args ?? {}) as Record<string, unknown>)
+      case 'cloudSubscribe':
         return Promise.resolve().then(() => {
-          const target = String(args.target ?? '')
-          if (!forumWatches.has(target)) forumWatches.set(target, forumForApp.watch(args.target, (change) => event({ type: 'forumChanged', target, change })))
+          const topic = String(args.topic ?? '')
+          const heardEvent = String(args.event ?? '')
+          const key = `${topic}\n${heardEvent}`
+          if (!cloudWatches.has(key)) cloudWatches.set(key, cloudForApp.watch(cloudApp(), args.topic, args.event, (heard) => event({ type: 'cloudHeard', topic, event: heardEvent, heard })))
         })
-      case 'forumUnsubscribe': {
-        const target = String(args.target ?? '')
-        forumWatches.get(target)?.()
-        forumWatches.delete(target)
+      case 'cloudUnsubscribe': {
+        const key = `${String(args.topic ?? '')}\n${String(args.event ?? '')}`
+        cloudWatches.get(key)?.()
+        cloudWatches.delete(key)
         return Promise.resolve(undefined)
       }
+      case 'pickAgent':
+        return Promise.resolve().then(() => pickDispatchTarget(pickAgentAsk(args))).then((picked) => answerAgentPick(args, picked, (name, given) => cloudForApp.write(cloudApp(), name, given)))
       case 'showMessage':
         return files.messageToShow(args as never).then((detail) => hooks.showMessage(detail))
       case 'showSession': {
@@ -957,8 +940,8 @@ export function hostAppFrame(
       void phoneModals.pageGone(pageId)
       for (const { source } of watched.values()) readFiles.forget(source)
       watched = new Map()
-      for (const stop of forumWatches.values()) stop()
-      forumWatches.clear()
+      for (const stop of cloudWatches.values()) stop()
+      cloudWatches.clear()
       window.removeEventListener('message', onMessage)
       relay.pageGone(pageId)
       frames.delete(pageId)

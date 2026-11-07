@@ -1,6 +1,7 @@
 import type { AppSpawnAction } from '@gugu/session-core/session-record/contract';
 import type { ExtensionCapability } from './manifest';
 import { decodeTypedId } from '@gugu/core/shared/typedId.mjs';
+import { personId } from './app-runtime-protocol';
 
 /**
  * `gugu.dispatch(text, options)` (15): the one way an App hands something to someone — owner 10-25「全部统一」. Before it there
@@ -12,7 +13,7 @@ import { decodeTypedId } from '@gugu/core/shared/typedId.mjs';
  * - `{ new: true }`: a new agent, its first words the text;
  * - `{ chat }` with `draft`: only into that chat's composer (as `draft` into an agent's): the person sends it, or not.
  * No `to`: the person picks in the host's sheet (`DispatchSheet`), seeing the whole text, every pill and the target, and
- * only their press sends — so that call needs no capability, only their gesture (as compose's and forum.assign's did).
+ * only their press sends — so that call needs no capability, only their gesture (as compose's did).
  */
 
 export type DispatchTarget = { chat: string } | { chat: string; member: string } | { agent: string } | { new: true };
@@ -191,10 +192,10 @@ export interface DispatchAsk {
   /** Phone only: the default computer for a new agent; the person can change it in the existing machine picker. */
   spawnOn?: string | null;
   /**
-   * Not a message but a forum assignment (`gugu.forum.assign`): the post's title is what is shown, read only, and only the
-   * person's own agents are offered; what follows the pick is the forum's (`forum_assign`), not a delivery.
+   * Not a message but a pick (`gugu.pickAgent`): only the person's own agents are offered, the App's words are what is shown,
+   * nothing is written to anyone; what follows the pick is the App's.
    */
-  assign?: { title: string };
+  pick?: AgentPickWords;
 }
 
 /**
@@ -204,3 +205,35 @@ export interface DispatchAsk {
 export type DispatchPicked =
   | { to: { chat: string } | { chat: string; member: string } | { agent: string } | { new: true; device?: string }; visible: boolean; text: string }
   | null;
+
+/** All of `gugu.pickAgent`'s sheet is the App's words: the host knows only that a person picks one of their agents. */
+export interface AgentPickWords { title: string; subject: string; body: string; action: string; search: string; empty: string }
+
+/** `gugu.pickAgent({ title, subject, body, action, search, empty, preselect?, write? })`, as the sheet is asked. */
+export function pickAgentAsk(args: Record<string, unknown>): DispatchAsk {
+  const word = (key: keyof AgentPickWords) => {
+    const value = args[key];
+    if (typeof value !== 'string' || !value.trim() || value.length > 1000) throw Object.assign(new Error(`pickAgent: ${key} is text of 1 to 1000 characters`), { code: 'invalid' as const });
+    return value;
+  };
+  const pick = { title: word('title'), subject: word('subject'), body: word('body'), action: word('action'), search: word('search'), empty: word('empty') };
+  const preselect = typeof args.preselect === 'string' ? personId(args.preselect.replace(/^user:/, '')) : null;
+  return { pick, draft: false, offers: ['my-agent'], text: '', pills: [], chat: null, preselect, visible: false };
+}
+
+/**
+ * What a pick answers. The person's press was in the host's sheet, not on the page, so what it is for goes with the ask:
+ * `write: { name, args, agent }` is done by that press (`gugu.cloud.write`'s, the picked agent's bare id as the argument `agent` names).
+ */
+export async function answerAgentPick(
+  args: Record<string, unknown>,
+  picked: DispatchPicked,
+  write: (name: unknown, given: Record<string, unknown>) => Promise<unknown>,
+): Promise<{ agent: string; written?: unknown } | { cancelled: true }> {
+  if (!picked || !('agent' in picked.to)) return { cancelled: true };
+  const agent = picked.to.agent;
+  const asked = args.write as { name?: unknown; args?: Record<string, unknown>; agent?: unknown } | undefined;
+  if (!asked) return { agent };
+  if (typeof asked.agent !== 'string' || !asked.agent) throw Object.assign(new Error('pickAgent: write.agent names the argument for the agent'), { code: 'invalid' as const });
+  return { agent, written: await write(asked.name, { ...asked.args, [asked.agent]: agent.replace(/^user:/, '') }) };
+}

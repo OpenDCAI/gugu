@@ -42,12 +42,12 @@ it.each([
 
   const clearOfPin = () => {
     const head = header().getBoundingClientRect();
-    // contain:paint clips the pinned backdrop/fade at this lane's end. A nonzero
-    // overlap is a real painted obstruction, even with pointer-events:none.
+    // The reading lane extends through the reply. Its sticky child is the painted
+    // question/backdrop; inspect that paint box rather than the invisible lane.
     const containment = getComputedStyle(lane()).contain.split(' ');
     expect(containment.some(value => ['paint', 'content', 'strict'].includes(value))).toBe(true);
     expect(getComputedStyle(lane().firstElementChild!).position).toBe('sticky');
-    expect(lane().getBoundingClientRect().bottom, 'the pin paint ends before the process header').toBeLessThanOrEqual(head.top + 0.5);
+    expect(lane().firstElementChild!.getBoundingClientRect().bottom, 'the pin paint ends before the process header').toBeLessThanOrEqual(head.top + 0.5);
     expect(header().offsetHeight).toBe(28);
     for (let el: HTMLElement | null = header(); el && host.contains(el); el = el.parentElement) {
       expect(getComputedStyle(el).opacity).toBe('1');
