@@ -3,6 +3,7 @@ import {
   _resetElectronRealtimeChannelRegistryForTesting,
   reconnectElectronRealtimeChannels,
   listElectronRealtimeChannelRegistry,
+  pauseElectronRealtimeChannels,
   subscribeAuthenticatedElectronRealtimeChannel,
   type ElectronManagedRealtimeChannel,
   type ElectronRealtimeClient,
@@ -42,6 +43,138 @@ describe('Electron Realtime physical channel replacement', () => {
   afterEach(() => {
     _resetElectronRealtimeChannelRegistryForTesting()
     vi.useRealTimers()
+  })
+
+  it('withdraws continuity synchronously before awaiting the old channel leave', async () => {
+    const old = makeChannel(), fresh = makeChannel(), onUnavailable = vi.fn()
+    let finish!: () => void
+    vi.mocked(old.unsubscribe!).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'policy-reconnect', createChannel: () => fresh, onUnavailable })
+    old.emit('SUBSCRIBED'); onUnavailable.mockClear()
+    const replacing = reconnectElectronRealtimeChannels()
+    expect(onUnavailable).toHaveBeenCalledOnce(); expect(fresh.subscribe).not.toHaveBeenCalled()
+    finish(); await replacing; await stop()
+  })
+
+  it('withdraws continuity immediately when account authentication is paused', async () => {
+    const channel = makeChannel(), onUnavailable = vi.fn()
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, channel,
+      { label: 'policy-auth', onUnavailable })
+    channel.emit('SUBSCRIBED'); onUnavailable.mockClear()
+    const resume = pauseElectronRealtimeChannels()
+    expect(onUnavailable).toHaveBeenCalledOnce()
+    resume(); await stop()
+  })
+
+  it('ignores old SUBSCRIBED throughout a pending leave and accepts only the fresh authenticated attempt', async () => {
+    const old = makeChannel(), fresh = makeChannel()
+    let finish!: () => void, live = false
+    vi.mocked(old.unsubscribe!).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'policy-late-status', createChannel: () => fresh, onUnavailable: () => { live = false }, onStatus: status => { live = status === 'SUBSCRIBED' } })
+    old.emit('SUBSCRIBED'); expect(live).toBe(true)
+    const replacing = reconnectElectronRealtimeChannels()
+    old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    finish(); await replacing; expect(live).toBe(false)
+    old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    fresh.emit('SUBSCRIBED'); expect(live).toBe(true)
+    old.emit('CLOSED'); expect(live).toBe(true)
+    await stop()
+  })
+
+  it('keeps nested authentication pauses closed and never revives the old callback after release', async () => {
+    const old = makeChannel(), fresh = makeChannel(), createChannel = vi.fn(() => fresh)
+    let live = false
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'policy-nested-pause', createChannel, onUnavailable: () => { live = false }, onStatus: status => { live = status === 'SUBSCRIBED' } })
+    old.emit('SUBSCRIBED'); expect(live).toBe(true)
+    const first = pauseElectronRealtimeChannels(), second = pauseElectronRealtimeChannels()
+    old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    first(); first(); await reconnectElectronRealtimeChannels(); expect(createChannel).not.toHaveBeenCalled()
+    old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    second(); old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    await reconnectElectronRealtimeChannels(); fresh.emit('SUBSCRIBED'); expect(live).toBe(true)
+    await stop()
+  })
+
+  it('does not let late SUBSCRIBED cancel replacement after a failed attempt', async () => {
+    const old = makeChannel(), fresh = makeChannel(), createChannel = vi.fn(() => fresh)
+    let live = false
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'policy-failed-attempt', createChannel, reconnectOnStatus: () => true,
+        onUnavailable: () => { live = false }, onStatus: status => { live = status === 'SUBSCRIBED' } })
+    old.emit('SUBSCRIBED'); old.emit('CHANNEL_ERROR'); old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_000); expect(createChannel).toHaveBeenCalledOnce()
+    fresh.emit('SUBSCRIBED'); expect(live).toBe(true)
+    await stop()
+  })
+
+  it.each(['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'])('rejoins App default-options channels through fresh authentication after %s', async status => {
+    const old = makeChannel(), fresh = makeChannel(), createChannel = vi.fn(() => fresh), onSubscribed = vi.fn()
+    const setAuth = vi.fn(async () => {})
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth }, removeChannel: async () => {} }, old,
+      { label: 'cloud:app', createChannel, onStatus: value => { if (value === 'SUBSCRIBED') onSubscribed() } })
+    old.emit('SUBSCRIBED'); old.emit(status); old.emit('SUBSCRIBED')
+    expect(onSubscribed).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(createChannel).toHaveBeenCalledOnce(); expect(setAuth).toHaveBeenCalledTimes(2)
+    fresh.emit('SUBSCRIBED'); old.emit('SUBSCRIBED')
+    expect(onSubscribed).toHaveBeenCalledTimes(2)
+    await stop()
+  })
+
+  it('preserves SDK rejoin notifications for legacy callers without a factory or continuity observer', async () => {
+    const channel = makeChannel(), onSubscribed = vi.fn()
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, channel,
+      { label: 'device-rpc:legacy', onStatus: value => { if (value === 'SUBSCRIBED') onSubscribed() } })
+    channel.emit('SUBSCRIBED'); channel.emit('CHANNEL_ERROR'); channel.emit('SUBSCRIBED')
+    expect(onSubscribed).toHaveBeenCalledTimes(2)
+    await stop()
+  })
+
+  it('removes a failed one-shot default-options channel instead of replacing it', async () => {
+    const old = makeChannel(), fresh = makeChannel(), createChannel = vi.fn(() => fresh), removeChannel = vi.fn(async () => {})
+    await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel }, old,
+      { label: 'one-shot', createChannel, unsubscribeOnStatus: () => true })
+    old.emit('CHANNEL_ERROR'); old.emit('SUBSCRIBED'); await vi.advanceTimersByTimeAsync(1_000)
+    expect(removeChannel).toHaveBeenCalledOnce(); expect(createChannel).not.toHaveBeenCalled()
+    expect(listElectronRealtimeChannelRegistry()).toHaveLength(0)
+  })
+
+  it('honors explicit SDK reconnect for a caller without a continuity observer', async () => {
+    const old = makeChannel(), createChannel = vi.fn(() => makeChannel()), onSubscribed = vi.fn()
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'explicit-sdk', createChannel, reconnectOnStatus: () => false, onStatus: value => { if (value === 'SUBSCRIBED') onSubscribed() } })
+    old.emit('SUBSCRIBED'); old.emit('CHANNEL_ERROR'); old.emit('SUBSCRIBED'); await vi.advanceTimersByTimeAsync(1_000)
+    expect(onSubscribed).toHaveBeenCalledTimes(2); expect(createChannel).not.toHaveBeenCalled()
+    await stop()
+  })
+
+  it('keeps a continuity observer closed without a fresh authenticated replacement', async () => {
+    const channel = makeChannel()
+    let current = false
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, channel,
+      { label: 'strict-without-factory', onUnavailable: () => { current = false }, onStatus: value => { current = value === 'SUBSCRIBED' } })
+    channel.emit('SUBSCRIBED'); expect(current).toBe(true)
+    channel.emit('CHANNEL_ERROR'); channel.emit('SUBSCRIBED'); expect(current).toBe(false)
+    await stop()
+  })
+
+  it.each(['resolve', 'reject'] as const)('does not install a subscription from superseded authentication that later %ss', async result => {
+    const old = makeChannel(), fresh = makeChannel(), setAuth = vi.fn(async () => {})
+    let finish!: () => void
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth }, removeChannel: async () => {} }, old,
+      { label: 'policy-stale-auth', createChannel: () => fresh })
+    old.emit('SUBSCRIBED')
+    setAuth.mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+      finish = () => { if (result === 'reject') reject(new Error('synthetic stale authentication')); else resolve() }
+    }))
+    const replacing = reconnectElectronRealtimeChannels(); await flushPromises()
+    expect(setAuth).toHaveBeenCalledTimes(2)
+    const resume = pauseElectronRealtimeChannels(); resume(); finish(); await replacing
+    expect(fresh.subscribe).not.toHaveBeenCalled()
+    await stop()
   })
 
   it('replaces a stale joined channel immediately after resume, without waiting for an error or timer', async () => {
