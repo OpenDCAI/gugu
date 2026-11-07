@@ -207,14 +207,27 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['navigationGo', 'appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'cloud', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onDownloadProgress', 'onCloudHeard', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
+    if (['navigationGo', 'navigationClaimBack', 'onBack', 'appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'cloud', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onDownloadProgress', 'onCloudHeard', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;
-  if (raw.navigationGo) api.navigation = Object.freeze({ go: (delta: unknown): Promise<boolean> => {
-    if (delta !== -1 && delta !== 1) return Promise.reject(guguError('invalid', 'Navigation delta must be -1 or 1'));
-    return coded(raw.navigationGo!)({ delta });
-  } });
+  if (raw.navigationGo) api.navigation = Object.freeze({
+    go: (delta: unknown): Promise<boolean> => {
+      if (delta !== -1 && delta !== 1) return Promise.reject(guguError('invalid', 'Navigation delta must be -1 or 1'));
+      return coded(raw.navigationGo!)({ delta });
+    },
+    // @@@back-step - while held, the host's Back (the phone's back key / edge swipe) is the page's own step (a folder up), not
+    // leaving the page. Resolves to the release; a host with no Back of its own (a desktop tab) resolves, never calls it.
+    ...(raw.navigationClaimBack && raw.onBack ? {
+      onBack: async (handler: unknown): Promise<() => Promise<void>> => {
+        if (typeof handler !== 'function') throw guguError('invalid', 'gugu.navigation.onBack takes a function');
+        const off = raw.onBack!(() => handler());
+        try { await coded(raw.navigationClaimBack!)(true); }
+        catch (error) { off(); throw error; }
+        return async () => { off(); await coded(raw.navigationClaimBack!)(false); };
+      },
+    } : {}),
+  });
   if (host.program && host.projection && host.onProjectionSource) api.projection = projectionSources(host);
   else if (host.projection && host.onProjection) api.projection = {
     mount: (element: HTMLElement, id: string, options?: Parameters<typeof mountProjection>[3]) => mountProjection(host, element, id, options),

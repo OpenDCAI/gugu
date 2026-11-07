@@ -181,7 +181,7 @@ export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 ## Where your page runs
 
 Location fills context, never changes authority: a task has \`session\`, a chat panel has \`chat\`, a file page has \`file\`;
-the dock/background have neither chat nor session. Read context before drawing.
+the dock/background have neither chat nor session.
 - \`gugu.files\`: open, list, create, rename, remove — the one way to open and edit a session's file. Name its target (\`apps-files\`).
 - \`setTabTitle\` / \`setTabBadge\`: your tab/panel. \`reportError\`: there and in the App error log, read by \`app_check\`.
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
@@ -189,7 +189,7 @@ the dock/background have neither chat nor session. Read context before drawing.
   or gesture (no \`setTabTitle\`, \`dispatch\` without \`to\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
   programs (a session's tab calls its computer's), agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
 - \`gugu.clipboard.writeText\`: click/key only, including your \`menu\` / \`toolbar\` entries (\`onCommand\`), drawn on the tab/panel header.
-- Chat panels open at 520 px: design narrow first, widen with a media/container query.
+- Chat panels open at 520 px: design narrow first.
 - No \`alert\` / \`confirm\` / \`prompt\`: use \`gugu.modal\` below.
 
 ## Custom modals (apiVersion 11)
@@ -209,7 +209,7 @@ Free:
   \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\`; \`agentId\` is \`user:<uuid>\`.
   Local \`root\` needs \`files:*\`; remote sessions carry \`deviceId\` instead. \`file\`: open with \`files.open(ctx.file)\`.
   \`operator\`: \`{ kind: 'person' }\` or \`{ kind: 'agent', id }\`. \`capabilities\`: current grants, reflecting revocations.
-- \`gugu.navigation.go(-1|1)\` → boolean; own history/chat opener. State: \`getContext().navigation\`.
+- \`gugu.navigation.go(-1|1)\` → boolean; own history/chat opener. State: \`getContext().navigation\`. \`gugu.navigation.onBack(fn)\` (phone) → release; Back calls \`fn\`.
 - \`onContextChanged(fn)\` → theme, language, visibility and size changes; member changes only through API 26. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - \`showContextMenu({ x, y, items: [{ id, label, enabled?, items? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu → id or null.
@@ -554,7 +554,7 @@ The place is \`{ workspace: ctx.workspace.id }\`. An entry's \`id\` is its path 
 
 - \`gugu.files.list({ workspace, folder })\` lists one folder (\`''\` the top), never a whole tree. Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
 - \`gugu.files.onChanged({ workspace, folder }, fn)\`: \`{ kind: 'changes', changes }\` or \`resync\`, below \`folder\` only.
-- \`gugu.files.openWith({ workspace, folder })\` (a click or key): that folder in the Folder app's list, in this tab.
+- \`gugu.files.openWith({ workspace, folder })\` (a click or key): that folder in the Files App's list, in this tab.
 - Another machine's working copy needs \`files:read:all-machines\` as well; every call below is done on that machine.
 - With \`files:write\`: \`gugu.files.create\`, \`gugu.files.rename\` (a path moves it), \`gugu.files.mkdir({ workspace, path })\`, \`gugu.files.move(entry, { folder, name })\`, \`gugu.files.remove\` (a folder with all in it; a link, not what it points at). A name already there: \`name-taken\`, nothing changed.
 - \`gugu.files.upload({ workspace, folder }, file, { replace, onProgress, signal })\`: a File or a list of them, in parts, of any size, folders made as needed. A name already there is \`name-taken\` until \`replace: true\`. \`onProgress\` is told the bytes sent and the total; an aborted \`signal\` leaves nothing.

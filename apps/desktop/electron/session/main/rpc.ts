@@ -11,7 +11,6 @@ import { extensionsController } from './core/extensions/controller';
 import { machineFilesController } from './core/files/controller';
 import { machineController } from './core/machine/controller';
 import { workspaceFileSystemController } from './core/files/file-system/controller';
-import { fileTreeController } from './core/files/file-tree/controller';
 import { gitRepositoryController } from './core/git/repository/controller';
 import { gitWorktreeController } from './core/git/worktree/controller';
 import { githubController } from './core/github/controller';
@@ -85,7 +84,6 @@ export const rpcRouter = createRPCRouter({
   workspace: createRPCNamespace({
     gitWorktree: gitWorktreeController,
     files: workspaceFileSystemController,
-    fileTree: fileTreeController,
     editor: editorBufferController,
   }),
 });

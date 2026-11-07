@@ -331,6 +331,14 @@ body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 
 /* A folder and a document each have one content toolbar below the host tab strip. */
 .files-toolbar { flex-wrap: nowrap; min-height: 36px; padding: 2px 8px; gap: 4px; border-bottom: 1px solid var(--em-border); }
+.place-switch { display: flex; flex: none; gap: 2px; padding: 2px; border-radius: var(--em-radius-control); background: var(--em-background-3); }
+.place-switch button { display: inline-flex; align-items: center; gap: 4px; border: 0; min-height: 26px; padding: 2px 6px; white-space: nowrap; color: var(--em-foreground-muted); background: none; font-size: var(--em-font-caption); }
+.place-switch button[aria-pressed='true'] { color: var(--em-foreground); background: var(--em-background); }
+.place-switch button[aria-disabled='true'] { color: var(--em-foreground-passive, var(--em-foreground-muted)); opacity: .5; }
+.place-switch gugu-icon { width: 14px; height: 14px; }
+@container (max-width: 600px) {
+  .files-toolbar > .kinds, .files-toolbar > .views { display: none; }
+}
 .files-toolbar > .kinds, .files-toolbar > .crumbs { min-width: 0; flex: 1; overflow: auto; white-space: nowrap; margin: 0; padding: 0; flex-wrap: nowrap; }
 /* The kinds' grey track hugs its four buttons (owner 11-06: 「Other 尾巴很长」); the controls after it keep to the right. */
 .files-toolbar > .kinds { flex: 0 1 auto; margin-right: auto; }

@@ -24,6 +24,9 @@ export interface GuguHost extends ProjectionHost {
   };
   onModalFocus?(handler: (edge: 'first' | 'last') => void): () => void;
   navigationGo?(args: { delta: -1 | 1 }): Promise<boolean>;
+  /** The page holds a Back step of its own; the host says whether it has a Back to hand over (the phone does, a desktop tab not). */
+  navigationClaimBack?(claimed: boolean): Promise<boolean>;
+  onBack?(handler: () => void): () => void;
   readonly apiVersion: number;
   /** An iframe of the outer gugu page (the phone), not a desktop webview: `framed-host.ts`. */
   readonly framed?: boolean;

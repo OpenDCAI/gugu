@@ -15,18 +15,3 @@ export type FileTreeProjectionScope = {
   entries: FileNode[];
 };
 
-/**
- * A per-view projection update: the main-process projector pushes the current contents of one or
- * more directory scopes that the subscription has registered. `version` is monotonic per
- * subscription and is what the renderer waits on for read-your-writes.
- */
-export type FileTreeProjectionEvent = {
-  projectId: string;
-  workspaceId: string;
-  subscriptionId: string;
-  version: number;
-  scopes: FileTreeProjectionScope[];
-};
-
-export const fileTreeProjectionChannel =
-  defineEvent<FileTreeProjectionEvent>('fs:file-tree-projection');

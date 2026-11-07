@@ -23,7 +23,7 @@ import {
 import { setWorkspaceReachResolver } from '@renderer/features/sessions/workspace-backend/workspace-surface';
 import { events, onMachineEvent, rpc, rpcOn } from '@renderer/lib/ipc';
 import type { EventDefinition } from '@shared/lib/ipc/events';
-import { fileChangesChannel, fileTreeProjectionChannel } from '@shared/core/fs/fsEvents';
+import { fileChangesChannel } from '@shared/core/fs/fsEvents';
 import { gitRepoUpdateChannel, gitWorktreeUpdateChannel } from '@shared/core/git/events';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -288,9 +288,9 @@ function backendFor(deviceId: string): WorkspaceBackend {
       },
     };
     backends.set(deviceId, found);
-    // 工作区的事件(文件变了 / 文件树投影 / git 状态)在那台机器上订,由这里在渲染层发出(workspace-backend.ts 抬头):
+    // 工作区的事件(文件变了 / git 状态)在那台机器上订,由这里在渲染层发出(workspace-backend.ts 抬头):
     // 用到那台机器上的工作区时才有这份后端,所以只有打开着的远程项目才收它的文件与 git 推送。
-    for (const event of [fileChangesChannel, fileTreeProjectionChannel, gitWorktreeUpdateChannel, gitRepoUpdateChannel] as EventDefinition<unknown>[]) {
+    for (const event of [fileChangesChannel, gitWorktreeUpdateChannel, gitRepoUpdateChannel] as EventDefinition<unknown>[]) {
       onMachineEvent(deviceId, event, (data) => workspaceEvents.emit(event, data));
     }
   }

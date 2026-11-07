@@ -207,7 +207,7 @@ describe('picking', () => {
     open('c')
     row('b').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 90, clientY: 20 }))
     const actions = [...$('menu').querySelectorAll<HTMLButtonElement>('button')]
-    expect(actions.map((item) => item.textContent)).toEqual(['转发', '下载', '设为临时', '设为持续保存', '在聊天中定位', '取消选择'])
+    expect(actions.map((item) => item.textContent)).toEqual(['转发', '存到电脑', '设为临时', '设为持续保存', '在聊天中定位', '取消选择'])
     actions[1]!.click()
     await until('batch download called', () => gugu.files.download.mock.calls.length > 0)
     expect(gugu.files.download).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' }), expect.objectContaining({ id: 'c' })])
@@ -272,7 +272,7 @@ describe('转发 (API 23)', () => {
   test('a file\'s menu: Forward first in the use group (as a message\'s menu has it before Download); the host\'s page gets that file', async () => {
     const items = menuOf('a')
     const labels = items.map((item) => item.textContent)
-    expect(labels.slice(0, 4)).toEqual(['转发', '复制链接', '用别的 App 打开', '下载'])
+    expect(labels.slice(0, 4)).toEqual(['转发', '复制链接', '用别的 App 打开', '存到电脑'])
     items.find((item) => item.textContent === '转发')!.click()
     await until('forward asked', () => gugu.files.forward!.mock.calls.length > 0)
     expect(gugu.files.forward).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' })])
@@ -306,7 +306,7 @@ describe('what is picked, at once', () => {
   test('downloaded together (one 「save to」 for them all), and said how many', async () => {
     select('a')
     select('c')
-    barButton('下载').click()
+    barButton('存到电脑').click()
     await until('saved', () => banner(), (text) => text === '已保存 2 个文件。')
     expect(gugu.files.download).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' }), expect.objectContaining({ id: 'c' })])
   })

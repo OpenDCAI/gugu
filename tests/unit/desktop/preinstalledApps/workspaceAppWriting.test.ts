@@ -236,7 +236,7 @@ describe('markdown redesign: the real document page', () => {
     $('more').click()
     await frame()
     // 对照 (side by side) leads, then the file's actions (owner 11-06: the head keeps one read/edit toggle).
-    expect(menuItems().map((item) => item.textContent)).toEqual(['Side by side', 'Forward', 'Copy link', 'Open with another App', 'Download', 'Rename', 'Move to…', 'Delete'])
+    expect(menuItems().map((item) => item.textContent)).toEqual(['Side by side', 'Forward', 'Copy link', 'Open with another App', 'Save to computer', 'Rename', 'Move to…', 'Delete'])
     close()
   })
 
@@ -244,7 +244,7 @@ describe('markdown redesign: the real document page', () => {
     file.readOnly = true
     $('more').click()
     const labels = menuItems().map((item) => item.textContent)
-    expect(labels).toEqual(['Side by side', 'Forward', 'Copy link', 'Open with another App', 'Download'])
+    expect(labels).toEqual(['Side by side', 'Forward', 'Copy link', 'Open with another App', 'Save to computer'])
   })
 
   test('editing coalesces pointer bursts into one placement and one geometry read per frame', async () => {

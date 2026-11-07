@@ -683,8 +683,8 @@ export default {
     "more": "More actions",
     "searchChat": "Search chat",
     "searchConversation": "Search this chat",
-    "groupFolder": "Group folder",
-    "folder": "Folder"
+    "groupFolder": "Files",
+    "folder": "Files"
   },
   "history": {
     "searchTopics": "Search topics",

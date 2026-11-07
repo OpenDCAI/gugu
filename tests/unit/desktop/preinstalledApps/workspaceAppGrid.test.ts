@@ -150,7 +150,7 @@ describe('details', () => {
     expect(said['大小']).toBe('1.1 MB · PDF')
     expect(said['上传']).toMatch(/^张三 · /)
     expect(said['改动']).toMatch(/^小雨 · .* · 第 2 版$/)
-    expect(said['位置']).toBe('群文件夹')
+    expect(said['位置']).toBe('聊天文件')
     expect(said['保留']).toMatch(/^临时 · .*清除云端副本$/)
     await until('its versions', () => $('details').querySelectorAll('.details-versions li').length === 2)
     expect(gugu.files.versions).toHaveBeenCalledWith(expect.objectContaining({ id: 'spec' }))

@@ -115,8 +115,8 @@ describe('workspace App in a narrow pane (F32)', () => {
     $('more').click()
     expect($('menu').hidden).toBe(false)
     expect($('more').getAttribute('aria-expanded')).toBe('true')
-    await vi.waitFor(() => expect([...$('menu').querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Copy link', 'Open with another App', 'Download', 'Rename', 'Move to…', 'Delete']))
-    ;([...$('menu').querySelectorAll('button')].find((item) => item.textContent === 'Download') as HTMLButtonElement).click()
+    await vi.waitFor(() => expect([...$('menu').querySelectorAll('button')].map((item) => item.textContent)).toEqual(['Copy link', 'Open with another App', 'Save to computer', 'Rename', 'Move to…', 'Delete']))
+    ;([...$('menu').querySelectorAll('button')].find((item) => item.textContent === 'Save to computer') as HTMLButtonElement).click()
     expect($('menu').hidden, 'choosing closes it').toBe(true)
     expect($('more').getAttribute('aria-expanded')).toBe('false')
     await vi.waitFor(() => expect(gugu.files.download).toHaveBeenCalledWith(expect.objectContaining({ id: 'big' })))
@@ -139,7 +139,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     changed({ ...context })
     await vi.waitFor(() => expect(shown()).toBe(null))
     expect(document.body.classList.contains('show-doc')).toBe(false)
-    expect(gugu.setTabTitle).toHaveBeenLastCalledWith('Group folder')
+    expect(gugu.setTabTitle).toHaveBeenLastCalledWith('Files')
   })
 
   test('the list is the only pane until a file is shown: no "pick a file" beside it, the empty note at the top', () => {
@@ -152,12 +152,11 @@ describe('workspace App in a narrow pane (F32)', () => {
     expect($('pick-bar').hidden).toBe(true)
   })
 
-  // owner 10-11「私聊就叫做文件夹吧，群里面是群文件夹」: a topic goes by the chat it grew out of, which ctx.chat.groupId says.
-  // Control (55ffebac2): every chat's slot said Group folder.
+  // Files has the same name in groups, private chats and topics.
   test.each([
-    [{ id: 'dm-1', name: 'B', kind: 'dm', groupId: null }, 'en-US', 'Folder'],
-    [{ id: 'topic-dm', name: 'T', kind: 'topic', groupId: null }, 'zh-CN', '文件夹'],
-    [{ id: 'topic-g', name: 'T', kind: 'topic', groupId: 'chat-1' }, 'zh-CN', '群文件夹'],
+    [{ id: 'dm-1', name: 'B', kind: 'dm', groupId: null }, 'en-US', 'Files'],
+    [{ id: 'topic-dm', name: 'T', kind: 'topic', groupId: null }, 'zh-CN', '文件'],
+    [{ id: 'topic-g', name: 'T', kind: 'topic', groupId: 'chat-1' }, 'zh-CN', '文件'],
   ])('the slot\'s title follows the chat: %o in %s → %s', async (chat, locale, title) => {
     const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
     changed({ ...context, chat, locale })

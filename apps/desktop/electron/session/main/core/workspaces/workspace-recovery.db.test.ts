@@ -53,7 +53,6 @@ describe('workspace operations after the host process loses its cache', () => {
         workspace: {
           id, path: context.workDir, fileSystem: new FileSystem(),
           fileTree: { dispose: vi.fn() }, lifecycleService: { dispose: vi.fn() },
-          fileTreeProjector: { openProjection: async () => ({ success: true, data: { subscriptionId: 'view' } }) },
           gitWorktree: { getSnapshot: async () => ({ head: 'recorded-head' }) },
           dispose: vi.fn(),
         },
@@ -92,10 +91,7 @@ describe('workspace operations after the host process loses its cache', () => {
     expect(references).toBeLessThanOrEqual(1);
   });
 
-  it('restores through the file tree, git and preview entry points independently', async () => {
-    const { fileTreeController } = await import('../files/file-tree/controller');
-    expect(await fileTreeController.openProjection('p', 'ws')).toMatchObject({ success: true, data: { subscriptionId: 'view' } });
-    await registry.teardownAll('detach');
+  it('restores through the git and preview entry points independently', async () => {
     const { gitWorktreeController } = await import('../git/worktree/controller');
     expect(await gitWorktreeController.getWorktreeSnapshot('p', 'ws')).toMatchObject({ success: true, data: { head: 'recorded-head' } });
     await registry.teardownAll('detach');

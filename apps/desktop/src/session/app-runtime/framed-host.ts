@@ -36,7 +36,7 @@ export function framedHost(): GuguHost & Record<string, unknown> {
  * not there (an App tells the phone by `typeof gugu.callProgram`).
  */
 const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
-  'navigationGo', 'modal.open', 'modal.close', 'modal.key', 'onModalFocus',
+  'navigationGo', 'navigationClaimBack', 'onBack', 'modal.open', 'modal.close', 'modal.key', 'onModalFocus',
   'getContext', 'showContextMenu', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'listAgents', 'messages.history', 'messages.search',
   'chats.list', 'chats.members', 'linkTo', 'openLink',
   'callProgram', 'sessions.index', 'sessions.read',

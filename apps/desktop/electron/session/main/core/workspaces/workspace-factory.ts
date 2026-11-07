@@ -2,7 +2,6 @@ import { ok } from '@gugu/session-shared';
 import { LocalSessionProvider } from '@main/core/sessions/impl/local-session';
 import type { SessionProvider } from '@main/core/sessions/types';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
-import { FileTreeProjector } from '@main/core/files/file-tree/projector';
 import { GitRepositoryFetchService } from '@main/core/git/repository/fetch-service';
 import { GitRepositoryService } from '@main/core/git/repository/service';
 import { previewServerService } from '@main/core/preview-servers/preview-server-service-instance';
@@ -22,7 +21,7 @@ import { handleGitWorktreeUpdate } from '@main/core/workspaces/workspace-worktre
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import type { IFileSystem } from '@gugu/session-core/files';
-import { fileChangesChannel, fileTreeProjectionChannel } from '@shared/core/fs/fsEvents';
+import { fileChangesChannel } from '@shared/core/fs/fsEvents';
 import {
   PROJECT_CONFIG_FILE,
   PROJECT_CONFIG_FILE_NAMES,
@@ -146,16 +145,6 @@ export function createWorkspaceFactory(
     let unsubscribeGitUpdates: (() => void) | undefined;
     let unsubscribeFileChanges: (() => void) | undefined;
 
-    const fileTreeProjector = new FileTreeProjector(fileTree, (update) =>
-      events.emit(fileTreeProjectionChannel, {
-        projectId: context.projectId,
-        workspaceId,
-        subscriptionId: update.subscriptionId,
-        version: update.version,
-        scopes: update.scopes,
-      })
-    );
-
     const watchedDirectories = new Set<() => void>();
     const workspace: Workspace = {
       watchDirectory: (dirPath) => {
@@ -177,7 +166,6 @@ export function createWorkspaceFactory(
       configPath,
       fileSystem,
       fileTree,
-      fileTreeProjector,
       gitWorktree,
       settings: context.settings,
       lifecycleService,
@@ -186,7 +174,6 @@ export function createWorkspaceFactory(
       dispose: async () => {
         unsubscribeGitUpdates?.();
         unsubscribeGitUpdates = undefined;
-        fileTreeProjector.dispose();
         unsubscribeFileChanges?.();
         unsubscribeFileChanges = undefined;
         for (const release of [...watchedDirectories]) release();

@@ -37,7 +37,16 @@ const reset = () => {
 const context = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, locale: 'zh-CN', capabilities: ['files:read', 'files:write'] }
 const coded = (code: string, message: string) => Object.assign(new Error(message), { code })
 
+// The phone's back key (gugu.navigation.onBack): held while in a folder, let go at the top.
+const back = { handler: null as (() => void) | null, releases: 0 }
 const gugu = {
+  navigation: {
+    go: vi.fn(async () => false),
+    onBack: vi.fn(async (handler: () => void) => {
+      back.handler = handler
+      return async () => { back.handler = null; back.releases += 1 }
+    }),
+  },
   linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
@@ -183,10 +192,10 @@ describe('the folder on screen', () => {
     expect(row('contracts').querySelector('.file-meta')!.textContent).toContain('1 项')
     open('contracts')
     expect(names()).toEqual(['2026'])
-    expect(crumbs()).toEqual(['群文件夹', '合同'])
+    expect(crumbs()).toEqual(['聊天文件', '合同'])
     open('y2026')
     expect(names()).toEqual(['甲方.pdf'])
-    expect(crumbs()).toEqual(['群文件夹', '合同', '2026'])
+    expect(crumbs()).toEqual(['聊天文件', '合同', '2026'])
     // Up goes one level; the crumb of the top goes to the top.
     ;($('crumbs').querySelector('.back') as HTMLButtonElement).click()
     expect(names()).toEqual(['2026'])
@@ -202,6 +211,24 @@ describe('the folder on screen', () => {
     expect(row('deal').querySelector('.file-path')!.textContent).toBe('合同/2026')
     ;($('filter') as HTMLInputElement).value = ''
     $('filter').dispatchEvent(new Event('input'))
+  })
+})
+
+describe('the host\'s Back (the phone\'s back key)', () => {
+  test('in a folder it is a folder up; at the top it is the host\'s again', async () => {
+    const claims = gugu.navigation.onBack.mock.calls.length
+    const releases = back.releases
+    expect(back.handler, 'not held at the top').toBeNull()
+    open('contracts')
+    open('y2026')
+    await until('the back step held', () => back.handler !== null)
+    expect(gugu.navigation.onBack.mock.calls.length - claims, 'held once while in folders').toBe(1)
+    back.handler!()
+    expect(crumbs()).toEqual(['聊天文件', '合同'])
+    back.handler!()
+    expect(crumbs(), 'back at the top').toBeNull()
+    await until('the back step let go', () => back.handler === null)
+    expect(back.releases - releases).toBe(1)
   })
 })
 
@@ -225,7 +252,7 @@ describe('making, moving, uploading, deleting', () => {
     expect($('move-dialog').hidden).toBe(false)
     expect($('move-title').textContent).toBe('把「合同」移到')
     const targets = [...$('move-targets').querySelectorAll<HTMLButtonElement>('.move-target')]
-    expect(targets.map((t) => t.textContent)).toEqual(['群文件夹（现在在这里）', '附件'])
+    expect(targets.map((t) => t.textContent)).toEqual(['聊天文件（现在在这里）', '附件'])
     expect(targets[0]!.disabled).toBe(true)
     $('move-cancel').click()
     expect($('move-dialog').hidden).toBe(true)
@@ -329,7 +356,7 @@ describe('making, moving, uploading, deleting', () => {
     ENTRIES.push(entry('void', '空的', 'folder', null, '空的'))
     await refreshed() // the list now has the empty folder
     open('void')
-    expect(crumbs()).toEqual(['群文件夹', '空的'])
+    expect(crumbs()).toEqual(['聊天文件', '空的'])
     expect($('files-empty').hidden).toBe(false)
     expect($('files-empty-message').textContent).toBe('这个文件夹还是空的。')
   })
