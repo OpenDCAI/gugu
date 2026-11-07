@@ -9,6 +9,8 @@ describe('会话页在设备 RPC 上剩下的动词(一套说法:会话页与 ag
       [
         // 手机和别的桌面经这条频道用这台机器的整套会话页宿主(host-ws/device-session-host.ts)。
         'taskhost.open',
+        'connections.evidence.read',
+        'connections.evidence.fence',
         'taskhost.frame',
         'taskhost.close',
         // 一问一答、不开窗口(手机回前台补齐;主进程 agent 跨机器的 agentSession.* 与列会话、归档)。

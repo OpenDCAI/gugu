@@ -1,4 +1,5 @@
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder';
+import {connectionEvidenceRpcHandlers} from '../integrations/connection-evidence-rpc';
 import { SUBSCRIPTION_IDLE_MS } from '@gugu/session-core/session-record';
 import { createSessionHostDeviceRpcHandlers } from '../../host-ws/device-session-host';
 import { createMessagePreviewHost, type MessagePreviewHostDeps } from './preview-rpc';
@@ -42,6 +43,7 @@ export function createSessionpageSessionDeviceRpcHandlers(options?: {
 
   const handlers: DeviceRpcHandlers = {
     ...sessionHost.handlers,
+    ...connectionEvidenceRpcHandlers,
     ...previewHost?.handlers,
     ...projection?.handlers,
   };

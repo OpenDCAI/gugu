@@ -8,6 +8,8 @@ import { withContractDatabase } from './database'
 type Database = Parameters<Parameters<typeof withContractDatabase>[0]>[0]
 const rpc = {
   connection_authority: [],
+  connection_attempt_prepare:[['p_operation_id','uuid'],['p_epoch','bigint'],['p_runtime_instance_id','text']],
+  connection_attempt_inspect:[['p_operation_id','uuid'],['p_runtime_instance_id','text']],
   connection_snapshot: [['p_device_id','text']],
   connection_resource: [['p_scope_key','text'],['p_resource_key','text']],
   connection_commit: [['p_operation_id','uuid'],['p_scope_key','text'],['p_resource_key','text'],['p_expected_revision','bigint'],['p_operation','text'],
@@ -72,8 +74,22 @@ async function fixture(body: (value: {
 }
 
 describe('owner connections #1922 client/database contract', () => {
+  it('binds native attempts to explicit capability, original UUID/epoch and the owned device without leaking evidence',async()=>fixture(async({db,owner,other,device,foreignDevice,instance,client,otherClient,save})=>{
+    const saved=await save('managed');
+    await db.query("UPDATE identity.connection_heads SET authority_mode='owner',authority_epoch=1,verification_protocol=2 WHERE owner_user_id=$1",[owner]);
+    expect((await client.authority()).verificationProtocol).toBe(2);
+    const operationId=randomUUID();await client.recreateBegin({operationId,scopeKey:`device:${device}`,resourceKey:saved.resourceKey,expectedRevision:saved.revision,deviceId:device});
+    const attempt=await client.prepareAttempt(instance,operationId,'1');
+    expect(attempt).toMatchObject({operationId,ownerId:owner,deviceId:device,authorityEpoch:'1',accountId:'managed',effectKind:'authorize'});
+    expect(attempt.attemptOrder).toMatch(/^[1-9][0-9]*$/);expect(await client.inspectAttempt(instance,operationId)).toEqual(attempt);
+    await expect(client.prepareAttempt(instance,operationId,'2')).rejects.toMatchObject({code:'42501'});
+    const otherInstance=randomUUID();await db.query('INSERT INTO identity.runtime_instances(instance_id,device_id,owner_user_id) VALUES($1,$2,$3)',[otherInstance,foreignDevice,other]);
+    expect(await otherClient.inspectAttempt(otherInstance,operationId)).toBeNull();
+    expect(JSON.stringify(await client.snapshot(device))).not.toContain(attempt.credentialGeneration);
+  }));
+
   it('retains nullable not-ready, actual UTF-8 bodies and owner/device isolation without an assistant', async () => fixture(async ({ db,owner,device,foreignDevice,client,otherClient,save }) => {
-    expect(await client.authority()).toEqual({ version: 1,mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true })
+    expect(await client.authority()).toEqual({ version: 1,mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true,verificationProtocol:1 })
     expect(await client.snapshot()).toEqual({ version: 1,state: 'not-ready',revision: '0',items: null,application: null })
     const saved = await save('first')
     const resource = await client.resource(`device:${device}`,saved.resourceKey)

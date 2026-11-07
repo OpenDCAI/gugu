@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { safeStorage } from 'electron';
-import { db as appDb } from '@main/db/client';
+import { db as appDb, type AppDb, type DrizzleTx } from '@main/db/client';
 import { appSecrets } from '@main/db/schema';
 
 export class EncryptedAppSecretsStore {
@@ -26,6 +26,18 @@ export class EncryptedAppSecretsStore {
     return this.safeStorageApi.decryptString(Buffer.from(secret, 'base64'));
   }
 
+  /** Prepare encryption before entering SQLite; the returned write is sync
+   * and can only be used with this store's actual database transaction. */
+  atomicSecretWriter(db: AppDb, key: string, secret: string): (tx: DrizzleTx, currentKey?: string) => void {
+    if(db!==this.db)throw new Error('CONNECTION_ATOMIC_STORE_UNAVAILABLE');
+    this.assertSecureStorageAvailable();
+    const encryptedSecret=this.safeStorageApi.encryptString(secret).toString('base64');
+    return (tx,currentKey=key)=>{
+      tx.insert(appSecrets).values({key:currentKey,secret:encryptedSecret})
+        .onConflictDoUpdate({target:appSecrets.key,set:{secret:encryptedSecret}}).run();
+    };
+  }
+
   async setSecret(key: string, secret: string): Promise<void> {
     this.assertSecureStorageAvailable();
     const encryptedSecret = this.safeStorageApi.encryptString(secret).toString('base64');
@@ -42,6 +54,22 @@ export class EncryptedAppSecretsStore {
       })
       .onConflictDoUpdate({ target: appSecrets.key, set: { secret: encryptedSecret } })
       .execute();
+  }
+
+  async atomicSecretCompareAndSwap(db: AppDb, key: string, expected: string, replacement: string): Promise<((tx: DrizzleTx) => boolean) | null> {
+    if(db!==this.db)throw new Error('CONNECTION_ATOMIC_STORE_UNAVAILABLE');
+    const original=this.db.select({secret:appSecrets.secret}).from(appSecrets).where(eq(appSecrets.key,key)).get()?.secret;
+    if(!original)return null;
+    this.assertSecureStorageAvailable();
+    if(this.safeStorageApi.decryptString(Buffer.from(original,'base64'))!==expected)return null;
+    const sealed=this.safeStorageApi.encryptString(replacement).toString('base64');
+    return tx=>tx.update(appSecrets).set({secret:sealed})
+      .where(and(eq(appSecrets.key,key),eq(appSecrets.secret,original))).run().changes===1;
+  }
+
+  atomicSecretRemover(db: AppDb): (tx: DrizzleTx, key: string) => void {
+    if(db!==this.db)throw new Error('CONNECTION_ATOMIC_STORE_UNAVAILABLE');
+    return (tx,key)=>{tx.delete(appSecrets).where(eq(appSecrets.key,key)).run();};
   }
 
   async deleteSecret(key: string): Promise<void> {
