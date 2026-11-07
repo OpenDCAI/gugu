@@ -47,15 +47,20 @@ describe('missing attachment card shared by desktop and phone', () => {
     await render(kind === 'image' ? image : { ...image, kind, fileName: 'missing.txt', mimeType: 'text/plain' })
     await expectMissing()
   })
-  it('keeps a network failure retryable and makes a fresh real attempt on click', async () => {
-    f.resolve.mockRejectedValue(new TypeError('Failed to fetch'))
+  it('keeps a pending shared read loading and exposes no manual retry after it fails', async () => {
+    let fail!: (error: Error) => void
+    f.resolve.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
     await render()
-    await vi.waitFor(async () => { await act(async () => {}); expect(harness.container.textContent).toContain('重试') })
+    await vi.waitFor(() => expect(f.resolve).toHaveBeenCalledTimes(1))
+    expect(harness.container.querySelector('.chat-inline-image--pending')).not.toBeNull()
+    expect(harness.container.textContent).not.toContain('暂时打不开')
+    expect(harness.container.textContent).not.toContain('重试')
+    await act(async () => { fail(new TypeError('Failed to fetch')) })
+    await vi.waitFor(async () => { await act(async () => {}); expect(harness.container.textContent).toContain('图片暂时打不开') })
     expect(harness.container.textContent).not.toContain('已失效')
-    f.resolve.mockResolvedValue({ status: 'missing', sha256: null })
-    await act(async () => { harness.container.querySelector<HTMLButtonElement>('button:not(:disabled)')!.click() })
-    await expectMissing()
-    expect(f.resolve).toHaveBeenCalledTimes(2)
+    expect(harness.container.textContent).not.toContain('重试')
+    expect(harness.container.querySelector('button:not(:disabled)')).toBeNull()
+    expect(f.resolve).toHaveBeenCalledTimes(1)
   })
   it('also shows missing when the server confirms absence after metadata was already ready', async () => {
     f.resolve.mockResolvedValue({ status: 'ready', revision: {}, content: async () => { throw new MissingFileObjectError() }, dispose: vi.fn() })
