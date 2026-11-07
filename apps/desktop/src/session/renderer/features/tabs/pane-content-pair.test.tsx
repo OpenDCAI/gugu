@@ -30,6 +30,50 @@ beforeEach(() => {
 afterEach(() => { act(() => { tabFullscreen.exit(); root.unmount(); }); vi.unstubAllGlobals(); });
 
 describe('each actual pane owns its content', () => {
+  it.each([false, true])('keeps the viewed terminal node, focus and draft while recording a background pair (existing split: %s)', async (paired) => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const chat = createTabProvider({ ...provider, kind: 'conversation', conversation: true, keepMounted: true, TabContent: () => <textarea data-chat-input="" defaultValue="聊天草稿" /> });
+    const terminal = createTabProvider({ ...provider, kind: 'terminal', keepMounted: true, TabContent: () => <textarea data-terminal-input="" /> });
+    const output = createTabProvider({ ...provider, TabContent: () => <textarea data-output-input="" /> });
+    const layout = new PaneLayoutStore(createTabRegistry([output, chat, terminal]), { viewId: 'background-pair-content' });
+    const conversation = layout.open('conversation', { id: 'chat' }, { from: null, intent: 'newTab' })!;
+    const terminalTab = layout.open('terminal', { id: 'terminal' }, { from: conversation, intent: paired ? 'beside' : 'newTab' })!;
+    const originalPane = layout.focusedPane;
+    const Surface = observer(() => <>{layout.groups.map((group) => <PaneContext.Provider key={group.paneId} value={{ paneId: group.paneId, pane: group.pane, isFocusedPane: layout.activePaneId === group.paneId }}><PaneContent hideTabBar /></PaneContext.Provider>)}</>);
+    const flush = () => { for (const frame of frames.splice(0)) frame(0); };
+    try {
+      await act(async () => { root.render(<Surface />); });
+      await act(async () => { flush(); });
+      const input = dom.window.document.querySelector<HTMLTextAreaElement>('[data-terminal-input]')!;
+      const chatInput = dom.window.document.querySelector<HTMLTextAreaElement>('[data-chat-input]')!;
+      input.value = '正在终端输入的草稿'; input.scrollTop = 37; input.focus();
+      const tree = layout.layout;
+      let page: string | undefined;
+      await act(async () => { page = layout.open('page', { id: 'example.com' }, { from: conversation, intent: 'beside', activate: false }); });
+      await act(async () => { flush(); });
+      expect(layout.pair).toEqual({ pinned: conversation, side: page });
+      expect(layout.layout).toBe(tree);
+      expect(layout.focusedPane).toBe(originalPane);
+      expect(originalPane.resolvedActiveTabId).toBe(terminalTab);
+      expect(dom.window.document.querySelector('[data-terminal-input]')).toBe(input);
+      expect(input.value).toBe('正在终端输入的草稿');
+      expect(input.scrollTop).toBe(37);
+      expect(dom.window.document.activeElement).toBe(input);
+      const oldHost = layout.mainGroup.pane;
+      await act(async () => { oldHost.setActiveTab(page!); oldHost.focusActiveContent(); });
+      await act(async () => { flush(); });
+      expect(layout.isPairVisible).toBe(true);
+      expect(dom.window.document.activeElement).toBe(dom.window.document.querySelector('[data-output-input]'));
+      await act(async () => { oldHost.setActiveTab(conversation); oldHost.focusActiveContent(); });
+      await act(async () => { flush(); });
+      expect(dom.window.document.querySelector('[data-chat-input]')).toBe(chatInput);
+      expect(chatInput.value).toBe('聊天草稿');
+      expect(dom.window.document.activeElement).toBe(chatInput);
+    } finally { layout.dispose(); }
+  });
+
   it('pairs a beside request with activate false and leaves input focus in the chat', async () => {
     const frames: FrameRequestCallback[] = [];
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });

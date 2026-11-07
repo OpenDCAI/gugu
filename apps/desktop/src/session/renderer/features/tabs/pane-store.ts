@@ -97,6 +97,8 @@ export interface PaneSplitter {
   entryForTab?(tabId: string): TabEntry | undefined;
   hasSibling?(): boolean;
   isFocusedPane?(): boolean;
+  /** Selection may move a tab to the other pane before its strip click returns focus. */
+  focusedPane?(): PaneStore;
   /** This tab's place in the pair on the strip ('start' = left), undefined = not in the pair. */
   pairRole?(tabId: string): 'start' | 'end' | undefined;
   /** The side pane, drawn joined into this pane's strip (only for the main pane while paired). */
@@ -743,9 +745,9 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   }
 
   focusActiveContent(): void {
-    const focuser = this._contentFocuser;
-    if (!focuser) return;
-    requestAnimationFrame(() => focuser());
+    const focused = this._layoutSplitter?.focusedPane?.() ?? this;
+    if (!this._contentFocuser && !focused._contentFocuser) return;
+    requestAnimationFrame(() => (this._layoutSplitter?.focusedPane?.() ?? this)._contentFocuser?.());
   }
 
   /** User-initiated close — calls onBeforeClose if defined, then closes on confirm. */

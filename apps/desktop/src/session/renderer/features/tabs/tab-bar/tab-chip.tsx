@@ -144,6 +144,7 @@ export function TabChip({
         !isActive && 'active:bg-row-press',
         // 活动:取内容区底色 + 两只耳朵 = 与下方内容连体。
         isActive && 'session-tab-ears bg-tab-face',
+        pairRole && 'bg-tab-face',
         // ❌ 别改字重:34px 高的条上换 font-weight 会让标题宽度跳一下,切面板即抖。
         isActive && (isFocusedPane ? 'text-foreground' : 'text-foreground-muted'),
         pairRole === 'start' && 'rounded-tr-none',

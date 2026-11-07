@@ -92,6 +92,8 @@ export type TabGroupsSnapshot = {
   layout?: PaneLayoutSnapshotNode;
   /** The group holding the side of the pair (spec session-page「并排」); absent = not paired, or saved before pairs. */
   sideGroupId?: string;
+  /** Recorded pair, independent of the pages currently displayed. Absent = legacy save; null = explicitly unpaired. */
+  pair?: { pinnedTabId: string; sideTabId: string } | null;
   /** What each tab pushed out of the pair, by tab id: closing it brings that one back (spec session-page「并排」). */
   displaced?: Record<string, DisplacedTab>;
 };
