@@ -43,14 +43,16 @@ async function mount(theme: 'light' | 'dark', role: 'user' | 'assistant', surfac
   return host;
 }
 
-function rgb(css: string) {
+function rgba(css: string) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 1;
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = css;
   ctx.fillRect(0, 0, 1, 1);
-  return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3);
+  return [...ctx.getImageData(0, 0, 1, 1).data];
 }
+
+const rgb = (css: string) => rgba(css).slice(0, 3);
 
 function contrast(fg: string, bg: string) {
   const luminance = (css: string) => rgb(css).reduce((sum, value, index) => {
@@ -68,6 +70,18 @@ it.each(['light', 'dark'] as const)('pairs code text and tokens with both bubble
     const scheme = role === 'user' ? theme === 'light' ? 'dark' : 'light' : theme;
     const background = getComputedStyle(card).backgroundColor;
     expect(background).not.toBe('rgba(0, 0, 0, 0)');
+    const fences = [...card.querySelectorAll<HTMLElement>(`.${codeWrapper}`)];
+    expect(fences).toHaveLength(2);
+    for (const fence of fences) {
+      const style = getComputedStyle(fence);
+      const border = rgba(style.borderTopColor);
+      expect(border[3]).toBeCloseTo(255 * 0.08, 0);
+      for (const [index, channel] of rgb(style.color).entries()) {
+        expect(Math.abs(border[index] - channel)).toBeLessThanOrEqual(6);
+      }
+      expect(style.borderTopWidth).toBe('1px');
+      expect(style.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    }
     const lines = [...card.querySelectorAll<HTMLElement>(`.${codeLine}`)];
     expect(lines.length).toBe(8);
     for (const line of lines) {
