@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Ellipsis, Reply, Smile } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
 import { popupMotion } from '../ui/variants'
-import { claimHoverOwner, readHoverOwner, releaseHoverOwner, setHoverOwner, subscribeHoverOwner, type HoverElements } from './hover-owner'
+import { claimHoverOwner, enteredByMoving, readHoverOwner, releaseHoverOwner, setHoverOwner, subscribeHoverOwner, type HoverElements } from './hover-owner'
 
 const HoverElementsContext = createContext<HoverElements | null>(null)
 
@@ -24,7 +24,8 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children, action
   actions: ReactNode
 }) {
   const [id] = useState(() => Symbol('message-hover'))
-  const [hovered, setHovered] = useState<'closed' | 'waiting' | 'open'>('closed')
+  // resting = the pointer is on the row but has not moved since it got there (the list scrolled under it); waiting = it moved, another row holds the bar.
+  const [hovered, setHovered] = useState<'closed' | 'resting' | 'waiting' | 'open'>('closed')
   const elements = useRef<HoverElements>({ trigger: null, popup: null }).current
   const point = useRef<{ x: number; y: number } | undefined>(undefined)
   // 只订「浮窗是不是我的」:订整个 owner 时,鼠标每换一行,列表里每一行都跟着重渲(连同整只气泡)。菜单开着要接手的那一行
@@ -40,16 +41,16 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children, action
     else if (owner?.id === id && (owner.locked || hovered === 'closed')) setHoverOwner(hovered !== 'closed' ? { ...owner, locked: false } : null)
     else if (enabled && hovered === 'waiting' && claimHoverOwner(id, false, elements, point.current)) setHovered('open')
   }, [enabled, forceOpen, hovered, id, owner, elements])
-  // Only a waiting row listens to movement. Leaving the corridor takes over; leaving this row cancels its request.
+  // Only a resting or waiting row listens to movement. Leaving the corridor takes over; leaving this row cancels its request.
   useEffect(() => {
-    if (hovered !== 'waiting') return
+    if (hovered !== 'waiting' && hovered !== 'resting') return
     const trigger = elements.trigger
     const document = trigger?.ownerDocument
     const leave = () => setHovered('closed')
     const move = (event: PointerEvent) => {
       if (!elements.trigger?.contains(event.target as Node)) { setHovered('closed'); return }
       point.current = { x: event.clientX, y: event.clientY }
-      if (claimHoverOwner(id, false, elements, point.current)) setHovered('open')
+      setHovered(claimHoverOwner(id, false, elements, point.current) ? 'open' : 'waiting')
     }
     document?.addEventListener('pointermove', move)
     trigger?.addEventListener('pointerleave', leave)
@@ -61,8 +62,12 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children, action
   useEffect(() => () => releaseHoverOwner(id), [id])
   const onOpenChange: NonNullable<ComponentProps<typeof PreviewCard.Root>['onOpenChange']> = (open, details) => {
     if (!enabled) return
-    point.current = details.reason === 'trigger-hover' ? { x: details.event.clientX, y: details.event.clientY } : undefined
-    setHovered(open ? (claimHoverOwner(id, false, elements, point.current) ? 'open' : 'waiting') : 'closed')
+    const hover = details.reason === 'trigger-hover'
+    point.current = hover ? { x: details.event.clientX, y: details.event.clientY } : undefined
+    // A row scrolled under a still pointer is not hovered: rest until the pointer moves on it. Otherwise every row sliding by
+    // mounts the bar, and each mount pays floating-ui autoUpdate's overflow-ancestor walk.
+    const resting = hover && !enteredByMoving(details.event)
+    setHovered(!open ? 'closed' : resting ? 'resting' : claimHoverOwner(id, false, elements, point.current) ? 'open' : 'waiting')
     if (!open && !forceOpen) releaseHoverOwner(id)
   }
   const visible = enabled && owner?.id === id && (hovered === 'open' || forceOpen)

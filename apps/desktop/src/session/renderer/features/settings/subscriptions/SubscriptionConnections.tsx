@@ -480,7 +480,9 @@ function ConnectionOption({
   )
   return (
     <div className="subscription-connection-option" data-testid={`connection-${connection.id}`}>
+      {/* A refused menu switch stays open; a committed switch closes it itself. */}
       <Choice
+        {...(!selectItem ? { closeOnClick: false } : {})}
         value={connection.id}
         data-testid={`connection-use-${connection.id}`}
         disabled={

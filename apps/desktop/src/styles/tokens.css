@@ -1264,10 +1264,8 @@ input::placeholder {
     transform: scale(0.85);
     opacity: 0.55;
   }
-  70% {
-    opacity: 0;
-  }
-  100% {
+  /* The ring is gone from here on: holding the transform means no frames while nothing can be seen. */
+  70%, 100% {
     transform: scale(2);
     opacity: 0;
   }

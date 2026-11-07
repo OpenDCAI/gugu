@@ -172,6 +172,9 @@ jobs:
       - if: needs.changes.outputs.tests == 'true'
         id: setup
         uses: ./.github/actions/setup-community
+      - name: Install real ripgrep for native file-boundary regressions
+        if: needs.changes.outputs.tests == 'true'
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ripgrep
       # Each shard restores its compatible dev module snapshot without writing a PR cache.
       - if: needs.changes.outputs.tests == 'true'
         uses: actions/cache/restore@v4

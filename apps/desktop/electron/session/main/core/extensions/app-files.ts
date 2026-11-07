@@ -562,7 +562,7 @@ export async function openWithTarget(
     return { kind: 'session', target: { sessionId: elsewhere.sessionId, projectId: elsewhere.projectId, deviceId: elsewhere.deviceId, path: name, ask } };
   }
   const copy = await localFolder(page, ref);
-  const found = local.openTarget(copy, { ref: ref as WorkspaceFileRef });
+  const found = await local.openTarget(copy, { ref: ref as WorkspaceFileRef });
   const session = workspaceSession(found.place);
   if (args.peek || !session) {
     if (!copy.workspaceId) throw new AppFileError('not-found', `${found.name} is in no workspace this computer has open`);
@@ -619,7 +619,7 @@ async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<
     }
     return { name: path.posix.basename('id' in ref ? ref.id : ref.name), bytes: Buffer.concat(pieces), kind: 'bytes' as const };
   }
-  return { ...local.downloadSource(await localFolder(page, ref), { ref: ref as WorkspaceFileRef }), kind: 'bytes' as const };
+  return { ...await local.downloadSource(await localFolder(page, ref), { ref: ref as WorkspaceFileRef }), kind: 'bytes' as const };
 }
 
 async function saveTo(source: SaveSource, filePath: string): Promise<void> {

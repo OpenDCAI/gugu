@@ -9,6 +9,7 @@
 
 :is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-attachments'] {
   grid-column: 1 / -1;
+  grid-row: 1;
   padding: var(--spacing-xs);
 }
 
@@ -47,6 +48,15 @@
   justify-self: end;
   max-width: calc(50% - var(--spacing-xs));
 }
+
+/* Agent metadata already occupies row 1. Reserve the next row for files,
+   rather than letting auto-placement put them below the editor. */
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile] [data-slot='composer-attachments'] { grid-row: 2; }
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile]:has([data-slot='composer-attachments']) :is(
+  [data-slot='composer-input'],
+  [data-slot='composer-actions-start'] > button:not(:has([data-slot='composer-permission-mode'])),
+  [data-slot='composer-actions-end'] > button:not([data-composer-locked-agent])
+) { grid-row: 3; }
 
 /* A locked harness shares the metadata row with its model. The middle three
    tracks still occupy exactly the input's original middle column. */

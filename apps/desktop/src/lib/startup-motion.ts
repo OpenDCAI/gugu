@@ -1,3 +1,4 @@
+import { isAnimationWindowVisible, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility'
 import motionDocument from './startup-motion.html?raw'
 
 export type StartupMotionOptions = {
@@ -137,6 +138,9 @@ export function startStartupMotion(options: StartupMotionOptions = {}): StartupM
     }
     window.addEventListener('message', onMessage)
     state.cleanup.push(() => window.removeEventListener('message', onMessage))
+    const tellWindow = () => frame.contentWindow?.postMessage({ type: 'gugu-startup-window', attemptId: state.attemptId, visible: isAnimationWindowVisible() }, '*')
+    state.cleanup.push(subscribeAnimationWindowVisibility(tellWindow))
+    frame.addEventListener('load', tellWindow)
     state.host.append(frame)
   }
   return { frame: state.frame, frameReady: state.readyPromise, reveal: () => {

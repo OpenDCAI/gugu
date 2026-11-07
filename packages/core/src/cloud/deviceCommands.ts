@@ -37,7 +37,7 @@ type DeviceCommandInsert = Record<string, unknown> & {
 
 type DeviceCommandQueryResult = {
   data: unknown
-  error: { message: string } | null
+  error: { message: string; code?: string } | null
 }
 
 type DeviceCommandTableSelector = {
@@ -473,6 +473,12 @@ async function recheckDeviceCommandExecution(
       p_claim_token: claimToken
     }),
   )
+  // A RAISE from the database (P0001) is the server's answer about this row, as final as `false`. Retrying cannot change
+  // it, and the row would stay the oldest of its agent, so nothing behind it would ever be fetched.
+  if (error?.code === 'P0001') {
+    log.warn({ commandId, err: error.message }, 'device command refused by a raise in its lease recheck')
+    return false
+  }
   if (error) throw new Error(error.message)
   return data === true
 }
@@ -802,9 +808,9 @@ async function processPendingDeviceCommand(
       : skipped)
 
   // @@@recheck-unknown - the lease recheck is this queue's own bookkeeping, not the command: its error (a network flap
-  // between claim and recheck) says nothing about the command, which has not run. Only `false` refuses execution, and that
-  // answer is final: the row ends here, as not delivered. An unanswered recheck puts the row back to pending (held-requeue)
-  // and the next tick runs it.
+  // between claim and recheck) says nothing about the command, which has not run. Only a refusal (`false` or a RAISE) stops
+  // execution, and that answer is final: the row ends here, as not delivered. An unanswered recheck puts the row back to
+  // pending (held-requeue) and the next tick runs it.
   let mayExecute: boolean
   try {
     signal?.throwIfAborted()

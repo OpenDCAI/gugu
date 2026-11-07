@@ -1,13 +1,14 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { startRealElectronFixture } from '../test-support/real-electron-fixture';
 
 const electron = process.env.GUGU_BROWSER_REAL_ELECTRON;
 const enabled = electron && process.env.GUGU_TEST_MEDIA_HELPER && process.env.GUGU_PROJECTION_FFMPEG && process.env.GUGU_TEST_CHROMIUM;
 let temporary = '';
+let fixture: ReturnType<typeof startRealElectronFixture> | undefined;
 let result: { passed: boolean; reused: boolean; inputCalls: number; paints: unknown[];
   device: { signedInputs: number; paints: number; retargetClosed: boolean; privateKeysHidden: boolean;
     wrongVersionRefused: boolean; wrongSourceRefused: boolean };
@@ -38,15 +39,9 @@ describe.skipIf(!enabled)('projection factory through real media with Electron',
     const env: NodeJS.ProcessEnv = { ...process.env, GUGU_HOME: path.join(temporary, 'home'), GUGU_USER_DATA_DIR: path.join(temporary, 'user-data') };
     fs.mkdirSync(env.GUGU_HOME!, { recursive: true }); fs.mkdirSync(env.GUGU_USER_DATA_DIR!, { recursive: true });
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = spawn(electron!, [main], { env, signal: AbortSignal.timeout(45_000), stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '', stderr = '';
-    child.stdout.on('data', chunk => { stdout += chunk.toString(); });
-    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
-    const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
-    if (process.env.GUGU_BROWSER_PROBE_REPORT_DIR) {
-      fs.mkdirSync(process.env.GUGU_BROWSER_PROBE_REPORT_DIR, { recursive: true });
-      fs.writeFileSync(path.join(process.env.GUGU_BROWSER_PROBE_REPORT_DIR, 'native-projection-pipeline.log'), stdout + '\n' + stderr);
-    }
+    fixture = startRealElectronFixture({ name: 'native-projection-pipeline', executable: electron!, args: [main], env,
+      signal: AbortSignal.timeout(45_000), reportDirectory: process.env.GUGU_BROWSER_PROBE_REPORT_DIR });
+    const { code, stdout, stderr } = await fixture.result;
     expect(code, stdout + '\n' + stderr).toBe(0);
     const line = stdout.split('\n').find(line => line.startsWith('PROJECTION_PIPELINE_RESULT='));
     expect(line, stdout + '\n' + stderr).toBeDefined();
@@ -54,7 +49,10 @@ describe.skipIf(!enabled)('projection factory through real media with Electron',
     expect(report.home).toBe(env.GUGU_HOME); expect(report.userData).toBe(env.GUGU_USER_DATA_DIR);
     result = report;
   }, 50_000);
-  afterAll(() => { if (temporary) fs.rmSync(temporary, { recursive: true, force: true }); });
+  afterAll(async () => {
+    await fixture?.dispose();
+    if (temporary) fs.rmSync(temporary, { recursive: true, force: true });
+  });
   it('decodes two correlated captures, reuses pixels, applies Unicode once, and drains on App revocation', () => {
     expect(result).toMatchObject({ passed: true, reused: true, inputCalls: 1 });
     expect(result.paints.length).toBeGreaterThanOrEqual(2);

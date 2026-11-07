@@ -1,4 +1,6 @@
+import type { ChatState } from '@gugu/session-chat-ui'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
+import { batch } from 'solid-js'
 
 /**
  * 一份完整的时间线(`TranscriptTurn[]`,按序)怎么喂给一个 ChatState:最后一轮还没收尾(没有 `outcome`)
@@ -31,4 +33,15 @@ export function planHistorySync(prev: readonly TranscriptTurn[], next: readonly 
     if (prev.every((turn, i) => turn === next[offset + i])) return { op: 'prepend', turns: next.slice(0, offset) }
   }
   return { op: 'seed', turns: next }
+}
+
+/** Apply the history and active portions of one native record snapshot together. */
+export function applyTranscriptSnapshot(transcript: ChatState['transcript'], plan: HistorySync, active: TranscriptTurn | null): void {
+  batch(() => {
+    if (plan.op === 'seed') transcript.history.seed(plan.turns)
+    else if (plan.op === 'append') transcript.history.append(plan.turns)
+    else if (plan.op === 'prepend') transcript.history.prepend(plan.turns)
+    // seed clears activeTurn; observers must only see the complete snapshot.
+    transcript.activeTurn.set(active, active ? 'generating' : undefined)
+  })
 }

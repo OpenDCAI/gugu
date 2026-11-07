@@ -6,9 +6,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { allFirstRunHintsDismissed, dismissFirstRunHints, readFirstRunHints, type FirstRunHintId } from '@/lib/firstRunHints'
+import { rendererLogger } from '@/lib/log'
 import { Button } from '../ui/Button'
 import { Popover } from '../ui/Popover'
 import { HINT_ENTRIES, useFirstRunHintTargets } from './firstRunHintTargets'
+
+const log = rendererLogger('first-run/hints')
+const backgroundRetry = { retry: 3, retryDelay: (attempt: number) => Math.min(1000 * 2 ** attempt, 30_000) }
 
 /** One quiet, contextual hint at a time. Account reads/writes must succeed before claiming progress. */
 export function FirstRunHints({ userId }: { userId: string }) {
@@ -16,8 +20,18 @@ export function FirstRunHints({ userId }: { userId: string }) {
   const device = useMobileShell() ? 'phone' : 'desktop'
   const client = useQueryClient()
   const queryKey = ['first-run-hints', userId]
-  const progress = useQuery({ queryKey, queryFn: () => readFirstRunHints(userId), retry: false })
-  const targets = useFirstRunHintTargets(device, progress.isError || (progress.data != null && !allFirstRunHintsDismissed(progress.data)))
+  const progress = useQuery({
+    queryKey,
+    queryFn: async () => {
+      try { return await readFirstRunHints(userId) }
+      catch (error) {
+        log.warn({ error: String(error) }, 'First-run hint progress read failed')
+        throw error
+      }
+    },
+    ...backgroundRetry,
+  })
+  const targets = useFirstRunHintTargets(device, !progress.isError && progress.data != null && !allFirstRunHintsDismissed(progress.data))
   const [pending, setPending] = useState<FirstRunHintId[]>([])
   // Retire the current encounter, not every hint currently on screen in a chain.
   // Another hint can appear when its entry is encountered on a later page/visit.
@@ -25,6 +39,8 @@ export function FirstRunHints({ userId }: { userId: string }) {
   for (const anchor of suppressed.current) if (!targets.some((target) => target.anchor === anchor)) suppressed.current.delete(anchor)
   const save = useMutation({
     mutationFn: (ids: readonly FirstRunHintId[]) => dismissFirstRunHints(userId, ids),
+    ...backgroundRetry,
+    onError: (error) => log.warn({ error: String(error) }, 'First-run hint progress save failed'),
     onSuccess: (next) => {
       client.setQueryData(queryKey, next)
       setPending((ids) => ids.filter((id) => !next.dismissed.includes(id)))
@@ -57,28 +73,23 @@ export function FirstRunHints({ userId }: { userId: string }) {
     }
   })
 
-  const failed = progress.isError || save.isError
   const confirmed = progress.data
-  const target = failed ? targets[0] : confirmed ? targets.find((item) => !confirmed.dismissed.includes(item.id) && !pending.includes(item.id) && !suppressed.current.has(item.anchor)) : null
+  const target = !progress.isError && confirmed ? targets.find((item) => !confirmed.dismissed.includes(item.id) && !pending.includes(item.id) && !suppressed.current.has(item.anchor)) : null
   if (!target) return null
-  const retry = () => {
-    if (progress.isError) void progress.refetch()
-    else save.mutate(unsaved)
-  }
-  const label = t(failed ? progress.isError ? 'hints.unreadable' : 'hints.saveFailed' : `hints.${device}.${target.id}`)
+  const label = t(`hints.${device}.${target.id}`)
   const note = <>
-    <p role={failed ? 'alert' : undefined}>{label}</p>
-    <Button variant="ghost" size="sm" onClick={failed ? retry : () => retire(target.id)} disabled={progress.isFetching || save.isPending}>
-      {t(failed ? 'hints.retry' : 'hints.dismiss')}
+    <p>{label}</p>
+    <Button variant="ghost" size="sm" onClick={() => retire(target.id)} disabled={progress.isFetching || save.isPending}>
+      {t('hints.dismiss')}
     </Button>
   </>
-  const testId = failed ? 'first-run-hint-error' : `first-run-hint-${target.id}`
+  const testId = `first-run-hint-${target.id}`
   if (target.space) return createPortal(
     <aside className="first-run-hint first-run-hint-inline" aria-label={label} data-testid={testId}>{note}</aside>, target.space,
   )
   if (device !== 'desktop' || target.id !== 'assistant') return null
   return (
-    <Popover.Root open modal={false} onOpenChange={(open) => { if (!open && !failed) retire(target.id) }}>
+    <Popover.Root open modal={false} onOpenChange={(open) => { if (!open) retire(target.id) }}>
       <Popover.Portal>
         <Popover.Positioner anchor={target.anchor} side="right" align="start" sideOffset={8} collisionPadding={16}>
           <Popover.Popup className="first-run-hint" initialFocus={false} finalFocus={false} aria-label={label} data-testid={testId}>{note}</Popover.Popup>

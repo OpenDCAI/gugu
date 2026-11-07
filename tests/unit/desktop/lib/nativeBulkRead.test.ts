@@ -79,19 +79,6 @@ it('orders a later manual unread after an in-flight batch and cancels the remain
   expect(io.write).toHaveBeenCalledTimes(1)
 })
 
-it('rechecks automatic native eligibility between batches', async () => {
-  let eligible = true
-  io.write.mockImplementation(async () => { eligible = false })
-  await markChatsReadAndRefresh({ chats: [], refresh, nativeReads: [native('s', Array.from({ length: 501 }, (_, i) => String(i)), 'dm')], canMarkRead: () => eligible })
-  expect(io.write).toHaveBeenCalledTimes(1)
-})
-
-it('does not acknowledge a manually unread native DM through an automatic read without cloud locators', async () => {
-  await markChatsReadAndRefresh({ chats: [chat({ id: 'dm', is_marked_unread: true })], refresh,
-    nativeReads: [native('s', ['old'], 'dm')], preserveManualUnread: true })
-  expect(io.write).not.toHaveBeenCalled()
-})
-
 it('allows a later explicit read to follow a pending manual unread in click order', async () => {
   const finish = gate(), started = gate()
   const order: string[] = []

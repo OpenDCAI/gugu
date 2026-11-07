@@ -24,7 +24,12 @@ export default {
     "projectFolderSessions_one": "{{count}} conversation",
     "projectFolderSessions_other": "{{count}} conversations"
   },
-  "links": { "task": "View work: {{title}}", "unavailable": "This reference was removed or is not accessible" },
+  "links": {
+    "task": "View work: {{title}}", "unavailable": "This reference was removed or is not accessible",
+    "fileHostOffline": "The computer storing this file is offline. Try again when it is online.",
+    "fileMissing": "This file was deleted or is not accessible.",
+    "fileOpenFailed": "This file could not be opened. Please try again later."
+  },
   "question": {
     "title": "Your input", "other": "Write an answer", "later": "Answer later", "resume": "Continue answering",
     "previous": "Previous", "next": "Next", "submit": "Submit answers", "submitting": "Sending…",
@@ -59,10 +64,7 @@ export default {
       "assistant": "Your personal assistant is here. Tell it your plans and tasks.",
       "collaboration": "Each project is a group. Work with Agents to move it forward."
     },
-    "dismiss": "Got it",
-    "unreadable": "Could not read hint progress. Please retry.",
-    "saveFailed": "Hint progress was not saved. Please retry.",
-    "retry": "Retry"
+    "dismiss": "Got it"
   },
   "rail": "Gugu",
   "nav": {

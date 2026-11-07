@@ -101,6 +101,19 @@ describe('the chat on screen answers 「在本群打开」 (useChatOpener)', () 
     expect(chatPaneOf('source-1', tab!.tabId)?.navigationOf(tab!.tabId)?.index).toBe(0)
   })
 
+  it('keeps an App page placement failure in the chat instead of rejecting without a handler', async () => {
+    install(app([OWN_PAGE]))
+    const refused = vi.fn().mockRejectedValue(new Error('native resource host unavailable'))
+    function RefusedPage() { return useChatOpener('refused-page', refused).overlay }
+    await harness.render(createElement(RefusedPage))
+    await act(async () => {
+      askChat('refused-page', { app: 'board' })
+      window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
+    })
+    expect(refused).toHaveBeenCalledOnce()
+    expect(harness.container.querySelector('[data-testid="group-app-slot-unopened"]')).not.toBeNull()
+  })
+
   it('a page beside the chat asked: the tab on screen is the 上一页 of what it opens; an App asked there has none (owner 10-24)', async () => {
     install(app([OWN_PAGE]))
     await harness.render(createElement(Chat, { id: 'source-panel' }))

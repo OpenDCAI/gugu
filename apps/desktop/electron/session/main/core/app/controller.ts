@@ -74,7 +74,7 @@ export const appController = createRPCController({
   openPath: async (path: string, workspace?: { projectId: string; workspaceId: string }) => {
     try {
       const workspaceRoot = workspace
-        ? resolveWorkspace(workspace.projectId, workspace.workspaceId)?.path
+        ? (await resolveWorkspace(workspace.projectId, workspace.workspaceId))?.path
         : undefined;
       // 说了是哪个工作区却找不到 → 报出来,❌ 悄悄退回只认 home。
       if (workspace && !workspaceRoot) throw new Error(`Workspace is not open: ${workspace.workspaceId}`);

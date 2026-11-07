@@ -16,7 +16,7 @@ export const gitWorktreeController = createRPCController({
     workspaceId: string
   ): Promise<GitWorktreeSnapshotResult> => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' });
@@ -29,7 +29,7 @@ export const gitWorktreeController = createRPCController({
 
   getChangedFiles: async (projectId: string, workspaceId: string, base: DiffTarget) => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -42,7 +42,7 @@ export const gitWorktreeController = createRPCController({
 
   getFileAtRef: async (projectId: string, workspaceId: string, filePath: string, ref: string) => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -55,7 +55,7 @@ export const gitWorktreeController = createRPCController({
 
   getFileAtIndex: async (projectId: string, workspaceId: string, filePath: string) => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -68,7 +68,7 @@ export const gitWorktreeController = createRPCController({
 
   getImageAtRef: async (projectId: string, workspaceId: string, filePath: string, ref: string) => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -81,7 +81,7 @@ export const gitWorktreeController = createRPCController({
 
   getImageAtIndex: async (projectId: string, workspaceId: string, filePath: string) => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -105,7 +105,7 @@ export const gitWorktreeController = createRPCController({
     workspaceId: string
   ): Promise<GitWorktreeMutationResult> => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -131,7 +131,7 @@ export const gitWorktreeController = createRPCController({
     workspaceId: string
   ): Promise<GitWorktreeMutationResult> => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -157,7 +157,7 @@ export const gitWorktreeController = createRPCController({
     workspaceId: string
   ): Promise<GitWorktreeMutationResult> => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -175,7 +175,7 @@ export const gitWorktreeController = createRPCController({
     workspaceId: string,
     message: string
   ): Promise<GitWorktreeCommitResult> => {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
     if (!workspace.gitWorktree) return err({ type: 'not_found' });
@@ -183,7 +183,7 @@ export const gitWorktreeController = createRPCController({
   },
 
   push: async (projectId: string, workspaceId: string, remote: string) => {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
     if (!workspace.gitWorktree) return err({ type: 'not_found' });
@@ -192,7 +192,7 @@ export const gitWorktreeController = createRPCController({
   },
 
   pull: async (projectId: string, workspaceId: string) => {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' as const });
     // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
     if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -211,7 +211,7 @@ export const gitWorktreeController = createRPCController({
     head?: GitObjectRef
   ) => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });
@@ -232,7 +232,7 @@ export const gitWorktreeController = createRPCController({
 
   getCommitFiles: async (projectId: string, workspaceId: string, commitHash: string) => {
     try {
-      const workspace = resolveWorkspace(projectId, workspaceId);
+      const workspace = await resolveWorkspace(projectId, workspaceId);
       if (!workspace) return err({ type: 'not_found' as const });
       // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
       if (!workspace.gitWorktree) return err({ type: 'not_found' as const });

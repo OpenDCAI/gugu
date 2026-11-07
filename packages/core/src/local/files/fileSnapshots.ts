@@ -1,3 +1,4 @@
+import { requireAgentFileAccess, requireAgentFileTreeAccess } from '../state/agentFileBoundary'
 import { openAsBlob, createReadStream } from 'node:fs'
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
@@ -9,7 +10,7 @@ import { attachmentDownloadName } from '../../shared/attachmentDownloadName.mjs'
 import { cloudFileProviders } from '../../cloud/fileProviders'
 import { createFileResolver, openFileBytes, type FileProviders, type FileContext, type FileHandle } from '../../shared/fileResolver'
 import type { AttachmentsEndpoint } from '../../cloud/attachmentsApi'
-const cleanupRemoteFileDirectory = (directory: string) => rm(directory, { recursive: true, force: true })
+const cleanupRemoteFileDirectory = async (directory: string) => rm(await requireAgentFileTreeAccess(directory), { recursive: true, force: true })
 
 /** Raw resumable chunks share the existing private open-file cache and its stale-directory cleanup. */
 export function createFileChunkCache(tempRoot: string): FileChunkCache {
@@ -19,16 +20,17 @@ export function createFileChunkCache(tempRoot: string): FileChunkCache {
   }
   return {
     async get(key, index) {
-      const file = join(directory(key, index), String(index)), info = await stat(file).catch(error => { if (error.code === 'ENOENT') return null; throw error })
+      const file = await requireAgentFileAccess(join(directory(key, index), String(index))), info = await stat(file).catch(error => { if (error.code === 'ENOENT') return null; throw error })
       if (!info) return null
       requireFileRange(FILE_CHUNK_BYTES, 0, info.size)
       return new Uint8Array(await readFile(file))
     },
     async put(key, index, bytes) {
       requireFileRange(FILE_CHUNK_BYTES, 0, bytes.length)
-      const root = directory(key, index), file = join(root, String(index))
+      const root = directory(key, index), file = await requireAgentFileAccess(join(root, String(index)))
+      await requireAgentFileAccess(root)
       await mkdir(root, { recursive: true, mode: 0o700 })
-      const part = `${file}.${crypto.randomUUID()}.part`
+      const part = await requireAgentFileAccess(`${file}.${crypto.randomUUID()}.part`)
       await writeFile(part, bytes, { flag: 'wx', mode: 0o600 }); await rename(part, file)
     },
     clear: key => cleanupRemoteFileDirectory(directory(key)),
@@ -38,10 +40,14 @@ export function createFileChunkCache(tempRoot: string): FileChunkCache {
 /** A private bounded staging file. Only a committed, read-only snapshot can leave this sink. */
 export async function createFileSink(tempRoot: string, size: number, destination?: string): Promise<FileSink & { blob(): Promise<Blob>; path(): string }> {
   requireFileRange(size, 0, 0)
+  await requireAgentFileAccess(tempRoot)
+  if (destination) await requireAgentFileAccess(destination)
   await mkdir(tempRoot, { recursive: true, mode: 0o700 })
   const directory = destination ? dirname(destination) : await mkdtemp(join(tempRoot, 'open-'))
+  await requireAgentFileTreeAccess(directory)
   await chmod(directory, 0o700)
   const partial = destination ? `${destination}.${randomUUID()}.part` : join(directory, 'data.part'), path = destination ?? join(directory, 'data')
+  await requireAgentFileAccess(partial)
   let handle = await open(partial, 'wx', 0o600)
   let written = 0, committed = false, disposed = false
   const dispose = async () => {
@@ -52,6 +58,7 @@ export async function createFileSink(tempRoot: string, size: number, destination
   return {
     async write(bytes) {
       if (committed || disposed || bytes.length > size - written) throw new Error('Invalid file staging write')
+      await requireAgentFileAccess(partial)
       await handle.writeFile(bytes)
       written += bytes.length
     },
@@ -59,13 +66,16 @@ export async function createFileSink(tempRoot: string, size: number, destination
       if (committed || disposed || written !== size) throw new Error('Incomplete file snapshot')
       await handle.sync()
       await handle.close()
+      await requireAgentFileAccess(partial)
       await chmod(partial, destination ? 0o600 : 0o400)
+      await requireAgentFileAccess(path)
       await rename(partial, path)
       handle = await open(path, 'r')
       committed = true
       return { size, dispose, async read(offset, length) {
         requireFileRange(size, offset, length)
         if (disposed) throw new Error('File snapshot is disposed')
+        await requireAgentFileAccess(path)
         const bytes = new Uint8Array(length)
         let received = 0
         while (received < length) {
@@ -80,7 +90,7 @@ export async function createFileSink(tempRoot: string, size: number, destination
     path() { if (!committed || disposed) throw new Error('File snapshot is not committed'); return path },
     async blob() {
       if (!committed || disposed) throw new Error('File snapshot is not committed')
-      return openAsBlob(path)
+      return openAsBlob(await requireAgentFileAccess(path))
     },
   }
 }
@@ -96,6 +106,7 @@ export function createNodeFileResolver(root: string, endpoint: (context: FileCon
 export function createFileSaver(providers: FileProviders): NonNullable<FileProviders['saveTo']> {
   return async (revision, context, directory, name) => {
     const path = join(directory, revision.sha256 ?? `legacy-${randomUUID()}`, attachmentDownloadName(name))
+    await requireAgentFileAccess(path)
     const saved = { file_path: path, file_name: name, size_bytes: revision.size_bytes, sha256: revision.sha256!, content_type: revision.content_type }
     if (revision.sha256) {
       const existing = await stat(path).catch(error => { if (error.code === 'ENOENT') return null; throw error })
@@ -128,8 +139,10 @@ export function createFileSaver(providers: FileProviders): NonNullable<FileProvi
 
 /** Export only complete original bytes, with the existing portable filename and atomic replacement. */
 export async function saveFileHandle(file: FileHandle, directory: string, name = file.revision.file_name) {
+  const destination = join(directory, file.revision.sha256 ?? `legacy-${randomUUID()}`, attachmentDownloadName(name))
+  await requireAgentFileAccess(destination)
   if (file.saveTo) return file.saveTo(directory, name)
-  return { ...await writeFileHandle(file, join(directory, file.revision.sha256 ?? `legacy-${randomUUID()}`, attachmentDownloadName(name))), file_name: name }
+  return { ...await writeFileHandle(file, destination), file_name: name }
 }
 
 /** A trusted native save dialog may select an exact destination; the original still verifies before atomic rename. */
@@ -137,18 +150,22 @@ export async function writeFileHandle(file: FileHandle, path: string) {
   const target = dirname(path), partial = `${path}.${randomUUID()}.part`
   let output: Awaited<ReturnType<typeof open>> | undefined
   let createdDirectory: string | undefined
+  let createdPartial = false
   const hash = createHash('sha256'); let size = 0
   try {
     requireFileRevision(file.revision)
+    await requireAgentFileAccess(path)
     createdDirectory = await mkdir(target, { recursive: true, mode: 0o700 })
+    await requireAgentFileAccess(partial)
     output = await open(partial, 'wx', 0o600)
+    createdPartial = true
     for await (const chunk of file.stream()) { size += chunk.length; if (size > file.revision.size_bytes) throw new Error('File export size changed'); hash.update(chunk); await output.writeFile(chunk) }
     const observedSha = hash.digest('hex')
     if (size !== file.revision.size_bytes || file.revision.sha256 !== null && observedSha !== file.revision.sha256) throw new Error('File export SHA-256 mismatch')
-    await output.sync(); await output.close(); await rename(partial, path)
+    await output.sync(); await output.close(); await requireAgentFileAccess(path); await rename(partial, path)
     return { file_path: path, file_name: basename(path), size_bytes: size, sha256: observedSha, content_type: file.revision.content_type }
   } catch (error) {
-    await output?.close().catch(() => undefined); await rm(partial, { force: true })
+    await output?.close().catch(() => undefined); if (createdPartial) await rm(await requireAgentFileAccess(partial), { force: true })
     if (createdDirectory === target) await rmdir(target).catch(failure => { if (!['ENOENT', 'ENOTEMPTY'].includes(failure.code)) throw failure }); throw error
   }
   finally { await file.dispose() }

@@ -72,6 +72,7 @@ export default {
     "leaveGroup": "确认退出该群聊？"
   },
   "contextMenu": {
+    "more": "更多",
     "deleteAgent": "归档任务",
     "deleteContact": "删除联系人",
     "disableNotifications": "关闭通知",

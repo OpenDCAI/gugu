@@ -39,7 +39,7 @@ import {
   type AgentInboxUnreadRow,
   type AgentInboxReaderDeps,
 } from './agentInboxReader'
-import { fetchForumUnreadViaRpc, recordForumFailureViaRpc } from './forumInbox'
+import type { AppInboxPort } from './appInbox'
 import type { AgentDeliveredMessageRead } from './deliveredReadMarkers'
 import {
   deviceCommandAgentUserId,
@@ -115,9 +115,8 @@ export interface AgentDeliverDevicePayload {
   to_user_ids?: unknown
   is_whisper?: unknown
   thread_root_id?: unknown
-  /** 不是聊天来的:`forum` = 论坛帖子上的一件事(没有 chat_id,内容由读者从帖内事件序列拉)。 */
+  /** 不是聊天来的:一个 App 的 id,那个 App 里的一件事(没有 chat_id,内容由它的程序给,appInbox.ts)。 */
   source?: unknown
-  post_id?: unknown
 }
 
 export interface AgentStopDevicePayload {
@@ -229,6 +228,8 @@ export interface AgentRuntimeBridge {
    */
   injectAgentInbox?(input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult>
   rejectAgentInbox?(input: AgentInboxInjectionInput, cause: unknown): Promise<void>
+  /** Apps as inbox sources (appInbox.ts). Absent: this host runs no Apps. */
+  appInbox?: AppInboxPort
   queuesAgentInbox?(agentUserId: string): boolean
   /** Local session-direct outbox projected into the common inbox reader. */
   fetchLocalSessionDirectInbox?(agentUserId: string): Promise<AgentInboxUnreadRow[]>
@@ -643,8 +644,8 @@ export async function handleAgentDeliverDeviceCommand(
     // #5041 — 队列按持有判据只把本实例持有、或没有任何活着的实例持有(持有预算已尽)的命令交到这里;拿到一条名册里没有的
     // agent = 这台设备上没有运行中的实例持有它(典型:它所在的咕咕窗口已关闭)。终态必须对用户显形——先向来源 chat 落一条
     // 稳定 id 的 system 披露,再 fail loud 落 error,并在错误上标记「已显形」,宿主据此不再叠第二层通用失败提示。
-    const disclosed = text(payload.source) === 'forum'
-      ? await discloseForumUndeliverable({ agentUserId: guguUserId, postId: text(payload.post_id) }, options)
+    const disclosed = text(payload.source)
+      ? await discloseAppUndeliverable(text(payload.source), guguUserId, payload as Record<string, unknown>, options)
       : await discloseUndeliverable(
         { agentUserId: guguUserId, chatId, messageId, threadRootId: text(payload.thread_root_id) || null, isWhisper: payload.is_whisper === true },
         options,
@@ -658,11 +659,17 @@ export async function handleAgentDeliverDeviceCommand(
   if ((await runtimeBridge.sessionArchival?.(guguUserId))?.archivedAt) {
     return { delivered: false, held: false, skipped: true, reason: 'agent_archived' }
   }
+  const appSource = text(payload.source)
+  if (appSource) {
+    const refusal = runtimeBridge.appInbox ? await runtimeBridge.appInbox.refusal(appSource) : 'this host runs no Apps'
+    if (refusal) throw new AppUnavailableForDeliveryError(appSource, refusal)
+  }
   const deps = agentInboxDepsFromBridge({
     accessToken: options.accessToken,
     ownerUserId: options.ownerUserId,
     env,
     runtimeBridge,
+    ...(appSource ? { appSource } : {}),
     fetchThreadMessages: options.fetchThreadMessages,
     resolveGuguIds: options.resolveGuguIds,
     markDeliveredRead: options.markDeliveredRead,
@@ -712,6 +719,8 @@ export function agentInboxDepsFromBridge(input: {
   markDeliveredRead?: (read: AgentDeliveredMessageRead) => Promise<void> | void
   recordDeliverOutcome?: (outcome: { agentUserId: string; ok: boolean }) => void
   overrides?: Partial<AgentInboxReaderDeps>
+  /** The App this command named: its failure to answer is this command's. */
+  appSource?: string
 }): AgentInboxReaderDeps {
   const bridge = input.runtimeBridge
   if (!bridge.injectAgentInbox) {
@@ -728,8 +737,12 @@ export function agentInboxDepsFromBridge(input: {
     inject: (injection) => bridge.injectAgentInbox!(injection),
     ...(bridge.rejectAgentInbox ? { recordFailure: (injection: AgentInboxInjectionInput, cause: unknown) => bridge.rejectAgentInbox!(injection, cause) } : {}),
     ...(bridge.queuesAgentInbox ? { queuesInbox: (agentUserId: string) => bridge.queuesAgentInbox!(agentUserId) } : {}),
-    // 论坛来源:被指派到帖子上的事,与聊天同一个读者、同一批触发。
-    fetchForumUnread: (agentUserId: string) => fetchForumUnreadViaRpc(agentUserId, input.accessToken),
+    // App 来源:与聊天同一个读者、同一批触发。
+    ...(bridge.appInbox ? {
+      fetchAppUnread: (agentUserId: string) => bridge.appInbox!.pull(agentUserId, input.appSource),
+      ackApp: (ack: Parameters<AppInboxPort['ack']>[0]) => bridge.appInbox!.ack(ack),
+      recordAppFailure: (failure: Parameters<AppInboxPort['recordFailure']>[0]) => bridge.appInbox!.recordFailure(failure),
+    } : {}),
     ...(bridge.fetchLocalSessionDirectInbox
       ? { fetchLocalUnread: (agentUserId: string) => bridge.fetchLocalSessionDirectInbox!(agentUserId) }
       : {}),
@@ -999,6 +1012,15 @@ export class UndeliverableAgentCommandError extends Error {
   }
 }
 
+/** The App an `agent.deliver` names cannot take it on this host: not there, off, or without its tools. Nothing was read; it can be retried once it is. */
+export class AppUnavailableForDeliveryError extends Error {
+  readonly reason = 'appUnavailable' as const
+  constructor(source: string, refusal: string) {
+    super(`App ${source} cannot take this delivery: ${refusal}`)
+    this.name = 'AppUnavailableForDeliveryError'
+  }
+}
+
 export function isDisclosedUndeliverableAgentCommand(failure: unknown): boolean {
   return failure instanceof UndeliverableAgentCommandError && failure.disclosed
 }
@@ -1060,26 +1082,23 @@ export function createDeviceCommandHoldingResolver(
  * #5041 — 无人持有的 agent 的 deliver 终态显形:来源 chat 里一条稳定 id 的 system 行。返回是否真的落了(披露失败只响亮记日志,
  * 不遮蔽根因)。文案只说可核的事实与修复入口:消息还在云端未读;运行该 agent 的实例上线后由它读取。
  */
-/** 论坛来的那一条:没有聊天可落,记在帖子上那条指派的投递状态里(主人在帖子里看到;游标没动,打开那个实例后由它读取)。 */
-async function discloseForumUndeliverable(
-  input: { agentUserId: string; postId: string },
+/** App 来的那一条:没有聊天可落,交给那个 App 记(游标没动,打开那个实例后由它读取);这里也没有那个 App,就只有命令行记着。 */
+async function discloseAppUndeliverable(
+  source: string,
+  agentUserId: string,
+  command: Record<string, unknown>,
   options: HandleAgentDeliverDeviceCommandOptions,
 ): Promise<boolean> {
-  const record = options.readerDeps?.recordForumFailure
-    ?? ((row: Parameters<typeof recordForumFailureViaRpc>[0]) => recordForumFailureViaRpc(row, options.accessToken!))
+  const inbox = options.runtimeBridge?.appInbox
   try {
-    if (!input.postId) throw new Error('forum agent.deliver carries no post_id')
-    await record({
-      agentUserId: input.agentUserId,
-      postId: input.postId,
-      state: 'undelivered',
-      error: 'undelivered',
-    })
+    const refusal = inbox ? await inbox.refusal(source) : 'this host runs no Apps'
+    if (refusal) throw new Error(refusal)
+    await inbox!.recordFailure({ source, agentUserId, command, state: 'undelivered', error: 'undelivered' })
     return true
   } catch (error) {
     log.error(
-      { agentUserId: input.agentUserId, postId: input.postId || null, err: error instanceof Error ? error.message : String(error) },
-      'undeliverable forum disclosure failed; the command still lands error',
+      { agentUserId, source, err: error instanceof Error ? error.message : String(error) },
+      'undeliverable App disclosure failed; the command still lands error',
     )
     return false
   }

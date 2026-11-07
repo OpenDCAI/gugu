@@ -126,6 +126,7 @@ vi.mock('@renderer/lib/ui/select', async () => {
 vi.mock('@/components/ui/Menu', async () => {
   const React = await import('react');
   return {
+    MenuFold: ({ children }: { children: React.ReactNode }) => children,
     MenuItem: ({ icon, children, disabled, onClick }: { icon?: React.ReactNode; children: React.ReactNode; disabled?: boolean; onClick?: () => void }) =>
       React.createElement('button', { disabled, onClick, 'data-testid': 'open-in-row' }, icon, children),
   };
