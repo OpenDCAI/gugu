@@ -311,6 +311,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, se
 
   // 管理能力来自服务端;话题参与角色不授予改名权。
   const [renamed, setRenamed] = useState<string | null>(null)
+  useEffect(() => { setRenamed(null) }, [chatId, chatName])
   const topicName = renamed ?? chatName ?? null
   const viewerIsManager = settings?.can_manage === true
   const canRenameTopic = chatKind === 'topic' && viewerIsManager

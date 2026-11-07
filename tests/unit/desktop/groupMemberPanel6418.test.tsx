@@ -423,6 +423,7 @@ describe('topic participant controls project server authority', () => {
     expect(setListenMode).toHaveBeenCalledWith('topic-1', 'codex', 'active')
     await click(q('[data-member-row="codex"]'))
     await waitForCondition(() => q('[data-profile-remove-button="codex"]') !== null, 'owned topic Agent profile')
+    expect(q('[data-profile-remove-button="codex"]')?.textContent).toBe('移除 写代码的')
     expect(q('[data-profile-role-select="codex"]')).toBeNull()
     await click(q('[data-profile-remove-button="codex"]'))
     expect(removeMember).toHaveBeenCalledWith('topic-1', 'codex')
@@ -468,8 +469,22 @@ describe('topic participant controls project server authority', () => {
     await renderTopic('member-2', false)
     await click(q('[data-member-row="member-2"]'))
     const leave = q('[data-profile-remove-button="member-2"]')
-    expect(leave?.textContent).toBe('离开群组')
+    expect(leave?.textContent).toBe('退出话题')
     await click(leave)
+    expect(removeMember).toHaveBeenCalledWith('topic-1', 'member-2')
+  })
+  it.each(['profile', 'menu'])('topic removal uses a neutral label and the topic scope through %s', async (surface) => {
+    await renderTopic('owner-1', true)
+    let remove: HTMLElement | null
+    if (surface === 'profile') {
+      await click(q('[data-member-row="member-2"]'))
+      remove = q('[data-profile-remove-button="member-2"]')
+    } else {
+      await click(q('[data-member-row="member-2"] button[aria-label^="管理"]'))
+      remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === '移除 成员丙') ?? null
+    }
+    expect(remove?.textContent).toBe('移除 成员丙')
+    await click(remove)
     expect(removeMember).toHaveBeenCalledWith('topic-1', 'member-2')
   })
 })

@@ -21,10 +21,13 @@ import { GroupTopicsRows, TopicCallChip, TopicUnreadChip } from './GroupTopicsRo
 import { useChatTopicPins } from './useChatTopicPins'
 import { topicCallTotal, topicUnreadTotal } from './topicPinsModel'
 import { useStripNarrow } from '../../session/renderer/features/tabs/tab-strip-narrow'
+import type { ChatTopicState } from '../../session/renderer/features/chats/chat-tabs/chat-tab-providers'
 
 interface ChatHeaderActionsProps {
   isGroupChat: boolean
   isRoomChat: boolean
+  memberTopic?: ChatTopicState | null
+  memberTopicCount?: number
   infoShown: boolean
   showHeaderMenu: boolean
   mobile?: boolean
@@ -44,7 +47,7 @@ interface ChatHeaderActionsProps {
 }
 
 export const ChatHeaderActions = observer(function ChatHeaderActions({
-  isGroupChat, isRoomChat, infoShown, showHeaderMenu, mobile, room, moreButtonRef,
+  isGroupChat, isRoomChat, memberTopic, memberTopicCount, infoShown, showHeaderMenu, mobile, room, moreButtonRef,
   onSearch, onOpenFolder, onOpenInfo, onCloseInfo, onToggleHeaderMenu, onCloseHeaderMenu,
 }: ChatHeaderActionsProps) {
   const { t } = useTranslation('messaging')
@@ -59,10 +62,10 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   if (popup.chatId !== activeChatId) setPopup({ chatId: activeChatId, kind: null })
   const openPopup = (kind: 'apps' | 'invite') => { onCloseHeaderMenu(); setPopup({ chatId: activeChatId, kind }) }
   const closePopup = () => setPopup({ chatId: activeChatId, kind: null })
-  const memberCount = room ? room.snapshot.humans.length + room.snapshot.agents.length : 0
+  const memberCount = memberTopic ? memberTopicCount : room ? room.snapshot.humans.length + room.snapshot.agents.length : 0
   const wideGroup = isGroupChat && !narrow
   return <Popover.Root open={popup.kind === 'apps' && !mobile} modal={false} onOpenChange={(open) => open ? openPopup('apps') : closePopup()}>
-    {isRoomChat ? <>
+    {isRoomChat || memberTopic ? <>
       <Button variant="ghost" size="md" className={mobile ? 'min-h-[var(--control-h-touch)]' : undefined} data-testid={AUTOMATION_TEST_IDS.chatHeaderMembersButton} aria-label={t('header.memberList')} title={t('header.memberList')} aria-pressed={infoShown}
         onClick={() => infoShown ? onCloseInfo() : onOpenInfo('members')}>
         <Users className="text-[var(--faint-fg)]" />{memberCount}

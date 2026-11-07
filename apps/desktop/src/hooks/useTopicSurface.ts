@@ -17,7 +17,7 @@ import { useChatConversation, type ChatConversation } from '@/store/useChatConve
 import { rendererLogger } from '@/lib/log'
 import { topicNameFromMessage } from '@/components/chat/topicAnchorModels'
 import { useTabsReading } from '@/components/appSlot/useTabsReading'
-import { closeTopicTab, focusedChatTab, hideTopicTab, openTopicTab, topicTabOf } from '@/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { closeTopicTab, focusedChatTab, hideTopicTab, openTopicTab, topicTabOf, updateTopicNames } from '@/session/renderer/features/chats/chat-tabs/chat-layouts'
 
 const topicSurfaceLog = rendererLogger('chat/topic-surface')
 
@@ -107,6 +107,7 @@ export function useTopicSurface({
     topicsSourceChatId(chat),
     subscribeChatChanged,
   )
+  useEffect(() => { if (chatId) updateTopicNames(chatId, topics) }, [chatId, topics])
   // 分栏是这条线页签条上的一枚(chat-tabs/chat-layouts):开着哪条话题、在不在屏上都由那里说,按来源线各记各的
   // (@@@3922 的 subject-scoped 由此而来:换了来源线读的就是另一条页签条)。
   const tab = useTabsReading(() => {

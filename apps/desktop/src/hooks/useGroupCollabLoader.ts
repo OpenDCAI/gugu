@@ -38,6 +38,8 @@ export interface UseGroupCollabLoaderParams {
   isRoomChat: boolean
   /** @@@5856 群还是话题:名册 0 行在话题里是结论(还不是参与者),在群里只能是故障。 */
   chatKind?: string | null
+  /** False when current participation must be confirmed before publishing a local roster. */
+  cachedFirstFrame?: boolean
   userId: string | null | undefined
   getImRepository: () => Promise<AccountImRepository>
   setGroupCollabSnapshot: Dispatch<SetStateAction<GroupCollabSnapshot>>
@@ -62,6 +64,7 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
     activeChatId,
     isRoomChat,
     chatKind,
+    cachedFirstFrame = true,
     userId,
     getImRepository,
     setGroupCollabSnapshot,
@@ -86,7 +89,7 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
     let repository: AccountImRepository
     try {
       repository = await getImRepository()
-      if (seq === groupCollabLoadSeqRef.current) {
+      if (cachedFirstFrame && seq === groupCollabLoadSeqRef.current) {
         const cachedRoster = readGroupRoster(repository, activeChatId)
         if (cachedRoster && !groupRosterMemoryCacheRef.current.has(activeChatId)) {
           groupRosterMemoryCacheRef.current.set(activeChatId, cachedRoster)
@@ -127,7 +130,7 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
       groupCollabLog.error({ chatId: activeChatId, error: err }, 'group collab load failed; keeping the cached roster')
       setFailure({ chatId: activeChatId, reason: 'failed' })
     }
-  }, [activeChatId, isRoomChat, chatKind, getImRepository, setGroupCollabSnapshot, groupRosterMemoryCacheRef])
+  }, [activeChatId, isRoomChat, chatKind, cachedFirstFrame, getImRepository, setGroupCollabSnapshot, groupRosterMemoryCacheRef])
 
   const resetGroupCollabForChat = useCallback(() => {
     // @@@group-collab-swr (#949←#N3/1d93d7a) - invalidate any in-flight load for the PREVIOUS chat before
@@ -137,9 +140,9 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
     groupCollabLoadSeqRef.current += 1
     setFailure(null)
     // @@@local-sync (#948) - seed first-frame from the in-memory roster cache so avatars/members don't flash empty before getGroupCollab resolves; authoritative load replaces it.
-    const cachedRoster = activeChatId && isRoomChat ? groupRosterMemoryCacheRef.current.get(activeChatId) : null
+    const cachedRoster = cachedFirstFrame && activeChatId && isRoomChat ? groupRosterMemoryCacheRef.current.get(activeChatId) : null
     setGroupCollabSnapshot(cachedRoster ?? EMPTY_GROUP_COLLAB)
-  }, [activeChatId, isRoomChat, groupRosterMemoryCacheRef, setGroupCollabSnapshot])
+  }, [activeChatId, isRoomChat, cachedFirstFrame, groupRosterMemoryCacheRef, setGroupCollabSnapshot])
 
   useEffect(() => {
     const invalidate = (event: Event) => {

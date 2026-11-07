@@ -51,7 +51,8 @@ vi.mock('../../../apps/desktop/src/lib/chatMessageWriter', () => ({
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
 // The topic open beside a group is its tab (chat-tabs), kept for the window: each case starts with none.
-const { closeTopicTab, openPanelItem, topicTabOf, closeChatTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { closeTopicTab, openPanelItem, topicTabOf, closeChatTab, openInfoTab, infoTabOf, closeInfoTab } = await import('../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
+const { readChatSummary } = await import('../../../apps/desktop/src/lib/chatSummariesBridge')
 type Surface = ReturnType<typeof useTopicSurface>
 
 function topic(overrides: Partial<TopicSummary> = {}): TopicSummary {
@@ -114,6 +115,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
+  closeInfoTab('chat-A')
   closeTopicTab('chat-A')
 })
 
@@ -172,6 +174,27 @@ describe('别人在这条线上开了话题,清单当场重拉', () => {
 })
 
 describe('an open topic follows its summary for every reader, member or not', () => {
+  it.each([false, true])('updates an open topic name without reopening its tab or changing its conversation (participant=%s)', async (isParticipant) => {
+    listTopicsOfChat.mockResolvedValue([topic({ is_participant: isParticipant })])
+    await openSplit()
+    const tabId = topicTabOf('chat-A')!.tabId
+    expect(readChatSummary('topic-1')).toBeNull()
+    expect(surface?.topic?.name).toBe('分片下载失败')
+    listTopicsOfChat.mockResolvedValue([topic({ name: 'Renamed topic', is_participant: isParticipant })])
+    await emit('chat_changed', 'chat-A')
+    expect(surface?.topic).toEqual({ chatId: 'topic-1', name: 'Renamed topic' })
+    expect(surface?.splitTopic?.name).toBe('Renamed topic')
+    expect(topicTabOf('chat-A')?.topic.name).toBe('Renamed topic')
+    expect(topicTabOf('chat-A')?.tabId).toBe(tabId)
+    expect(actionsOf.mock.lastCall?.[0]).toBe('topic-1')
+    await act(async () => { openInfoTab('chat-A', 'members', topicTabOf('chat-A')!.topic) })
+    const infoTabId = infoTabOf('chat-A')!.tabId
+    listTopicsOfChat.mockResolvedValue([topic({ name: 'Renamed again', is_participant: isParticipant })])
+    await emit('chat_changed', 'chat-A')
+    expect(infoTabOf('chat-A')?.info.topic?.name).toBe('Renamed again')
+    expect(infoTabOf('chat-A')?.tabId).toBe(infoTabId)
+    expect(topicTabOf('chat-A')?.topic.name).toBe('Renamed again')
+  })
   // A source-line member who never spoke in the topic gets no message_created for its rows,
   // only the source line's chat_changed. The open line must still show the new reply.
   it('catches up when the source chat_changed brings a newer summary, and not otherwise', async () => {
@@ -298,6 +321,7 @@ it.each([
 ])('delegates a %s-authored source to the shared topic action without choosing participants', async (kind, author) => {
   const source = message({ id: `source-${kind}`, sender_user_id: author, content: 'Source contract', is_mine: kind === 'self' })
   sourceMessages = [source]
+  listTopicsOfChat.mockResolvedValue([topic({ name: 'Projected default' })])
   await mount()
   await act(async () => { await surface!.openTopicFromMessage(source.id) })
   expect(createTopic).toHaveBeenCalledExactlyOnceWith({

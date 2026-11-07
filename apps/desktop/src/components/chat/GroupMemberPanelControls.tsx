@@ -39,7 +39,7 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
   onOpenUserChat?: (target: MemberProfileChatTarget) => void
   onWhisper?: (target: MemberProfileChatTarget) => void
 }) {
-  const { t } = useTranslation('messaging')
+  const { t } = useTranslation(['messaging', 'contacts'])
   const viewerIsManager = settings?.can_manage === true
   const isGroup = chatKind === 'group'
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -94,6 +94,8 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
   const isSelfLeaving = useCallback((profile: MemberProfileCardModel) => (
     chatKind === 'topic' && profile.id === currentUserId
   ), [chatKind, currentUserId])
+  const topicRemovalLabel = useCallback((profile: MemberProfileCardModel) => isSelfLeaving(profile)
+    ? t('topic.leave') : t('createGroup.removeMember', { ns: 'contacts', name: profile.displayName }), [isSelfLeaving, t])
 
   const setRole = useCallback((profile: MemberProfileCardModel, role: GroupMemberRole) => (
     runMutation(() => chatService.setGroupMemberRole(chatId, profile.id, role))
@@ -115,12 +117,12 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
       onChangeRole: isGroup && manageable ? (role) => { void setRole(profile, role) } : undefined,
       onChangeListenMode: canEditListenMode(profile) ? (mode) => { void setListenMode(profile, mode) } : undefined,
       canRemove: manageable || owned || self,
-      removeLabel: self ? t('group.settings.leave') : undefined,
+      removeLabel: !isGroup ? topicRemovalLabel(profile) : undefined,
       onRemove: () => remove(profile),
       busy,
       editError: error,
     }
-  }, [busy, canEditListenMode, canManage, error, isGroup, isSelfLeaving, ownsAgent, remove, setListenMode, setRole, t])
+  }, [busy, canEditListenMode, canManage, error, isGroup, isSelfLeaving, ownsAgent, remove, setListenMode, setRole, topicRemovalLabel])
 
   const openProfile = useCallback((memberId: string, anchor: Element) => {
     const profile = profileOf(memberId)
@@ -198,7 +200,7 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
           ) : null}
           {canManage(menuProfile) || ownsAgent(menuProfile) || isSelfLeaving(menuProfile) ? (
             <MenuItem danger onClick={() => { setMenu(null); void remove(menuProfile) }}>
-              {isSelfLeaving(menuProfile) ? t('group.settings.leave') : ownsAgent(menuProfile) ? t('group.memberList.agentLeave') : t('group.settings.removeMemberTitle')}
+              {!isGroup ? topicRemovalLabel(menuProfile) : ownsAgent(menuProfile) ? t('group.memberList.agentLeave') : t('group.settings.removeMemberTitle')}
             </MenuItem>
           ) : null}
         </Menu>

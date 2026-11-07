@@ -58,7 +58,7 @@ import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
 import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { TabBarAddMenu } from '../session/renderer/features/sessions/tab-bar-actions'; import { useTabsReading } from './appSlot/useTabsReading'
-import { folderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
+import { folderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeInfoTab, focusedChatTab, infoTabOf, memberTopicOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { useTopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import { topicService } from '@/lib/topics'
@@ -239,12 +239,12 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const opener = useChatOpener(activeChatId)
   const inBlock = Boolean(blockHost)
   const tabs = useTabsReading(() => {
-    if (!activeChatId) return { page: null as ChatPanelTab | null, chatUp: true, infoShown: false }
+    if (!activeChatId) return { page: null as ChatPanelTab | null, chatUp: true, infoShown: false, memberTopic: null }
     const panels = panelTabsOf(activeChatId)
     const focused = focusedChatTab(activeChatId)
     const full = panels.find((tab) => panelFull(activeChatId, tab.tabId)) ?? null
-    const info = infoTabOf(activeChatId)
-    return { page: full, chatUp: inBlock ? !full : focused?.kind !== 'panel', infoShown: inBlock ? Boolean(info?.shown) : focused?.kind === 'info' }
+    const info = infoTabOf(activeChatId), memberTopic = memberTopicOf(activeChatId)
+    return { page: full, chatUp: inBlock ? !full : focused?.kind !== 'panel', memberTopic, infoShown: (inBlock ? Boolean(info?.shown) : focused?.kind === 'info') && info?.info.topic?.topicChatId === memberTopic?.topicChatId }
   }, [activeChatId, inBlock])
   const handleOpenFolder = useCallback(() => { if (activeChatId) { closeRightSurfaces(); openPanelItem(activeChatId, folderItem()) } }, [activeChatId, closeRightSurfaces])
   // A block draws its shown tabs in the engine's slots; without a strip, one focused page covers the chat (topics too).
@@ -558,7 +558,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     <>
       <ChatHeaderActions
         isGroupChat={isGroupChat}
-        isRoomChat={isRoomChatSurface}
+        isRoomChat={isRoomChatSurface} memberTopic={tabs.memberTopic} memberTopicCount={topicSurface.topics.find((topic) => topic.chat_id === tabs.memberTopic?.topicChatId)?.participant_count}
         infoShown={tabs.infoShown}
         showHeaderMenu={showHeaderMenu}
         mobile={mobile}
@@ -571,7 +571,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
         moreButtonRef={moreButtonRef}
         onSearch={() => { if (activeChatId) searchInChat(activeChatId) }}
         onOpenFolder={handleOpenFolder}
-        onOpenInfo={(page) => { if (activeChatId) openInfoTab(activeChatId, page) }}
+        onOpenInfo={(page) => { if (activeChatId) openInfoTab(activeChatId, page, page === 'members' ? tabs.memberTopic : null) }}
         onCloseInfo={() => { if (activeChatId) closeInfoTab(activeChatId) }}
         onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
         onCloseHeaderMenu={() => setShowHeaderMenu(false)}
@@ -583,7 +583,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const infoPage = () => activeChat && activeChatId ? (
     <GroupRenameContext.Provider value={groupRename}><ChatSettingsPanel
       key={infoTabOf(activeChatId)?.info.at}
-      initialPage={infoTabOf(activeChatId)?.info.page}
+      initialPage={infoTabOf(activeChatId)?.info.page} topic={infoTabOf(activeChatId)?.info.topic}
       activeChat={activeChat}
       messages={messages}
       onClose={() => closeInfoTab(activeChatId)}

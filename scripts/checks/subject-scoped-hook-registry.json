@@ -110,6 +110,10 @@
     "how": "derived",
     "why": "The current workspace session resolves its owned agent and canonical DM from current account snapshots, with no remembered selection from an earlier workspace."
   },
+  "apps/desktop/src/hooks/useRoomCollab.ts::useRoomCollab": {
+    "how": "subject-scoped",
+    "why": "The roster snapshot carries scheduler.chat_id and is returned only when it matches the current chatId. A different chat or a not-participant failure returns null during render; the existing loader scopes failures and rejects stale asynchronous loads."
+  },
   "apps/desktop/src/hooks/useRoomAuthorityRevision.ts::useRoomAuthorityRevision": {
     "how": "no-own-state",
     "why": "State is only a monotonic invalidation counter, not a permission or roster reading. Consumers reload settings for their current chat; subscriptions and pending timers are replaced when the chat, source group, or viewer changes."

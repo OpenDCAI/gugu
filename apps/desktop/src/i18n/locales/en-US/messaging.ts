@@ -855,6 +855,7 @@ export default {
     "title": "Send to"
   },
   "topic": {
+    "leave": "Leave topic",
     "calledYou": "Someone @ you",
     "pins": {
       "pin": "Pin {{name}} to group",
