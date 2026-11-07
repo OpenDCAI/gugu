@@ -18,7 +18,6 @@ import { Button } from './ui/Button'
 import { FieldList } from './contactsDetailControls'
 import { cn } from '@/lib/cn'
 import { Search } from '@/lib/icons'
-import { CommunityPointsTag } from './forum/CommunityPointsTag'
 import { useAgentSession } from '@/lib/projectGroupChatsBridge'
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
@@ -32,7 +31,6 @@ const profileSingleClass = 'gg-pop--single'
 const profileHeaderClass = 'gg-pop-ph flex items-center gap-3.5 border-b border-[var(--border-color)] px-[22px] pb-4 pt-[22px]'
 const profileHeaderTextClass = 'gg-pop-ph-text flex min-w-0 flex-col'
 const profileNameClass = 'gg-pop-pn min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold text-[var(--text-primary)]'
-const profileTagClass = 'gg-pop-pt mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--font-body)] text-[var(--text-tertiary)]'
 const profileActionsClass = 'gg-pop-pacts flex flex-wrap gap-2 px-[18px] pb-3 pt-3.5'
 const profileButtonClass = 'gg-pop-pbtn flex-[1_1_auto] text-[length:var(--font-body)] [&_svg]:shrink-0'
 const profileFieldsClass = 'gg-pop-fields gap-x-2 gap-y-1.5 px-[18px] pb-3.5'
@@ -310,7 +308,7 @@ export function MemberProfileCard({
               {statusLabel ? <span>{statusLabel}</span> : null}
               <span data-profile-agent-owner><AgentOwnerLabel ownerUserId={member.ownerUserId} ownerDisplayName={member.ownerDisplayName} /></span>
             </div>
-          ) : <CommunityPointsTag userId={member.id} className={profileTagClass} />}
+          ) : null}
         </div>
       </div>
 

@@ -118,7 +118,6 @@ import { useComposerFileUploads } from './use-composer-file-uploads';
 import { shellPort } from '@renderer/lib/shell-port';
 import { getRendererSession } from '@/lib/sessionPublication';
 import { useAgents } from '@renderer/lib/stores/use-agents';
-import { ThreadScrollToBottom } from '@renderer/lib/ui/assistant-ui/thread-scroll-to-bottom';
 import {
   ThreadWelcome,
   type ThreadSuggestion,
@@ -393,7 +392,7 @@ const ComposerForStore = observer(function ComposerForStore({
       sendingRef.current = true;
       try {
         await sendComposerInput(value, {
-          unsettled: () => fileUploads.unsettled(),
+          started: onScrollToBottom, unsettled: () => fileUploads.unsettled(),
           waitForUploads: async () => { await fileUploads.waitForUploads(); },
           hasFailedAttachments: () => attachmentsRef.current.some(att => att.state === 'error'),
           files: () => fileUploads.files(attachmentsRef.current.map(att => att.id)),
@@ -405,12 +404,12 @@ const ComposerForStore = observer(function ComposerForStore({
             if (editorApiRef.current?.getText() === value) editorApiRef.current.clear();
           }),
         });
-        // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
+        // 只在本机发起时选择跟随；等待期间的上翻优先，提交完成不再改阅读位置。
       } finally {
         sendingRef.current = false;
       }
     },
-    [fileUploads, store]
+    [fileUploads, store, onScrollToBottom]
   );
 
   const handleSubmit = useCallback(
@@ -1652,7 +1651,6 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const placementWasEmptyRef = useRef<boolean | null>(null);
   // True while the scroll viewport is at the tail. Defaults to true so the
   // button does not flash on mount before the first frame fires.
-  const [atBottom, setAtBottom] = useState(true);
   /** 「这个模型要会员」那一行:由输入框那一格判出来报上来(它手上有目录),面板只负责挂条件行(#7056)。 */
   const [membershipLock, setMembershipLock] = useState<{ modelName: string } | null>(null);
   const [modelMenuRequest, setModelMenuRequest] = useState(0);
@@ -2319,7 +2317,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             commands={transcriptCommands}
             shown={visibility.shown}
             onVisibleItems={reading.onVisibleItems}
-            onAtBottomChange={atBottom => { setAtBottom(atBottom); reading.onAtBottomChange(atBottom) }}
+            onAtBottomChange={reading.onAtBottomChange}
             onReachStart={handleReachStart}
             layout={{ ...chatLayout, agentConversation: true }}
             style={{ position: 'absolute', inset: 0 }}
@@ -2372,19 +2370,6 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           onMembershipLockChange={setMembershipLock}
         />
       )}
-
-      {/* 贴底状态是**单向**从 transcript 的 onAtBottomChange 流进来的:这里只读 `atBottom`
-          并回调 scrollToBottom,不引入 assistant-ui 的 Viewport(那会变成第二个 scrollTop 写者)。 */}
-      {showComposer &&
-        composerSlot &&
-        createPortal(
-          <ThreadScrollToBottom
-            atBottom={atBottom}
-            label={translate('chat.scrollToBottom')}
-            onScrollToBottom={() => viewRef.current?.scrollToBottom({ behavior: 'smooth' })}
-          />,
-          composerSlot
-        )}
 
       <AttachmentViewerDialog
         open={!!viewer}

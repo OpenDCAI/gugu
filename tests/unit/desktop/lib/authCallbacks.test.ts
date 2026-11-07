@@ -61,3 +61,23 @@ it('discards queued and late callbacks after sign-in even when there is no consu
   incoming('gugu-beta://auth/callback?code=current')
   expect(current).toHaveBeenCalledExactlyOnceWith('gugu-beta://auth/callback?code=current')
 })
+
+it('routes an authenticated account callback only to explicit account consumers', async () => {
+  let incoming!: (url: string) => void
+  m.subscribe.mockImplementation(listener => { incoming = listener; return () => {} })
+  const { authCallbacks, startAuthCallbackRouting } = await import('../../../../apps/desktop/src/lib/authCallbacks')
+  startAuthCallbackRouting()
+  const login = vi.fn(), account = vi.fn()
+  authCallbacks.subscribe(login, vi.fn())
+  authCallbacks.setAuthenticated(true)
+  const stop = authCallbacks.subscribeAccount(account, vi.fn())
+  incoming('gugu-beta://auth/callback?code=linking')
+  expect(account).toHaveBeenCalledOnce()
+  expect(login).not.toHaveBeenCalled()
+  stop()
+  incoming('gugu-beta://auth/callback?code=late')
+  expect(account).toHaveBeenCalledOnce()
+  authCallbacks.setAuthenticated(false)
+  incoming('gugu-beta://auth/callback?code=login')
+  expect(login).toHaveBeenCalledExactlyOnceWith('gugu-beta://auth/callback?code=login')
+})

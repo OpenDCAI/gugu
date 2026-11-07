@@ -146,6 +146,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
     ...bakedSupabaseDefine,
     __GUGU_TIER__: JSON.stringify(guguTier),
     __GUGU_BUILD_DISTRIBUTION__: JSON.stringify(guguBuildDistribution),
+    __GUGU_ERROR_REPORTING_ENDPOINT__: JSON.stringify(process.env.GUGU_ERROR_REPORTING_ENDPOINT ?? ''),
     // 给别的机器装哪条通道的 server:跟这次构建连的库走(scripts/build/build-env-preflight.mts serverChannelForDb)。
     __GUGU_SERVER_CHANNEL__: JSON.stringify(serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),
   },

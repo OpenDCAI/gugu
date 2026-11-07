@@ -79,12 +79,24 @@ export function observeAnimationViewport(element: HTMLElement, changed: (visible
   }
 }
 
+/** Every looping animation keeps the document clock, so stepped motion changes on one shared beat: a frame per beat
+ *  however many are on screen, where independent clocks would each add their own. Stepping the clock with
+ *  `currentTime` leaves `animation-play-state` in charge of pausing, which `startTime` would take over. */
+export function joinSharedBeat(element: HTMLElement): void {
+  for (const animation of element.getAnimations?.({ subtree: true }) ?? []) {
+    const now = animation.timeline?.currentTime
+    if (now != null && animation.effect?.getComputedTiming().iterations === Infinity) animation.currentTime = now
+  }
+}
+
 /** Pauses CSS motion inside `element` while it is off screen (animation-visibility.css also pauses hidden windows
  *  and retained surfaces). It starts paused, so motion that never reaches the viewport never runs. */
 export function pauseAnimationsOffscreen(element: HTMLElement, rootMargin?: string): () => void {
-  const paused = (pause: boolean) => pause
-    ? element.style.setProperty('--gugu-animation-viewport-paused', 'paused')
-    : element.style.removeProperty('--gugu-animation-viewport-paused')
+  const paused = (pause: boolean) => {
+    if (pause) { element.style.setProperty('--gugu-animation-viewport-paused', 'paused'); return }
+    element.style.removeProperty('--gugu-animation-viewport-paused')
+    joinSharedBeat(element)
+  }
   paused(true)
   const stop = observeAnimationViewport(element, (visible) => paused(!visible), rootMargin)
   return () => { stop(); paused(false) }

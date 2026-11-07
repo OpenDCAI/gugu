@@ -40,7 +40,7 @@ import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDeliver
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import { storedMessageLink } from '@gugu/core/shared/ui/guguLink'
-import { forumRowFromRpc } from '@gugu/core/local/agent/forumInbox'
+import { appInboxUnreadRow } from '@gugu/core/local/agent/appInbox'
 import type { SessionArchivalState } from '@gugu/core/shared/sessionArchival'
 
 const AGENT = 'agent-0000-0000-0000-000000000001'
@@ -543,31 +543,30 @@ describe('inbox batch request budgets', () => {
       .toEqual({ first: { fetches: 1, identities: 0, contexts: [false, false, false] }, second: { fetches: 1, identities: 1, contexts: [true] } })
   })
 
-  function forumBatch(timing: AgentInboxDeliveryTiming) {
-    const postId = '63000000-0000-4000-8000-000000000001'
-    const rows = [1, 2].map((seq) => forumRowFromRpc({
-      post_id: postId, seq, kind: 'assigned', entity_id: AGENT, actor_user_id: HUMAN, actor_name: 'Ada', actor_is_agent: false,
-      created_at: '2026-08-29T00:00:00Z', post_title: 'Batch budget', post_body: `Forum message ${seq}`,
-      post_author_id: HUMAN, post_author_name: 'Ada', bounty: null, reply_body: null, reply_to_poster_only: null, reply_to: null, reply_count: 0,
+  function appBatch(timing: AgentInboxDeliveryTiming) {
+    const key = '63000000-0000-4000-8000-000000000001'
+    const rows = [1, 2].map((seq) => appInboxUnreadRow('notes', {
+      key, seq, actor_user_id: HUMAN, actor_name: 'Ada', actor_is_agent: false, created_at: '2026-08-29T00:00:00Z',
+      ref: `note:${key}`, context: 'A note', arrival: 'Answer with notes__reply.', content: `App message ${seq}`,
     }))
-    const ackForum = vi.fn(async () => {})
-    const d = makeDeps(new FakeCloud(), { fetchForumUnread: async () => rows, ackForum, deliveryTiming: () => timing })
-    return { ...d, postId, ackForum }
+    const ackApp = vi.fn(async () => {})
+    const d = makeDeps(new FakeCloud(), { fetchAppUnread: async () => rows, ackApp, deliveryTiming: () => timing })
+    return { ...d, key, ackApp }
   }
 
-  it('f1: acknowledges only the maximum forum sequence in a merged admission', async () => {
-    const d = forumBatch('next-tool-call')
+  it('f1: acknowledges only the maximum App sequence in a merged admission', async () => {
+    const d = appBatch('next-tool-call')
     await pullAgentInbox(AGENT, d.deps)
     expect(d.injections).toHaveLength(1)
-    expect(d.ackForum.mock.calls).toEqual([[{ agentUserId: AGENT, postId: d.postId, seq: 2 }]])
+    expect(d.ackApp.mock.calls).toEqual([[{ source: 'notes', agentUserId: AGENT, key: d.key, seq: 2 }]])
   })
 
-  it('f2: idle forum admissions still acknowledge each admitted row immediately', async () => {
-    const d = forumBatch('idle-only')
+  it('f2: idle App admissions still acknowledge each admitted row immediately', async () => {
+    const d = appBatch('idle-only')
     await pullAgentInbox(AGENT, d.deps)
     expect(d.injections).toHaveLength(2)
-    expect(d.ackForum.mock.calls).toEqual([
-      [{ agentUserId: AGENT, postId: d.postId, seq: 1 }], [{ agentUserId: AGENT, postId: d.postId, seq: 2 }],
+    expect(d.ackApp.mock.calls).toEqual([
+      [{ source: 'notes', agentUserId: AGENT, key: d.key, seq: 1 }], [{ source: 'notes', agentUserId: AGENT, key: d.key, seq: 2 }],
     ])
   })
 })

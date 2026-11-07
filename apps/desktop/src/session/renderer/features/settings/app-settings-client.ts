@@ -1,3 +1,4 @@
+import { reportHandledError } from '@/lib/errorSummaryReporting';
 import { rpc } from '@renderer/lib/ipc';
 import { queryClient } from '@renderer/lib/query-client';
 import type { AppSettings, AppSettingsKey } from '@shared/core/app-settings';
@@ -37,8 +38,9 @@ export function mergeAppSettingsValue<K extends AppSettingsKey>(
   return partial as AppSettings[K];
 }
 
-export function requestAppSettingsMeta<K extends AppSettingsKey>(key: K): Promise<SettingsMeta<K>> {
-  return rpc.appSettings.getWithMeta(key) as Promise<SettingsMeta<K>>;
+export async function requestAppSettingsMeta<K extends AppSettingsKey>(key: K): Promise<SettingsMeta<K>> {
+  try { return await rpc.appSettings.getWithMeta(key) as SettingsMeta<K>; }
+  catch (error) { reportHandledError(error, 'settings.read'); throw error; }
 }
 
 export function fetchAppSettingsMeta<K extends AppSettingsKey>(key: K): Promise<SettingsMeta<K>> {
