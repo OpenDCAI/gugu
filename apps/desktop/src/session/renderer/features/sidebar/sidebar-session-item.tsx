@@ -5,7 +5,7 @@ import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../sessions/gugu-reason';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
-import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
+import { AlertTriangle, Archive, Copy, LayoutGrid, MoreHorizontal, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
 import { GitFork } from '@/lib/icons'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { spawnedByExtensionLabel as spawnedByExtensionLabelFor } from '@renderer/features/extensions/spawned-by-extension-label';
@@ -31,7 +31,7 @@ import {
   useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
 import { useAgents } from '@renderer/lib/stores/use-agents';
-import { MenuItem, MenuSeparator } from '@/components/ui/Menu';
+import { MenuFold, MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -415,9 +415,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
         <MenuItem onClick={() => takeSessionOutOfGroup(sessionId)} icon={<SquareMinus />}>
           {translate('sidebar.leaveGroup')}
         </MenuItem>
-        <MenuItem onClick={() => dissolveScreenGroup(sessionId)} icon={<Scissors />}>
-          {translate('sidebar.dissolveGroup')}
-        </MenuItem>
         <MenuSeparator />
       </>
     ) : null}
@@ -428,11 +425,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     ) : (
       <MenuItem onClick={() => setPinned(true)} icon={<Pin />}>
         {translate('task.pin')}
-      </MenuItem>
-    )}
-    {canFork && (
-      <MenuItem onClick={handleFork} icon={<GitFork />}>
-        {translate('sidebar.forkSession')}
       </MenuItem>
     )}
     {/* behavior session-page「键盘导航」: 键盘能做的、菜单也要能做 —— 只给快捷键等于让用鼠标的人
@@ -446,15 +438,27 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     >
       {translate('task.renameSession')}
     </MenuItem>
-    <MenuItem onClick={() => void copySessionId()} icon={<Copy />}>
-      {translate('sidebar.copySessionId')}
-    </MenuItem>
     {/* owner 2026-09-05:会话列表这一行不再提供删除 ——「正常我用 agent 也不删除会话」。
         右键这一格换成归档,与行尾 hover 浮出的归档按钮是同一个动作、同一条确认路径。
         删除仍在会话页 ⋯ 菜单与键盘两次删除上,只是不再摆在会话列表的手边。 */}
     <MenuItem onClick={requestArchive} icon={<Archive />}>
       {archiveLabel}
     </MenuItem>
+    <MenuFold icon={<MoreHorizontal />} label={translate('common.more')}>
+      {grouped && (
+        <MenuItem onClick={() => dissolveScreenGroup(sessionId)} icon={<Scissors />}>
+          {translate('sidebar.dissolveGroup')}
+        </MenuItem>
+      )}
+      {canFork && (
+        <MenuItem onClick={handleFork} icon={<GitFork />}>
+          {translate('sidebar.forkSession')}
+        </MenuItem>
+      )}
+      <MenuItem onClick={() => void copySessionId()} icon={<Copy />}>
+        {translate('sidebar.copySessionId')}
+      </MenuItem>
+    </MenuFold>
         </>
       }
     />
