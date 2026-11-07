@@ -20,6 +20,9 @@ withdraws old facts; broadcast configuration is never used as permission data.
 Missing subscription, channel failure, malformed event, query failure, account
 lifetime cancellation or disposal closes eligibility. Reconnection cannot
 revive old facts and requires another fresh read.
+The managed channel notifies continuity loss synchronously at authentication
+pause or replacement start, before awaiting the old channel's unsubscribe.
+Waiting for the replacement channel's creation is too late.
 
 As approved on 2026-11-07, **Phase 1 does not promise a zero-length interval from
 a cloud policy commit to the local native action**. Disconnection detection and

@@ -46,6 +46,8 @@ export type SubscribeElectronRealtimeChannelOptions = {
   label: string
   createChannel?: () => ElectronManagedRealtimeChannel
   onStatus?: (status: string, err?: Error) => void
+  /** Synchronous loss of continuity, before authentication/replacement/removal can await. */
+  onUnavailable?: () => void
   unsubscribeOnStatus?: (status: string, err?: Error) => boolean
   reconnectOnStatus?: (status: string, err?: Error) => boolean
 }
@@ -59,6 +61,7 @@ type InternalElectronRealtimeChannelRegistryEntry = ElectronRealtimeChannelRegis
     active: boolean
     subscribedOnce: boolean
     onStatus: (status: string, err?: Error) => void
+    onUnavailable: () => void
     reconnectOnStatus: (status: string, err?: Error) => boolean
     unsubscribeOnStatus: (status: string, err?: Error) => boolean
   }
@@ -72,7 +75,7 @@ let paused = false
 /** Resume authentication owns this barrier; stale tickets must not auto-rejoin. */
 export function pauseElectronRealtimeChannels(): () => void {
   paused = true
-  for (const id of registry.keys()) clearReconnectTimer(id)
+  for (const [id, entry] of registry) { entry.onUnavailable(); clearReconnectTimer(id) }
   return () => { paused = false }
 }
 
@@ -101,6 +104,7 @@ export async function subscribeAuthenticatedElectronRealtimeChannel(
     active: true,
     subscribedOnce: false,
     onStatus: options.onStatus ?? (() => undefined),
+    onUnavailable: options.onUnavailable ?? (() => undefined),
     reconnectOnStatus: options.reconnectOnStatus ?? (() => false),
     unsubscribeOnStatus: options.unsubscribeOnStatus ?? (() => false)
   })
@@ -111,6 +115,7 @@ export async function subscribeAuthenticatedElectronRealtimeChannel(
   return () => {
     const entry = registry.get(id)
     if (!entry) return Promise.resolve()
+    entry.onUnavailable()
     entry.active = false
     clearReconnectTimer(id)
     debugStatusHandlers.delete(id)
@@ -192,6 +197,7 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
   }
 
   setRegistryStatus(id, reconnecting ? 'reconnecting' : 'authenticating')
+  entry.onUnavailable()
   try {
     // 认证由账号客户端现取;频道重连不能拿创建时的旧令牌覆盖共享连接。
     await entry.client.realtime.setAuth()
@@ -289,6 +295,7 @@ async function replacePhysicalChannel(id: string): Promise<void> {
   if (!entry?.active || !entry.createChannel) return
   clearReconnectTimer(id)
   setRegistryStatus(id, 'reconnecting', entry.lastError)
+  entry.onUnavailable()
   if (entry.channel.unsubscribe) {
     try {
       await entry.channel.unsubscribe()

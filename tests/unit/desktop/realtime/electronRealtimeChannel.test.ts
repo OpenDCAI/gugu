@@ -3,6 +3,7 @@ import {
   _resetElectronRealtimeChannelRegistryForTesting,
   reconnectElectronRealtimeChannels,
   listElectronRealtimeChannelRegistry,
+  pauseElectronRealtimeChannels,
   subscribeAuthenticatedElectronRealtimeChannel,
   type ElectronManagedRealtimeChannel,
   type ElectronRealtimeClient,
@@ -42,6 +43,28 @@ describe('Electron Realtime physical channel replacement', () => {
   afterEach(() => {
     _resetElectronRealtimeChannelRegistryForTesting()
     vi.useRealTimers()
+  })
+
+  it('withdraws continuity synchronously before awaiting the old channel leave', async () => {
+    const old = makeChannel(), fresh = makeChannel(), onUnavailable = vi.fn()
+    let finish!: () => void
+    vi.mocked(old.unsubscribe!).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'policy-reconnect', createChannel: () => fresh, onUnavailable })
+    old.emit('SUBSCRIBED'); onUnavailable.mockClear()
+    const replacing = reconnectElectronRealtimeChannels()
+    expect(onUnavailable).toHaveBeenCalledOnce(); expect(fresh.subscribe).not.toHaveBeenCalled()
+    finish(); await replacing; await stop()
+  })
+
+  it('withdraws continuity immediately when account authentication is paused', async () => {
+    const channel = makeChannel(), onUnavailable = vi.fn()
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, channel,
+      { label: 'policy-auth', onUnavailable })
+    channel.emit('SUBSCRIBED'); onUnavailable.mockClear()
+    const resume = pauseElectronRealtimeChannels()
+    expect(onUnavailable).toHaveBeenCalledOnce()
+    resume(); await stop()
   })
 
   it('replaces a stale joined channel immediately after resume, without waiting for an error or timer', async () => {

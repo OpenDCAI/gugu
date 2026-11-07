@@ -79,6 +79,7 @@ export async function createPasswordPolicySource<T>({ ownerId, store, supabase, 
     unsubscribe = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth },
       removeChannel: value => removeChannel(value as T) }, createChannel(), {
       label: `password-policy:${ownerId}`, createChannel,
+      onUnavailable() { joined = false; invalidate() },
       onStatus(status, error) {
         if (disposed) return
         const name = subscribeStatusName(status)

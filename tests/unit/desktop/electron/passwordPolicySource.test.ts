@@ -77,6 +77,12 @@ describe('live policy from the existing private settings bus', () => {
     f.status(status); expect(old.signal.aborted).toBe(true); await expect(f.current()).rejects.toThrow()
     f.status('SUBSCRIBED'); await expect(f.current()).resolves.toBeDefined(); expect(() => old.assertCurrent()).toThrow()
   })
+  it('withdraws old and pending facts as soon as the real manager starts losing continuity', async () => {
+    const f = await fixture(); f.status('SUBSCRIBED'); const old = await f.current()
+    f.options.onUnavailable!(); expect(old.signal.aborted).toBe(true)
+    await expect(f.current()).rejects.toThrow()
+    f.status('SUBSCRIBED'); await expect(f.current()).resolves.toBeDefined(); expect(() => old.assertCurrent()).toThrow()
+  })
   it.each(['shape', 'owner', 'time'])('closes on an unreliable %s event instead of granting from it', async kind => {
     const f = await fixture(); f.status('SUBSCRIBED'); const old = await f.current(), event = f.event()
     if (kind === 'owner') event.payload.setting.user_id = randomUUID()
