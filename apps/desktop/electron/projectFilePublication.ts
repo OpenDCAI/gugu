@@ -1,3 +1,4 @@
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { inferDroppedBlobExtension, normalizeDroppedImageBytes } from './session/main/core/pty/persist-dropped-blob'
@@ -100,7 +101,7 @@ export function createProjectFilePublisher(deps: {
     const { data, ...selected } = file, bytes = new Uint8Array(data)
     const directory = await mkdtemp(join(tmpdir(), 'gugu-pasted-'))
     try {
-      const path = join(directory, sanitizeRemoteFileName(file.name))
+      const path = await requireAgentFileAccess(join(directory, sanitizeRemoteFileName(file.name)))
       await writeFile(path, bytes, { mode: 0o600 })
       // `temporary`: the temp copy is always imported, even when a bound root happens to contain the temp directory.
       return await publishFile(chatId, { ...selected, path }, parentId, actor, store, options, true)
@@ -119,9 +120,9 @@ export async function writeTaskCopy(directory: string, name: string, bytes: Uint
   const declared = inferDroppedBlobExtension(name, mimeType)
   const converted = !!normalized.ext && normalized.ext !== declared
   const named = converted ? `${name.replace(/\.[^.]+$/, '')}${normalized.ext}` : name
-  const target = join(directory, randomUUID())
+  const target = await requireAgentFileAccess(join(directory, randomUUID()))
   await mkdir(target, { recursive: true, mode: 0o700 })
-  const path = join(target, sanitizeRemoteFileName(named))
+  const path = await requireAgentFileAccess(join(target, sanitizeRemoteFileName(named)))
   await writeFile(path, normalized.bytes, { mode: 0o600 })
   return { path, name: named, size: normalized.bytes.byteLength, mimeType: converted ? 'image/png' : mimeType }
 }

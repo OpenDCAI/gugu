@@ -64,10 +64,7 @@ export default {
       "assistant": "Your personal assistant is here. Tell it your plans and tasks.",
       "collaboration": "Each project is a group. Work with Agents to move it forward."
     },
-    "dismiss": "Got it",
-    "unreadable": "Could not read hint progress. Please retry.",
-    "saveFailed": "Hint progress was not saved. Please retry.",
-    "retry": "Retry"
+    "dismiss": "Got it"
   },
   "rail": "Gugu",
   "nav": {

@@ -150,7 +150,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     async workspace(): Promise<WorkspaceLease> {
       const session = known();
       const mounted = await sessionService.ensureSessionMounted(fork?.parentId ?? sessionId);
-      const workspace = resolveWorkspace(session.projectId, mounted.workspaceId);
+      const workspace = await resolveWorkspace(session.projectId, mounted.workspaceId);
       if (!workspace) throw new Error(`Session ${sessionId} workspace is not mounted`);
       return lease<Workspace>({ workspaceId: mounted.workspaceId, path: workspace.path }) as WorkspaceLease;
     },

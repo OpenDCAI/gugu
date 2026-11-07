@@ -11,6 +11,7 @@ export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collec
 export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
 export { commitOwnerNotification } from '../session/main/core/sessions/owner-notifications'
 export { archiveSession } from '../session/main/core/sessions/archiveSession'
+export { appInbox } from '../session/main/core/extensions/app-inbox'
 export {
   bootEmdashModule,
   startSessionpageSearchBackfill,

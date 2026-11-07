@@ -1,3 +1,4 @@
+import { requireAgentFileAccess, requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary'
 import { createReadStream, constants } from 'node:fs'
 import { copyFile, mkdir, rm, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
@@ -11,6 +12,8 @@ import { sanitizeRemoteFileName } from './remoteFileOpen'
 
 const clone = promisify(execFile)
 async function copySnapshot(source: string, target: string) {
+  source = await requireAgentFileAccess(source)
+  target = await requireAgentFileAccess(target)
   if (process.platform === 'darwin') {
     try { await clone('/bin/cp', ['-c', '-n', source, target]); return }
     catch (error) {
@@ -28,11 +31,13 @@ async function copySnapshot(source: string, target: string) {
 
 const digest = async (file: string) => {
   const hash = createHash('sha256')
-  for await (const bytes of createReadStream(file)) hash.update(bytes)
+  for await (const bytes of createReadStream(await requireAgentFileAccess(file))) hash.update(bytes)
   return hash.digest('hex')
 }
 /** Imported sends are project-owned copies; an existing published copy is reused only after re-verification. */
 export async function importProjectFile(root: string, file: { path: string; name: string; size: number }, find: (sha: string) => Promise<FileRevision | null>) {
+  await requireAgentFileTreeAccess(root)
+  file = { ...file, path: await requireAgentFileAccess(file.path) }
   const before = await stat(file.path, { bigint: true })
   if (!before.isFile() || Number(before.size) !== file.size) throw new Error('Selected file changed')
   const unchanged = async () => { if (etagOf(await stat(file.path, { bigint: true })) !== etagOf(before)) throw new Error('Selected file changed') }
@@ -49,6 +54,7 @@ export async function importProjectFile(root: string, file: { path: string; name
   const directory = await inWorkspace(root, '.gugu/attachments/' + randomUUID())
   await mkdir(directory, { mode: 0o700 })
   const target = join(directory, sanitizeRemoteFileName(file.name))
+  await requireAgentFileAccess(target)
   try {
     // Keep the version separate from the agent's editable original, using a clone where the filesystem supports it.
     await copySnapshot(file.path, target)

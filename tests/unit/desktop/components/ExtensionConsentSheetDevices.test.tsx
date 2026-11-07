@@ -10,7 +10,6 @@ import {
 } from '../../../../apps/desktop/src/session/shared/extensions/host-actions'
 
 vi.mock('../../../../apps/desktop/src/components/chat/DispatchSheet', () => ({ DispatchSheet: () => null }))
-vi.mock('../../../../apps/desktop/src/components/extensionBundle/ForumConsent', () => ({ ForumConsent: () => null }))
 // The person's computers as this window follows them: Linux 1 is offline (the machine picker greys it, so does the sheet).
 vi.mock('../../../../apps/desktop/src/session/renderer/features/remote-hosts/remote-hosts-store', () => ({
   remoteHostsStore: {

@@ -4,7 +4,7 @@
  * identifies its sender/channel; envelope details remain inspectable there.
  * Delivery routing, prompt identity and scroll behaviour stay separate from paint.
  */
-import type { DeliveryReadFacts, DeliverySegment } from '@gugu/core/local/agent/deliveryEnvelope';
+import { isAppRoute, type DeliveryReadFacts, type DeliverySegment } from '@gugu/core/local/agent/deliveryEnvelope';
 import { readableLabel, rowTranslator, wrappedRowHeight } from '../readable-label';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import { useChatTranslator, type ChatTranslator } from '@session-chat/localization';
@@ -228,7 +228,8 @@ function routeLabel(facts: DeliveryReadFacts, translate: ChatTranslator, { appNa
   return [
     facts.viaApp ? translate('transcript.deliveryViaApp', { app: appName(facts.viaApp) ?? facts.viaApp }) : null,
     facts.whisperTo ? translate('transcript.deliveryWhisper') : null,
-    channelLabel(facts, translate, chatName),
+    // An App's own delivery: naming the App above is the whole channel.
+    facts.viaApp && isAppRoute(facts.route) ? null : channelLabel(facts, translate, chatName),
   ].filter(Boolean).join(' · ');
 }
 
@@ -242,8 +243,7 @@ function channelLabel(facts: DeliveryReadFacts, translate: ChatTranslator, chatN
       : translate('transcript.deliveryScheduled');
   }
   // 集体记忆对账第 12 条:App 的投递只有一种语义(没有「附带」那一档),标签也就一个。
-  if (facts.route === 'extension') return translate('transcript.deliveryViaExtension');
-  if (facts.route === 'forum') return translate('transcript.deliveryViaForum');
+  if (isAppRoute(facts.route)) return translate('transcript.deliveryViaExtension');
   // 信封里的 chat 是群号(给 agent 寻址用的),人读群名:按来源链接里的对话 id 向宿主要名字(项目群就是项目名);
   // 宿主不认得这个群就只说「来自群聊」,❌ 把群号写给人看。
   if (facts.chatKind === 'group') {

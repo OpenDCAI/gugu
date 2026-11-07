@@ -6,17 +6,19 @@ import { commitSessionAttachment, revokeSessionAttachment, type SessionFileInput
 import { resolveAttachmentMimeType } from '../../shared/imageMime.mjs'
 import { userIdFromSupabaseAccessToken } from '../../cloud/runtimeAuthProvider'
 import { createNodeFileResolver, saveFileHandle } from '../files/fileSnapshots'
+import { requireAgentFileAccess } from '../state/agentFileBoundary'
 
 const MAX_BYTES = 25 * 1024 * 1024
 export async function uploadSessionFile(endpoint: AttachmentsEndpoint, file: SessionFileInput, sender: {
   agentId: string; sessionId: string; recipients: string[]; expectedSha256?: string;
   beforeCommit?: () => Promise<void>; attachmentId?: string; stagingKey?: string; onStaged?: (key: string) => Promise<void>;
 }) {
-  const info = await stat(file.file_path)
+  const source = await requireAgentFileAccess(file.file_path)
+  const info = await stat(source)
   if (!info.isFile()) throw new Error('Session attachment must be a regular file')
   const size = info.size
   if (size > MAX_BYTES) throw new Error('Session attachment exceeds 25 MiB')
-  const bytes = await readFile(file.file_path)
+  const bytes = await readFile(source)
   if (bytes.length > MAX_BYTES) throw new Error('Session attachment exceeds 25 MiB')
   const name = file.file_name ?? basename(file.file_path)
   const contentType = resolveAttachmentMimeType(name, file.mime_type)
@@ -56,6 +58,7 @@ export async function downloadSessionFile(endpoint: AttachmentsEndpoint, id: str
 /** No recipient is admitted yet. Revoke only references created by this failed preparation. */
 export async function uploadSessionFiles(endpoint: AttachmentsEndpoint, files: SessionFileInput[], sender: Parameters<typeof uploadSessionFile>[2]) {
   for (const file of files) {
+    await requireAgentFileAccess(file.file_path)
     const info = await stat(file.file_path)
     if (!info.isFile() || info.size > MAX_BYTES) throw new Error('Session attachment must be a regular file of at most 25 MiB')
   }

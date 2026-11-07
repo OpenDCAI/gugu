@@ -64,10 +64,7 @@ export default {
       "assistant": "你的个人助理在这里，记安排、办事情直接告诉它。",
       "collaboration": "一个项目一个群，和 Agent 一起推进工作。"
     },
-    "dismiss": "知道了",
-    "unreadable": "读不到提示进度，请重试。",
-    "saveFailed": "提示进度未保存，请重试。",
-    "retry": "重试"
+    "dismiss": "知道了"
   },
   "rail": "咕咕",
   "nav": {

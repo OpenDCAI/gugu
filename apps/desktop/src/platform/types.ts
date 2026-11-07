@@ -87,8 +87,11 @@ export interface AppPlatform {
   }
   oauthBrowser?: {
     openBrowser: (url: string) => Promise<void>
+    openLinkBrowser?: (url: string, redirectTo: string) => Promise<void>
     subscribeBrowserFinished?: (listener: () => void, onError: (error: unknown) => void) => Promise<() => void>
   }
+  /** Account management may be available before anonymous provider login is enabled. */
+  accountOAuthBrowser?: AppPlatform['oauthBrowser']
   /**
    * 这个宿主**读得到系统真值**的权限,顺序 = 「权限」页上的行序(product spec)。
    * 空数组 = 这台机器上一行都读不到,「权限」这一项连同整页都不出现。
