@@ -1,6 +1,7 @@
 import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
-import { createChatMembershipProjection, memoizeChatRow } from '@/lib/chatRowDerivations'
+import { createChatMembershipProjection } from '@/lib/chatRowDerivations'
+import { memoizeByReference } from '@/lib/memoizeByReference'
 import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStableHandler } from '@/hooks/useStableHandler'
@@ -593,7 +594,12 @@ export function ChatListPanel({
   // 无消息的新会话按创建时刻置顶后正常老化——替换掉 #1953 的 null→Infinity 哨兵(#2208 移除建号
   // 问候语后它把空会话永久钉顶,发送后的会话永远排不到它前面,即 #2264)。
   // 现在能走到这个排序键的「无消息会话」只剩群、以及被置顶/标未读/有草稿的单聊(见下面 isListed)。
-  const activityOf = useMemo(() => memoizeChatRow(chat => new Date(chatActivityAt(chat)).getTime()), [])
+  const timesOf = useMemo(() => memoizeByReference((chat: ChatItem) => {
+    const activity = new Date(chatActivityAt(chat)).getTime()
+    const threshold = activity + TOPIC_SINK_AFTER_DAYS * 24 * 60 * 60 * 1000
+    return { activity, sinkAt: isSunkTopic(chat, threshold) ? threshold : Number.POSITIVE_INFINITY }
+  }), [])
+  const activityOf = (chat: ChatItem) => timesOf(chat, undefined).activity
   const byTime = (left: ChatItem, right: ChatItem) => activityOf(right) - activityOf(left)
   // 侧栏那一份不搜:搜索是 ⌘K 那一个面板(gugu-dev#181 ⑯);这里只有对话页自己那个搜索框。
   const listQuery = searchQuery
@@ -624,11 +630,7 @@ export function ChatListPanel({
   // 沉降判据要一个「当下」。它随每次渲染重取即可 —— ❌ 不 memo 到 chats 上(那是假依赖:
   // chats 没变而时间过去了,沉降照样该发生)。逐渲染取一次 Date.now 的成本可忽略。
   const nowMs = Date.now()
-  const sinkAt = useMemo(() => memoizeChatRow(chat => {
-    const threshold = activityOf(chat) + TOPIC_SINK_AFTER_DAYS * 24 * 60 * 60 * 1000
-    return isSunkTopic(chat, threshold) ? threshold : Number.POSITIVE_INFINITY
-  }), [activityOf])
-  const isSunk = (chat: ChatItem) => !hasSearchQuery && nowMs >= sinkAt(chat) && chat.id !== activeChatId
+  const isSunk = (chat: ChatItem) => !hasSearchQuery && nowMs >= timesOf(chat, undefined).sinkAt && chat.id !== activeChatId
   // @@@5856 话题**不占一行平级的会话**(owner 2026-09-19:「怎么还有把一个 topic 当做群的形式表达」)。
   // 它挂在来源那条线底下,缩进 + 一条竖轨(见 tokens.css 的 .gg-topic-subrows)。
   // 搜索时例外:搜索是一次指名道姓,搜得到就得点得开 —— 那时它照常出现在结果里(按来源线归组)。

@@ -7,6 +7,8 @@
 // 壳那棵树知道每个对话(聊天列表那一份),会话页不知道:壳写、会话页读,同一个 window 对象 +
 // 一个 window 事件(谁先起来都接得上)。两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
+import { replaceEqualDeep } from '@tanstack/react-query'
+import { memoizeByReference } from './memoizeByReference'
 
 export type ChatSummary = {
   readonly peerUserId?: string | null
@@ -31,18 +33,8 @@ type Summaries = ReadonlyMap<string, ChatSummary>
 type SummarySource = {
   peer_user_id?: string | null; unread_locator?: { message_id: string | null } | null; id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; public_id?: number | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
 }
-const rowSummaries = new WeakMap<object, { name: string | null | undefined; summary: ChatSummary }>()
-const sameSummary = (left: ChatSummary, right: ChatSummary) => left.alias === right.alias && left.publicId === right.publicId
-  && (Object.keys(right) as (keyof ChatSummary)[]).every(key => left[key] === right[key])
-
-/** 壳:聊天列表那一份(整份替换;没变不通知)。 */
-export function publishChatSummaries<T extends SummarySource>(chats: readonly T[], nameOf?: (chat: T) => string | null | undefined): void {
-  const current = read()
-  const next: Summaries = new Map(chats.map((chat) => {
-    const name = nameOf?.(chat) ?? chat.name
-    const cached = rowSummaries.get(chat)
-    if (cached && cached.name === name) return [chat.id, cached.summary] as const
-    const candidate: ChatSummary = {
+const summaryOf = memoizeByReference((chat: SummarySource, name: string | null | undefined): ChatSummary =>
+  replaceEqualDeep(read()?.get(chat.id), {
     ...(chat.alias ? { alias: chat.alias } : {}),
     ...(typeof chat.public_id === 'number' && Number.isSafeInteger(chat.public_id) && chat.public_id > 0 ? { publicId: chat.public_id } : {}),
     peerUserId: chat.peer_user_id ?? null,
@@ -54,12 +46,12 @@ export function publishChatSummaries<T extends SummarySource>(chats: readonly T[
     kind: chat.kind,
     lastMessagePreview: chat.last_message_preview || null,
     sourceChatId: chat.source_chat_id || null,
-    }
-    const was = current?.get(chat.id)
-    const summary = was && sameSummary(was, candidate) ? was : candidate
-    rowSummaries.set(chat, { name, summary })
-    return [chat.id, summary] as const
   }))
+
+/** 壳:聊天列表那一份(整份替换;没变不通知)。 */
+export function publishChatSummaries<T extends SummarySource>(chats: readonly T[], nameOf?: (chat: T) => string | null | undefined): void {
+  const current = read()
+  const next: Summaries = new Map(chats.map(chat => [chat.id, summaryOf(chat, nameOf?.(chat) ?? chat.name)]))
   if (current && current.size === next.size && [...next].every(([id, summary]) => current.get(id) === summary)) return
   const namesChanged = !current || current.size !== next.size || [...next].some(([id, summary]) => {
     const was = current.get(id)
