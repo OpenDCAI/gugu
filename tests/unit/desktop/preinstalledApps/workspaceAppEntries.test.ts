@@ -216,20 +216,20 @@ describe('workspace App: what the old workspace panel did', () => {
     for (const li of app().entries) {
       const id = li.getAttribute('data-id')!
       rowMore(id).click()
-      expect(offered()).toEqual(['复制链接', '用别的 App 打开', '下载', '打开', '在新页签打开', '在旁边打开', ...(id === 'photo' ? ['在聊天中定位'] : []), '选择', '详情'])
+      expect(offered()).toEqual(['复制链接', '用别的 App 打开', '存到电脑', '打开', '在新页签打开', '在旁边打开', ...(id === 'photo' ? ['在聊天中定位'] : []), '选择', '详情'])
     }
     pressEscape()
     contextChanged({ ...context })
     await vi.waitFor(() => expect($('new-doc').hidden).toBe(false))
     rowMore('cfg').click()
     // 删除 joins the open menu once the folder answers for this file (asked as the menu opens, never with the list).
-    await vi.waitFor(() => expect(offered()).toEqual(['复制链接', '用别的 App 打开', '下载', '改名', '移动到…', '删除', '打开', '在新页签打开', '在旁边打开', '选择', '详情']))
+    await vi.waitFor(() => expect(offered()).toEqual(['复制链接', '用别的 App 打开', '存到电脑', '改名', '移动到…', '删除', '打开', '在新页签打开', '在旁边打开', '选择', '详情']))
     pressEscape()
     // owner 10-18: delete is offered only where the folder says this person may — for 'old' it says no.
     rowMore('old').click()
     await vi.waitFor(() => expect(gugu.files.canDelete).toHaveBeenCalledWith([expect.objectContaining({ id: 'old' })]))
     await new Promise((settled) => setTimeout(settled, 0))
-    expect(offered()).toEqual(['复制链接', '用别的 App 打开', '下载', '改名', '移动到…', '打开', '在新页签打开', '在旁边打开', '选择', '详情'])
+    expect(offered()).toEqual(['复制链接', '用别的 App 打开', '存到电脑', '改名', '移动到…', '打开', '在新页签打开', '在旁边打开', '选择', '详情'])
     pressEscape()
   })
 })
@@ -250,7 +250,7 @@ describe('the document ⋯ is the file actions that lead the list menu', () => {
       $('more').click()
       const fileItems = rowItems.slice(0, rowItems.indexOf('打开'))
       expect(offered()).toEqual(fileItems)
-      expect(fileItems.slice(0, 3)).toEqual(['复制链接', '用别的 App 打开', '下载'])
+      expect(fileItems.slice(0, 3)).toEqual(['复制链接', '用别的 App 打开', '存到电脑'])
       expect(fileItems.includes('删除')).toBe(!readOnly)
       expect(fileItems.includes('改名')).toBe(!readOnly)
       // List-only items stay in the list: the open document is already open and has no list to select in.
@@ -346,12 +346,12 @@ describe('workspace App as a file manager: the host picks the App', () => {
     rowMore('cfg').click()
     menuItem('删除').click()
     expect($('menu').hidden, 'the menu stays open for the question').toBe(false)
-    expect(offered()).toEqual(['复制链接', '用别的 App 打开', '下载', '改名', '移动到…', '确认删除', '打开', '在新页签打开', '在旁边打开', '选择', '详情'])
+    expect(offered()).toEqual(['复制链接', '用别的 App 打开', '存到电脑', '改名', '移动到…', '确认删除', '打开', '在新页签打开', '在旁边打开', '选择', '详情'])
     $('filter').dispatchEvent(new Event('pointerdown', { bubbles: true })) // a press elsewhere
     expect($('menu').hidden).toBe(true)
     expect(gugu.files.remove).not.toHaveBeenCalled()
     rowMore('cfg').click()
-    expect(offered(), 'the question is taken back').toEqual(['复制链接', '用别的 App 打开', '下载', '改名', '移动到…', '删除', '打开', '在新页签打开', '在旁边打开', '选择', '详情'])
+    expect(offered(), 'the question is taken back').toEqual(['复制链接', '用别的 App 打开', '存到电脑', '改名', '移动到…', '删除', '打开', '在新页签打开', '在旁边打开', '选择', '详情'])
     menuItem('删除').click()
     menuItem('确认删除').click()
     expect($('menu').hidden).toBe(true)

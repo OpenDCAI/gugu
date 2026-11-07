@@ -3,12 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>文件夹</title>
+<title>文件</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body data-state="message" data-mode="split">
   <aside class="files" aria-label="files" tabindex="0">
     <header class="files-toolbar files-tools">
+      <div id="place-switch" class="place-switch" role="group">
+        <button type="button" data-root="chat"><gugu-icon name="message-square"></gugu-icon><span></span></button>
+        <button type="button" data-root="workspace"><gugu-icon name="monitor"></gugu-icon><span></span></button>
+      </div>
       <nav id="crumbs" class="crumbs" hidden></nav>
       <div id="kinds" class="kinds" role="group"></div>
       <button id="search-toggle" class="icon" type="button" aria-expanded="false"><gugu-icon name="search"></gugu-icon></button>

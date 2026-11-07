@@ -1,6 +1,6 @@
 import { ExtensionGuestBinding, type ExtensionGuestTarget } from './extension-guest-binding';
 import { projectWorkspace, sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
-import { useTaskConversation } from '@/lib/taskConversation';
+import { useTaskConversation, useTaskProjectChat } from '@/lib/taskConversation';
 import { useCallback, useMemo, useContext, useEffect, useRef, useState } from 'react';
 import { TabLayerShownContext } from '@renderer/features/tabs/retained-tab-content';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
@@ -72,11 +72,12 @@ export function ExtensionTabPane({
   const { translate } = useSessionMessages();
   // Where it is (`AppWhere`): a chat's tab is in that chat, a session's in the person's private chat with its agent.
   const taskConversation = useTaskConversation(chatId ? null : sessionId);
+  const taskProjectChat = useTaskProjectChat(!chatId && extensionId === 'workspace' ? sessionId : null);
   // Read when it binds (a ref: the chat list coming in later must not re-attach the webview).
   const conversationRef = useRef<string | null>(null);
-  conversationRef.current = chatId ?? taskConversation;
+  conversationRef.current = chatId ?? taskConversation ?? taskProjectChat;
   const resourceChatRef = useRef(resourceChat);
-  resourceChatRef.current = resourceChat;
+  resourceChatRef.current = resourceChat ?? taskProjectChat ?? undefined;
   const workspace = sessionId ? sessionWorkspace(sessionId) : projectId && filePath ? projectWorkspace(projectId) : null;
   const [surface, setSurface] = useState<ExtensionSurface | null>(null);
   const [failure, setFailure] = useState<SurfaceFailure | null>(null);
@@ -200,7 +201,7 @@ export function ExtensionTabPane({
     if (result?.success) extensionSurfaceStore.setWebContentsId(slotRef.current.sessionId, slotRef.current.tabId, result.webContentsId);
     return result;
   }, [guestBinding]);
-  useEffect(() => { void aim().catch((error: unknown) => log.warn('Extension surface binding failed:', error)); }, [aim, sessionId, tabId, filePath, itemId, viewState, navigation?.canBack, navigation?.canForward, navigation?.backToConversation]);
+  useEffect(() => { void aim().catch((error: unknown) => log.warn('Extension surface binding failed:', error)); }, [aim, sessionId, tabId, chatId, taskConversation, resourceChat, taskProjectChat, filePath, itemId, viewState, navigation?.canBack, navigation?.canForward, navigation?.backToConversation]);
 
   const attachWebview = useCallback(
     (element: BrowserWebviewElement | null) => {

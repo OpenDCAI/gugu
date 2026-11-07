@@ -30,7 +30,7 @@ vi.mock('../extensions/installed-extensions-store', () => ({ installedExtensions
 vi.mock('../extensions/extension-surface-store', () => ({ extensionSurfaceStore: { setWebContentsId() {}, forgetShared() {} } }));
 vi.mock('../extensions/app-settings-page', () => ({ AppSettingsPage: () => null }));
 vi.mock('../extensions/extension-tab-toolbar', () => ({ ExtensionTabToolbar: () => null }));
-vi.mock('@/lib/taskConversation', () => ({ useTaskConversation: () => null }));
+vi.mock('@/lib/taskConversation', () => ({ useTaskConversation: () => null, useTaskProjectChat: () => null }));
 vi.mock('@/components/appSlot/AppPeekSlot', () => ({ AppPeekSlot: ({ children }: { children: React.ReactNode }) => children }));
 
 const kind = 'workspace.main';

@@ -116,9 +116,9 @@ describe('final group toolbar v4', () => {
     expect(button('邀请')).toBeDefined()
     expect(button('应用')).toBeDefined()
     expect(button('在对话中搜索')).toBeUndefined()
-    expect(button('群文件夹')).toBeUndefined()
+    expect(button('文件')).toBeUndefined()
     expect(menuItem('搜索聊天记录')).toBeDefined()
-    expect(menuItem('群文件夹')).toBeDefined()
+    expect(menuItem('文件')).toBeDefined()
     expect(harness.container.querySelector('[data-agent-display-status="working"]')).toBeNull()
   })
 
@@ -203,8 +203,8 @@ describe('final group toolbar v4', () => {
     expect(setChatNotificationLevel).toHaveBeenCalledWith('chat', 'none')
     expect(document.querySelector('[data-testid="group-header-menu"]')).not.toBeNull()
     if (kind === 'dm') {
-      expect(button('文件夹'), 'a private chat has no header folder button, like a group').toBeUndefined()
-      await clickElement(menuItem('文件夹')!)
+      expect(button('文件'), 'a private chat has no header folder button, like a group').toBeUndefined()
+      await clickElement(menuItem('文件')!)
       expect(onOpenFolder).toHaveBeenCalledOnce()
     }
   })

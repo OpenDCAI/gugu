@@ -1,5 +1,5 @@
 /* global gugu */ // An App program's gugu: the page's, for the page's own verbs (guide apps-programs).
-// The 群文件夹 App's tools for an agent's chat folder (moved into the App 2026-10-11): list, read,
+// The Files App's tools for an agent's chat files (moved into the App 2026-10-11): list, read,
 // create, edit, delete — the agent works on a chat's files the way it works on local ones: read, edit(old, new), create.
 // Every one acts as the agent that calls it: a chat it hands (`gugu-chat`) or a file it hands (`gugu-file`) is checked as
 // that agent at the gateway, and what the tool reads and writes there is the agent's, by its own membership.
@@ -211,7 +211,7 @@ async function saveLocally(entry, data, agent) {
 
 export const list = {
   description:
-    'The files in a chat\'s folder (群文件夹 of a source group or private chat), newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, version, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
+    'Chat files (聊天文件 in the Files App), shared by a source group or private chat, newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, version, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
   inputSchema: {
     type: 'object',
     required: ['chat_id'],

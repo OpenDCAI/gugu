@@ -26,7 +26,7 @@ const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: bool
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
   }), { chat: { activeChatId: 'c', chats: [{ id: 'c', kind: props.isGroupChat ? 'group' : 'dm' }] as never } }) // the item's name: useChatFolderName
-const headerButton = () => harness.container.querySelector<HTMLElement>('button[aria-label="文件夹"], button[aria-label="群文件夹"]')
+const headerButton = () => harness.container.querySelector<HTMLElement>('button[aria-label="文件"]')
 const menuItem = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === name)
 
 describe('a private chat reaches its folder where a group does', () => {
@@ -34,14 +34,14 @@ describe('a private chat reaches its folder where a group does', () => {
     const onOpen = vi.fn()
     await header({ isGroupChat: false, isRoomChat: false, mobile }, onOpen)
     expect(headerButton()).toBeNull()
-    expect(menuItem('文件夹'), "owner 10-11: a private chat's is 文件夹").toBeDefined()
-    await clickElement(menuItem('文件夹')!)
+    expect(menuItem('文件'), "a private chat's is 文件, as a group's").toBeDefined()
+    await clickElement(menuItem('文件')!)
     expect(onOpen).toHaveBeenCalledTimes(1)
   })
 
   it.each([false, true])('mobile=%s: a group has the same ⋯ item and no header button', async (mobile) => {
     await header({ isGroupChat: true, isRoomChat: true, mobile })
     expect(headerButton()).toBeNull()
-    expect(menuItem('群文件夹')).toBeDefined()
+    expect(menuItem('文件')).toBeDefined()
   })
 })

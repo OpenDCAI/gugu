@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@renderer/lib/ipc', () => ({ rpc: { extensions: h } }));
-vi.mock('@/lib/taskConversation', () => ({ useTaskConversation: () => null }));
+vi.mock('@/lib/taskConversation', () => ({ useTaskConversation: () => null, useTaskProjectChat: () => null }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
 vi.mock('./extension-tab-toolbar', () => ({ ExtensionTabToolbar: () => null }));
 

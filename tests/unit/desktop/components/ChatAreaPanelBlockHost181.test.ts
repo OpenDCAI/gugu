@@ -286,9 +286,9 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
       expect(title.querySelector('[data-agent]'), 'the tab keeps the agent avatar').not.toBeNull()
       expect(header(), 'the strip is the only header').toBeNull()
       expect(actions.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).not.toBeNull()
-      expect(actions.querySelector('button[aria-label="文件夹"]'), 'the folder is in More, as in a group').toBeNull()
+      expect(actions.querySelector('button[aria-label="文件"]'), 'the folder is in More, as in a group').toBeNull()
       await clickElement(actions.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)!)
-      await clickElement([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === '文件夹')!)
+      await clickElement([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === '文件')!)
       const shown = shownPanelTab('group-1')!
       folder = shown.tabId
       expect(isFolderItem(shown.item)).toBe(true)
