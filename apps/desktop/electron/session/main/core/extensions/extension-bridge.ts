@@ -13,6 +13,7 @@ import { onExtensionProgramNotification } from '@main/core/extensions/extension-
 import { extensionProjections } from './extension-projection-bridge';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
+import { fileHoldersOfflineChannel } from '@shared/events/appEvents';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';
 import { knownSessionMachine, type SessionMachine } from './app-programs-elsewhere';
 import {
@@ -462,6 +463,13 @@ export function stopPageWatches(pageId: number): void {
   pageWatches.delete(pageId);
   if (workingCopyPages.delete(pageId)) void import('@main/core/extensions/working-copy-files').then(({ releaseWorkingCopies }) => releaseWorkingCopies(pageId));
   for (const { resource, caller } of watching?.values() ?? []) forgetUnheard(resource, caller);
+  releaseHoldersWhenUnwatched();
+}
+
+/** No page watches a chat's files any more: nobody is showing where they are kept. */
+function releaseHoldersWhenUnwatched(): void {
+  for (const places of pageWatches.values()) for (const { resource } of places.values()) if ('chat' in resource) return;
+  events.emit(fileHoldersOfflineChannel, { deviceIds: [], replace: true });
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
@@ -472,6 +480,7 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
     existing?.disk?.stop();
     watching?.delete(watchId);
     if (existing) forgetUnheard(existing.resource, existing.caller);
+    releaseHoldersWhenUnwatched();
     return;
   }
   watching = fileWatchesFor(caller.pageId);

@@ -1,6 +1,7 @@
 import type { RuntimeAuth } from '@gugu/core'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import { readCachedDeviceId } from '@gugu/core/cloud/deviceRuntime'
 import { attachmentRequest, configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { createFileMetadataLoader } from '@gugu/core/cloud/fileMetadata'
@@ -102,7 +103,27 @@ export function createDesktopFileAccess(deps: {
       return (count ?? 0) > 0
     },
   })
-  return { providers, resolve, resolveAccount, read, drain, publish,
+  let keeping: Promise<void> | undefined, keepAgain = false
+  const keepSent = () => {
+    keepAgain = true
+    return keeping ??= (async () => {
+      try {
+        while (keepAgain) {
+          keepAgain = false
+          const { accountId } = await identity()
+          await publish.keepSent(async image => {
+            const file = await resolve({ item_id: image.item_id, version: image.version }, { accountId, actorId: accountId })
+            if (file.status !== 'ready') throw new Error('The image is no longer available')
+            await mkdir(deps.tempRoot, { recursive: true, mode: 0o700 })
+            const directory = await mkdtemp(join(deps.tempRoot, 'kept-'))
+            const saved = await saveFileHandle(file, directory, image.file_name)
+            return { path: saved.file_path, dispose: () => rm(directory, { recursive: true, force: true }) }
+          })
+        }
+      } finally { keeping = undefined }
+    })()
+  }
+  return { providers, resolve, resolveAccount, read, drain, keepSent, publish,
     handlers: (transport: 'ssh' | 'realtime'): DeviceRpcHandlers => transport === 'ssh' ? sshHandlers : {},
     async download(ref: FileRef, name: string, actorId: string) {
       const step = <T>(stage: string, action: () => Promise<T>) => attachmentStage({ actorId, ref }, stage, action)

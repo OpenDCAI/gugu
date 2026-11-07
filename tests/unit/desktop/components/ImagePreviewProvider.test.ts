@@ -149,7 +149,7 @@ describe('ImagePreviewProvider', () => {
   })
 
   it('uses the existing offline-holder message when a file thumbnail fails', async () => {
-    vi.spyOn(fileHost, 'offlineHolder').mockResolvedValue({ machine: 'Studio Mac', deviceId: 'device' })
+    vi.spyOn(fileHost, 'offlineHolder').mockResolvedValue({ machine: 'Studio Mac', person: null, deviceId: 'device' })
     const toast = vi.fn()
     await openViewer({ toast, images: [{ url: '', alt: 'offline', preview: async () => { throw new Error('unavailable') }, resource: { kind: 'file', target: { kind: 'file', itemId: 'photo', version: 2 } } }] })
     await waitForCondition(() => toast.mock.calls.length > 0, 'offline-holder notice was not shown')

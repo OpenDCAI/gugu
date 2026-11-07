@@ -5,6 +5,7 @@ import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { attachmentBytes, attachmentMetadata, sourceKeyOf, useAttachmentObjectUrl } from '../../lib/attachmentBytes'
+import { holderOfflineText, offlineHolder, useHolderBack } from '../../lib/fileHost'
 import { useAuth } from '../../store/auth'
 import { attachmentQuery, attachmentQueryClient } from '../../lib/attachmentQueryClient'
 import { ExtensionBundleCard } from '../extensionBundle/ExtensionBundleCard'; import { isExtensionBundle } from '../extensionBundle/summarizeExtensionBundle'
@@ -67,6 +68,8 @@ function InlineImage({ meta, messageId, chatId, isMine }: { meta: ParsedAttachme
   const near = useNearViewport(box)
   const view = useAttachmentObjectUrl(meta.source, 'thumb', near, meta.fileMetadata)
   const img = useRef<HTMLImageElement>(null)
+  const holder = view.status === 'failed' ? view.holder : null
+  useHolderBack(holder?.deviceId ?? null, view.retry, async () => meta.source.kind === 'item' && !!await offlineHolder(meta.source.itemId, meta.source.version))
   const dimensions = meta.fileMetadata?.status === 'ready' ? meta.fileMetadata.revision : meta.imageDimensions ?? ('link' in view ? view.link : undefined)
   const imageStyle = inlineImageStyle(dimensions)
   const ready = view.status === 'ready'
@@ -94,7 +97,7 @@ function InlineImage({ meta, messageId, chatId, isMine }: { meta: ParsedAttachme
       <FileAttachmentCard
         file={meta}
         isMine={isMine}
-        details={`${t('attachmentView.imageUnavailable')} · ${t('attachmentView.retry')}`}
+        details={holder ? holderOfflineText(holder) : `${t('attachmentView.imageUnavailable')} · ${t('attachmentView.retry')}`}
         onOpen={view.retry}
       />
     )

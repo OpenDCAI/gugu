@@ -234,3 +234,6 @@ export const agentInstallationStatusUpdatedChannel = defineEvent<AgentInstallati
  * 「这次量不出分母」，界面应当只显示已完成量与速度（product spec）。
  */
 export const agentInstallProgressChannel = defineEvent<AgentInstallProgress>('agent:install-progress');
+
+/** Machines of other accounts that keep files a folder on screen lists, off right now; `replace`: the folders are gone, forget the rest. */
+export const fileHoldersOfflineChannel = defineEvent<{ deviceIds: string[]; replace: boolean }>('files:holders-offline');

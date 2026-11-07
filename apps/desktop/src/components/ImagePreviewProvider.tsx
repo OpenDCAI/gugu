@@ -18,7 +18,7 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { fetchBlob, downloadBlob } from '../lib/download'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imageClipboard'
 import { rendererLogger } from '../lib/log'
-import { offlineHolder } from '../lib/fileHost'
+import { holderOfflineText, offlineHolder } from '../lib/fileHost'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
 import { commandRegistry } from '@renderer/lib/commands/registry'
@@ -419,8 +419,8 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
             void (async () => {
               const offline = target?.kind === 'file' ? await offlineHolder(target.itemId, target.version) : null
               if (pswp.isDestroying || !pswp.isOpen) return
-              const { t, i18n, toast } = latest.current
-              toast(offline ? i18n.t('attachmentView.holderOffline', { ns: 'messaging', machine: offline.machine || i18n.t('attachmentView.holderMachine', { ns: 'messaging' }) }) : t('shell.imagePreview.loadFailed'), 'error', offline ? undefined : messageForUser(error))
+              const { t, toast } = latest.current
+              toast(offline ? holderOfflineText(offline) : t('shell.imagePreview.loadFailed'), 'error', offline ? undefined : messageForUser(error))
             })()
           })
           let unbindMenu: (() => void) | undefined
