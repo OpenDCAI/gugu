@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
+import { chatAttention } from '@gugu/core/shared/ui/chatModels'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { TaskStatusMark } from '@/components/chat/ComposerCardView'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
@@ -55,9 +56,16 @@ export function PhoneChatTabs({ topics, messages, current, onPick, dense = false
     else if (tab.offsetLeft + tab.offsetWidth + pad > row.scrollLeft + row.clientWidth) row.scrollLeft = tab.offsetLeft + tab.offsetWidth + pad - row.clientWidth
   }, [value])
   if (topics.length === 0) return null
+  const callsOf = (topic: TopicSummary) => {
+    const chat = chats.find((row) => row.id === topic.chat_id)
+    return chat ? chatAttention(chat).askingYou : 0
+  }
+  // 手机上话题都摆在这一排:叫到你的排最前。桌面这一排是你置顶的顺序,不动。
+  const ordered = dense ? topics : [...topics.filter((topic) => callsOf(topic) > 0), ...topics.filter((topic) => callsOf(topic) === 0)]
   const items = [
     { value: MAIN, label: t('topic.phoneTabs.group'), testId: 'phone-chat-tab-main' },
-    ...topics.map((topic) => {
+    ...ordered.map((topic) => {
+      const calls = callsOf(topic)
       const agent = agentOf.get(topic.source_message_id)
       const status = agent ? statuses[agent] : undefined
       const busy = status === 'working' || status === 'parked' || status === 'needs_user' || status === 'error'
@@ -67,6 +75,7 @@ export function PhoneChatTabs({ topics, messages, current, onPick, dense = false
         icon: <Hash size={14} aria-hidden />,
         marker: busy ? <TaskStatusMark status={status} /> : undefined,
         badge: chats.find((chat) => chat.id === topic.chat_id)?.unread_count ?? 0,
+        call: calls > 0 ? { count: calls, label: t('topic.calledYou') } : undefined,
         testId: `phone-chat-tab-${topic.chat_id}`,
       }
     }),

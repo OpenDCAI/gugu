@@ -75,13 +75,14 @@ afterEach(() => {
   queryClient.clear()
 })
 
+let topicRows: Record<string, Partial<ReturnType<typeof chat>>> = {}
 async function render(chatId: string, mobile = true, kind: 'group' | 'dm' = 'group') {
   await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', mobile, hidden: false, openNonce: 0 }), {
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: chatId,
       activeChat: chat({ id: chatId, kind, name: '登录改版' }),
-      chats: TOPICS.map((topic) => chat({ id: topic.chat_id, kind: 'topic', source_chat_id: 'g1', name: topic.name })),
+      chats: TOPICS.map((topic) => chat({ id: topic.chat_id, kind: 'topic', source_chat_id: 'g1', name: topic.name, ...topicRows[topic.chat_id] })),
     },
   })
   await act(async () => { await Promise.resolve() })
@@ -100,6 +101,22 @@ describe('shared group topic tabs (#446, #837)', () => {
     expect(tab('t2')).not.toBeNull()
     expect(q('[data-testid="group-menu-topics"]')).toBeNull()
     expect(q('[data-testid="topic-split-pane"]')).toBeNull()
+  })
+
+  it('phone: a topic calling you shows red @N, comes right after Group chat, and plain unread stays a plain count', async () => {
+    pinPrefs.ids = []
+    const locator = (unread: number, addressed: number) => ({ stream_id: 'main', stream_kind: 'main' as const, thread_root_id: null, message_id: 'm', message_seq: 1, unread_count: unread, addressed_count: addressed, cursor_seq: 0, version: 1, is_marked_unread: false })
+    topicRows = { t1: { unread_count: 9, unread_locator: locator(9, 0) }, t2: { unread_count: 27, unread_locator: locator(27, 2) } }
+    try {
+      await render('g1')
+      await vi.waitFor(() => expect(tab('t2')).not.toBeNull())
+      expect(tab('t2')!.querySelector('[data-tab-call]')?.textContent).toBe('@2')
+      expect(tab('t2')!.getAttribute('aria-label')).toContain('周报')
+      expect(tab('t1')!.querySelector('[data-tab-call]')).toBeNull()
+      expect(tab('t1')!.textContent).toContain('9')
+      const order = [...document.querySelectorAll<HTMLElement>('[data-testid^="phone-chat-tab-"]')].map((node) => node.dataset.testid)
+      expect(order.slice(0, 3)).toEqual(['phone-chat-tab-main', 'phone-chat-tab-t2', 'phone-chat-tab-t1'])
+    } finally { topicRows = {} }
   })
 
   it('点话题那一枚:消息区换成它,没有自己的页头;点回「群聊」它就收起', async () => {

@@ -81,6 +81,8 @@ export interface SegmentedTabItem<T extends string> {
    * 读屏会念成「好友 3」，听不出 3 是什么。
    */
   badge?: number
+  /** 叫到你的条数:红底 @N,盖过计数和状态标记(手机话题页签,和项目行同一个数)。aria-label 由调用方给好。 */
+  call?: { count: number; label: string }
   /** 标签字前面的小图标(手机对话页的话题那一枚:#)。 */
   icon?: ReactNode
   /** 标签字后面的状态标记;有它就不画计数角标(在跑的任务先说在跑,未读等它停了再说)。 */
@@ -154,13 +156,14 @@ export function SegmentedTabs<T extends string>({
             data-testid={item.testId}
             className={cn('gg-segtab', tabVariants({ variant }))}
             onClick={() => { onChange(item.value) }}
-            aria-label={item.badge ? t('tabs.pending', { label: item.label, count: item.badge }) : undefined}
+            aria-label={item.call ? `${item.label} ${item.call.label}` : item.badge ? t('tabs.pending', { label: item.label, count: item.badge }) : undefined}
           >
             {item.icon}
             {item.label}
-            {item.marker ?? (item.badge != null && item.badge > 0 && (
+            {item.call && <span className={cn(tabBadge, 'bg-[var(--danger-solid)] text-[var(--danger-solid-fg)]')} data-tab-call="" aria-hidden="true">@{item.call.count > 99 ? '99+' : item.call.count}</span>}
+            {!item.call && (item.marker ?? (item.badge != null && item.badge > 0 && (
               <span className={tabBadge} aria-hidden="true">{item.badge}</span>
-            ))}
+            )))}
           </button>
         )
       })}
