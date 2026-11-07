@@ -30,7 +30,7 @@ async function mount(theme: 'light' | 'dark', role: 'user' | 'assistant', surfac
   if (surface === 'phone') surfaceHost.setAttribute('data-phone-shell', '');
   if (surface === 'today') surfaceHost.className = 'ta-chat';
   if (surface === 'task') surfaceHost.className = 'assistant-task-chat-window';
-  const context = createChatContext({ locale: () => 'en-US' });
+  const context = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', agentConversation: true, userGutter: 0 } });
   const state = createChatState(context);
   state.transcript.history.seed([{ id: 'turn', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [
     { kind: 'message', id: 'code', seq: 0, role, text: TEXT },
