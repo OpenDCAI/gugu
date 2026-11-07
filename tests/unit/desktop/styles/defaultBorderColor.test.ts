@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import tailwind from '@tailwindcss/postcss'
 import postcss, { type AcceptedPlugin, type AtRule, type Root, type Node, type Rule } from 'postcss'
 import { beforeAll, expect, it } from 'vitest'
+import { rendererHtmlEntries } from '../../../../scripts/build/product-build-entries.mts'
 
 const entries = ['apps/desktop/src/styles/tokens.css', 'apps/desktop/src/session/renderer/index.css']
 const compiled: Root[] = []
@@ -67,4 +68,9 @@ it.each([0, 1])('keeps entry %i free of :has() followed by a universal descendan
     if (hasThenUniversal.test(flatSelector(rule))) hits.push(flatSelector(rule))
   })
   expect(hits).toEqual([])
+})
+// Portals append to <body>; if #root could flip :last-child, the first portal would restyle the whole app.
+it.each(Object.values(rendererHtmlEntries))('keeps a fixed element after #root in %s', entry => {
+  const body = readFileSync(entry, 'utf8').replace(/<!--.*?-->/gs, '')
+  expect(body).toMatch(/<div id="root"><\/div>\s*<div data-root-sibling hidden><\/div>/)
 })
