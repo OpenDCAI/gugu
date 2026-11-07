@@ -648,31 +648,39 @@ describe('ChatMessageComposer', () => {
     await flush()
     expect(document.body.textContent).toContain('新入群 Agent')
   })
-  it('#2166 warns only for an explicitly offline resolved agent status', async () => {
+  it.each([
+    ['offline', '当前不在线，可能无法及时回复'],
+    ['archived', '对方已归档'],
+  ] as const)('#1987 keeps the %s picker warning without a selected-Agent banner', async (status, warning) => {
     const offlineAgent = rosterMember('offline-agent', '设备离线 Agent', 'agent')
     const reachableAgent = rosterMember('reachable-agent', '可对话 Agent', 'agent')
+    const onSend = vi.fn(async () => {})
     await harness.render(createElement(ChatMessageComposer, {
-      onSend: vi.fn(async () => {}),
+      onSend,
       chatId: 'group-1',
       isGroupChat: true,
       groupMembers: [offlineAgent, reachableAgent],
-      agentStatuses: { 'offline-agent': 'offline', 'reachable-agent': 'idle' },
+      agentStatuses: { 'offline-agent': status, 'reachable-agent': 'idle' },
     }))
     await flush()
     await typeInComposer('@')
     const offlineOption = Array.from(document.body.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('设备离线 Agent'))
     const reachableOption = Array.from(document.body.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('可对话 Agent'))
-    expect(offlineOption?.textContent).toContain('当前不在线，可能无法及时回复')
-    expect(reachableOption?.textContent).not.toContain('当前不在线，可能无法及时回复')
-    expect(offlineOption?.querySelector('[data-agent-display-status]')?.getAttribute('data-agent-display-status')).toBe('offline')
+    expect(offlineOption?.textContent).toContain(warning)
+    expect(reachableOption?.textContent).not.toContain(warning)
+    expect(offlineOption?.querySelector('[data-agent-display-status]')?.getAttribute('data-agent-display-status')).toBe(status)
     expect(reachableOption?.querySelector('[data-agent-display-status]')?.getAttribute('data-agent-display-status')).toBe('idle')
     await act(async () => {
       offlineOption?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
     })
     await flush()
-    expect(container.querySelector('[data-agent-status-surface="mention-selection"][data-agent-id="offline-agent"]')?.textContent)
-      .toContain('当前不在线，可能无法及时回复')
-    expect(container.querySelector('[data-agent-status-surface="mention-selection"][data-agent-id="reachable-agent"]')).toBeNull()
+    expect(container.querySelector('[data-agent-status-surface="mention-selection"]')).toBeNull()
+    const mention = container.querySelector('[data-mention-id="offline-agent"]')
+    expect(mention?.textContent).toBe('@设备离线 Agent')
+    expect(mention?.getAttribute('title') ?? '').not.toContain(warning)
+    expect(container.textContent).not.toContain(warning)
+    await clickSend()
+    expect(onSend).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('@设备离线 Agent'), expect.objectContaining({ toUserIds: ['offline-agent'] }))
   })
   it('3a a name with a space stays pickable, and picking it closes the popup', async () => {
     const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})

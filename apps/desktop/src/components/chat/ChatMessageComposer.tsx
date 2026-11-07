@@ -35,7 +35,7 @@ import { ComposerVerbs } from './ComposerVerbs'
 import { useComposerVerbTakeover } from './useComposerVerbTakeover'
 import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ChatComposerContextBands } from './ChatComposerContextBands'
-import { AgentMentionOptionLabel, AgentMentionSelectionNotice } from './AgentMentionStatusNotice'
+import { AgentMentionOptionLabel } from './AgentMentionStatusNotice'
 import { mentionOptionStatusProps } from './agentMentionStatusModels'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
@@ -213,7 +213,6 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
           <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { enqueuePhotos(Array.from(event.target.files ?? [])); event.target.value = '' }} />
         </>}
         <ChatComposerContextBands {...deliveryProps} />
-        <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
         {invitation}
         {phoneTask.overlay}
         {phoneTask.band}
