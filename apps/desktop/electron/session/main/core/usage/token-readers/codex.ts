@@ -1,3 +1,4 @@
+import { createUsagePrefilter } from './usage-prefilter';
 import type { Dirent } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -114,10 +115,7 @@ export const codexTokenReader: TokenLogReader = {
     return state;
   },
 
-  mayCarryUsage(line) {
-    // 未转义的结构标记(同 claude 那边的理由);codex 写的也是紧凑 JSON。
-    return line.includes('"type":"token_count"') || line.includes('"type":"turn_context"') || line.includes('"type":"session_meta"');
-  },
+  ...createUsagePrefilter([["\"type\":\"token_count\""], ["\"type\":\"turn_context\""], ["\"type\":\"session_meta\""]]),
 
   readLine(entry, rawState): TokenEntry | null {
     const state = rawState as CodexState;

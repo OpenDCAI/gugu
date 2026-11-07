@@ -1,3 +1,4 @@
+import type { TokenCachePager } from '../token-scan-client';
 import { createIncrementalTokenFold } from '../incremental-token-fold';
 import { TOKEN_LOG_READERS } from '../token-readers/registry';
 import type { TokenLogReader } from '../token-readers/types';
@@ -13,10 +14,12 @@ import type { FromWorker, ToWorker } from './protocol';
  */
 export function createTokenScanService(
   send: (message: FromWorker) => void,
-  readers: readonly TokenLogReader[] = TOKEN_LOG_READERS
+  readers: readonly TokenLogReader[] = TOKEN_LOG_READERS,
+  cache?: TokenCachePager
 ): { handle(message: ToWorker): Promise<void> } {
   const memory = createParsedFileMemory();
   let fold = createIncrementalTokenFold();
+  let hydrated = false;
   return {
     async handle(message) {
       if (message.type === 'hydrate') {
@@ -30,6 +33,19 @@ export function createTokenScanService(
         return;
       }
       try {
+        if (cache && !hydrated) {
+          hydrated = true;
+          try {
+            let after = '';
+            for (;;) {
+              const rows = cache.loadPage(after, 40);
+              if (!rows.length) break;
+              hydrateParsedFileMemory(memory, rows);
+              after = rows[rows.length - 1].path;
+            }
+          } catch (error) { send({ type: 'cache-error', path: '<token cache>', error: String(error) }); }
+        }
+        let writable = true;
         fold.begin(message.sourcesByProviderSession);
         const { stats } = await collectTokenEntries({
           providerSessions: message.providerSessions,
@@ -37,8 +53,20 @@ export function createTokenScanService(
           rootsByProvider: message.rootsByProvider,
           memory,
           onFile: (file) => fold.visit(file),
-          onPrune: (path, generation) => send({ type: 'prune-cache', path, generation }),
-          onSave: (row) => send({ type: 'save', row }),
+          onPrune: (path, generation) => cache ? cache.prune?.(path, generation) : send({ type: 'prune-cache', path, generation }),
+          onSave: (row) => cache ? cache.save(row) : send({ type: 'save', row }),
+          cacheCheckpoint: cache ? (persist) => {
+            if (!writable) return false;
+            try {
+              if (cache.checkpoint) cache.checkpoint(persist);
+              else persist();
+              return true;
+            } catch (error) {
+              writable = false;
+              send({ type: 'cache-error', path: '<token cache>', error: String(error) });
+              return false;
+            }
+          } : undefined,
           onFileError: (path, error) => send({ type: 'file-error', path, error: String(error) }),
         });
         const result = fold.finish();

@@ -40,6 +40,8 @@ export type TokenLogReader = {
   initialState(context?: { path: string; providerSessionId?: string }): ReaderState;
   /** 廉价的字符串预筛:不可能带用量的行直接跳过 JSON.parse(日志大头是对话正文)。 */
   mayCarryUsage(line: string): boolean;
+  /** Conservative byte filter for complete lines, before UTF-8 decoding. */
+  mayCarryUsageBytes?(block: Buffer): boolean;
   /** 一行已解析的 JSON → 一条用量(或 null)。可以改写 state。纯函数,不碰磁盘。 */
   readLine(entry: Record<string, unknown>, state: ReaderState): TokenEntry | null;
 };

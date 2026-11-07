@@ -9,7 +9,7 @@ export const TOKEN_CACHE_PART_ENTRIES = 1024;
 const PART_PREFIX = 'gugu-usage-chunk:';
 
 type Storage = { generation: string; entryCount: number; fileId?: string };
-export type CachedParsedFile = { size: number; mtimeMs: number; parsed: ParsedLogFile; latestTs?: number; storage?: Storage };
+export type CachedParsedFile = { size: number; mtimeMs: number; parsed: ParsedLogFile; latestTs?: number; sourceFileId?: string; storage?: Storage };
 type Header = Storage & { kind: 'gugu-token-file-cache'; format: 1; parserVersion: ParsedLogFile['v']; parts: number; offset: number; state: ParsedLogFile['state'] };
 export type ParsedFileMemory = {
   files: Map<string, CachedParsedFile>;

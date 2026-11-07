@@ -65,6 +65,7 @@ export async function collectTokenEntries(options: {
   rootsByProvider: Readonly<Record<string, readonly string[]>>;
   memory: ParsedFileMemory;
   onSave: (row: CachedLogFileSave) => void;
+  cacheCheckpoint?: (persist: () => void) => boolean;
   onPrune?: (path: string, generation: string) => void;
   onFile?: (file: TokenFileUpdate) => void;
   onFileError?: (path: string, error: unknown) => void;
@@ -108,7 +109,8 @@ export async function collectTokenEntries(options: {
         const known = memory.files.get(path);
 
         const fileId = `${info.dev}:${info.ino}`;
-        const sameFile = !known?.storage?.fileId || known.storage.fileId === fileId;
+        const knownFileId = known?.sourceFileId ?? known?.storage?.fileId;
+        const sameFile = !knownFileId || knownFileId === fileId;
         const changed = !known || !sameFile || known.size !== size || known.mtimeMs !== mtimeMs;
         const upgrade = !!known && known.parsed.v !== TOKEN_CACHE_VERSION
           && (changed || (known.latestTs ??= known.parsed.entries.reduce((max, entry) => Math.max(max, entry.ts), -Infinity)) >= refreshSinceMs);
@@ -134,14 +136,21 @@ export async function collectTokenEntries(options: {
             // Reuse cached entry objects; never clone the whole history on append.
             for (const entry of added) resume.entries.push(entry);
           }
-          file = { size, mtimeMs, parsed: resume ? { ...delta, entries: resume.entries } : delta };
+          file = { size, mtimeMs, sourceFileId: fileId, parsed: resume ? { ...delta, entries: resume.entries } : delta };
           memory.files.set(path, file);
           const hadStoredParts = memory.storedParts.has(path);
-          const saved = saveParsedFileParts({ path, provider: reader.provider, providerSessionId,
-            file, previous, fileId, onSave: options.onSave });
-          stats.cacheWriteEntries = (stats.cacheWriteEntries ?? 0) + saved.writtenEntries;
-          if (saved.reset && hadStoredParts) options.onPrune?.(path, saved.generation);
-          if (file.parsed.entries.length) memory.storedParts.add(path);
+          const cachedFile = file;
+          const persist = () => {
+            const saved = saveParsedFileParts({ path, provider: reader.provider, providerSessionId,
+              file: cachedFile, previous, fileId, onSave: options.onSave });
+            stats.cacheWriteEntries = (stats.cacheWriteEntries ?? 0) + saved.writtenEntries;
+            if (saved.reset && hadStoredParts) options.onPrune?.(path, saved.generation);
+          };
+          const saved = options.cacheCheckpoint ? options.cacheCheckpoint(persist) : (persist(), true);
+          if (!saved) {
+            if (previous) cachedFile.storage = previous;
+            else delete cachedFile.storage;
+          } else if (cachedFile.parsed.entries.length) memory.storedParts.add(path);
         }
         if (!file) throw new Error('Parsed token file unavailable');
         visited.add(path);

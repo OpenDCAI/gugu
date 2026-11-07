@@ -10,10 +10,13 @@ import type { AppDb } from '@main/db/client';
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
   home: '' as string,
+  sqlite: undefined as { name: string } | undefined,
   warnings: [] as unknown[][],
+  workers: [] as Array<{ terminate(): unknown }>,
 }));
 
 vi.mock('@main/db/client', () => ({
+  get sqlite() { return mocks.sqlite; },
   get db() {
     if (!mocks.db) throw new Error('Test database not initialized');
     return mocks.db;
@@ -24,9 +27,12 @@ vi.mock('@main/core/agents/agent-home', () => ({
   resolveAgentHomeEnv: async () => ({}),
 }));
 // worker 线程换成进程内实现(真线程那条在 token-scan-client.test.ts 里单独测)。
-vi.mock('./token-scan-worker/spawn', async () => ({
-  spawnTokenScanWorker: (await import('./_support/in-process-worker')).createInProcessTokenScanWorker,
-}));
+vi.mock('./token-scan-worker/spawn', async () => {
+  const { createInProcessTokenScanWorker } = await import('./_support/in-process-worker');
+  return { spawnTokenScanWorker: (path: string) => {
+    const worker = createInProcessTokenScanWorker(path); mocks.workers.push(worker); return worker;
+  } };
+});
 vi.mock('@main/lib/logger', () => ({
   log: {
     info: () => {},
@@ -66,6 +72,7 @@ describe('run-interval-recorder', () => {
   beforeEach(async () => {
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
+    mocks.sqlite = fixture.sqlite;
     mocks.warnings = [];
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
@@ -79,6 +86,7 @@ describe('run-interval-recorder', () => {
   });
 
   afterEach(() => {
+    for (const worker of mocks.workers.splice(0)) worker.terminate();
     fixture?.close();
   });
 
@@ -270,11 +278,13 @@ describe('buildLocalUsageSnapshot / usage.localDaily', () => {
   beforeEach(async () => {
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
+    mocks.sqlite = fixture.sqlite;
     mocks.warnings = [];
     home = mkdtempSync(join(tmpdir(), 'gugu-usage-home-%_-'));
     mocks.home = home;
   });
   afterEach(() => {
+    for (const worker of mocks.workers.splice(0)) worker.terminate();
     fixture?.close();
     rmSync(home, { recursive: true, force: true });
   });

@@ -126,6 +126,7 @@ export async function readLogFileDelta(
     const complete = pending.length > 0 ? Buffer.concat([...pending, head]) : head;
     pending = lastNewline + 1 < chunk.length ? [chunk.subarray(lastNewline + 1)] : [];
     consumed += complete.length;
+    if (reader.mayCarryUsageBytes && !reader.mayCarryUsageBytes(complete)) continue;
     for (const line of complete.toString('utf8').split('\n')) {
       if (!line || !reader.mayCarryUsage(line)) continue;
       let parsed: unknown;
