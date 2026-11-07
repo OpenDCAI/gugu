@@ -27,7 +27,7 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
   const hostCommands = props.commands;
   // Composer-only renders must not republish commands and remeasure history.
   const commands = useMemo<NonNullable<ChatTranscriptProps['commands']>>(() => ({ ...hostCommands,
-    resolveAttachment: attachment => attachment.id.startsWith('gugu-message-file://') ? resolveDeliveredAttachment(attachment.id) : hostCommands?.resolveAttachment?.(attachment) ?? Promise.resolve(null),
+    resolveAttachment: attachment => /^gugu-(message-)?file:\/\//.test(attachment.id) ? resolveDeliveredAttachment(attachment.id) : hostCommands?.resolveAttachment?.(attachment) ?? Promise.resolve(null),
   }), [hostCommands]);
   useEffect(() => {
     if (!props.state?.session?.setDeliveredMessages) return;

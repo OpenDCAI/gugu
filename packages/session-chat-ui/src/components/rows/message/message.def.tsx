@@ -86,7 +86,9 @@ export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: stri
   // —— 附件条本来就只长在用户卡上(measureMessage 的 `aH` 也只在那一支)。
   if (normalized.role !== 'user') return normalized;
   const imageNames = new Set(normalized.attachments?.map(file => file.name) ?? []);
-  const files = (item.files ?? []).filter(file => !imageNames.has(file.name)).map(file => ({ id: `${file.itemId}:${file.version}`, name: file.name, kind: 'file' as const }));
+  const files = (item.files ?? []).filter(file => !imageNames.has(file.name)).map(file => file.mimeType.startsWith('image/')
+    ? { id: `gugu-file://${file.itemId}?v=${file.version}`, name: file.name, kind: 'image' as const }
+    : { id: `${file.itemId}:${file.version}`, name: file.name, kind: 'file' as const });
   if (files.length) normalized.attachments = [...(normalized.attachments ?? []), ...files];
   const split = splitAttachmentMentions(normalized.text);
   if (split.attachments.length === 0) return normalized;
