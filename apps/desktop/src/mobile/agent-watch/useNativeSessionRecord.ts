@@ -3,6 +3,7 @@ import { isDeepEqual } from '@gugu/session-shared'
 import { remoteFailureKind, type NativeSessionRecord } from '@gugu/session-core/session-record/contract'
 import { machineRpc, onLinkChange } from './sessionpage-rpc'
 import { messageForUser } from '@/lib/userFacingError'
+import { useStructurallyShared } from '@/hooks/useStructurallyShared'
 import { hydrateCachedNativeRecord, readCachedNativeRecord, writeCachedNativeRecord } from './timeline-cache'
 import { mergeNativeRecordPage, projectNativeRecord } from './native-record-state'
 
@@ -90,7 +91,8 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
     return () => { active = false; clearTimeout(timer) }
   }, [enabled, online, read])
   const report = (error: unknown) => setError(messageForUser(error))
-  const shown = useMemo(() => projectNativeRecord(record), [record])
+  // Wire pages and notification projection recreate unchanged turns; the transcript syncs by identity.
+  const shown = useStructurallyShared(useMemo(() => projectNativeRecord(record), [record]))
   return { record: shown, error, errorCode, unreachable, ready: enabled && online && confirmed?.key === key && confirmed.epoch === epoch.current,
     reload: () => read('tail'),
     loadOlder: async () => { if (value.current?.nextCursor !== null && value.current?.nextCursor !== undefined) await read('older') },
