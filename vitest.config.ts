@@ -449,6 +449,10 @@ export default defineConfig({
         plugins: [solidPlugin()],
         optimizeDeps: {
           include: [
+            // The first-arrival contract uses the shared desktop/mobile host projector.
+            // Its error localization imports React; prebundle it before the browser starts.
+            'react/jsx-dev-runtime',
+            'react/jsx-runtime',
             '@vanilla-extract/recipes/createRuntimeFn',
             '@vanilla-extract/sprinkles/createRuntimeSprinkles',
             // #6563 代码块按需 import 的 shiki 语法;不预声明,PR#6568 CI 在这里同样半路重载。
