@@ -176,6 +176,7 @@ vi.mock('../agents/session-discovery', async () => {
 });
 
 import {
+  agentInstallationStatusUpdatedChannel,
   sessionOpenBrowserInPaneChannel,
   sessionOpenExtensionInPaneChannel,
   sessionOpenFileInPaneChannel,
@@ -2684,6 +2685,30 @@ describe('session_archive', () => {
         .resolves.toEqual({ opened: true, path: '/repo/ws-1/data/report.csv', intent: 'preview' });
       expect(open).toHaveBeenCalledWith('caller', { kind: 'file', path: '/repo/ws-1/data/report.csv' }, 'preview', undefined);
       expect(mocks.emit).not.toHaveBeenCalled();
+    });
+
+    it('keeps remote pane routing isolated from delayed host inventory broadcasts', async () => {
+      const discovery = await vi.importActual<typeof import('../agents/session-discovery')>('../agents/session-discovery');
+      let completeInventory = () => {};
+      const discoverHost = vi.spyOn(discovery, 'listLocalHarnesses').mockImplementation(async () => {
+        // A real inventory can finish its installation scans after list_harnesses has answered.
+        completeInventory = () => mocks.emit(agentInstallationStatusUpdatedChannel, { id: 'opencode', status: 'available' });
+        return [];
+      });
+      try {
+        await runSessionAction(context, { action: 'list_harnesses' });
+        open.mockImplementation(async () => {
+          completeInventory();
+          return { opened: true };
+        });
+        await expect(runSessionAction(context, { action: 'open_in_tab', path: 'data/report.csv', intent: 'preview' }))
+          .resolves.toEqual({ opened: true, path: '/repo/ws-1/data/report.csv', intent: 'preview' });
+        expect(open).toHaveBeenCalledWith('caller', { kind: 'file', path: '/repo/ws-1/data/report.csv' }, 'preview', undefined);
+        expect(mocks.emit).not.toHaveBeenCalled();
+        expect(discoverHost).not.toHaveBeenCalled();
+      } finally {
+        discoverHost.mockRestore();
+      }
     });
 
     it('answers at once with a queued result when no desktop has the session open', async () => {
