@@ -102,7 +102,7 @@ import type { LocalSigning } from './macDmgUpdater'
 import { createSelectAccountHandler, webAuthnKeychainGroup } from './macWebAuthn'
 import { isOAuthCallback } from '../shared/oauth-callback'
 import { OAuthCallbackInbox } from './oauth-callback-inbox'
-import { googleAuthorizationUrl } from '../shared/google-authorization-url'
+import { googleAuthorizationUrl, googleIdentityLinkUrl } from '../shared/google-authorization-url'
 import { isOAuthAttemptRedirect } from '../shared/oauth-attempt'
 import {
   cleanupRemoteFileDirectory,
@@ -2409,6 +2409,13 @@ ipcMain.handle('auth:open-browser', async (event, raw: unknown) => {
   const redirectTo = new URL(raw).searchParams.get('redirect_to')
   if (!redirectTo || !isOAuthAttemptRedirect(redirectTo, `${GUGU_LINK_SCHEME}://auth/callback`)) throw new Error('Invalid OAuth attempt callback')
   await shell.openExternal(googleAuthorizationUrl(raw, getSupabaseUrl(), redirectTo))
+})
+ipcMain.handle('auth:open-link-browser', async (event, value: unknown) => {
+  if (event.sender !== mainWindow?.webContents || !value || typeof value !== 'object') throw new Error('Invalid identity linking browser request')
+  const { url, redirectTo } = value as { url?: unknown; redirectTo?: unknown }
+  if (typeof url !== 'string' || typeof redirectTo !== 'string'
+    || !isOAuthAttemptRedirect(redirectTo, `${GUGU_LINK_SCHEME}://auth/callback`)) throw new Error('Invalid identity linking callback')
+  await shell.openExternal(googleIdentityLinkUrl(url, getSupabaseUrl()))
 })
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()
