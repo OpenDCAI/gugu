@@ -31,7 +31,6 @@ it.each(['light', 'dark'] as const)('paints the real notice lower outline and sa
   await document.fonts.ready
   await Promise.all(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})))
   const box = card().getBoundingClientRect()
-  const host = document.querySelector<HTMLElement>('[data-sonner-toaster]')!
   const shot = await page.screenshot({ path: `__screenshots__/notice-card-edge/${theme}.png`, base64: true })
   const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${shot.base64}`)).blob())
   const canvas = document.createElement('canvas')
@@ -43,7 +42,6 @@ it.each(['light', 'dark'] as const)('paints the real notice lower outline and sa
   const background = pixel(10, box.bottom)
   const lowerOutline = pixel(box.left + box.width / 2, box.bottom)
   const lowerShadow = pixel(box.left + box.width / 2, box.bottom + 3)
-  console.log('NOTICE_EDGE_GEOMETRY ' + JSON.stringify({ theme, card: { left: box.left, top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height }, host: { top: host.getBoundingClientRect().top, bottom: host.getBoundingClientRect().bottom, height: host.getBoundingClientRect().height }, clipPath: getComputedStyle(host).clipPath, shadow: getComputedStyle(card()).boxShadow, background, lowerOutline, lowerShadow, gap: composer.getBoundingClientRect().top - box.bottom }))
   bitmap.close()
   // The production outline is a half-pixel shadow outside the card's border box.
   // A clip ending exactly at that box deletes it and all shadow below it.
