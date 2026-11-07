@@ -59,6 +59,7 @@ type InternalElectronRealtimeChannelRegistryEntry = ElectronRealtimeChannelRegis
     reconnectAttempt: number
     reconnectTimer: ReturnType<typeof setTimeout> | null
     active: boolean
+    attempt: number
     subscribedOnce: boolean
     onStatus: (status: string, err?: Error) => void
     onUnavailable: () => void
@@ -70,13 +71,14 @@ const registry = new Map<string, InternalElectronRealtimeChannelRegistryEntry>()
 const reconnectFlights = new Map<string, Promise<void>>()
 const debugStatusHandlers = new Map<string, (status: string, err?: Error) => void>()
 let nextChannelId = 1
-let paused = false
+let paused = 0
 
 /** Resume authentication owns this barrier; stale tickets must not auto-rejoin. */
 export function pauseElectronRealtimeChannels(): () => void {
-  paused = true
-  for (const [id, entry] of registry) { entry.onUnavailable(); clearReconnectTimer(id) }
-  return () => { paused = false }
+  paused++
+  for (const [id, entry] of registry) { withdrawContinuity(entry); clearReconnectTimer(id) }
+  let released = false
+  return () => { if (!released) { released = true; paused-- } }
 }
 
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 30000]
@@ -102,6 +104,7 @@ export async function subscribeAuthenticatedElectronRealtimeChannel(
     reconnectAttempt: 0,
     reconnectTimer: null,
     active: true,
+    attempt: 0,
     subscribedOnce: false,
     onStatus: options.onStatus ?? (() => undefined),
     onUnavailable: options.onUnavailable ?? (() => undefined),
@@ -115,7 +118,7 @@ export async function subscribeAuthenticatedElectronRealtimeChannel(
   return () => {
     const entry = registry.get(id)
     if (!entry) return Promise.resolve()
-    entry.onUnavailable()
+    withdrawContinuity(entry)
     entry.active = false
     clearReconnectTimer(id)
     debugStatusHandlers.delete(id)
@@ -156,7 +159,7 @@ if (process.env.GUGU_DEVICE_RUNTIME_ACCOUNT_SWITCH_TEST_HOOKS === '1') {
 }
 
 export function _resetElectronRealtimeChannelRegistryForTesting(): void {
-  paused = false
+  paused = 0
   for (const entry of registry.values()) {
     if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer)
   }
@@ -196,18 +199,23 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
     registry.delete(id)
   }
 
+  const attempt = ++entry.attempt
   setRegistryStatus(id, reconnecting ? 'reconnecting' : 'authenticating')
   entry.onUnavailable()
   try {
     // 认证由账号客户端现取;频道重连不能拿创建时的旧令牌覆盖共享连接。
     await entry.client.realtime.setAuth()
   } catch (error) {
+    const latest = registry.get(id)
+    if (!latest?.active) return
+    if (latest.attempt !== attempt) { if (!paused) scheduleReconnect(id); return }
     setRegistryStatus(id, 'auth_error', errorMessage(error))
     scheduleReconnect(id)
     return
   }
   const current = registry.get(id)
-  if (!current?.active || paused) return
+  if (!current?.active) return
+  if (paused || current.attempt !== attempt) { if (!paused) scheduleReconnect(id); return }
   setRegistryStatus(id, 'subscribing')
   const subscribedChannel = current.channel
   const handleSubscribeStatus = (status: string, err?: Error) => {
@@ -215,11 +223,12 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
     // A replaced physical channel can report CLOSED during (or even after) its intentional
     // unsubscribe. It no longer owns this registry entry, so its callback must not schedule
     // another reconnect for the fresh channel.
-    if (!latest?.active || latest.channel !== subscribedChannel) return
+    if (!latest?.active || paused || latest.attempt !== attempt || latest.channel !== subscribedChannel) return
     const name = statusName(status)
-    if (name === 'CLOSED' && latest.status === 'reconnecting') return
+    const joined = !err && (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED'))
+    if (!joined) withdrawContinuity(latest)
     latest.onStatus(status, err)
-    if (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED')) {
+    if (joined) {
       clearReconnectTimer(id)
       latest.subscribedOnce = true
       latest.reconnectAttempt = 0
@@ -294,8 +303,9 @@ async function replacePhysicalChannel(id: string): Promise<void> {
   const entry = registry.get(id)
   if (!entry?.active || !entry.createChannel) return
   clearReconnectTimer(id)
+  withdrawContinuity(entry)
+  const attempt = entry.attempt
   setRegistryStatus(id, 'reconnecting', entry.lastError)
-  entry.onUnavailable()
   if (entry.channel.unsubscribe) {
     try {
       await entry.channel.unsubscribe()
@@ -305,9 +315,16 @@ async function replacePhysicalChannel(id: string): Promise<void> {
   }
   const fresh = registry.get(id)
   if (!fresh?.active) return
+  if (paused || fresh.attempt !== attempt) { if (!paused) scheduleReconnect(id); return }
   const nextChannel = entry.createChannel()
   fresh.channel = nextChannel
   await subscribeRegistryEntry(id, true)
+}
+
+/** Old status callbacks cannot revive continuity after pause, failure or replacement starts. */
+function withdrawContinuity(entry: InternalElectronRealtimeChannelRegistryEntry): void {
+  entry.attempt++
+  entry.onUnavailable()
 }
 
 function statusName(status: unknown): string {

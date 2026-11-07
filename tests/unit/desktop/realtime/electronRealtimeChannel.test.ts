@@ -67,6 +67,65 @@ describe('Electron Realtime physical channel replacement', () => {
     resume(); await stop()
   })
 
+  it('ignores old SUBSCRIBED throughout a pending leave and accepts only the fresh authenticated attempt', async () => {
+    const old = makeChannel(), fresh = makeChannel()
+    let finish!: () => void, live = false
+    vi.mocked(old.unsubscribe!).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'policy-late-status', createChannel: () => fresh, onUnavailable: () => { live = false }, onStatus: status => { live = status === 'SUBSCRIBED' } })
+    old.emit('SUBSCRIBED'); expect(live).toBe(true)
+    const replacing = reconnectElectronRealtimeChannels()
+    old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    finish(); await replacing; expect(live).toBe(false)
+    old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    fresh.emit('SUBSCRIBED'); expect(live).toBe(true)
+    old.emit('CLOSED'); expect(live).toBe(true)
+    await stop()
+  })
+
+  it('keeps nested authentication pauses closed and never revives the old callback after release', async () => {
+    const old = makeChannel(), fresh = makeChannel(), createChannel = vi.fn(() => fresh)
+    let live = false
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'policy-nested-pause', createChannel, onUnavailable: () => { live = false }, onStatus: status => { live = status === 'SUBSCRIBED' } })
+    old.emit('SUBSCRIBED'); expect(live).toBe(true)
+    const first = pauseElectronRealtimeChannels(), second = pauseElectronRealtimeChannels()
+    old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    first(); first(); await reconnectElectronRealtimeChannels(); expect(createChannel).not.toHaveBeenCalled()
+    old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    second(); old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    await reconnectElectronRealtimeChannels(); fresh.emit('SUBSCRIBED'); expect(live).toBe(true)
+    await stop()
+  })
+
+  it('does not let late SUBSCRIBED cancel replacement after a failed attempt', async () => {
+    const old = makeChannel(), fresh = makeChannel(), createChannel = vi.fn(() => fresh)
+    let live = false
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth: async () => {} }, removeChannel: async () => {} }, old,
+      { label: 'policy-failed-attempt', createChannel, reconnectOnStatus: () => true,
+        onUnavailable: () => { live = false }, onStatus: status => { live = status === 'SUBSCRIBED' } })
+    old.emit('SUBSCRIBED'); old.emit('CHANNEL_ERROR'); old.emit('SUBSCRIBED'); expect(live).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_000); expect(createChannel).toHaveBeenCalledOnce()
+    fresh.emit('SUBSCRIBED'); expect(live).toBe(true)
+    await stop()
+  })
+
+  it.each(['resolve', 'reject'] as const)('does not install a subscription from superseded authentication that later %ss', async result => {
+    const old = makeChannel(), fresh = makeChannel(), setAuth = vi.fn(async () => {})
+    let finish!: () => void
+    const stop = await subscribeAuthenticatedElectronRealtimeChannel({ realtime: { setAuth }, removeChannel: async () => {} }, old,
+      { label: 'policy-stale-auth', createChannel: () => fresh })
+    old.emit('SUBSCRIBED')
+    setAuth.mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+      finish = () => { if (result === 'reject') reject(new Error('synthetic stale authentication')); else resolve() }
+    }))
+    const replacing = reconnectElectronRealtimeChannels(); await flushPromises()
+    expect(setAuth).toHaveBeenCalledTimes(2)
+    const resume = pauseElectronRealtimeChannels(); resume(); finish(); await replacing
+    expect(fresh.subscribe).not.toHaveBeenCalled()
+    await stop()
+  })
+
   it('replaces a stale joined channel immediately after resume, without waiting for an error or timer', async () => {
     const old = makeChannel(true)
     const fresh = makeChannel()

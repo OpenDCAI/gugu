@@ -23,6 +23,10 @@ revive old facts and requires another fresh read.
 The managed channel notifies continuity loss synchronously at authentication
 pause or replacement start, before awaiting the old channel's unsubscribe.
 Waiting for the replacement channel's creation is too late.
+Status callbacks are bound to the manager's authenticated subscription attempt.
+Pause, failure or replacement invalidates that attempt before any wait; a late
+old SUBSCRIBED cannot reopen reads, including after pause release. Only a fresh
+authenticated attempt can qualify. Nested pauses remain closed until all release.
 
 As approved on 2026-11-07, **Phase 1 does not promise a zero-length interval from
 a cloud policy commit to the local native action**. Disconnection detection and
