@@ -1,8 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels';
 import { downloadAttachment } from '@/lib/attachmentBytes';
+import { useToast } from '../toastContext';
+import { messageForUser } from '@/lib/userFacingError';
 import { Avatar } from '../Avatar';
 import { Markdown } from '../markdown/Markdown';
 import { buildBubbleStyle } from './messageBubbleStyle';
@@ -20,10 +22,10 @@ export function ReadOnlyMessageBubble({ message, mobile, body, sender, timestamp
   onOpenFile?: (file: ParsedAttachment) => void;
 }) {
   const { t } = useTranslation('messaging');
-  const [downloadFailed, setDownloadFailed] = useState(false);
+  const { toast } = useToast();
   const download = async (file: ParsedAttachment) => {
-    setDownloadFailed(false);
-    try { await downloadAttachment(file.source, file.fileName); } catch { setDownloadFailed(true); }
+    try { await downloadAttachment(file.source, file.fileName); }
+    catch (error) { toast(t('chatArea.downloadFailed'), 'error', messageForUser(error)); }
   };
   if (!body.text && body.files.length === 0 && !body.invalidAttachments) return null;
   return <div data-task-exchange="true" data-message-id={message.id} data-mobile={mobile || undefined} data-own={message.is_mine || undefined} className="task-exchange">
@@ -40,7 +42,6 @@ export function ReadOnlyMessageBubble({ message, mobile, body, sender, timestamp
           : <MediaAttachmentBubble key={`${file.source.kind === 'attachment' ? file.source.attachmentId : index}:${index}`}
               meta={file} messageId={message.id} isMine={message.is_mine} onOpenFile={onOpenFile} onDownload={() => void download(file)} />)}
         {body.invalidAttachments && <span role="alert">{t('attachmentView.fileUnavailable')}</span>}
-        {downloadFailed && <span role="alert">{t('chatArea.downloadFailed')}</span>}
       </div>
     </div>
   </div>;

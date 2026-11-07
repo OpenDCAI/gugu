@@ -105,11 +105,18 @@ describe('task collaboration presentation', () => {
     expect(reads.download).toHaveBeenCalledWith({ kind: 'attachment', attachmentId: ref.attachment_id }, 'report.xlsx')
     expect(original.content).toBe(raw); expect(toast).not.toHaveBeenCalled(); expect(ui.container.querySelector('[role="alert"]')).toBeNull()
   })
-  it('reports a real download failure inline', async () => {
-    reads.download.mockRejectedValue(new Error('not allowed'))
-    await renderWithAppProviders(ui, <TaskExchangeBubble message={message({ content: raw })} recipientUserId="assistant" mobile={false} />, { contacts: { contacts: [] } })
+  it.each([false, true])('reports one download failure through the shared notice after the pending read ends on mobile=%s', async mobile => {
+    let fail!: (error: Error) => void
+    reads.download.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
+    const toast = vi.fn()
+    await renderWithAppProviders(ui, <TaskExchangeBubble message={message({ content: raw })} recipientUserId="assistant" mobile={mobile} />, { contacts: { contacts: [] }, toast })
     await clickElement(ui.container.querySelector<HTMLButtonElement>('button[aria-label="下载"]')!)
-    expect(ui.container.querySelector('[role="alert"]')?.textContent).toBe('无法下载文件')
+    expect(toast).not.toHaveBeenCalled()
+    expect(ui.container.querySelector('[role="alert"]')).toBeNull()
+    await act(async () => { fail(new Error('not allowed')) })
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith('无法下载文件', 'error', expect.any(String))
+    expect(ui.container.querySelector('[role="alert"]')).toBeNull()
   })
   it.each([
     ['table.xlsx', ref.content_type, 'Excel 表格'], ['notes.txt', 'text/plain; charset=UTF-8', '文本'],

@@ -28,7 +28,7 @@ const INLINE_MAX = 280
 
 // @@@inline-image-decision - 画不画成图只看「浏览器能不能画」(mime ∪ 扩展名,shared/imageMime.mjs),
 // 不看写进正文的 [Kind]:历史上 agent 不带 mime_type 发的 PNG 被记成 file,这里让它们自愈。
-// 字节一律经 lib/attachmentBytes(签名链接 + Cache Storage);取不到时每个气泡自己说「暂时打不开 · 重试」,
+// 字节一律经 lib/attachmentBytes(签名链接 + Cache Storage);临时故障由共享读取层静默重试,
 // 条目删了说「文件已删除」。
 export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, senderName, chatId, onDownload }: { meta: ParsedAttachment; messageId: string; isMine: boolean; onOpenFile?: (meta: ParsedAttachment) => void; senderName?: string; chatId?: string; onDownload?: () => void }) {
   const { t } = useTranslation('messaging')
@@ -43,7 +43,7 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   if (metadata.data?.status === 'missing') return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileMissing')} />{caption}</div>
   if (metadata.data?.status === 'expired') return <div ref={box} className={FIT_BUBBLE}><ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
   if (metadata.data?.status === 'gone' || metadata.isError) return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine}
-    details={t(metadata.isError ? 'attachmentView.fileUnavailable' : 'attachmentView.fileGone')} onOpen={() => { if (metadata.isError) void metadata.refetch() }} />{caption}</div>
+    details={t(metadata.isError ? 'attachmentView.fileUnavailable' : 'attachmentView.fileGone')} />{caption}</div>
   // A sending row owns an ephemeral blob preview, not a committed download capability.
   if (meta.source.kind === 'url' && meta.source.url.startsWith('blob:')) return <div ref={box} className={FIT_BUBBLE}>
     {isRenderableImage(meta.fileName, meta.mimeType)
@@ -94,8 +94,7 @@ function InlineImage({ meta, messageId, chatId, isMine }: { meta: ParsedAttachme
       <FileAttachmentCard
         file={meta}
         isMine={isMine}
-        details={`${t('attachmentView.imageUnavailable')} · ${t('attachmentView.retry')}`}
-        onOpen={view.retry}
+        details={t('attachmentView.imageUnavailable')}
       />
     )
   }
