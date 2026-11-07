@@ -9,7 +9,6 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
 import { useDeliveryWaits } from '../../hooks/useDeliveryWaits'
-import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
@@ -346,7 +345,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         {/* 这一条**常驻**:面板开着时它也在。曾经开面板就把它收起来,代价是
             ①「收起分栏」与另一颗切换键一起消失,②这一栏里再没有一个字说明你在哪条话题上
             (找茬第十轮)。嵌进来的那两个面板自带的头由 tokens.css 收掉,所以不会两条头叠着摆。 */}
-        {mobile ? <TopicTabSource preview={sourceMessagePreview} /> : (
+        {mobile ? null : (
         <div style={TOPIC_SPLIT_HEADER_STYLE}>
           {headerTitle}
           <div style={TOPIC_SPLIT_HEADER_ACTIONS_STYLE}>
@@ -483,15 +482,4 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     </ResizablePane>
     </ChatClashNames.Provider>
   )
-}
-
-/**
- * 页签里那一枚的顶上:它从哪一条开出来(原型 v7.12 TopicPane)。任务的话题开在任务卡上,就写任务那句话;
- * 来源还没读到 / 读不到 = 不画;来源被删了要说出来(同 TopicBreadcrumb 的四种值)。
- */
-function TopicTabSource({ preview }: { preview: string | null | 'pending' | 'unreadable' }) {
-  const { t } = useTranslation('messaging')
-  if (preview === 'pending' || preview === 'unreadable') return null
-  const text = preview === null ? t('topic.breadcrumb.sourceDeleted') : composerCardPreview(preview)?.text ?? preview
-  return <div className="gg-topic-tab-src" data-testid="topic-tab-source" data-gone={preview === null || undefined}>{text}</div>
 }

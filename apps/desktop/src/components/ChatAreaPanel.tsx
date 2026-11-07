@@ -264,7 +264,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   // @@@5856 分栏标题块要说清「引自哪一句」。三态必须分开(pending 还没读到 / null 读到了「没这条」/
   // 有字 = 预览),合并任意两种都会让它说假话:首帧闪「已删除」、读取失败也渲染成「已删除」。
   // @@@3922 另把它 subject-scope(渲染期比对),否则从话题 A 切到 B 时 B 会顶着 A 的预览一个往返。
-  const splitTopicChatIdForPreview = topicSurface.topic?.chatId ?? null
+  const splitTopicChatIdForPreview = mobile ? null : topicSurface.topic?.chatId ?? null // 手机的话题页没有标题块,不读
   const [sourcePreviewState, setSourcePreviewState] = useState<{
     forTopicChatId: string | null
     preview: string | null | 'pending' | 'unreadable'
