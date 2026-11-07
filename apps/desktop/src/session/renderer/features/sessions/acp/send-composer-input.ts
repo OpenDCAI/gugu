@@ -1,6 +1,7 @@
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 
 type ComposerSendPort = {
+  started?(): void;
   unsettled(): boolean;
   waitForUploads(): Promise<void>;
   hasFailedAttachments(): boolean;
@@ -12,6 +13,7 @@ type ComposerSendPort = {
 
 /** The editor keeps custody of its live draft until persistence succeeds; failures never rewrite it. */
 export async function sendComposerInput(value: string, port: ComposerSendPort): Promise<void> {
+  if (value.trim() || port.unsettled() || port.files().length) port.started?.();
   if (port.unsettled()) {
     port.status('waiting');
     await port.waitForUploads();
