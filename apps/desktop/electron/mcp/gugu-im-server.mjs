@@ -4,6 +4,7 @@ import { resolveReplyDelivery } from '@gugu/core/shared/replyDelivery'
 import { archivedDeliveryReceipt, messageDeliveryBlocks } from './message-delivery-blocks.mjs'
 
 import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary'
 import { randomUUID } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join as joinPath, resolve as resolvePath } from 'node:path'
@@ -590,6 +591,7 @@ async function resolveWriteTarget(args, deps) {
 }
 
 async function sendOwnerNotification(args, deps, target, recipients, file) {
+  if (file) await requireAgentFileAccess(file.path)
   if (!deps.context.runHostAction) throw new Error('The sending native session host is unavailable; no owner notification was sent')
   if (recipients?.some(id => id !== target.owner)) throw new Error('An owner notification can address only your owner')
   if (args.reply_to_message_id) throw new Error('A proactive owner notification has no IM reply_to_message_id; omit that field')
@@ -641,7 +643,7 @@ export async function readUploadBytes(label, args, maxBytes) {
   const filePath = typeof args?.file_path === 'string' ? args.file_path.trim() : ''
   if (!filePath) throw new Error(`${label}: file_path is required`)
   if (!isAbsolute(filePath)) throw new Error(`${label}: file_path must be absolute, got ${filePath}`)
-  const target = resolvePath(filePath)
+  const target = await requireAgentFileAccess(resolvePath(filePath))
   let info
   try {
     info = await stat(target)
@@ -2199,6 +2201,7 @@ async function publishHere(args, deps, chatId, message, next) {
   const filePath = typeof args?.file_path === 'string' ? args.file_path.trim() : ''
   if (!isAbsolute(filePath)) throw new Error(`message_send_file: file_path must be absolute, got ${filePath}`)
   const target = resolvePath(filePath)
+  await requireAgentFileAccess(target)
   const info = await stat(target).catch((err) => { throw new Error(`message_send_file: cannot read ${target} (${err?.code || err?.message || 'unknown'})`) })
   if (!info.isFile()) throw new Error(`message_send_file: ${target} is not a file`)
   const sent = await publish(chatId, { name: fileName, path: target, size: info.size, contentType }, deps.context.agentId,

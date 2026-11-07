@@ -12,6 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { DEVICE_ACTION_CONFIRMED_ARG } from '@gugu/core/shared/deviceActions'
+import { agentFileBoundary, PRIVATE_PERMISSION_STATE_REFUSAL, requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary'
 import {
   MAC_PRIVACY,
   bad,
@@ -142,6 +143,7 @@ async function targetPath(raw: string, granted: ReadonlySet<string>): Promise<Re
 }
 
 interface Scope {
+  privatePaths: Awaited<ReturnType<typeof agentFileBoundary>>
   home: string
   /** 这个真实路径在不在连上了的位置里(只看字面,❌ 碰盘)。 */
   allowed(p: string): boolean
@@ -157,7 +159,9 @@ async function scopeOf(granted: ReadonlySet<string>): Promise<Scope> {
   const home = os.homedir()
   const realHome = await fsp.realpath(home).catch(() => home)
   const named = NAMED.map((r) => ({ r, dir: rootDir(r, realHome) }))
+  const privatePaths = await agentFileBoundary()
   const allowed = (p: string) => {
+    if (privatePaths.excludes(p)) return false
     const hit = named.find(({ dir }) => within(p, dir))
     return hit ? granted.has(hit.r) : granted.has('files.other') && within(p, realHome)
   }
@@ -165,11 +169,20 @@ async function scopeOf(granted: ReadonlySet<string>): Promise<Scope> {
   const roots = [home, realHome, ...NAMED.flatMap((r) => [rootDir(r, home), rootDir(r, realHome)])].map(lower)
   return {
     home: realHome,
+    privatePaths,
     allowed,
     descend: (dir, start) => allowed(dir) && (!within(dir, library) || within(start, library)),
     isRoot: (p) => roots.includes(lower(path.resolve(p))),
     searchDirs: () => (granted.has('files.other') ? [realHome] : named.filter(({ r }) => granted.has(r)).map(({ dir }) => dir)),
   }
+}
+
+async function scopedPaths(paths: string[], scope: Scope): Promise<string[]> {
+  const checked = await Promise.all(paths.filter(scope.allowed).map(async file => {
+    try { await requireAgentFileAccess(file, scope.privatePaths); return file }
+    catch { return null }
+  }))
+  return checked.filter((file): file is string => file !== null)
 }
 
 /**
@@ -189,6 +202,9 @@ async function entryPath(raw: string, granted: ReadonlySet<string>, scope: Scope
   if (!parent.ok) return { ok: false, message: parent.message.startsWith('not found') ? `not found: ${raw}` : notConnected(raw, granted) }
   const entry = path.join(parent.path, path.basename(abs))
   if (scope.isRoot(entry)) return { ok: false, message: rootRefusal }
+  if (scope.privatePaths.overlaps(entry)) return { ok: false, message: PRIVATE_PERMISSION_STATE_REFUSAL }
+  try { await scope.privatePaths.assertIdentity(entry); await scope.privatePaths.assertTree(entry) }
+  catch { return { ok: false, message: PRIVATE_PERMISSION_STATE_REFUSAL } }
   if (!scope.allowed(entry)) return { ok: false, message: notConnected(raw, granted) }
   if (mustExist) {
     try {
@@ -637,8 +653,13 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
           }
           if (!showHidden && name.startsWith('.')) continue
           const full = path.join(dir, name)
+          if (scope.privatePaths.excludes(full)) { skipped++; continue }
           const st = await fsp.lstat(full).catch(() => null)
           if (!st) continue
+          if (st.isFile() && st.nlink > 1) {
+            try { await scope.privatePaths.assertIdentity(full) }
+            catch { skipped++; continue }
+          }
           const type = typeOf(st)
           const blocked = type === 'directory' && !scope.allowed(full)
           if (!pattern || pattern.test(name)) {
@@ -1026,8 +1047,11 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
       const scope = await scopeOf(granted)
       const src = await existingPath(str(args, 'source'), granted)
       if (!src.ok) return bad(src.message)
+      if (scope.privatePaths.overlaps(src.path)) return bad(PRIVATE_PERMISSION_STATE_REFUSAL)
       // 整个个人文件夹里有没连上的根:❌ 整个复制。
       if (lower(src.path) === lower(scope.home)) return bad('cannot copy the whole home folder: copy the folders inside it instead')
+      try { await scope.privatePaths.assertTree(src.path) }
+      catch { return bad(PRIVATE_PERMISSION_STATE_REFUSAL) }
       const dst = await entryPath(str(args, 'destination'), granted, scope, false)
       if (!dst.ok) return bad(dst.message)
       if (dst.path === src.path) return bad('source and destination are the same')
@@ -1226,7 +1250,7 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
         if (kind) parts.push(kindClause(kind))
         q = parts.join(' && ')
       }
-      const found = (await spotlight(ctx, dirs, q)).filter(scope.allowed)
+      const found = await scopedPaths(await spotlight(ctx, dirs, q), scope)
       const kept = bool(args, 'excludeNoise') === false ? found : found.filter((p) => !isNoise(p))
       // 个人常放东西的地方排前面。
       const priority = ['Downloads', 'Desktop', 'Documents', 'Pictures', 'Movies', 'Music'].map((d) => path.join(scope.home, d))
@@ -1281,13 +1305,26 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
           .filter((p) => scope.descend(p, where.path))
       }
       if (targets.length === 0) return ok({ total: 0, matches: [], truncated: false })
+      targets = targets.filter(target => !scope.privatePaths.excludes(target))
+      try {
+        for (const target of targets) {
+          await requireAgentFileAccess(target, scope.privatePaths)
+          await scope.privatePaths.assertTree(target, path => scope.privatePaths.excludes(path))
+        }
+      }
+      catch { return bad(PRIVATE_PERMISSION_STATE_REFUSAL) }
       const maxResults = clampInt(num(args, 'maxResults'), 100, 1, 500)
       const context = clampInt(num(args, 'contextLines'), 0, 0, 20)
       const cli = ['--json', '--no-config', '--max-columns', '500', '--max-columns-preview', '--max-filesize', '20M', '-m', String(maxResults)]
+      if (str(args, 'glob')) cli.push('-g', str(args, 'glob'))
+      // rg uses the last matching glob: mandatory exclusions must follow the caller's glob to prevent private reads.
+      for (const root of scope.privatePaths.roots) {
+        const relative = path.relative(where.path, root).split(path.sep).join('/').replace(/([*?[\]{}!\\])/g, '\\$1')
+        if (relative && !relative.startsWith('../')) cli.push('-g', `!**/${relative}`, '-g', `!**/${relative}/**`)
+      }
       if (bool(args, 'caseSensitive') === false) cli.push('-i')
       if (bool(args, 'fixedStrings') === true) cli.push('-F')
       if (context > 0) cli.push('-C', String(context))
-      if (str(args, 'glob')) cli.push('-g', str(args, 'glob'))
       cli.push('--', args.pattern as string, ...targets)
       ctx.note('正在搜文件内容…')
       const r = await ctx.deps.exec(rg, cli, { signal: ctx.signal, timeoutMs: 60_000, maxBuffer: 32 * 1024 * 1024 })
@@ -1310,6 +1347,10 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
           msg = JSON.parse(line)
         } catch {
           continue
+        }
+        if (msg.data?.path?.text) {
+          try { await requireAgentFileAccess(msg.data.path.text, scope.privatePaths) }
+          catch { current = null; pending = []; continue }
         }
         const lineNumber = msg.data?.line_number ?? 0
         const text = cut((msg.data?.lines?.text ?? '').replace(/\r?\n$/, ''))
@@ -1446,7 +1487,7 @@ export function createFilesFamily(options: { findRipgrep?: () => Promise<string 
 
   /** 连上了的位置里带某个标签(或任何标签)的文件。 */
   const taggedFiles = async (ctx: ActionRunContext, scope: Scope, name?: string) => {
-    const all = (await spotlight(ctx, scope.searchDirs(), name ? `kMDItemUserTags == "${mdq(name)}"cd` : 'kMDItemUserTags == "*"')).filter(scope.allowed)
+    const all = await scopedPaths(await spotlight(ctx, scope.searchDirs(), name ? `kMDItemUserTags == "${mdq(name)}"cd` : 'kMDItemUserTags == "*"'), scope)
     return { files: all.slice(0, 5000), truncated: all.length > 5000 }
   }
 
