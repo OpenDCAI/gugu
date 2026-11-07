@@ -117,6 +117,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
           conversationId: sessionId,
           path: plan.path,
           signal: request.signal,
+          retryTransient: opts.download === true,
           onProgress: (read, size) => {
             if (requestRef.current !== request) return
             setPreview((current) => (current && current.loading ? { ...current, progress: { read, size } } : current))
@@ -124,17 +125,19 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
         })
           .then(async (bytes) => {
             if (requestRef.current !== request) return
-            requestRef.current = null
             const blob = new Blob([bytes], plan.mimeType ? { type: plan.mimeType } : {})
             if (opts.download) {
               // 读的时候那一页在转,读到就交给下载、页面让位。
               setPreview(null)
               await downloadBlob(blob, plan.name).catch((error: unknown) => {
+                if (request.signal.aborted || requestRef.current !== request) return
                 log.error({ error, path: plan.path }, 'opened file save failed')
                 toast(t('agentWatch.output.saveFailed'), 'error', messageForUser(error))
               })
+              if (requestRef.current === request) requestRef.current = null
               return
             }
+            requestRef.current = null
             const url = URL.createObjectURL(blob)
             blobUrlRef.current = { url, ...(plan.view === 'image' ? { image: { name: plan.name, path: plan.path } } : {}) }
             if (plan.view === 'image') {
@@ -154,6 +157,11 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
             if (request.signal.aborted || requestRef.current !== request) return
             requestRef.current = null
             log.warn({ error, path: plan.path }, 'opened file read failed')
+            if (opts.download) {
+              setPreview(null)
+              toast(t('agentWatch.output.saveFailed'), 'error', describeFailure(error, opts.source))
+              return
+            }
             setPreview({ path: plan.path, file, kind, blob: null, content: null, loading: false, error: describeFailure(error, opts.source) })
           })
       },

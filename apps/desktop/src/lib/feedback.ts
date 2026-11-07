@@ -1,6 +1,7 @@
 import { dataClient, identityDb } from './supabase'
 import { recentErrors } from './errorRingBuffer'
 import { uploadPublicMedia } from './publicMedia'
+import { mobileListDiagnostics } from '../mobile/mobileListDiagnostics'
 
 // @@@2037 问题反馈(Phase 1):校验 + 截图上传 + 落库。Phase 2(路由 agent 写 GitHub issue)
 // 在服务端消费 identity.feedback,客户端只负责诚实落库——提交失败必须冒泡,禁静默。
@@ -76,6 +77,7 @@ export function collectFeedbackDiagnostics(): Record<string, unknown> {
     online: navigator.onLine,
     uptime_seconds: Math.round(performance.now() / 1000),
     recent_errors: recentErrors(),
+    mobile_list_diagnostics: mobileListDiagnostics.recent(),
   }
 }
 

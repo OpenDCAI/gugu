@@ -7,6 +7,7 @@ export const BAIDU_PAN_APP_FOLDER = '/apps/咕咕';
 
 const plugin = defineIntegrationPlugin({
   id: 'baidu-pan',
+    catalog: summary.catalog,
   name: summary.name['zh-CN'],
   description: summary.description,
   websiteUrl: 'https://pan.baidu.com',

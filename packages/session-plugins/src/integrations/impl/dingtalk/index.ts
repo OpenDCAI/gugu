@@ -12,6 +12,7 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'dingtalk',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://www.dingtalk.com',

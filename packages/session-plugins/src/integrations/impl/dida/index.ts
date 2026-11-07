@@ -13,6 +13,7 @@ export const DIDA_MCP_URL = 'https://mcp.dida365.com';
 const plugin = defineIntegrationPlugin(
   {
     id: 'dida',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://dida365.com',

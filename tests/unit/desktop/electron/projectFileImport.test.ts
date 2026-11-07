@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { copyFile, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -20,7 +20,7 @@ const platform = (value: string) => Object.defineProperty(process, 'platform', {
 const imported = () => importProjectFile(root, { path: source, name: 'snapshot.txt', size: bytes.length }, async () => null)
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'gugu-import-clone-'))
+  root = await realpath(await mkdtemp(join(tmpdir(), 'gugu-import-clone-')))
   source = join(root, 'original ; $ file.txt')
   await writeFile(source, bytes)
   vi.mocked(copyFile).mockClear(); clone.mockReset(); warn.mockClear()
@@ -34,7 +34,7 @@ beforeEach(async () => {
 afterEach(async () => {
   Object.defineProperty(process, 'platform', originalPlatform)
   restoreLog()
-  expect(root.startsWith(join(tmpdir(), 'gugu-import-clone-'))).toBe(true)
+  expect(root.startsWith(join(await realpath(tmpdir()), 'gugu-import-clone-'))).toBe(true)
   await rm(root, { recursive: true, force: true })
 })
 

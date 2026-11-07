@@ -29,7 +29,7 @@ type Resolved = { ok: true; path: string } | { ok: false; message: string }
 
 async function judge(real: string, raw: string, granted: ReadonlySet<string>): Promise<Resolved> {
   try { await requireAgentFileAccess(real) }
-  catch { return { ok: false, message: 'Agent file access to private permission state is forbidden or could not be verified' } }
+  catch { return { ok: false, message: 'Agent file access to protected private storage is forbidden or could not be verified' } }
   const home = os.homedir()
   const realHome = await fsp.realpath(home).catch(() => home)
   const inside = (dir: string) => real === dir || real.startsWith(dir + path.sep)

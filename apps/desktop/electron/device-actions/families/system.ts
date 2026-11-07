@@ -1,3 +1,4 @@
+import { agentFileBoundary, requireAgentFileAccess, requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary'
 /**
  * 系统(system.* 5 个:系统 / 已装 App / shell 环境 / 当前用户 / 用户列表)与终端与自动化(script.jxa / script.shell / sdef.get)。
  * 「系统」只读本机的公开信息,不碰系统授权,一点就连上;❌ 序列号、硬件 UUID 这类能认出这台机器的标识。
@@ -83,7 +84,8 @@ function decodeXml(text: string): string {
 }
 
 /** 读 Info.plist 里的几个字符串键。文本格式直接读;二进制格式请 plutil 转成文本再读(❌ 转 JSON:带日期 / 数据的 plist 转不了)。 */
-async function plistStrings(ctx: ActionRunContext, file: string, keys: readonly string[]): Promise<Record<string, string>> {
+async function plistStrings(ctx: ActionRunContext, file: string, keys: readonly string[], boundary?: Awaited<ReturnType<typeof agentFileBoundary>>): Promise<Record<string, string>> {
+  await requireAgentFileAccess(file, boundary)
   let raw: Buffer
   try {
     raw = await fsp.readFile(file)
@@ -260,7 +262,7 @@ async function inlineIncludes(xml: string): Promise<string> {
     const href = /href="([^"]+)"/.exec(tag)?.[1] ?? ''
     const file = decodeURI(href.replace(/^file:\/\/(localhost)?/, ''))
     if (!file.startsWith(SCRIPTING_DEFINITIONS) || !file.endsWith('.sdef') || file.includes('..')) continue
-    const included = await fsp.readFile(file, 'utf8').catch(() => null)
+    const included = await fsp.readFile(await requireAgentFileAccess(file), 'utf8').catch(() => null)
     if (included === null) continue
     const xpointer = decodeXml(/xpointer="([^"]+)"/.exec(tag)?.[1] ?? '')
     const suites = [...included.matchAll(/<suite\b[\s\S]*?<\/suite>/g)].map((m) => m[0])
@@ -505,10 +507,11 @@ export function createSystemFamily(options: SystemFamilyOptions = {}): ActionFam
           additionalProperties: false,
         },
         async run(args, ctx) {
+          const boundary = await agentFileBoundary()
           const dirs = appDirs(ctx.deps.homedir())
           const paths = (await Promise.all(dirs.map((d) => findApps(d, 1)))).flat()
           const apps = await Promise.all(paths.map(async (p) => {
-            const keys = await plistStrings(ctx, path.join(p, 'Contents', 'Info.plist'), ['CFBundleIdentifier', 'CFBundleShortVersionString', 'CFBundleVersion'])
+            const keys = await plistStrings(ctx, path.join(p, 'Contents', 'Info.plist'), ['CFBundleIdentifier', 'CFBundleShortVersionString', 'CFBundleVersion'], boundary)
             return {
               name: path.basename(p, '.app'),
               bundle_id: keys.CFBundleIdentifier ?? null,
@@ -765,6 +768,7 @@ export function createSystemFamily(options: SystemFamilyOptions = {}): ActionFam
         async run(args, ctx) {
           const app = await resolveApp(ctx, str(args, 'app'))
           if (!app.ok) return bad(app.message)
+          await requireAgentFileTreeAccess(app.path)
           const name = path.basename(app.path, '.app')
           const r = await ctx.deps.jxa(COPY_SDEF_JXA, { path: app.path }, { signal: ctx.signal, timeoutMs: 60_000, app: name })
           if (isRecord(r) && r.error === OSA_NO_DICTIONARY) return fail('execution_failed', `${name} has no scripting dictionary (it is not AppleScript-scriptable). Drive its interface with computer.* instead.`)

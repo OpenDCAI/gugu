@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { buildIntegrationListPayload } from './integration-payload-builder';
 
+it('publishes one public category and maintained aliases for every built-in integration', () => {
+  const entries = buildIntegrationListPayload('en-US');
+  expect(entries).toHaveLength(23);
+  const counts: Record<string, number> = {};
+  for (const entry of entries) {
+    expect(entry.catalog?.categoryId).toBeTruthy();
+    expect(entry.catalog?.aliases?.length).toBeGreaterThan(0);
+    counts[entry.catalog!.categoryId] = (counts[entry.catalog!.categoryId] ?? 0) + 1;
+  }
+  expect(counts).toEqual({ work: 4, docs: 3, tasks: 7, dev: 3, mail: 3, support: 2, life: 1 });
+});
+
 /**
  * 插件自带中英两份,线上只走字符串(复核 93 ①):老桌面把描述、字段名、说明直接当文本画 ——
  * 对象会让 React 整页抛错。主进程按请求方的界面语言解析;没给 / 不认的语言 = en(老桌面不传)。
@@ -69,4 +81,3 @@ describe('#921 where a credential the person types is kept', () => {
     expect(amapForm(() => 'local')).toMatchObject({ custody: 'local' });
   });
 });
-

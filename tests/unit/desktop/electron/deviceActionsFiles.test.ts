@@ -146,9 +146,9 @@ describe('owner-private permission state is excluded from Agent file actions', (
     const { run } = setup({ grant: ['files.other'] })
     const outcome = await run('fs.write', { path: request, content: '{"enabled":true}', mode: 'append' })
     expect({ outcome, enabled: await f.records.enforcement('owner') }).toMatchObject({
-      outcome: { ok: false, code: 'invalid_args', message: expect.stringContaining('private permission state') }, enabled: false,
+      outcome: { ok: false, code: 'invalid_args', message: expect.stringContaining('protected private storage') }, enabled: false,
     })
-    await expect(requireAgentFileAccess(request)).rejects.toThrow('private permission state')
+    await expect(requireAgentFileAccess(request)).rejects.toThrow('protected private storage')
     expect(fs.existsSync(flag)).toBe(false)
   })
   it.skipIf(process.platform !== 'darwin')('resolves differently cased dangling link names and private targets on macOS', async () => {
@@ -192,7 +192,7 @@ describe('owner-private permission state is excluded from Agent file actions', (
     fs.mkdirSync(path.join(f.ownerDirectory, 'nested'))
     const alias = H('Elsewhere/parent-link')
     fs.symlinkSync(path.join(f.ownerDirectory, 'nested'), alias)
-    await expect(requireAgentFileAccess(`${alias}/../enforcement.json`)).rejects.toThrow('private permission state')
+    await expect(requireAgentFileAccess(`${alias}/../enforcement.json`)).rejects.toThrow('protected private storage')
   })
   it('refuses symlink aliases and copying or moving the containing directory', async () => {
     const f = await privateState()

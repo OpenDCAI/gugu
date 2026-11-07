@@ -1,5 +1,8 @@
 // No provider behavior, SDKs or host APIs enter the renderer through this module.
 import type { LocalizedText } from './localized-text';
+import type { IntegrationCatalogMetadata } from './catalog';
+export type { IntegrationCatalogMetadata } from './catalog';
+export { readIntegrationCatalogMetadata } from './catalog';
 import { summary as amap } from './impl/amap/summary';
 import { summary as asana } from './impl/asana/summary';
 import { summary as dida } from './impl/dida/summary';
@@ -24,7 +27,7 @@ import { summary as tencent_meeting } from './impl/tencent-meeting/summary';
 import { summary as trello } from './impl/trello/summary';
 import { summary as wecom } from './impl/wecom/summary';
 
-export const builtinIntegrationSummaries: Readonly<Record<string,{ name: LocalizedText; description: LocalizedText }>> = {
+export const builtinIntegrationSummaries: Readonly<Record<string,{ name: LocalizedText; description: LocalizedText; catalog: IntegrationCatalogMetadata }>> = {
   'amap': amap,
   'asana': asana,
   'baidu-pan': baidu_pan,

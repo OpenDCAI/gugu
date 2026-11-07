@@ -13,6 +13,7 @@ import '@/session/renderer/features/assistant/assistant-today.css'
 import '@/mobile/phone-shell.css'
 import '@/mobile/phone-look.css'
 import { PhoneViewportShell } from '@/mobile/PhoneViewportShell'
+import { useMobileShellDiagnostics } from '@/mobile/useMobileListDiagnostics'
 import { PhoneTabBar as MobileTabBar } from '@/mobile/PhoneTabBar'
 import { Sidebar } from '../components/Sidebar'
 import { returnToScreen } from '@/session/renderer/app/screen-layout-actions'
@@ -588,6 +589,7 @@ function InnerLayout({
   // 横滑切 tab 用同一份判据(#6730):tab 栏在,点和滑都能换 tab;钻进全屏子页两样都不行 —— 横滑归子页所有,
   // 全屏创建页的出口只有左上返回箭头(#2525),横滑会把草稿连页一起掀掉。
   const tabBarVisible = mobile && !chatListHidden && !phoneLayerOpen && !partnersPushed
+  useMobileShellDiagnostics(mobile, user.id, shellRootRef, { activeTab, pagerTab, mobilePane, phoneLayerOpen, chatListHidden, tabBarVisible })
   // 手机上四个 tab 页常驻在分页器里,横滑时相邻页整页可见 ⇒ 离开的 tab 回到它的根上(与从前「切走即卸载、
   // 回来是根」同一个结果),拖过去看到的总是那个 tab 的浏览层。会话页、联系人页各自按 activeTab 复位。
   // 「我的」连 section 一起复位:手机设置由壳受控,离开时回到 account,

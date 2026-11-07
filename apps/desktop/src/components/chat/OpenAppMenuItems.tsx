@@ -2,7 +2,9 @@ import { observer } from 'mobx-react-lite'
 import { installedExtensionsStore, type RailApp } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { openApp } from '../appSlot/useOpenApp'
 import { RailAppIcon } from '../RailAppIcon'
-import { MenuItem, MenuSeparator } from '../ui/Menu'
+import { LayoutGrid } from '@/lib/icons'
+import { useTranslation } from 'react-i18next'
+import { MenuFold, MenuItem, MenuSeparator } from '../ui/Menu'
 
 /**
  * 「在本群打开」(app-redesign §5)的常驻入口:卡片划走以后,这台设备上装着、开着、有自己页面的 App 仍从页头 ⋯ 在这个对话的右栏
@@ -15,18 +17,21 @@ export const OpenAppMenuItems = observer(function OpenAppMenuItems({ chatId, sep
   separated?: boolean
   apps?: readonly RailApp[]
 }) {
+  const { t } = useTranslation('messaging')
   if (apps.length === 0) return null
   return (
     <>
       {separated && <MenuSeparator />}
-      {apps.map((app) => (
-        <MenuItem
-          key={app.extensionId}
-          data-testid="chat-header-menu-app"
-          onClick={() => openApp(app.extensionId, chatId)}
-          icon={<RailAppIcon app={app} className="gg-sidebar-launch-icon" />}
-        >{app.name}</MenuItem>
-      ))}
+      <MenuFold icon={<LayoutGrid size={16} />} label={t('header.openApp')} data-testid="chat-header-menu-apps">
+        {apps.map((app) => (
+          <MenuItem
+            key={app.extensionId}
+            data-testid="chat-header-menu-app"
+            onClick={() => openApp(app.extensionId, chatId)}
+            icon={<RailAppIcon app={app} className="gg-sidebar-launch-icon" />}
+          >{app.name}</MenuItem>
+        ))}
+      </MenuFold>
     </>
   )
 })

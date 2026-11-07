@@ -27,8 +27,9 @@ function actor(address: string, ctx: SegmentCtx, fallback?: string | null): Acti
 
 /** Identity comes from the authenticated envelope, never names or message prose. Mixed batches stay visible. */
 export function incomingActivity(item: ChatMessage, ctx: SegmentCtx, live = false): AgentActivityEvent | null {
-  if (item.role !== 'user' || item.sendStatus) return null;
-  const segments = readDeliveryEnvelope(item.text)?.segments;
+  // Host custody must not expose a proven Agent input before its native echo arrives.
+  if (item.role !== 'user' || (item.sendStatus && item.sendStatus.state !== 'receiving')) return null;
+  const segments = (item.guguDelivery ?? readDeliveryEnvelope(item.text))?.segments;
   if (!segments?.length || segments.some(part => {
     const facts = part.facts;
     if (!facts?.fromId) return true;

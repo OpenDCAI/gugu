@@ -64,10 +64,7 @@ export default {
       "assistant": "Your personal assistant is here. Tell it your plans and tasks.",
       "collaboration": "Each project is a group. Work with Agents to move it forward."
     },
-    "dismiss": "Got it",
-    "unreadable": "Could not read hint progress. Please retry.",
-    "saveFailed": "Hint progress was not saved. Please retry.",
-    "retry": "Retry"
+    "dismiss": "Got it"
   },
   "rail": "Gugu",
   "nav": {
@@ -797,6 +794,22 @@ export default {
     "title": "Capabilities and connections"
   },
   "connectors": {
+    "catalog": {
+      "search": "Search apps",
+      "all": "All apps",
+      "mine": "My connections",
+      "featured": "Featured",
+      "viewApp": "View app",
+      "viewAll": "View all ({{count}})",
+      "attention": "Needs attention",
+      "noConnections": "No apps connected yet",
+      "browse": "Browse all apps",
+      "noResults": "No apps found",
+      "clearSearch": "Clear search",
+      "searchAll": "Search all apps",
+      "results": "Search results",
+      "backToAll": "Back to all apps"
+    },
     "wechatDescription": "Talk to Gugu in WeChat",
     "paused": "Paused",
     "retrying": "Reconnecting",
