@@ -1,8 +1,6 @@
 import type { IntegrationCliTool, IntegrationCredentials, IntegrationError } from '@gugu/session-plugins/integrations';
 import {
-  accessTokenExpiresSoon,
   integrationPluginRegistry,
-  mcpOAuthCredentialsSchema,
   toIntegrationCredentials,
 } from '@gugu/session-plugins/integrations';
 import { log } from '@main/lib/logger';
@@ -24,9 +22,9 @@ import { integrationCredentialStore } from './integration-credential-store-insta
 import {
   authorizeMcpServer,
   McpReauthorizationRequiredError,
-  refreshMcpCredentials,
 } from './mcp-oauth-flow';
 import { platformCredentials } from './platform-credentials-instance';
+import { refreshIntegrationAccount } from './connection-credential-refresh';
 
 type ConnectResult =
   | { success: true; accountId?: string; displayName?: string; displayDetail?: string }
@@ -91,7 +89,7 @@ function mcpOAuthServerUrl(integrationId: string): string | null {
 
 export class IntegrationConnectionService {
   private readonly pendingAuthorizations = new Map<string, AbortController>();
-  private readonly pendingRefreshes = new Map<string, Promise<IntegrationAccountRecord>>();
+  private readonly pendingRefreshes = new Map<string, Promise<IntegrationAccountRecord | null>>();
   private readonly cliLogins = new Map<string, PendingCliLogin>();
   /** 正在装 / 正在起登录的那一次连接的号(见 cliLoginStart)。 */
   private readonly cliStarts = new Map<string, symbol>();
@@ -399,24 +397,8 @@ export class IntegrationConnectionService {
     integrationId: string,
     accountId?: string
   ): Promise<IntegrationAccountRecord | null> {
-    const account = await integrationCredentialStore.getAccount(integrationId, accountId);
-    if (!account || !mcpOAuthServerUrl(integrationId)) return account;
-    const parsed = mcpOAuthCredentialsSchema.safeParse(account.credentials);
-    // An unparseable record is reported by the plugin, which owns the reconnect wording.
-    if (!parsed.success || !accessTokenExpiresSoon(parsed.data)) return account;
-
-    const key = `${integrationId}:${account.accountId}`;
-    const inFlight = this.pendingRefreshes.get(key);
-    if (inFlight) return inFlight;
-
-    const refresh = (async () => {
-      const refreshed = await refreshMcpCredentials(parsed.data);
-      const next = { ...account, credentials: toIntegrationCredentials(refreshed) };
-      await integrationCredentialStore.upsertAccount(integrationId, next);
-      return next;
-    })().finally(() => this.pendingRefreshes.delete(key));
-    this.pendingRefreshes.set(key, refresh);
-    return refresh;
+    return refreshIntegrationAccount({store:integrationCredentialStore,pending:this.pendingRefreshes},
+      integrationId,accountId,mcpOAuthServerUrl(integrationId)!==null);
   }
 
   async connect(
@@ -662,10 +644,9 @@ export class IntegrationConnectionService {
         }
       }
       if (result.credentials) {
-        await integrationCredentialStore.upsertAccount(integrationId, {
-          ...account,
-          credentials: result.credentials,
-        });
+        if(!await integrationCredentialStore.compareAndSwapAccount(integrationId,account,result.credentials)) {
+          return { connected:false,error:'Connection changed during this check.',capabilities };
+        }
       }
       return {
         connected: true,

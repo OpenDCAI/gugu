@@ -9,6 +9,8 @@ import { publishConnectionObservations, type ConnectionObservation } from './con
 import { createConnectionAuthorizationRequests } from './connection-authorization-requests'
 import { createConnectionRouting,connectionClientForRoute,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 
+import {createConnectionNativeEvidence} from './connection-native-evidence'
+
 type Auth = { accessToken: string; userId: string }
 
 /** The existing desktop/server runtime owns this worker. It never starts an
@@ -64,6 +66,11 @@ export function createConnectionRuntime(input: {
       if (!id) throw new ConnectionError('runtime-unavailable','CONNECTION_RUNTIME_UNAVAILABLE')
       return id
     }
+    let nativeStore:Promise<ReturnType<typeof import('../session/main/core/provider-accounts/connection-effect-evidence').createNativeConnectionEvidence>>|undefined
+    const native=createConnectionNativeEvidence({ownerId,deviceId,cloud:rawCloud,instance,assertCurrent:async()=>{await auth()},store:()=>{
+      nativeStore??=Promise.all([import('../session/main/db/client'),import('../session/main/core/provider-accounts/connection-effect-evidence')])
+        .then(([{db},{createNativeConnectionEvidence}])=>createNativeConnectionEvidence(db));return nativeStore
+    }})
     let expectedHead = '0'
     const application = createConnectionOperationApplication({ deviceId,
       authorityEpoch: () => route?.epoch,
@@ -80,7 +87,15 @@ export function createConnectionRuntime(input: {
         if (!route) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
         await routing.assert(route,true)
         if (effect.validationError) throw new ConnectionEffectRefused(effect.validationError)
-        try { await input.local.applyConnection({ operation: effect.operation,data: effect.data }) }
+        try {
+          const apply=()=>input.local.applyConnection({operation:effect.operation,data:effect.data})
+          if(route.verificationProtocol===2){
+            const provider=effect.data.providerId
+            if(typeof provider!=='string')throw new ConnectionEffectRefused('CONNECTION_DATA_INVALID')
+            await native.begin(provider,effect.operationId,route.epoch)
+            await native.run(provider,effect.operationId,route.epoch,apply)
+          }else await apply()
+        }
         catch (error) {
           const known = error as { knownNoEffect?: boolean; code?: string }
           if (known.knownNoEffect && typeof known.code === 'string') throw new ConnectionEffectRefused(known.code)
@@ -108,7 +123,7 @@ export function createConnectionRuntime(input: {
       // Unactivated candidates do not interrupt the original credential path or
       // become a second writable source. Activation itself is backend-owned.
       if (snapshot.state !== 'ready') return
-      if (snapshot.application.some(change => change.errorCode === 'CONNECTION_OUTCOME_UNKNOWN'))
+      if (snapshot.application.some(change => change.errorCode === 'CONNECTION_OUTCOME_UNKNOWN' && change.effective?.blocksNewOperations !== false))
         throw new ConnectionEffectRefused('CONNECTION_OUTCOME_UNKNOWN')
       for (let pass = 0; pass < 12; pass++) {
         const pending = await cloud.pending(instance())
@@ -156,6 +171,10 @@ export function createConnectionRuntime(input: {
       if (typeof intent.authorityEpoch !== 'string') throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
       await selectOwner(intent.authorityEpoch)
       if (intent.scopeKey !== `device:${deviceId}`) throw new ConnectionError('42501','CONNECTION_DEVICE_MISMATCH')
+      if(route?.verificationProtocol===2){
+        const change=await native.publication(intent.operationId,intent.providerId,intent.accountId)
+        return cloud.commit({...change,runtimeInstanceId:instance()})
+      }
       const change = await authorizationRequest(intent.operationId,intent,async () => ({ operationId: intent.operationId,scopeKey: intent.scopeKey,
         resourceKey: intent.resourceKey,expectedRevision: intent.expectedRevision,operation: 'save' as const,
         ...await authorizedAccount(intent.providerId,intent.accountId),deviceId,recreationId: intent.recreationId }))
@@ -171,8 +190,15 @@ export function createConnectionRuntime(input: {
     }
     return { authority: routing.read,prepare,async hold(provider: string,id: string,expectedEpoch?: string) {
       if (!await selectOwner(expectedEpoch)) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+      if(route?.verificationProtocol===2)await native.begin(provider,id,route.epoch)
       return holds.begin(provider,id)
-    },release: holds.release,commitAuthorization,commitAuthorizationBatch }
+    },release: holds.release,commitAuthorization,commitAuthorizationBatch,
+      async runAuthorization<T>(provider:string,id:string,epoch:string,action:()=>Promise<T>){
+        await selectOwner(epoch)
+        if(route?.verificationProtocol!==2)throw new ConnectionError('unsupported-device','CONNECTION_EVIDENCE_PROTOCOL_REQUIRED')
+        return native.run(provider,id,epoch,action)
+      },readEvidence:native.read,fenceEvidence:native.fence }
+
   }
   function serial<T>(action: (worker: NonNullable<typeof active>['worker']) => Promise<T>) {
     const result = tail.catch(() => undefined).then(async () => {
@@ -199,6 +225,13 @@ export function createConnectionRuntime(input: {
   return { prepare,authority: () => serial(worker => worker.authority()),
     hold: (provider: string,id: string,expectedEpoch?: string) => serial(worker => worker.hold(provider,id,expectedEpoch)),
     release: (provider: string,id: string) => serial(worker => worker.release(provider,id)),
+    // Long browser actions do not hold the worker queue: the verifier must be
+    // able to inspect or fence the SQLite attempt while an upstream call waits.
+    runAuthorization:async<T>(provider:string,id:string,epoch:string,action:()=>Promise<T>)=>{
+      const selected=await serial(worker=>worker);return selected.runAuthorization(provider,id,epoch,action)
+    },
+    readEvidence:(raw:unknown,owner:string)=>serial(worker=>worker.readEvidence(raw,owner)),
+    fenceEvidence:(raw:unknown,owner:string)=>serial(worker=>worker.fenceEvidence(raw,owner)),
     commitAuthorization: (intent: NativeConnectionAuthorization) => serial(worker => worker.commitAuthorization(intent)),
     commitAuthorizationBatch: (intent: NativeConnectionAuthorizationBatch) => serial(worker => worker.commitAuthorizationBatch(intent)),
     dispose() { disposed = true; active = undefined; clearTimeout(scheduled); clearInterval(refresh); stop?.() },

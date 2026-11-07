@@ -48,6 +48,12 @@ export const integrationsController = createRPCController({
   ownerAuthorizationComplete: async (providerId: string,operationId: string) => ownerConnectionControl().release(providerId,operationId),
   ownerAuthorizationCommit: async (input: NativeConnectionAuthorization) => ownerConnectionControl().commitAuthorization(input),
   ownerAuthorizationCommitBatch: async (input: NativeConnectionAuthorizationBatch) => ownerConnectionControl().commitAuthorizationBatch(input),
+  /** Managed calls carry the original operation explicitly; provider-only holds
+   * are never used to guess which browser window owns a credential write. */
+  ownerConnect:async(providerId:string,operationId:string,epoch:string,credentials:IntegrationCredentials,editAccountId?:string)=>
+    ownerConnectionControl().runAuthorization(providerId,operationId,epoch,()=>integrationConnectionService.connect(providerId,credentials,editAccountId,true)),
+  ownerAuthorize:async(providerId:string,operationId:string,epoch:string)=>
+    ownerConnectionControl().runAuthorization(providerId,operationId,epoch,()=>integrationConnectionService.authorize(providerId,true)),
   /** `locale` = 请求方的界面语言(插件的中英两份在这里解析成字符串);老桌面不传 ⇒ en。 */
   list: async (locale?: string) => {
     // #921 连接页要说凭据在哪保管:还不知道这个安装有没有平台服务就先问一次。
