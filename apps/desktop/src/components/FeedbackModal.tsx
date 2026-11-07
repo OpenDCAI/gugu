@@ -15,9 +15,7 @@ import {
   FEEDBACK_SCREENSHOT_MAX_COUNT,
   validateFeedbackDraft,
   validateFeedbackScreenshot,
-  uploadFeedbackScreenshot,
-  cleanupFeedbackScreenshot,
-  submitFeedback,
+  submitFeedbackWithScreenshots,
   collectFeedbackDiagnostics,
   feedbackDiagnosticsWithLog,
   type FeedbackLogAttachment,
@@ -47,7 +45,7 @@ const THANKS_ART_HEIGHT = 150
 const THANKS_ART_WIDTH = 106
 
 // @@@2062 问题反馈弹窗:截图改「提交才上传」——草稿期图只以 dataURL 留本地(粘贴 Ctrl/Cmd+V 或选文件),
-// 关窗(X / 取消 / Esc / 背景点击)保留草稿到 IndexedDB、重开续填,提交时才上传进桶(未提交绝不进公有桶,
+// 关窗(X / 取消 / Esc / 背景点击)保留草稿到 IndexedDB、重开续填,提交时才上传进私有桶(未提交绝不上传,
 // 隐私红线天然满足)。单张删走缩略图右上角 ×(与关弹窗的 × 正交)。成功/失败/边界都有明确 toast,禁静默。
 export function FeedbackModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation('settings')
@@ -183,18 +181,12 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
       return
     }
     setSubmitting(true)
-    const uploaded: { url: string; path: string }[] = []
     try {
-      // 提交才上传:草稿 dataURL → File → 桶。全成功后才落库。
-      for (const shot of shots) {
-        const u = await uploadFeedbackScreenshot(dataUrlToFile(shot.dataUrl, shot.name), user.id)
-        uploaded.push({ url: u.url, path: u.path })
-      }
-      await submitFeedback({
+      await submitFeedbackWithScreenshots({
         userId: user.id,
         content,
         module,
-        screenshotUrls: uploaded.map((u) => u.url),
+        screenshots: shots.map((shot) => dataUrlToFile(shot.dataUrl, shot.name)),
         appVersion: version,
         platform: platform.kind,
         diagnostics: feedbackDiagnosticsWithLog(collectFeedbackDiagnostics(), attachedLog),
@@ -205,7 +197,6 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
       setSubmitted(true)
     } catch (err) {
       // 落库/上传失败:清掉本次刚传上去的孤儿(它们已无引用),草稿仍在本地可重试(不清)。fail loud。
-      for (const u of uploaded) void cleanupFeedbackScreenshot(u.path)
       toast(t('feedback.submitFailed', { error: (err as Error).message }), 'error')
     } finally {
       setSubmitting(false)

@@ -1,6 +1,6 @@
 import { dataClient, identityDb } from './supabase'
 import { recentErrors } from './errorRingBuffer'
-import { uploadPublicMedia } from './publicMedia'
+import { FEEDBACK_SCREENSHOT_BUCKET } from './feedbackMedia'
 import { mobileListDiagnostics } from '../mobile/mobileListDiagnostics'
 
 // @@@2037 问题反馈(Phase 1):校验 + 截图上传 + 落库。Phase 2(路由 agent 写 GitHub issue)
@@ -23,7 +23,7 @@ export type FeedbackModule = (typeof FEEDBACK_MODULES)[number]['value']
 
 export const FEEDBACK_CONTENT_MAX = 2000
 export const FEEDBACK_SCREENSHOT_MAX_COUNT = 4
-// 5MB 是反馈截图的产品上限(严于 chat-media 桶本身的 10MB file_size_limit),非桶策略同款。
+// 反馈截图的产品上限与私有存储限制一致。
 export const FEEDBACK_SCREENSHOT_MAX_BYTES = 5 * 1024 * 1024
 
 export type FeedbackValidationCode =
@@ -51,14 +51,18 @@ export function validateFeedbackScreenshot(
   return null
 }
 
-// 截图传 chat-media 公有桶(publicMedia.ts:路径 userId 打头 —— 桶的 RLS 按首段认上传者,feedback 归类放第二段);
-// 返回 path 供未提交/失败时清理孤儿对象。
-export function uploadFeedbackScreenshot(file: File, userId: string): Promise<{ url: string; path: string }> {
-  return uploadPublicMedia(userId, 'feedback', file)
+// 草稿保持在本机，只有明确提交时才上传到私有存储。
+export async function uploadFeedbackScreenshot(file: File, userId: string): Promise<{ path: string }> {
+  const safeName = file.name.replace(/[^A-Za-z0-9._-]+/g, '_') || 'screenshot'
+  const path = `${userId}/${crypto.randomUUID()}-${safeName}`
+  const { error } = await dataClient.storage.from(FEEDBACK_SCREENSHOT_BUCKET)
+    .upload(path, file, { contentType: file.type, upsert: false })
+  if (error) throw new Error(error.message)
+  return { path }
 }
 
 export async function cleanupFeedbackScreenshot(path: string): Promise<void> {
-  const { error } = await dataClient.storage.from('chat-media').remove([path])
+  const { error } = await dataClient.storage.from(FEEDBACK_SCREENSHOT_BUCKET).remove([path])
   if (error) console.warn('[feedback] failed to clean up orphaned screenshot:', path, error.message)
 }
 
@@ -84,9 +88,7 @@ export function collectFeedbackDiagnostics(): Record<string, unknown> {
 /**
  * 用户勾选后附带的日志尾巴(#4899)。
  *
- * ⚠ **不走 chat-media 桶。** 截图走的是公有桶 + getPublicUrl —— 那意味着一条谁拿到链接谁
- * 都能读的公开 URL。截图是用户逐张看过才附上的,日志不是(owner 2026-09-03 定:不强制预览)。
- * 所以日志文本直接进 feedback 这一行,受该表 RLS 管,不产生任何公开 URL。
+ * 日志直接进 feedback 这一行，受该表 RLS 管理；截图单独存于私有存储。
  */
 export interface FeedbackLogAttachment {
   text: string
@@ -111,7 +113,7 @@ export async function submitFeedback(input: {
   userId: string
   content: string
   module: FeedbackModule
-  screenshotUrls: string[]
+  screenshotPaths: string[]
   appVersion: string
   platform: string
   diagnostics: Record<string, unknown>
@@ -120,10 +122,24 @@ export async function submitFeedback(input: {
     user_id: input.userId,
     content: input.content.trim(),
     module: input.module,
-    screenshot_urls: input.screenshotUrls,
+    screenshot_paths: input.screenshotPaths,
     app_version: input.appVersion,
     platform: input.platform,
     diagnostics: input.diagnostics,
   })
   if (error) throw new Error(error.message)
+}
+
+/** Only objects from this failed submission are eligible for orphan cleanup. */
+export async function submitFeedbackWithScreenshots(input: Omit<Parameters<typeof submitFeedback>[0], 'screenshotPaths'> & {
+  screenshots: File[]
+}): Promise<void> {
+  const paths: string[] = []
+  try {
+    for (const file of input.screenshots) paths.push((await uploadFeedbackScreenshot(file, input.userId)).path)
+    await submitFeedback({ ...input, screenshotPaths: paths })
+  } catch (error) {
+    await Promise.all(paths.map(cleanupFeedbackScreenshot))
+    throw error
+  }
 }
