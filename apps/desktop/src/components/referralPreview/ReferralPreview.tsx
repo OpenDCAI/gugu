@@ -8,7 +8,7 @@ import { Button } from '../ui/Button'
 import { SegmentedTabs } from '../ui/SegmentedTabs'
 import { MenuItem } from '../ui/Menu'
 import { SettingsGroup, SettingsRow } from '../settings/SettingsPrimitives'
-import { UserPlus } from '@/lib/icons'
+import { Mail } from '@/lib/icons'
 import '../../i18n/registerMainCatalog'
 
 // Review-only surfaces. A production build cannot enable this preview.
@@ -65,11 +65,15 @@ export function PersonalSharePreview({
   ...props
 }: SharePosterDialogProps & { initialPurpose?: 'invite' | 'contact' }) {
   const { t } = useTranslation('main')
+  const { t: contactsT } = useTranslation('contacts')
   const [purpose, setPurpose] = useState<'invite' | 'contact'>(initialPurpose)
   if (!enabled) return <SharePosterDialog {...props} />
   return (
     <SharePosterDialog
       {...props}
+      subtitle=""
+      qrCaption={contactsT('sharing.scanToAddContact')}
+      posterVariant="contact"
       heading={t('referralPreview.sharePurpose')}
       headerContent={
         <div className="flex flex-col gap-2 px-4 pt-3 pb-1">
@@ -125,7 +129,7 @@ export function InviteFriendsMenuItem({ onSelect }: { onSelect: () => void }) {
   const { t } = useTranslation('main')
   if (!enabled) return null
   return (
-    <MenuItem data-testid="referral-preview-menu" icon={<UserPlus size={15} />} onClick={onSelect}>
+    <MenuItem data-testid="referral-preview-menu" icon={<Mail size={15} />} onClick={onSelect}>
       <span className="flex items-center gap-2">{t('referralPreview.invite')}<ReferralProposalLabel /></span>
     </MenuItem>
   )
@@ -144,7 +148,7 @@ export function InviteFriendsPreview() {
           data-testid="referral-preview-search"
           onClick={() => setOpen(true)}
         >
-          <UserPlus size={15} aria-hidden />
+          <Mail size={15} aria-hidden />
           {t('referralPreview.inviteToGugu')}
           <ReferralProposalLabel />
         </Button>

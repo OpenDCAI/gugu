@@ -375,7 +375,7 @@ export default {
   "sharing": {
     "addMeHint": "扫码或粘贴此码加我为好友",
     "closePoster": "关闭分享海报",
-    "connectCta": "用 咕咕 连接你的 AI 协作网络",
+    "connectCta": "用咕咕连接你的 AI 协作网络",
     "copied": "已复制",
     "copyFailed": "复制失败",
     "copyImage": "复制图片",
@@ -388,7 +388,8 @@ export default {
     "posterFailed": "海报生成失败，请重试",
     "posterTitle": "分享海报",
     "qrFailed": "二维码生成失败",
-    "scanToJoinGugu": "扫码加入 咕咕"
+    "scanToAddContact": "扫码加我为联系人",
+    "scanToJoinGugu": "扫码加入咕咕"
   },
   "tags": {
     "back": "返回标签",

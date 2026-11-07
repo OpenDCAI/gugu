@@ -26,10 +26,12 @@ export interface PosterOptions {
   memberAvatarUrls?: Array<string | null>
   /** 群总成员数(用于「+N」溢出计数;memberAvatarUrls 已截到 ≤9,不能拿它算 N)。 */
   totalMemberCount?: number
-  /** QR 下方小字(默认「扫码加入 咕咕」)。群分享传「扫码加入群聊」。 */
+  /** QR caption. Contact cards pass their contact-specific wording. */
   qrCaption?: string
-  /** 底部 CTA 文案(默认「用 咕咕 连接你的 AI 协作网络」)。 */
+  /** Footer CTA text. */
   ctaText?: string
+  /** Compact personal card; group and existing share layouts retain their defaults. */
+  variant?: 'contact'
 }
 
 const ACCENT = '#ff6040'
@@ -52,9 +54,10 @@ function normalizePosterMemberAvatarUrls(urls: Array<string | null>): Array<stri
  */
 export function drawSharePoster(opts: PosterOptions, images: Map<string, HTMLImageElement>): HTMLCanvasElement {
   const W = opts.width ?? 360
-  const H = opts.height ?? 480
-  const QR_SIZE = 140
-  const PADDING = 28
+  const isContact = opts.variant === 'contact'
+  const H = opts.height ?? (isContact ? 376 : 480)
+  const QR_SIZE = isContact ? 144 : 140
+  const PADDING = isContact ? 24 : 28
 
   const canvas = document.createElement('canvas')
   // Render at 2× for retina sharpness
@@ -75,7 +78,7 @@ export function drawSharePoster(opts: PosterOptions, images: Map<string, HTMLIma
   grad.addColorStop(0, 'rgba(255,96,64,0.18)')
   grad.addColorStop(1, 'rgba(17,17,20,0)')
   ctx.fillStyle = grad
-  ctx.fillRect(0, 0, W, 120)
+  if (!isContact) ctx.fillRect(0, 0, W, 120)
 
   // ── Brand mark ──────────────────────────────────────────────────────────────
   ctx.font = `600 22px ${POSTER_FONT_STACK}`
@@ -87,27 +90,27 @@ export function drawSharePoster(opts: PosterOptions, images: Map<string, HTMLIma
   ctx.beginPath()
   ctx.arc(PADDING + 44 + 5, PADDING + 10, 3, 0, Math.PI * 2)
   ctx.fillStyle = ACCENT
-  ctx.fill()
+  if (!isContact) ctx.fill()
 
   // ── Title ───────────────────────────────────────────────────────────────────
   ctx.font = `600 18px ${POSTER_FONT_STACK}`
   ctx.fillStyle = TEXT_PRIMARY
   ctx.textBaseline = 'top'
   const titleMaxWidth = W - PADDING * 2
-  drawWrappedText(ctx, opts.title, PADDING, 72, titleMaxWidth, 26, 2)
+  drawWrappedText(ctx, opts.title, PADDING, isContact ? 64 : 72, titleMaxWidth, isContact ? 24 : 26, isContact ? 1 : 2)
 
   // ── Subtitle ────────────────────────────────────────────────────────────────
   ctx.font = `400 13px ${POSTER_FONT_STACK}`
   ctx.fillStyle = TEXT_SECONDARY
   ctx.textBaseline = 'top'
-  drawWrappedText(ctx, opts.subtitle, PADDING, 106, titleMaxWidth, 18, 2)
+  if (!isContact) drawWrappedText(ctx, opts.subtitle, PADDING, 106, titleMaxWidth, 18, 2)
 
   // ── Divider ─────────────────────────────────────────────────────────────────
   ctx.strokeStyle = BORDER
   ctx.lineWidth = 0.5
   ctx.beginPath()
-  ctx.moveTo(PADDING, 148)
-  ctx.lineTo(W - PADDING, 148)
+  ctx.moveTo(PADDING, isContact ? 104 : 148)
+  ctx.lineTo(W - PADDING, isContact ? 104 : 148)
   ctx.stroke()
 
   const memberUrls = normalizePosterMemberAvatarUrls(opts.memberAvatarUrls ?? [])
@@ -191,7 +194,7 @@ export function drawSharePoster(opts: PosterOptions, images: Map<string, HTMLIma
     // ── 默认(名片)布局:居中 QR + 底部 CTA 条 ──
     const qrImg = images.get(opts.qrDataUrl)
     const QR_X = (W - QR_SIZE) / 2
-    const QR_Y = 168
+    const QR_Y = isContact ? 128 : 168
     ctx.fillStyle = '#ffffff'
     roundRect(ctx, QR_X - 8, QR_Y - 8, QR_SIZE + 16, QR_SIZE + 16, 10)
     ctx.fill()
@@ -204,19 +207,20 @@ export function drawSharePoster(opts: PosterOptions, images: Map<string, HTMLIma
     ctx.textBaseline = 'top'
     ctx.fillText(qrCaption, W / 2, QR_Y + QR_SIZE + 16 + 8)
 
-    const CTA_Y = H - 52
+    const footerHeight = isContact ? 48 : 52
+    const CTA_Y = H - footerHeight
     ctx.fillStyle = BG_TOP
-    ctx.fillRect(0, CTA_Y, W, 52)
+    ctx.fillRect(0, CTA_Y, W, footerHeight)
     ctx.font = `500 12px ${POSTER_FONT_STACK}`
     ctx.fillStyle = TEXT_SECONDARY
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
-    ctx.fillText(ctaText, PADDING, CTA_Y + 26)
+    ctx.fillText(ctaText, PADDING, CTA_Y + footerHeight / 2)
   }
 
   // Accent corner bar
   ctx.fillStyle = ACCENT
-  ctx.fillRect(0, 0, 3, H)
+  if (!isContact) ctx.fillRect(0, 0, 3, H)
 
   // Reset
   ctx.textAlign = 'left'

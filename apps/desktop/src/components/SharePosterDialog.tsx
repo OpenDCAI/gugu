@@ -28,6 +28,7 @@ export interface SharePosterDialogProps {
   qrCaption?: string
   /** 底部邀请 CTA 文案。 */
   ctaText?: string
+  posterVariant?: 'contact'
   zIndex?: string
   heading?: string
   headerContent?: ReactNode
@@ -35,7 +36,7 @@ export interface SharePosterDialogProps {
   onClose: () => void
 }
 
-export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, totalMemberCount, qrCaption, ctaText, zIndex = 'var(--z-modal-top)', heading, headerContent, previewContent, onClose }: SharePosterDialogProps) {
+export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, totalMemberCount, qrCaption, ctaText, posterVariant, zIndex = 'var(--z-modal-top)', heading, headerContent, previewContent, onClose }: SharePosterDialogProps) {
   const { t } = useTranslation('contacts')
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [posterDataUrl, setPosterDataUrl] = useState<string | null>(null)
@@ -78,6 +79,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       totalMemberCount,
       qrCaption: qrCaption ?? t('sharing.scanToJoinGugu'),
       ctaText: ctaText ?? t('sharing.connectCta'),
+      variant: posterVariant,
     })
       .then((canvas) => {
         if (cancelled) return
@@ -91,7 +93,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       })
       .finally(() => { if (!cancelled) setGenerating(false) })
     return () => { cancelled = true }
-  }, [qrDataUrl, title, subtitle, memberKey, totalMemberCount, qrCaption, ctaText, t])
+  }, [qrDataUrl, title, subtitle, memberKey, totalMemberCount, qrCaption, ctaText, posterVariant, t])
 
   const handleCopy = useCallback(async () => {
     const canvas = posterCanvasRef.current
@@ -188,7 +190,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
             style={{
               width: '100%',
               maxWidth: 360,
-              aspectRatio: '3 / 4',
+              aspectRatio: posterVariant === 'contact' ? '360 / 376' : '3 / 4',
               background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-xl)',
               border: '1px solid var(--border-subtle)',

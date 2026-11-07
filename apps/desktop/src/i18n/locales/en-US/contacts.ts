@@ -388,6 +388,7 @@ export default {
     "posterFailed": "Could not generate the poster. Try again.",
     "posterTitle": "Share poster",
     "qrFailed": "Could not generate the QR code",
+    "scanToAddContact": "Scan to add me as a contact",
     "scanToJoinGugu": "Scan to join Gugu"
   },
   "tags": {

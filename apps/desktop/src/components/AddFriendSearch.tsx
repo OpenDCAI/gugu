@@ -168,6 +168,7 @@ export function AddFriendSearch({
 
   const { toast } = useToast()
   const [query, setQuery] = useState('')
+  const [completedQuery, setCompletedQuery] = useState('')
   // @@@1505 点「添加」先开附言 Dialog 收集申请附言（选填），再发申请（加好友先附言、再发申请）。
   const [pendingTarget, setPendingTarget] = useState<ContactUser | null>(null)
   const [note, setNote] = useState('')
@@ -215,11 +216,14 @@ export function AddFriendSearch({
     // @@@contact-qr-import (#537) - 粘贴一张联系人 QR 的文本时，解析出对方咕咕号再搜，
     // 让「加我」QR 不用扫码也能加。
     const qr = parseGuguQrPayload(q)
-    await searchUsers(qr?.kind === 'contact' ? String(qr.gugu_number) : q).catch(reportSearchError)
+    setCompletedQuery('')
+    await searchUsers(qr?.kind === 'contact' ? String(qr.gugu_number) : q)
+      .then(() => setCompletedQuery(q)).catch(reportSearchError)
   }
 
   const handleQueryChange = (v: string) => {
     setQuery(v)
+    setCompletedQuery('')
     if (!v.trim()) clearSearch()
   }
 
@@ -227,7 +231,7 @@ export function AddFriendSearch({
   useEffect(() => {
     if (!seed) return
     setQuery(seed.query)
-    void searchUsers(seed.query).catch(reportSearchError)
+    void searchUsers(seed.query).then(() => setCompletedQuery(seed.query.trim())).catch(reportSearchError)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed?.token, reportSearchError, searchUsers])
 
@@ -264,7 +268,7 @@ export function AddFriendSearch({
         <SearchBar value={query} onChange={handleQueryChange} onSubmit={handleSearch} autoFocus={autoFocus} />
       </div>
 
-      {hasQuery && <InviteFriendsPreview />}
+      {hasQuery && completedQuery === query.trim() && !isSearching && searchResults.length === 0 && <InviteFriendsPreview />}
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
