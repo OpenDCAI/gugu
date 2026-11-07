@@ -4,16 +4,17 @@ import type { RecordEntry, SessionRecordSource } from './contract';
 import { createSessionTimeline } from './timeline';
 
 describe('consumed transcript archive admission', () => {
-  it('admits exactly the measured source cap and rejects larger or unknown source sizes in constant work', () => {
-    for (const bytes of [0, 2 * 1024 * 1024, 7 * 1024 * 1024, TIMELINE_ARCHIVE_MAX_SOURCE_BYTES]) {
+  it('admits up to 32 MiB and rejects larger or unknown source sizes in constant work', () => {
+    expect(TIMELINE_ARCHIVE_MAX_SOURCE_BYTES).toBe(32 * 1024 * 1024);
+    for (const bytes of [0, 2 * 1024 * 1024, 7 * 1024 * 1024, 32 * 1024 * 1024 - 1, 32 * 1024 * 1024]) {
       expect(fitsTimelineArchiveSourceBudget(bytes)).toBe(true);
     }
-    for (const bytes of [TIMELINE_ARCHIVE_MAX_SOURCE_BYTES + 1, 600 * 1024 * 1024, NaN, Infinity, -1, 0.5]) {
+    for (const bytes of [32 * 1024 * 1024 + 1, 600 * 1024 * 1024, NaN, Infinity, -1, 0.5]) {
       expect(fitsTimelineArchiveSourceBudget(bytes)).toBe(false);
     }
   });
 
-  it.each([2, 7, 7.5])('archives a %s MiB-source timeline with over 1,024 entries and resumes it', async (mib) => {
+  it.each([2, 7, 7.5, 32])('archives a %s MiB-source timeline with over 1,024 entries and resumes it', async (mib) => {
     const entries: RecordEntry[] = Array.from({ length: 2048 }, (_, i) => ({ key: `end-${i}`, boundary: { kind: 'turn_end' } }));
     entries.push({ key: 'text', event: { kind: 'message', messageId: 'message', role: 'user', text: 'x'.repeat(128 * 1024) } });
     const start = vi.fn<SessionRecordSource['start']>(async (events, resume) => { if (!resume) events.onEntries(entries); });
