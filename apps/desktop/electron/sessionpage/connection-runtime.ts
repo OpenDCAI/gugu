@@ -239,7 +239,7 @@ export function createConnectionRuntime(input: {
     // Long browser actions do not hold the worker queue: the verifier must be
     // able to inspect or fence the SQLite attempt while an upstream call waits.
     runAuthorization:async<T>(provider:string,id:string,epoch:string,action:()=>Promise<T>)=>{
-      const selected=await serial(worker=>worker);return selected.runAuthorization(provider,id,epoch,action)
+      const selected=await serial(worker=>Promise.resolve(worker));return selected.runAuthorization(provider,id,epoch,action)
     },
     readEvidence:(raw:unknown,owner:string)=>serial(worker=>worker.readEvidence(raw,owner)),
     fenceEvidence:(raw:unknown,owner:string)=>serial(worker=>worker.fenceEvidence(raw,owner)),
