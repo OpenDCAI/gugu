@@ -5,7 +5,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LibraryHostProvider, type LibraryAgentsRpc, type LibraryHost } from '@renderer/features/library/library-host';
-import { useManagementAgents } from './use-agents';
+import { useManagementAgents, useManagementAgent } from './use-agents';
 import { useAgentInstallationStatuses, useBusyInstallAgents } from './use-agent-installation-statuses';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -124,6 +124,25 @@ describe('资源库选了别的机器时,取数与动作都去那台机器(#6264
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     dom.window.close();
+  });
+
+  it('opens agent details from the same host cache before a slow probe finishes, then retries silently', async () => {
+    const agents = remoteAgents();
+    const cached = { id: 'claude', name: 'Cached CLI', status: 'available', reading: 'installed', installOptions: [] };
+    queryClient.setQueryData(['agents', 'management', 'host', 'remote:d22'], [cached]);
+    let finish!: (value: unknown) => void;
+    agents.getManagement.mockRejectedValueOnce(new Error('temporary host failure')).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    let detail!: ReturnType<typeof useManagementAgent>;
+    function Detail() { detail = useManagementAgent('claude'); return React.createElement('p', null, detail.data?.name); }
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(LibraryHostProvider, { value: remoteHost(agents, true) }, React.createElement(Detail)))));
+    expect(detail.data?.name).toBe('Cached CLI');
+    expect(dom.window.document.body.textContent).toContain('Cached CLI');
+    await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+    expect(agents.getManagement).toHaveBeenCalledTimes(2);
+    expect(detail.data?.name).toBe('Cached CLI');
+    await act(async () => { finish({ ...cached, name: 'Fresh CLI' }); await vi.advanceTimersByTimeAsync(50); });
+    expect(detail.data?.name).toBe('Fresh CLI');
+    expect(dom.window.document.body.textContent).toContain('Fresh CLI');
   });
 
   it('列表与安装状态读的是那台机器报的,❌ 本机的', async () => {

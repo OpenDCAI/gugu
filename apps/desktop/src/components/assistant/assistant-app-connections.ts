@@ -1,9 +1,10 @@
 import type { ChatChannelKind, ChatChannelList } from '@gugu/core/cloud/chatChannels'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 import type { ConnectorState } from '@/session/renderer/features/assistant/assistant-connector-status'
+import type { IntegrationCatalogMetadata } from '@gugu/session-plugins/integration-summaries'
 
 export type ApplicationConnectionState = ConnectorState | 'paused' | 'retrying'
-export type AssistantConnectedApp = { id: string; name: string; description: string; integration?: IntegrationMetadata; state: ApplicationConnectionState; saved: boolean }
+export type AssistantConnectedApp = { id: string; name: string; description: string; integration?: IntegrationMetadata; state: ApplicationConnectionState; saved: boolean; catalog?: IntegrationCatalogMetadata }
 
 /** Legacy snapshots used the internal default credential key as an account name. */
 export function assistantAccountDisplayName(value: unknown): string | null {
@@ -16,10 +17,12 @@ export function assistantConnectedApps(items: readonly IntegrationMetadata[], se
   applicationName: (id: ChatChannelKind) => string, wechatDescription: string,
   stateFor: (id: string) => ConnectorState = () => 'notConnected', configured: Record<string, boolean | undefined> = {}): AssistantConnectedApp[] {
   const apps = new Map(items.map(integration => [integration.id, { id: integration.id, name: integration.name,
-    description: integration.description ?? '', integration, state: stateFor(integration.id), saved: !!configured[integration.id] } as AssistantConnectedApp]))
+    description: integration.description ?? '', catalog: integration.catalog,
+    integration, state: stateFor(integration.id), saved: !!configured[integration.id] } as AssistantConnectedApp]))
   const connection = services?.channels.find(item => item.kind === 'wechat')
   const health = connection?.health.state
   apps.set('wechat', { id: 'wechat', name: applicationName('wechat'), description: wechatDescription,
+    catalog: { categoryId: 'mail', aliases: ['WeChat', '微信', 'weixin'] },
     saved: !!connection, state: health === 'running' ? 'connected' : health === 'starting' ? 'checking'
       : health === 'paused' ? 'paused' : health === 'retrying' ? 'retrying' : connection ? 'checkFailed' : 'notConnected' })
   return [...apps.values()]

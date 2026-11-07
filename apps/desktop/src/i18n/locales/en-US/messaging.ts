@@ -671,6 +671,7 @@ export default {
     }
   },
   "header": {
+    "openApp": "Open an App",
     "groupApps": "Apps",
     "members_one": "{{count}} member",
     "members_other": "{{count}} members",

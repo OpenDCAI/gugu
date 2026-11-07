@@ -7,6 +7,7 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'jira',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://www.atlassian.com/software/jira',

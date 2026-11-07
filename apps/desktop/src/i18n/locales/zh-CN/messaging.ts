@@ -669,6 +669,7 @@ export default {
     }
   },
   "header": {
+    "openApp": "打开 App",
     "groupApps": "应用",
     "members": "{{count}} 位成员",
     "invite": "邀请",

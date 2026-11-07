@@ -64,10 +64,7 @@ export default {
       "assistant": "你的个人助理在这里，记安排、办事情直接告诉它。",
       "collaboration": "一个项目一个群，和 Agent 一起推进工作。"
     },
-    "dismiss": "知道了",
-    "unreadable": "读不到提示进度，请重试。",
-    "saveFailed": "提示进度未保存，请重试。",
-    "retry": "重试"
+    "dismiss": "知道了"
   },
   "rail": "咕咕",
   "nav": {
@@ -797,6 +794,22 @@ export default {
     "title": "能力与连接"
   },
   "connectors": {
+    "catalog": {
+      "search": "搜索应用",
+      "all": "全部应用",
+      "mine": "我的连接",
+      "featured": "精选",
+      "viewApp": "查看应用",
+      "viewAll": "查看全部（{{count}}）",
+      "attention": "需要处理",
+      "noConnections": "还没有连接任何应用",
+      "browse": "浏览全部应用",
+      "noResults": "没有找到相关应用",
+      "clearSearch": "清除搜索",
+      "searchAll": "搜索全部应用",
+      "results": "搜索结果",
+      "backToAll": "返回全部应用"
+    },
     "wechatDescription": "在微信里和咕咕聊天",
     "paused": "已暂停",
     "retrying": "正在恢复",

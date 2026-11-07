@@ -58,7 +58,7 @@ const mocks = vi.hoisted(() => ({
   listLocalModels: vi.fn(),
   listLocalPlatformModels: vi.fn(),
   assertLocalHarnessLaunchable: vi.fn(async (_pluginId: string, _transport: string) => {}),
-  /** Unset = the real discovery; a test that needs a fixed machine sets it once. */
+  /** This suite supplies its host catalogue; production discovery belongs to its own tests. */
   listLocalHarnesses: vi.fn(),
   resolveProjectWorkspace: vi.fn(),
   resolveCreateEffort: vi.fn(),
@@ -167,7 +167,7 @@ vi.mock('../agents/session-discovery', async () => {
   const actual = await vi.importActual<typeof import('../agents/session-discovery')>('../agents/session-discovery');
   return {
   ...actual,
-  listLocalHarnesses: () => mocks.listLocalHarnesses() ?? actual.listLocalHarnesses(),
+  listLocalHarnesses: () => mocks.listLocalHarnesses(),
   listLocalModels: (...args: unknown[]) => mocks.listLocalModels(...args),
   listLocalPlatformModels: (...args: unknown[]) => mocks.listLocalPlatformModels(...args),
   // 启动那道闸要起真的版本探针、解析真的可执行文件;这里只判编排在闸之后做什么。
@@ -176,6 +176,7 @@ vi.mock('../agents/session-discovery', async () => {
 });
 
 import {
+  agentInstallationStatusUpdatedChannel,
   sessionOpenBrowserInPaneChannel,
   sessionOpenExtensionInPaneChannel,
   sessionOpenFileInPaneChannel,
@@ -289,6 +290,10 @@ describe('session orchestration', () => {
     mocks.localAgentForSession.mockResolvedValue(null);
     mocks.listLocalModels.mockReset();
     mocks.listLocalModels.mockResolvedValue({ models: [] });
+    mocks.listLocalHarnesses.mockReset();
+    mocks.listLocalHarnesses.mockResolvedValue(['codex', 'claude'].map((id) => ({
+      id, name: id, description: '', status: 'available', version: null, surfaces: ['acp', 'pty'], spawnable: true,
+    })));
     mocks.listLocalPlatformModels.mockReset();
     mocks.listLocalPlatformModels.mockResolvedValue({
       models: [],
@@ -2684,6 +2689,30 @@ describe('session_archive', () => {
         .resolves.toEqual({ opened: true, path: '/repo/ws-1/data/report.csv', intent: 'preview' });
       expect(open).toHaveBeenCalledWith('caller', { kind: 'file', path: '/repo/ws-1/data/report.csv' }, 'preview', undefined);
       expect(mocks.emit).not.toHaveBeenCalled();
+    });
+
+    it('keeps remote pane routing isolated from delayed host inventory broadcasts', async () => {
+      const discovery = await vi.importActual<typeof import('../agents/session-discovery')>('../agents/session-discovery');
+      let completeInventory = () => {};
+      const discoverHost = vi.spyOn(discovery, 'listLocalHarnesses').mockImplementation(async () => {
+        // A real inventory can finish its installation scans after list_harnesses has answered.
+        completeInventory = () => mocks.emit(agentInstallationStatusUpdatedChannel, { id: 'opencode', status: 'available' });
+        return [];
+      });
+      try {
+        await runSessionAction(context, { action: 'list_harnesses' });
+        open.mockImplementation(async () => {
+          completeInventory();
+          return { opened: true };
+        });
+        await expect(runSessionAction(context, { action: 'open_in_tab', path: 'data/report.csv', intent: 'preview' }))
+          .resolves.toEqual({ opened: true, path: '/repo/ws-1/data/report.csv', intent: 'preview' });
+        expect(open).toHaveBeenCalledWith('caller', { kind: 'file', path: '/repo/ws-1/data/report.csv' }, 'preview', undefined);
+        expect(mocks.emit).not.toHaveBeenCalled();
+        expect(discoverHost).not.toHaveBeenCalled();
+      } finally {
+        discoverHost.mockRestore();
+      }
     });
 
     it('answers at once with a queued result when no desktop has the session open', async () => {

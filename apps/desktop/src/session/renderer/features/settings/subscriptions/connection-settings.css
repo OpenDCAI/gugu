@@ -1,0 +1,4 @@
+/* Align this dialog's group title with its Advanced heading and card edge. */
+.gg-settings-group.agent-connection-settings > .gg-section-label {
+  padding-inline: 0;
+}

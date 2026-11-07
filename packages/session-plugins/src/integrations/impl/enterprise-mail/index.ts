@@ -11,6 +11,7 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'enterprise-mail',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://exmail.qq.com',

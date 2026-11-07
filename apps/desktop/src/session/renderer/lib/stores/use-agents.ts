@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { events, rpc, rpcOn } from '@renderer/lib/ipc';
 import { queryClient } from '@renderer/lib/query-client';
 import { LOCAL_HOST_KEY, useLibraryHost } from '@renderer/features/library/library-host';
@@ -69,12 +69,18 @@ export function useAgent(id: string) {
 
 export function useManagementAgent(id: string) {
   const host = useLibraryHost();
+  const client = useQueryClient();
+  const listKey = [...MANAGEMENT_AGENTS_QUERY_KEY, ...hostKey(host.key)];
   return useQuery<AgentPayload | null>({
     queryKey: [...MANAGEMENT_AGENTS_QUERY_KEY, id, host.key],
     queryFn: () => host.agents.getManagement(id),
+    initialData: () => client.getQueryData<AgentPayload[]>(listKey)?.find(agent => agent.id === id),
+    initialDataUpdatedAt: () => client.getQueryState(listKey)?.dataUpdatedAt,
+    refetchOnMount: 'always',
+    retry: true,
+    retryDelay: attempt => Math.min(1000 * 2 ** attempt, 30_000),
     enabled: host.remote?.online !== false,
     staleTime: host.remote ? 30_000 : 5 * 60 * 1000,
-    ...(host.remote ? { retry: false } : {}),
   });
 }
 

@@ -17,6 +17,8 @@ type RowMenuItem = {
   icon: 'read' | 'pin' | 'notifications' | 'trash'
   disabled?: boolean
   danger?: boolean
+  /** 收进「更多」:影响整张列表或不可撤回的,不是这一行的日常动作。 */
+  fold?: true
 }
 
 export function conversationRowMenu(state: ConversationRowMenuState): RowMenuItem[] {
@@ -27,8 +29,8 @@ export function conversationRowMenu(state: ConversationRowMenuState): RowMenuIte
     : [...common,
         { id: 'pin', label: state.pinned ? 'unpin' : 'pin', icon: 'pin' },
         { id: 'notifications', label: state.notificationsMuted ? 'enableNotifications' : 'disableNotifications', icon: 'notifications' },
-        { id: 'mark-all-read', label: 'markAllRead', icon: 'read', disabled: !state.hasAnyUnread },
-        ...(state.canDelete ? [{ id: 'delete-chat', label: 'delete', icon: 'trash', danger: true } as const] : []),
+        { id: 'mark-all-read', label: 'markAllRead', icon: 'read', disabled: !state.hasAnyUnread, fold: true },
+        ...(state.canDelete ? [{ id: 'delete-chat', label: 'delete', icon: 'trash', danger: true, fold: true } as const] : []),
       ]
 }
 
