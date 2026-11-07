@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import tailwind from '@tailwindcss/postcss'
 import postcss, { type AcceptedPlugin, type AtRule, type Root, type Node, type Rule } from 'postcss'
 import { beforeAll, expect, it } from 'vitest'
@@ -73,4 +73,22 @@ it.each([0, 1])('keeps entry %i free of :has() followed by a universal descendan
 it.each(Object.values(rendererHtmlEntries))('keeps a fixed element after #root in %s', entry => {
   const body = readFileSync(entry, 'utf8').replace(/<!--.*?-->/gs, '')
   expect(body).toMatch(/<div id="root"><\/div>\s*<div data-root-sibling hidden><\/div>/)
+})
+// @@@tag-only-sibling — `li + li` keys the sibling check on a bare tag, so a tooltip leaving <body> restyled
+// every div/span/li under #root (12.6k elements, ~90 ms) on the first move into the message list. Key it on
+// `:not(:first-child)` instead.
+const tagThenAdjacent = /(?:^|[\s>+~(,])[a-z][a-z0-9-]*\s*\+(?!\s*\d)/
+const sourceCss = ['apps/desktop/src', 'packages'].flatMap(dir =>
+  readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter(file => file.endsWith('.css') && !file.includes('node_modules')).map(file => join(dir, file)))
+it('keeps every source stylesheet free of sibling rules keyed only by a tag', () => {
+  expect(tagThenAdjacent.test('.gg-md li + li')).toBe(true)
+  expect(tagThenAdjacent.test(':nth-child(2n+1)')).toBe(false)
+  expect(sourceCss).toContain(join('packages', 'session-shared/src/markdown/markdown.css'))
+  const hits: string[] = []
+  for (const file of sourceCss) {
+    postcss.parse(readFileSync(file, 'utf8')).walkRules(rule => {
+      if (tagThenAdjacent.test(flatSelector(rule))) hits.push(`${file}: ${flatSelector(rule)}`)
+    })
+  }
+  expect(hits).toEqual([])
 })
