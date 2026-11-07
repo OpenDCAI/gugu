@@ -1,3 +1,4 @@
+import { requireAgentFileAccess, requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary';
 import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -30,11 +31,14 @@ export async function packExtensionArchive(
   service: Inspector,
   sourceDir: string
 ): Promise<{ bytes: Buffer; sha256: string; manifest: ExtensionManifest }> {
+  await requireAgentFileTreeAccess(sourceDir);
+  await requireAgentFileAccess(path.join(sourceDir, 'manifest.json'));
   const report = validateExtensionBundle(service, sourceDir);
   if (!report.ok || !report.inspected) throw new Error(`not packed, the bundle has problems:\n- ${report.problems.join('\n- ')}`);
   const root = path.resolve(sourceDir);
   const zip = new JSZip();
   for (const file of bundleFiles(root)) {
+    await requireAgentFileAccess(file);
     // Match the market's packDir bytes, including its epoch date and absence of directory entries.
     zip.file(path.relative(root, file).split(path.sep).join('/'), fs.readFileSync(file), { date: new Date(0), createFolders: false });
   }
@@ -54,6 +58,7 @@ export async function packInstalledExtension(
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-export-'));
   try {
     const installed = service.get(extensionId);
+    await requireAgentFileTreeAccess(installed.rootDir);
     const copy = path.join(staging, installed.manifest.id);
     fs.cpSync(installed.rootDir, copy, { recursive: true, dereference: false, verbatimSymlinks: true });
     const { bytes, sha256, manifest } = await packExtensionArchive(service, copy);
@@ -69,6 +74,7 @@ export async function unpackExtensionArchive(
   bytes: Uint8Array,
   stagingRoot: string
 ): Promise<{ dir: string; sha256: string; report: ExtensionBundleReport }> {
+  await requireAgentFileTreeAccess(stagingRoot);
   const dir = path.join(stagingRoot, `.guguext-${randomBytes(4).toString('hex')}`);
   fs.mkdirSync(dir, { recursive: true });
   try {

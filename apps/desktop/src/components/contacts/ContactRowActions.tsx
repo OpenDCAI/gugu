@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
-import { BellOff, MailUnread, MessageCircle, Pencil, Pin, Trash } from '@/lib/icons'
+import { BellOff, MailUnread, MessageCircle, MoreHorizontal, Pencil, Pin, Trash } from '@/lib/icons'
 import { i18n } from '../../i18n'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
-import { Menu, MenuItem } from '../ui/Menu'
+import { Menu, MenuFold, MenuItem } from '../ui/Menu'
 import { AliasSheet } from './AliasSheet'
 import { useContactsStore } from '../../store/contactsContext'
 
@@ -73,27 +73,29 @@ export function ContactRowContextMenu({
       >
         {isPinned ? ct('contextMenu.unpin') : ct('contextMenu.pin')}
       </MenuItem>
-      {onMarkUnread ? (
-        <MenuItem data-testid={AUTOMATION_TEST_IDS.contactCtxMarkUnread}
-          icon={<MailUnread size={15} />}
-          onClick={() => { onMarkUnread(); onClose() }}
+      <MenuFold icon={<MoreHorizontal size={15} />} label={ct('contextMenu.more')}>
+        {onMarkUnread ? (
+          <MenuItem data-testid={AUTOMATION_TEST_IDS.contactCtxMarkUnread}
+            icon={<MailUnread size={15} />}
+            onClick={() => { onMarkUnread(); onClose() }}
+          >
+            {ct('contextMenu.markUnread')}
+          </MenuItem>
+        ) : null}
+        <MenuItem data-testid={AUTOMATION_TEST_IDS.contactCtxNotif}
+          icon={<BellOff size={15} />}
+          onClick={() => { onToggleNotif(); onClose() }}
         >
-          {ct('contextMenu.markUnread')}
+          {notifMuted ? ct('contextMenu.enableNotifications') : ct('contextMenu.disableNotifications')}
         </MenuItem>
-      ) : null}
-      <MenuItem data-testid={AUTOMATION_TEST_IDS.contactCtxNotif}
-        icon={<BellOff size={15} />}
-        onClick={() => { onToggleNotif(); onClose() }}
-      >
-        {notifMuted ? ct('contextMenu.enableNotifications') : ct('contextMenu.disableNotifications')}
-      </MenuItem>
-      <MenuItem data-testid={AUTOMATION_TEST_IDS.contactCtxRemove}
-        danger
-        icon={<Trash size={15} />}
-        onClick={() => { onRemove(); onClose() }}
-      >
-        {removeLabel}
-      </MenuItem>
+        <MenuItem data-testid={AUTOMATION_TEST_IDS.contactCtxRemove}
+          danger
+          icon={<Trash size={15} />}
+          onClick={() => { onRemove(); onClose() }}
+        >
+          {removeLabel}
+        </MenuItem>
+      </MenuFold>
     </Menu>
   )
 }

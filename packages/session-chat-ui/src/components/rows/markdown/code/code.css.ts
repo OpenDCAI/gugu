@@ -21,6 +21,13 @@ export const codeWrapper = style({
   scrollbarWidth: 'thin',
 });
 
+// Use the existing border token's 8% ink strength on the bubble's own text color.
+// The page foreground may be the opposite of an inverted user bubble's ink.
+// Keep the artifact width and radius, including its separate unbubbled treatment.
+globalStyle(`[data-chat-root][data-agent-conversation="true"] [data-user-card] ${codeWrapper}`, {
+  borderColor: 'color-mix(in oklab, currentColor 8%, transparent)',
+});
+
 /** Both palettes are emitted by Shiki; the painted surface chooses between them. */
 globalStyle(`${codeWrapper} span`, {
   color: 'light-dark(var(--shiki-light), var(--shiki-dark))',

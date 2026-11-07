@@ -7,6 +7,7 @@ import { flattenTier, makeUnitsView } from './flatten';
 import { activitySummary, activitySummaryText } from './activity-summary';
 import { createViewState } from './view-state';
 import { latestViewerInput, resetActivityOnInput } from './activity-boundary';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 const a = 'user:11111111-1111-4111-8111-111111111111', human = 'user:22222222-2222-4222-8222-222222222222';
 const ctx: SegmentCtx = { actor: (id: string) => id === a ? { id, type: 'agent', name: 'd3' } : id === human ? { id, type: 'human', name: 'Owner' } : null,
@@ -50,8 +51,23 @@ describe('agent activity identity and grouping', () => {
     expect(outgoingActivity('s', { ...addresses, recipients: [] }, ctx)?.group?.name).toBe('gugu');
     expect(outgoingActivity('s', { ...addresses, confirmed: false }, ctx)).toMatchObject({ count: 0, direction: 'sending', live: true });
   });
-  it.each(['sending', 'receiving', 'waiting', 'accepted', 'failed', 'unknown'] as const)('leaves the %s incoming receipt visible until custody clears', state => {
+  it.each(['sending', 'waiting', 'accepted', 'failed', 'unknown'] as const)('leaves the %s incoming receipt visible until custody clears', state => {
     expect(incomingActivity({ ...incoming('pending'), sendStatus: { state } }, ctx)).toBeNull();
+  });
+  it('classifies a receiving Agent from its first host receipt without delaying ordinary or human inputs', () => {
+    expect(incomingActivity({ ...incoming('pending'), sendStatus: { state: 'receiving' } }, ctx)?.count).toBe(1);
+    expect(incomingActivity({ ...incoming('human', 'human', human), sendStatus: { state: 'receiving' } }, ctx)).toBeNull();
+    expect(incomingActivity({ ...incoming('ordinary'), text: 'Ordinary input', sendStatus: { state: 'receiving' } }, ctx)).toBeNull();
+    const mixed = { ...incoming('batch'), text: incoming('agent').text + incoming('human', 'human', human).text,
+      sendStatus: { state: 'receiving' as const } };
+    expect(incomingActivity(mixed, ctx)).toBeNull();
+  });
+  it('uses structured delivery identity before presentation text, with text parsing only when facts are absent', () => {
+    const agent = readDeliveryEnvelope(incoming('metadata-agent').text)!;
+    expect(incomingActivity({ ...incoming('normalized'), text: 'Already normalized body', guguDelivery: agent,
+      sendStatus: { state: 'receiving' } }, ctx)?.count).toBe(1);
+    const person = readDeliveryEnvelope(incoming('metadata-human', 'human', human).text)!;
+    expect(incomingActivity({ ...incoming('raw-agent'), guguDelivery: person, sendStatus: { state: 'receiving' } }, ctx)).toBeNull();
   });
   it('includes silent historic branches and their process under the same stable fold', () => {
     const records = [turn('old', [incoming('one'), { ...message('quiet'), text: '[NO_REPLY]' }]), turn('last', [incoming('two')])];
