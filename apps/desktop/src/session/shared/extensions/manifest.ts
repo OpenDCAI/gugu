@@ -687,8 +687,8 @@ export const extensionManifestSchema = z
     if (unreadBinding && manifest.platforms?.includes('phone')) {
       ctx.addIssue({ code: 'custom', path: ['platforms'], message: 'conversation unread bindings currently require a desktop-only App' });
     }
-    if (unreadBinding && manifest.apiVersion < 31) {
-      ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'conversation unread bindings require apiVersion 31' });
+    if (unreadBinding && manifest.apiVersion < 32) {
+      ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'conversation unread bindings require apiVersion 32' });
     }
     const byFamily = new Map<string, string>();
     for (const word of declared) {

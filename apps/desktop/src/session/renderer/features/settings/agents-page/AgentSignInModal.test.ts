@@ -123,7 +123,7 @@ describe('AgentSignInModal 几步依次登(#6335)', () => {
       root.render(
         React.createElement(AgentSignInModal, {
           providerId: 'codebuddy',
-          providerName: 'CodeBuddy Code',
+          providerName: 'CodeBuddy',
           steps: [{ methodId: 'codebuddy-international', transport: 'acp-authenticate' }],
           onSuccess: vi.fn(),
           onClose: vi.fn(),

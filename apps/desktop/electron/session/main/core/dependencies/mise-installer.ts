@@ -4,7 +4,7 @@ import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 import { app } from 'electron';
 import { log } from '@main/lib/logger';
-import lockfile from 'proper-lockfile';
+import lockfile from '../../lib/proper-lockfile';
 import { replaceManagedLauncher, withManagedLauncherPublication } from './managed-launcher-publication';
 import { INSTALL_PHASES, type InstallProgressReport } from '@gugu/session-core/deps';
 import { DOWNLOAD_STAGE } from '@gugu/session-core/deps/runtime';

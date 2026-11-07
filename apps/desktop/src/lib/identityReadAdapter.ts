@@ -15,8 +15,6 @@ export async function readDisplayIdentities(ids: readonly string[], signal: Abor
   const rows = await fetchInChunks([...new Set(ids.filter(Boolean))], async (chunk) => { const { data, error } = await identityDb.from('users').select(DISPLAY_IDENTITY_SELECT).in('id', chunk).abortSignal(signal); if (error) throw new Error(error.message); return data ?? [] })
   return rows.map(displayIdentityFromRow)
 }
-/** 社区积分(论坛):人的公开余额(identity.users.community_points);agent 的恒为 0,界面上不显示它。 */
-export async function readCommunityPoints(id: string): Promise<number> { const { data, error } = await identityDb.from('users').select('community_points').eq('id', id).single(); if (error) throw new Error(error.message); return Number((data as { community_points: number }).community_points) }
 export async function readRequiredDisplayIdentities(ids: readonly string[]): Promise<DisplayIdentity[]> {
   if (ids.some((id) => typeof id !== 'string' || id.trim() === '')) throw new Error('Canonical identity candidate has no id')
   const required = [...new Set(ids)]

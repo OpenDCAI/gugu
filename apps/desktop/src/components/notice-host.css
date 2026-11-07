@@ -22,6 +22,14 @@
   pointer-events: none;
 }
 
+/* Sonner slides cards below their origin while entering/leaving or being swiped.
+ * The measured origin is the composer's safe edge: neither paint nor hit testing
+ * may cross it. Keep the rest of the viewport (including shadows/close buttons).
+ */
+.gugu-notices-above-composer[data-sonner-toaster][data-y-position='bottom'] {
+  clip-path: inset(-100vh -100vw 0 -100vw);
+}
+
 /* Copy confirmation stays above the conversation, away from the input/keyboard. */
 .gugu-notices[data-sonner-toaster][data-y-position='top'] {
   top: calc(env(safe-area-inset-top, 0px) + 64px);

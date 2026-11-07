@@ -20,6 +20,7 @@ import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/p
 import { join } from 'node:path';
 
 import type { TimelineArchive } from '@gugu/session-core/session-record';
+import { fitsTimelineArchiveSourceBudget } from '@gugu/session-core/session-record';
 
 import { app } from 'electron';
 
@@ -36,6 +37,7 @@ const DIRECTORY_NAME = 'session-timeline-archive';
  * 而写一个几百 MB 的文件会拖住主进程、吃满磁盘。超了就不存，下次照旧从头读。
  */
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
+// Read legacy caches up to 64 MiB; new writes require consumed-source metadata.
 
 /** 存档总量上限：超了就按最后使用时间从旧到新删。 */
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024;
@@ -72,6 +74,10 @@ export async function loadTimelineArchive(
   const file = fileFor(sessionId);
   if (!file) return null;
   try {
+    if ((await stat(file)).size > MAX_ARCHIVE_BYTES) {
+      await dropTimelineArchive(sessionId);
+      return null;
+    }
     const raw = await readFile(file, 'utf8');
     const parsed = JSON.parse(raw) as TimelineArchive;
     // 这里只做「像不像一份存档」这一层。真正判它还成不成立（版本、续读点对不对得上）
@@ -100,6 +106,7 @@ export async function saveTimelineArchive(
 ): Promise<void> {
   const file = fileFor(sessionId);
   if (!file) return;
+  if (!fitsTimelineArchiveSourceBudget(archive.sourceBytes)) return;
   let payload: string;
   try {
     payload = JSON.stringify(archive);
