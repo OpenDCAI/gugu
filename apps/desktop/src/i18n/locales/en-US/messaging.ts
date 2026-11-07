@@ -360,6 +360,7 @@ export default {
     "reupload": "Upload again",
     "selectOriginal": "Choose the original file",
     "storageWarning": "Group file storage is almost full ({{used}} / {{limit}}).",
+    "manageFiles": "Manage files",
     "storageFull": "Group file storage is full ({{used}} / {{limit}}). New uploads are paused.",
     "usageUnavailable": "File storage usage is unavailable right now.",
 
