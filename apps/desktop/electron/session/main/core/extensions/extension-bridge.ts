@@ -426,33 +426,37 @@ function fileWatchesFor(pageId: number) {
   return watching;
 }
 
-/** Each page's forum subscriptions (`gugu.forum.onChanged`), by post id or 'feed': torn down with the page's other watches. */
-const forumWatches = new Map<number, Map<string, () => void>>();
+/** Each page's cloud subscriptions (`gugu.cloud.on`), by topic and event: torn down with the page's other watches. */
+const cloudWatches = new Map<number, Map<string, () => void>>();
 
-async function watchForum(caller: BridgeCaller, target: unknown, on: boolean): Promise<void> {
-  const key = typeof target === 'string' ? target : '';
-  let mine = forumWatches.get(caller.pageId);
+async function watchCloud(caller: BridgeCaller, topic: unknown, event: unknown, on: boolean): Promise<void> {
+  const key = `${String(topic)}\n${String(event)}`;
+  let mine = cloudWatches.get(caller.pageId);
   if (!on) {
     mine?.get(key)?.();
     mine?.delete(key);
     return;
   }
   if (mine?.has(key)) return;
-  const { forumForApp } = await import('@main/core/extensions/extension-send');
-  const stop = forumForApp.watch(target, (change) => caller.hear({ type: 'forumChanged', target: key, change }));
+  const { cloudForApp } = await import('@main/core/extensions/extension-send');
+  const stop = cloudForApp.watch(cloudAppOf(caller), topic, event, (heard) => caller.hear({ type: 'cloudHeard', topic: String(topic), event: String(event), heard }));
   if (!mine) {
     mine = new Map();
-    forumWatches.set(caller.pageId, mine);
+    cloudWatches.set(caller.pageId, mine);
   }
   mine.set(key, stop);
+}
+
+function cloudAppOf(caller: BridgeCaller) {
+  return { id: caller.extensionId, origin: extensionsService().origins()[caller.extensionId] };
 }
 
 /** The pages that listed a working copy: they hold its tree's folders (working-copy-files.ts) until they go. */
 const workingCopyPages = new Set<number>();
 
 export function stopPageWatches(pageId: number): void {
-  for (const stop of forumWatches.get(pageId)?.values() ?? []) stop();
-  forumWatches.delete(pageId);
+  for (const stop of cloudWatches.get(pageId)?.values() ?? []) stop();
+  cloudWatches.delete(pageId);
   const watching = pageWatches.get(pageId);
   for (const watch of watching?.values() ?? []) watch.disk?.stop();
   pageWatches.delete(pageId);
@@ -1806,46 +1810,25 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       return { projects: (await getProjects()).filter((project) => !isImplicitSessionHomeProjectId(project.id)).map(({ id, name }) => ({ id, name, workspace: projectWorkspace(id) })) };
     }
 
-    case 'forumList':
-    case 'forumRead':
-    case 'forumPost':
-    case 'forumReply':
-    case 'forumReact':
-    case 'forumRemove':
-    case 'forumBlock':
-    case 'forumAssign':
-    case 'forumAward': {
-      // 论坛 (9): as the person, whoever works the page — the database judges who may see and do what (app-forum-core.ts).
-      const { forumForApp: forum } = await import('@main/core/extensions/extension-send');
-      switch (method) {
-        case 'forumList': return await forum.list(args);
-        case 'forumRead': return await forum.read(args.postId);
-        case 'forumReply': return await forum.reply(args.postId, args.text, { replyTo: args.replyTo });
-        case 'forumReact': return await forum.react(args);
-        case 'forumRemove': return await forum.remove(args);
-        case 'forumBlock': return await forum.block(args.userId, args.on);
-        case 'forumPost': {
-          if (args.bounty === undefined || args.bounty === null) return await forum.postPlain(args);
-          // Points move only behind the window's own sheet: it posts if the person confirms (ForumConsent).
-          await deliver(thePage(caller), { kind: 'forumConsent', detail: { type: 'bounty', draft: forum.bountyDraft(args) } });
-          return { confirming: true };
-        }
-        case 'forumAssign': {
-          // The person picks one of their own agents in the window's 「交给谁」 sheet (DispatchSheet): an App never lists them.
-          const { pickDispatchTarget } = await import('@main/core/extensions/extension-bridge-relay');
-          return await forum.assign(args.postId, args.agentId, (ask) => pickDispatchTarget(thePage(caller).embedderId, ask));
-        }
-        default: {
-          await deliver(thePage(caller), { kind: 'forumConsent', detail: { type: 'award', draft: await forum.awardDraft(args.postId, args.awards) } });
-          return { confirming: true };
-        }
-      }
+    case 'cloudRead':
+    case 'cloudWrite':
+    case 'cloudProgramWrite': {
+      const { cloudForApp: cloud } = await import('@main/core/extensions/extension-send');
+      const given = (args.args ?? {}) as Record<string, unknown>;
+      return method === 'cloudRead' ? await cloud.read(cloudAppOf(caller), args.name, given) : await cloud.write(cloudAppOf(caller), args.name, given);
     }
 
-    case 'forumSubscribe':
-    case 'forumUnsubscribe':
-      await watchForum(caller, args.target, method === 'forumSubscribe');
+    case 'cloudSubscribe':
+    case 'cloudUnsubscribe':
+      await watchCloud(caller, args.topic, args.event, method === 'cloudSubscribe');
       return undefined;
+
+    case 'pickAgent': {
+      const [{ pickDispatchTarget }, { pickAgentAsk, answerAgentPick }, { cloudForApp: cloud }] = await Promise.all([
+        import('@main/core/extensions/extension-bridge-relay'), import('@shared/extensions/app-dispatch-core'), import('@main/core/extensions/extension-send'),
+      ]);
+      return await answerAgentPick(args, await pickDispatchTarget(thePage(caller).embedderId, pickAgentAsk(args)), (name, given) => cloud.write(cloudAppOf(caller), name, given));
+    }
 
     case 'chatsMembers': {
       const [files, { chatOf }] = await Promise.all([import('@main/core/extensions/app-files'), import('@shared/extensions/app-messages-core')]);

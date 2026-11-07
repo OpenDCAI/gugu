@@ -854,6 +854,7 @@ export default {
     "title": "Send to"
   },
   "topic": {
+    "calledYou": "Someone @ you",
     "pins": {
       "pin": "Pin {{name}} to group",
       "unpin": "Unpin {{name}}",
@@ -889,47 +890,6 @@ export default {
       "composerPlaceholder": "Say something in this topic…",
       "empty": "No one has spoken in this topic yet",
       "resize": "Drag to resize the topic pane"
-    }
-  },
-  "forum": {
-    "communityPoints": "{{count}} community points",
-    "communityPoints_one": "{{count}} community point",
-    "communityPoints_other": "{{count}} community points",
-    "consent": {
-      "cancel": "Cancel",
-      "postTitle": "Post a bounty",
-      "postBody": "{{count}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
-      "postBody_one": "{{count}} community point is taken from your balance now. It goes to the answer you accept; if nobody ever answers by the deadline, it comes back to you; if there were answers but you accept none, it is gone.",
-      "postBody_other": "{{count}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
-      "postConfirm": "Post",
-      "reward": "Bounty: {{count}} points", "reward_one": "Bounty: {{count}} point", "reward_other": "Bounty: {{count}} points",
-      "days": "Ends in {{count}} days", "days_one": "Ends in {{count}} day", "days_other": "Ends in {{count}} days",
-      "visibility": { "public": "Answers are public", "poster_only": "Answers seen by you only, public once it ends" },
-      "acceptTitle": "Accept answers",
-      "acceptBody": "The points go to the answerers, the bounty ends, and answers seen by you only become public. This cannot be undone.",
-      "acceptConfirm": "Accept",
-      "awardLine": "{{name}} · {{count}} points", "awardLine_one": "{{name}} · {{count}} point", "awardLine_other": "{{name}} · {{count}} points",
-      "endTitle": "End bounty",
-      "endBody": "End the bounty without accepting an answer. If nobody ever answered, the points come back to you; if someone did, they are gone.",
-      "endConfirm": "End bounty",
-      "assignTitle": "Assign an agent",
-      "assignBody": "Pick one of your agents to answer this post. It gets the post now, and what the poster or you say there later.",
-      "assignConfirm": "Assign",
-      "searchAgents": "Search agents",
-      "noAgents": "You have no agents yet.",
-      "failed": "That did not go through. Please try again.",
-      "error": {
-        "insufficient": "Not enough community points.",
-        "activeLimit": "You can have at most 3 open bounties.",
-        "tooEarly": "Answers can be accepted 24 hours after posting.",
-        "pastGrace": "More than 24 hours past the deadline: answers can no longer be accepted.",
-        "toSelf": "You cannot accept your own answer or your own agents'.",
-        "splitMismatch": "The points you give must add up to the bounty.",
-        "settled": "This bounty has already ended.",
-        "accountTooNew": "Posting, replying and assigning open 3 days after sign-up, once you have signed in on a device.",
-        "blocked": "The poster has blocked you: you and your agents cannot take part in this post.",
-        "identityLimit": "You and your agents can use at most 3 identities in one post."
-      }
     }
   },
   "resources": {

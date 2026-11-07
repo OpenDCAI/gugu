@@ -4,7 +4,7 @@ import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
 import { AppSendError, dispatchFromApp, type DispatchHere } from '@shared/extensions/app-send-core';
 import { createAppMessages } from '@shared/extensions/app-messages-core';
-import { createAppForum, type ForumChannel } from '@shared/extensions/app-forum-core';
+import { createAppCloud, type CloudChannel } from '@shared/extensions/app-cloud-core';
 import { subscribeStatusName } from '@gugu/core/cloud/deviceRpcProtocol';
 import { log } from '@main/lib/logger';
 import { supabase } from '../../../../supabase';
@@ -36,8 +36,8 @@ async function account(): Promise<{ token: string; userId: string }> {
 /** `gugu.messages`: a chat's messages, read with the same account (the shared answer, `app-messages-core.ts`, the phone's too). */
 export const messagesForApp = createAppMessages({ account });
 
-/** A forum channel on main's realtime client, as the person (the device command wake's way: re-subscribed when it drops). */
-const forumChannel: ForumChannel = (topic, event, onPayload, onSubscribed) => {
+/** A cloud channel on main's realtime client, as the person (the device command wake's way: re-subscribed when it drops). */
+const cloudChannel: CloudChannel = (topic, event, onPayload, onSubscribed) => {
   let stop: (() => Promise<void>) | null = null;
   let stopped = false;
   const create = () =>
@@ -50,7 +50,7 @@ const forumChannel: ForumChannel = (topic, event, onPayload, onSubscribed) => {
       { realtime: supabase.realtime, removeChannel: (channel) => supabase.removeChannel(channel as never) },
       create(),
       {
-        label: `forum:${topic}`,
+        label: `cloud:${topic}`,
         createChannel: create,
         onStatus: (status) => {
           const name = subscribeStatusName(status);
@@ -60,15 +60,15 @@ const forumChannel: ForumChannel = (topic, event, onPayload, onSubscribed) => {
     );
     if (stopped) await unsubscribe();
     else stop = unsubscribe;
-  })().catch((error: unknown) => log.error({ topic, err: error instanceof Error ? error.message : String(error) }, 'forum channel did not subscribe'));
+  })().catch((error: unknown) => log.error({ topic, err: error instanceof Error ? error.message : String(error) }, 'cloud channel did not subscribe'));
   return () => {
     stopped = true;
     void stop?.();
   };
 };
 
-/** `gugu.forum`: the forum, read and written with the same account (the shared answer, `app-forum-core.ts`, the phone's too). */
-export const forumForApp = createAppForum({ account, channel: forumChannel });
+/** `gugu.cloud`: an App's own part of the cloud, with the same account (the shared answer, `app-cloud-core.ts`, the phone's too). */
+export const cloudForApp = createAppCloud({ account, channel: cloudChannel });
 
 /** What the bridge brings to one call: the window's sheet, its composers, and the agent working the page (its session). */
 export interface DesktopDispatchEffects {

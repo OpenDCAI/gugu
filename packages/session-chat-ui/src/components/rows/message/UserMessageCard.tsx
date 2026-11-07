@@ -240,7 +240,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         <Show when={stack()}>{(s) => <BlockStackView node={s()} />}</Show>
       </div>
       <Show when={!isExpanded() && isOverflowing()}>
-        <div class={cardFadeOverlay} style={destination() ? { bottom: `${destination()!.height}px` } : undefined} />
+        <div class={cardFadeOverlay} style={destination() ? { bottom: `${destination()!.height + vars().userCardPadY}px` } : undefined} />
       </Show>
       <Show when={destination()}>{target => <ConversationDestination text={target().text} width={target().width} />}</Show>
       <Show when={showStop()}>

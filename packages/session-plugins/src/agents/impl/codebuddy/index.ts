@@ -37,7 +37,7 @@ const sessionBundle = codebuddySessionBundleDescriptor satisfies SessionBundleDe
 export const plugin = definePlugin(
   {
     id: 'codebuddy',
-    name: 'CodeBuddy Code',
+    name: 'CodeBuddy',
     description:
       "Tencent's terminal coding agent: understands the codebase, edits files, runs commands, and handles whole workflows.",
     websiteUrl: 'https://www.codebuddy.ai/docs/cli/overview',

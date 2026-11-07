@@ -10,7 +10,7 @@ export async function stageWorktreeFiles(
   paths: string[]
 ): Promise<GitWorktreeMutationResult> {
   try {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
     if (!workspace.gitWorktree) return err({ type: 'not_found' });
@@ -29,7 +29,7 @@ export async function unstageWorktreeFiles(
   paths: string[]
 ): Promise<GitWorktreeMutationResult> {
   try {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
     if (!workspace.gitWorktree) return err({ type: 'not_found' });
@@ -48,7 +48,7 @@ export async function revertWorktreeFiles(
   paths: string[]
 ): Promise<GitWorktreeMutationResult> {
   try {
-    const workspace = resolveWorkspace(projectId, workspaceId);
+    const workspace = await resolveWorkspace(projectId, workspaceId);
     if (!workspace) return err({ type: 'not_found' });
     // gugu #2358: 非 git 项目无 git worktree —— git 功能降级。
     if (!workspace.gitWorktree) return err({ type: 'not_found' });

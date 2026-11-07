@@ -35,7 +35,7 @@ const autonomyOutsideBundle: Degradation = {
 };
 const unverifiedExtension: Degradation = {
   code: 'unverified',
-  reason: `CodeBuddy Code v${VERSION} extension delivery has not been verified.`,
+  reason: `CodeBuddy v${VERSION} extension delivery has not been verified.`,
 };
 
 const SETTINGS_FILE = 'gugu-session-settings.json';

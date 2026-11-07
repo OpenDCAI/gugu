@@ -1,6 +1,6 @@
 vi.mock('../../../../apps/desktop/src/components/appSlot/OwnedAgentResourcesHost', () => ({ OwnedAgentResourcesHost: () => null }))
-const resourceHosts = vi.hoisted(() => ({ host: vi.fn(), suspend: vi.fn() }))
-vi.mock('../../../../apps/desktop/src/lib/ownedAgentResources', () => ({ hostOwnedAgentResources: resourceHosts.host, suspendOwnedAgentResources: resourceHosts.suspend }))
+const resourceHosts = vi.hoisted(() => ({ host: vi.fn(), suspend: vi.fn(), resume: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/ownedAgentResources', () => ({ hostOwnedAgentResources: resourceHosts.host, suspendOwnedAgentResources: resourceHosts.suspend, resumeOwnedAgentResources: resourceHosts.resume }))
 vi.mock('../../../../apps/desktop/src/hooks/useSessionInputOutbox', () => ({ SessionInputOutboxHost: () => null }))
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
@@ -16,7 +16,7 @@ import { conversationLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
 import { clickElement, createNode, createReactHarness, message } from '../../../support/testHarness'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
-import { takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { askChat, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT, APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { sheetStack } from '../../../../apps/desktop/src/components/ui/sheetStack'
@@ -42,6 +42,21 @@ vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', async (orig
   return { ...actual, askReveal: (chat: string, message: string, viewport?: string) => { revealRoute.asked(chat, message, viewport); actual.askReveal(chat, message, viewport) } }
 })
 const clickLink = (href: string) => openLinkTarget(parseGuguLink(href)!)
+// These routing tests replace ChatAreaPanel. Its controlled consumer accepts the
+// file, while keeping the exact request available for the source/routing assertions.
+function acceptMockFilePanel(event: Event) {
+  const chatId = (event as CustomEvent<{ chatId: string }>).detail?.chatId
+  if (!chatId) return
+  const ask = takeChatAsk(chatId)
+  if (!ask) return
+  if ('itemId' in ask && ask.receipt) {
+    const { receipt, ...shown } = ask
+    askChat(chatId, shown)
+    receipt.resolve()
+  } else askChat(chatId, ask)
+}
+beforeEach(() => window.addEventListener(UI_EVENTS.chatAsked, acceptMockFilePanel))
+afterEach(() => window.removeEventListener(UI_EVENTS.chatAsked, acceptMockFilePanel))
 const fileOwner = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/lib/supabase', async (original) => {
   const actual = await original<typeof import('../../../../apps/desktop/src/lib/supabase')>()

@@ -1,3 +1,4 @@
+import { UI_EVENTS } from '@/lib/uiEvents';
 import { action, observable, reaction, runInAction } from 'mobx';
 import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { AppOpenWithDetail } from '@shared/extensions/app-runtime-protocol';
@@ -313,9 +314,10 @@ export const updateFileNames = action(function updateFileNames(
  * chat, `chatFile`), or a file of the chat and the place a pill points at (`opener`: `files.openWith`, whose host
  * already said who opens it, or among which the person picks; `fromPage`: a page beside the chat asked).
  */
+export type ChatFileOpenReceipt = { resolve(): void; reject(error: unknown): void };
 export type ChatOpenAsk =
   | { app: string; tab?: string }
-  | { itemId: string; at?: Record<string, string>; opener?: AppOpenWithDetail; message?: MessageItem; restore?: () => void; from?: string };
+  | { itemId: string; at?: Record<string, string>; opener?: AppOpenWithDetail; message?: MessageItem; restore?: () => void; from?: string; receipt?: ChatFileOpenReceipt };
 
 const asks = new Map<string, ChatOpenAsk>();
 /**
@@ -323,7 +325,16 @@ const asks = new Map<string, ChatOpenAsk>();
  * screen — what opens it is found by the shell (its Apps, its prompts), asked while the chat may not be drawn yet.
  */
 export function askChat(chatId: string, what: ChatOpenAsk): void {
+  const previous = asks.get(chatId);
+  if (previous && 'itemId' in previous) previous.receipt?.reject(new Error('The file opening was superseded'));
   asks.set(chatId, what);
+}
+/** Links acknowledge the consumer's result, rather than merely putting an item in its mailbox. */
+export function askChatFile(chatId: string, what: Omit<Extract<ChatOpenAsk, { itemId: string }>, 'receipt'>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    askChat(chatId, { ...what, receipt: { resolve, reject } });
+    window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId } }));
+  });
 }
 /** What was asked of this chat, once: taken by the chat that answers it. */
 export function takeChatAsk(chatId: string | null | undefined): ChatOpenAsk | null {

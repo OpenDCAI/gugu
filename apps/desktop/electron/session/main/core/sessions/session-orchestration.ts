@@ -1131,7 +1131,7 @@ async function createChildSession(input: {
   const created = input.bindIdentityFirst && transport === 'acp'
     ? bindIdentityThenCreate(
       async () => {
-        const cwd = resolveWorkspace(projectId, input.workspaceId)?.path;
+        const cwd = (await resolveWorkspace(projectId, input.workspaceId))?.path;
         if (!cwd) throw new Error(`workspace ${input.workspaceId} is unknown`);
         const identity = await provisionStartIdentity({ sessionId, providerId: provider, projectId, cwd }, 'fresh', { agentDisplayName: title || undefined });
         if (!identity) throw new Error(`session ${sessionId} could not be given an identity`);
@@ -1388,7 +1388,7 @@ async function requireCallerWorkspace(context: SessionCallerContext, signal?: Ab
   if (!caller.workspaceId || caller.workspaceId !== context.workspaceId) {
     throw new Error('current session workspace is not ready');
   }
-  const workspace = resolveWorkspace(context.projectId, caller.workspaceId);
+  const workspace = await resolveWorkspace(context.projectId, caller.workspaceId);
   if (!workspace) throw new Error('current session workspace is not mounted');
   return workspace;
 }
@@ -1627,7 +1627,7 @@ async function openBrowserInTab(
  * 目录外的 / 不存在的 / 不是文件的当场说清,❌ 推过去再开出一个打不开的页。
  */
 async function requireRemotePageFile(
-  workspace: NonNullable<ReturnType<typeof resolveWorkspace>>,
+  workspace: NonNullable<Awaited<ReturnType<typeof resolveWorkspace>>>,
   url: string,
   signal?: AbortSignal
 ): Promise<void> {
