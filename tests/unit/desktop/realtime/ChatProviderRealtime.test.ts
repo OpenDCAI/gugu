@@ -184,7 +184,7 @@ vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
   useNotificationSettings: () => notificationSettings
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
-  platform: {
+  platform: { subscribeAppForeground: () => () => {},
     get localMessages() { return messageStorage.sqlite ? 'sqlite' : undefined },
     capabilities: { notifications: false, badge: false },
     showNotification: vi.fn(),

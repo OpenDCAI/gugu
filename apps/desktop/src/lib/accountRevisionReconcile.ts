@@ -3,6 +3,11 @@
 // 下一条广播才出现。这里补上与广播无关的拉取时机:定时对账 + 回到前台 / 页面可见 / 联网 / 系统唤醒。
 // 每次触发都是一次 head 未知的 wake(runtime 照常合并并发、按游标增量拉),代价是一次有界的 sync_since。
 
+import { platform } from '../platform'
+import { rendererLogger } from './log'
+
+const reconcileLog = rendererLogger('chat/account-revision-reconcile')
+
 export const REVISION_RECONCILE_INTERVAL_MS = 25_000
 
 type Unsubscribe = () => void
@@ -29,4 +34,28 @@ export function watchRevisionReconcile(
     signals.clearInterval(timer)
     for (const stop of stops) stop()
   }
+}
+
+function rendererReconcileSignals(): RevisionReconcileSignals {
+  return {
+    setInterval: (fn, ms) => window.setInterval(fn, ms),
+    clearInterval: (handle) => window.clearInterval(handle as number),
+    onVisible: (listener) => {
+      const onChange = () => { if (document.visibilityState === 'visible') listener() }
+      document.addEventListener('visibilitychange', onChange)
+      return () => document.removeEventListener('visibilitychange', onChange)
+    },
+    onOnline: (listener) => {
+      window.addEventListener('online', listener)
+      return () => window.removeEventListener('online', listener)
+    },
+    onForeground: (listener) => platform.subscribeAppForeground(listener, (error) => {
+      reconcileLog.error({ error }, 'app foreground subscription failed')
+    }),
+  }
+}
+
+/** The renderer's reconcile beat (interval + visible / online / foreground). */
+export function watchRendererRevisionReconcile(advance: () => void): Unsubscribe {
+  return watchRevisionReconcile(advance, rendererReconcileSignals())
 }
