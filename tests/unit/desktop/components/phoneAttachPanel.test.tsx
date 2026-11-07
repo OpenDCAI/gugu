@@ -82,4 +82,12 @@ describe('phone "+" panel (owner 11-05: photos and files are two different thing
     await submit()
     expect(onSendAttachments).toHaveBeenCalledExactlyOnceWith([big], expect.anything())
   })
+  it('persists a compressed photo with its original, so the switch survives a chat switch', async () => {
+    const setDraftAttachments = vi.fn()
+    await renderWithAppProviders(harness, <ChatMessageComposer chatId="chat" onSend={vi.fn(async () => {})} onSendAttachments={vi.fn(async () => {})} />, { chat: { setDraftAttachments } })
+    const big = new File(['big'], 'big.png', { type: 'image/png' })
+    await pick(q<HTMLInputElement>('input[accept="image/*"][multiple]')!, [big])
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)) })
+    expect(setDraftAttachments.mock.lastCall).toEqual(['chat', [expect.objectContaining({ file: compressed, photo: { original: big, compressed } })]])
+  })
 })

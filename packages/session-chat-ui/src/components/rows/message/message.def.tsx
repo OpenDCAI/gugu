@@ -87,7 +87,7 @@ export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: stri
   if (normalized.role !== 'user') return normalized;
   const imageNames = new Set(normalized.attachments?.map(file => file.name) ?? []);
   const files = (item.files ?? []).filter(file => !imageNames.has(file.name)).map(file => file.mimeType.startsWith('image/')
-    ? { id: `gugu-file://${file.itemId}?v=${file.version}`, name: file.name, kind: 'image' as const }
+    ? { id: `gugu-file://${file.itemId}?v=${file.version}`, href: `gugu-file://${file.itemId}?v=${file.version}`, name: file.name, kind: 'image' as const }
     : { id: `${file.itemId}:${file.version}`, name: file.name, kind: 'file' as const });
   if (files.length) normalized.attachments = [...(normalized.attachments ?? []), ...files];
   const split = splitAttachmentMentions(normalized.text);

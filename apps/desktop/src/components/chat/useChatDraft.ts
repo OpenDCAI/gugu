@@ -40,10 +40,10 @@ export function withPreviewUrl<T extends { file: File; kind: AttachmentKind }>(a
   return { ...attachment, previewUrl: renderable ? URL.createObjectURL(attachment.file) : null }
 }
 
-// Strip the transient blob previewUrl before persisting to the per-chat draft store (store keeps only
-// durable id/file/kind; the preview URL is regenerated on restore).
+// Strip the transient blob previewUrl before persisting to the per-chat draft store; the preview URL is
+// regenerated on restore.
 function toDraftAttachments(attachments: PendingAttachment[]): DraftAttachment[] {
-  return attachments.map(({ id, file, kind }) => ({ id, file, kind }))
+  return attachments.map(({ previewUrl: _previewUrl, ...draft }) => draft)
 }
 
 // Rehydrate stored draft attachments into live composer attachments, regenerating each image's preview URL.
