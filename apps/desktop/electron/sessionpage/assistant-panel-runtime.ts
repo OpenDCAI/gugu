@@ -183,7 +183,7 @@ export function createAssistantPanelRuntime(deps: {
         bytes: new TextEncoder().encode(row.content),
       }))
       if (domain === 'integrations') return [
-        ...deps.local.integrationCatalog().map(row => ({ key: `catalog:${row.id}`,data: { providerId: row.id,configured: false,displayName: row.en.name },
+        ...deps.local.integrationCatalog().map(row => ({ key: `catalog:${row.id}`,data: { providerId: row.id,configured: false,displayName: row.en.name,catalog: row.en.catalog },
           bytes: new TextEncoder().encode(JSON.stringify({ version: 1,en: row.en,'zh-CN': row.zh })),
         })),
         ...(await deps.local.integrations(binding.ownerId,() => scheduleCollection('integrations'))).map(({ publicMetadata,...row }) => {

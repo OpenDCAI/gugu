@@ -32,6 +32,8 @@ const metadataSchema = z.object({
   name: z.string(),
   description: localizedTextSchema,
   websiteUrl: z.string(),
+  /** Lightweight directory metadata; older providers may omit it. */
+  catalog: z.object({ categoryId: z.string(), aliases: z.array(z.string()).optional() }).optional(),
   /** #7240 连上以后 agent 能做什么,一条一句(资源库详情的「能力」)。 */
   abilities: z.array(localizedTextSchema).optional(),
   /** #7240 推荐玩法:点「试试看」开一个新任务、填好这句话。 */

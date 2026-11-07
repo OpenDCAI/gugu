@@ -13,13 +13,14 @@ import { useTranslation } from 'react-i18next';
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow } from '@/components/settings/SettingsPrimitives';
 import { Button } from '@/components/ui/Button';
 import type { AssistantHomePlace } from '@/lib/assistantHome';
-import { ChevronLeft, ChevronRight, Cloud, Monitor } from '@/lib/icons';
+import { ChevronLeft, Cloud, Monitor } from '@/lib/icons';
 import { IntegrationIcon } from '@renderer/features/integrations/integration-icon';
 import { IntegrationsProvider, useIntegrationsContext } from '@renderer/features/integrations/integrations-provider';
 import { LibraryHostProvider, type LibraryHost } from '@renderer/features/library/library-host';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { connectorOrder } from './assistant-connector-order';
-import { accountNoteFor, homeWhere, useHomeLibraryHost } from './assistant-home-integrations';
+import { ConnectedAppsCatalog } from '@/components/assistant/ConnectedAppsCatalog';
+import { homeWhere, useHomeLibraryHost } from './assistant-home-integrations';
 import { connectorState, type ConnectorState } from './assistant-connector-status';
 import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
 import { PageHead } from './assistant-ui-parts';
@@ -40,7 +41,7 @@ export function CloudConnectorsSettings({ cloudDeviceId, assistantName }: { clou
 const HomeConnectorList = observer(function HomeConnectorList({ host, home, assistantName, panelNavigation }: Props & { host: LibraryHost }) {
   const { t, i18n } = useTranslation('assistant');
   const settings = useTranslation('settings').t;
-  const { integrations, configuredConnections, connectionStatus, checkedConnections, connectionCheckError, hasConfiguredConnections, configuredConnectionsError, hasList, listError, reloadList } = useIntegrationsContext();
+  const { integrations, configuredConnections, connectionStatus, checkedConnections, connectionCheckError, hasConfiguredConnections, configuredConnectionsError, hasList, listError, reloadList, reloadConnections } = useIntegrationsContext();
   const chats = useChatChannels();
   const stateFor = (id: string) => connectorState(hasConfiguredConnections ? !!configuredConnections[id] : undefined, checkedConnections[id], configuredConnectionsError ?? connectionCheckError, host.assistantPanelExpected);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -59,23 +60,13 @@ const HomeConnectorList = observer(function HomeConnectorList({ host, home, assi
     <SettingsNote tone={failure?.tone === 'danger' ? 'danger' : undefined}>{failure?.text}</SettingsNote>
     {failure?.retry ? <div><Button size="sm" onClick={failure.retry}>{t('machine.retry')}</Button></div> : null}
   </SettingsPage>;
-  const isConnected = (app: AssistantConnectedApp) => app.state === 'connected';
-  const isSaved = (app: AssistantConnectedApp) => app.saved;
-  const groups = [
-    { key: 'connected', title: t('connectors.connectedGroup'), items: apps.filter(isConnected) },
-    { key: 'saved', title: t('connectors.savedGroup'), items: apps.filter(app => !isConnected(app) && isSaved(app)) },
-    { key: 'available', title: t('connectors.availableGroup'), items: apps.filter(app => !isConnected(app) && !isSaved(app)) },
-  ];
   return <SettingsPage data-testid="assistant-connectors-cloud">
     {failure ? <SettingsNote><span role="status">{failure.text}</span></SettingsNote> : null}
-    <SettingsNote className="ta-connector-location-note">{accountNoteFor(home, assistantName, t)}</SettingsNote>
-    {groups.filter(group => group.items.length).map(group => <SettingsGroup key={group.key} title={group.title} data-testid={`assistant-connectors-${group.key}`}>
-      {group.items.map(app => <SettingsRow key={app.id} data-testid={`assistant-connector-${app.id}`} className="ta-application-row"
-        leading={app.integration ? <IntegrationIcon provider={app.id} icon={app.integration.icon} size={32} /> : app.id === 'wechat' ? <ChannelBrandIcon kind="wechat" size={32} /> : undefined}
-        title={app.name} description={app.description || <span aria-hidden="true">&nbsp;</span>}
-        control={group.key === 'saved' ? <span className="gg-settings-row-value">{t(`connectors.${app.state}`)}</span> : <ChevronRight size={16} className="gg-settings-row-chevron" aria-hidden />}
-        onClick={() => setOpenId(app.id)} />)}
-    </SettingsGroup>)}
+    <ConnectedAppsCatalog apps={apps} scope={host.key} open={setOpenId} panelNavigation={panelNavigation}
+      connectionRead={hasConfiguredConnections ? 'ready' : configuredConnectionsError ? 'failed' : 'pending'}
+      retryConnections={reloadConnections}
+      icon={(app, size) => app.integration ? <IntegrationIcon provider={app.id} icon={app.integration.icon} size={size} />
+        : app.id === 'wechat' ? <ChannelBrandIcon kind="wechat" size={size} /> : null} />
   </SettingsPage>;
 });
 

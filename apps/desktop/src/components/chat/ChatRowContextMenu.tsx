@@ -42,7 +42,8 @@ export function ChatRowContextMenu({ chat, onPin, onSetNotificationLevel, onDele
       else if (action === 'mark-all-read') markRead()
       else if (action === 'pin') onPin()
       else if (action === 'notifications') onSetNotificationLevel(chat.notification_level === 'none' ? 'all' : 'none')
-      else if (action === 'delete-chat' && canDelete) void Promise.resolve().then(onDelete).catch((error: unknown) => {
+      // 解散影响全体成员、撤不回:和群设置、联系人那两处解散同一句确认。
+      else if (action === 'delete-chat' && canDelete && (chat.kind !== 'group' || window.confirm(t('group.settings.dissolveConfirm')))) void Promise.resolve().then(onDelete).catch((error: unknown) => {
         log.error({ error: String(error), chatId: chat.id }, 'delete chat failed')
         toast(t('chatList.deleteFailed'), 'error', messageForUser(error))
       })

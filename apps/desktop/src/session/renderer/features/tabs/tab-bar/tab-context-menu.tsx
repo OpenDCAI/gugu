@@ -3,7 +3,8 @@ import { observer } from 'mobx-react-lite';
 import { Fragment, type ReactNode } from 'react';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
 import type { ResolvedTab, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
-import { ContextMenu, MenuItem, MenuSeparator } from '@/components/ui/Menu';
+import { MoreHorizontal } from '@/lib/icons';
+import { ContextMenu, MenuFold, MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { formatHotkeyText } from '@renderer/lib/ui/shortcut-format';
 import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts';
@@ -22,9 +23,9 @@ function shortcutText(shortcut: TabCommand['shortcut'], keyboard: Parameters<typ
 
 /**
  * 任何一类页签的右键(spec session-page「一屏几块」,照原型):
- *   关闭页签 / 关闭其他页签 / 关闭右侧页签 / 关闭全部页签(照 VS Code、Chrome;暂时用不了的灰着,❌ 藏掉)
+ *   关闭页签 / 关闭多个页签 ▸ 其他、右侧、全部(照 VS Code、Chrome;暂时用不了的灰着,❌ 藏掉)
  *   ── 拆开(并排的一对才有)/ 向右分(在能分屏的地方一直摆着;没有别的页、或太窄,点了说为什么)/ 在新窗口打开
- *   ── 这类页签自己的命令(`kindCommands`,比如会话那枚的置顶、重命名、归档)。
+ *   ── 这类页签自己的命令(`kindCommands`,比如会话那枚的置顶、重命名、归档;标了 `fold` 的进「更多」)。
  * 一组里一项都没有就连分隔线一起不画。
  */
 export const TabContextMenu = observer(function TabContextMenu({
@@ -54,6 +55,7 @@ export const TabContextMenu = observer(function TabContextMenu({
     },
     {
       id: 'engine:close-others',
+      fold: true,
       label: translate('tabs.closeOthers'),
       group: 'close' as const,
       isEnabled: () => count > 1,
@@ -61,6 +63,7 @@ export const TabContextMenu = observer(function TabContextMenu({
     },
     {
       id: 'engine:close-right',
+      fold: true,
       label: translate('tabs.closeRight'),
       group: 'close' as const,
       isEnabled: () => index >= 0 && index < count - 1,
@@ -68,6 +71,7 @@ export const TabContextMenu = observer(function TabContextMenu({
     },
     {
       id: 'engine:close-all',
+      fold: true,
       label: translate('tabs.closeAll'),
       group: 'close' as const,
       run: () => host.closeAll(),
@@ -106,6 +110,12 @@ export const TabContextMenu = observer(function TabContextMenu({
     .map((commands) => commands.filter((c) => c.isAvailable?.() !== false))
     .filter((commands) => commands.length > 0);
 
+  const row = (cmd: TabCommand) => (
+    <MenuItem key={cmd.id} icon={cmd.icon ? <cmd.icon /> : undefined} shortcut={shortcutText(cmd.shortcut, keyboard)} disabled={cmd.isEnabled?.() === false} onClick={() => void cmd.run()}>
+      {cmd.label}
+    </MenuItem>
+  );
+
   return (
     <ContextMenu.Root>
       {/* 这层 trigger 长在 .session-tab-slot **里面**(见 generic-tab-item.tsx 的说明),所以它必须
@@ -117,11 +127,8 @@ export const TabContextMenu = observer(function TabContextMenu({
         {groups.map((commands, groupIndex) => (
           <Fragment key={commands[0].id}>
             {groupIndex > 0 && <MenuSeparator />}
-            {commands.map((cmd) => (
-              <MenuItem key={cmd.id} icon={cmd.icon ? <cmd.icon /> : undefined} shortcut={shortcutText(cmd.shortcut, keyboard)} disabled={cmd.isEnabled?.() === false} onClick={() => void cmd.run()}>
-                {cmd.label}
-              </MenuItem>
-            ))}
+            {commands.filter((cmd) => !cmd.fold).map(row)}
+            <MenuFold {...(commands[0].group === 'close' ? { label: translate('tabs.closeMany') } : { icon: <MoreHorizontal />, label: translate('common.more') })}>{commands.filter((cmd) => cmd.fold).map(row)}</MenuFold>
           </Fragment>
         ))}
       </ContextMenu.Content>

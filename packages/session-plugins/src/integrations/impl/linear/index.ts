@@ -8,6 +8,7 @@ import { LINEAR_MCP_URL } from './types';
 const plugin = defineIntegrationPlugin(
   {
     id: 'linear',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://linear.app',

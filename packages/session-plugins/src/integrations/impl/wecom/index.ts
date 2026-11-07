@@ -10,6 +10,7 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'wecom',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://work.weixin.qq.com',

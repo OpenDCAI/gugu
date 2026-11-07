@@ -1,5 +1,6 @@
 // Browser-safe list copy, shared with the host plugin definition.
 export const summary = {
+  catalog: { categoryId: "tasks", aliases: ["Trello"] },
   name: { en: "Trello", 'zh-CN': "Trello" },
   description: { en: 'Work on Trello cards', 'zh-CN': '处理 Trello 卡片' },
 };

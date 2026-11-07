@@ -794,6 +794,22 @@ export default {
     "title": "Capabilities and connections"
   },
   "connectors": {
+    "catalog": {
+      "search": "Search apps",
+      "all": "All apps",
+      "mine": "My connections",
+      "featured": "Featured",
+      "viewApp": "View app",
+      "viewAll": "View all ({{count}})",
+      "attention": "Needs attention",
+      "noConnections": "No apps connected yet",
+      "browse": "Browse all apps",
+      "noResults": "No apps found",
+      "clearSearch": "Clear search",
+      "searchAll": "Search all apps",
+      "results": "Search results",
+      "backToAll": "Back to all apps"
+    },
     "wechatDescription": "Talk to Gugu in WeChat",
     "paused": "Paused",
     "retrying": "Reconnecting",

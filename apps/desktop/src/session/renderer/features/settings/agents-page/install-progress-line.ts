@@ -1,16 +1,16 @@
-import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
-import { formatBytes } from '@renderer/utils/formatBytes';
-import type { useSessionMessages } from '@renderer/localization/use-session-messages';
+import type { AgentInstallProgress } from '@gugu/session-core/workspace-server'
+import { formatBytes } from '@renderer/utils/formatBytes'
+import type { useSessionMessages } from '@renderer/localization/use-session-messages'
 
-type Translate = ReturnType<typeof useSessionMessages>['translate'];
+type Translate = ReturnType<typeof useSessionMessages>['translate']
 
 const PHASE_KEYS = {
   starting: 'agentsPage.phaseStarting',
   resolving: 'agentsPage.phaseResolving',
   downloading: 'agentsPage.phaseDownloading',
   installing: 'agentsPage.phaseInstalling',
-  verifying: 'agentsPage.phaseVerifying',
-} as const;
+  verifying: 'agentsPage.phaseVerifying'
+} as const
 
 /**
  * 进度的比例 —— **没有分母就是 null**。
@@ -20,17 +20,27 @@ const PHASE_KEYS = {
  * 而两处各写一份的那一刻,其中一处就会开始凑。
  */
 export function installProgressRatio(progress: AgentInstallProgress | null): number | null {
-  if (!progress) return null;
-  const done = progress.bytesDone ?? 0;
-  return progress.bytesTotal && done > 0 ? Math.min(1, done / progress.bytesTotal) : null;
+  if (!progress) return null
+  const { bytesDone: done, bytesTotal: total } = progress
+  return typeof done === 'number' &&
+    Number.isFinite(done) &&
+    done >= 0 &&
+    typeof total === 'number' &&
+    Number.isFinite(total) &&
+    total > 0
+    ? Math.min(1, done / total)
+    : null
 }
 
 export type InstallProgressLine = {
   /** 一行说清「在干什么、到哪了、多快、还要多久」。 */
-  text: string;
-  /** 0–1；**没有分母时是 null**，调用方据此画不定长条，❌ 不许自己凑一个比例。 */
-  ratio: number | null;
-};
+  text: string
+  /** Phase/part title and measured detail, separated for the settings row. */
+  heading: string
+  detail: string | null
+  /** 0–1；没有分母时是 null，不能据此展示百分比。 */
+  ratio: number | null
+}
 
 /**
  * 把一条实时读数翻成界面上那一行字。
@@ -44,32 +54,39 @@ export function installProgressLine(
   progress: AgentInstallProgress | null,
   translate: Translate
 ): InstallProgressLine | null {
-  if (!progress) return null;
-  const parts: string[] = [translate(PHASE_KEYS[progress.phase])];
+  if (!progress) return null
+  const parts: string[] = [translate(PHASE_KEYS[progress.phase])]
   // 一次装几个程序时(#6335)先说是哪一个 —— 后面的字节与比例只属于它,换到下一个时条子从头走,
   // 不带这一格,用户看到的是「进度倒退了」。名字是 provider 数据,只做插值。
   if (progress.part) {
-    parts.unshift(`${progress.part.name} ${progress.part.index}/${progress.part.count}`);
+    parts.unshift(`${progress.part.name} ${progress.part.index}/${progress.part.count}`)
   }
 
-  const done = progress.bytesDone ?? 0;
+  const heading = parts.join(' · ')
+  const detailStart = parts.length
+  const done = progress.bytesDone ?? 0
   if (done > 0) {
     parts.push(
       progress.bytesTotal
         ? `${formatBytes(done)} / ${formatBytes(progress.bytesTotal)}`
         : formatBytes(done)
-    );
+    )
   }
-  if (progress.bytesPerSecond) parts.push(`${formatBytes(progress.bytesPerSecond)}/s`);
+  if (progress.bytesPerSecond) parts.push(`${formatBytes(progress.bytesPerSecond)}/s`)
   if (progress.etaSeconds !== undefined) {
     parts.push(
       progress.etaSeconds >= 60
         ? translate('agentsPage.installEtaMinutes', {
-            minutes: Math.round(progress.etaSeconds / 60),
+            minutes: Math.round(progress.etaSeconds / 60)
           })
         : translate('agentsPage.installEtaSeconds', { seconds: progress.etaSeconds })
-    );
+    )
   }
 
-  return { text: parts.join(' · '), ratio: installProgressRatio(progress) };
+  return {
+    text: parts.join(' · '),
+    heading,
+    detail: parts.slice(detailStart).join(' · ') || null,
+    ratio: installProgressRatio(progress)
+  }
 }

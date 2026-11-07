@@ -80,7 +80,7 @@ export const SessionActionsProvider = observer(function SessionActionsProvider({
         return [
           {
             id: 'session:legacy-history', label: translate('legacyDm.history'), icon: Archive,
-            group: 'edit' as const, run: () => setLegacySessionId(sessionId),
+            group: 'edit' as const, fold: true, run: () => setLegacySessionId(sessionId),
           },
           {
             id: 'session:pin',
@@ -104,6 +104,7 @@ export const SessionActionsProvider = observer(function SessionActionsProvider({
             icon: RotateCcw,
             group: 'edit' as const,
             isAvailable: () => !reloading,
+            fold: true,
             run: () => setPendingReload({ sessionId }),
           },
           {

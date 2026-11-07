@@ -114,8 +114,14 @@ function mount(extra: { installDocs?: string } = {}): void {
 }
 
 /** 点「自定义路径」那一行的「指定… / 修改」,和用户点的是同一下。 */
+async function selectSource(label: string): Promise<void> {
+  await userEvent.click(page.getByRole('combobox', { name: 'Source', exact: true }))
+  await userEvent.click(page.getByRole('option', { name: label, exact: false }))
+}
 async function openManual(): Promise<void> {
-  await userEvent.click(page.getByTestId('manual-override-open'))
+  const edit = page.getByTestId('manual-override-open')
+  if (edit.query()) await userEvent.click(edit)
+  else await selectSource('Custom path')
 }
 
 it('手动指定过一个能跑的路径之后,再点那一项输入框带着那个路径回来', async () => {
@@ -151,14 +157,14 @@ it('阴控:没点「修改」时输入框不在 —— 那一行只显示在用�
   mount()
 
   // 先等这张卡真的渲出来(那一行在),再判输入框不在 —— 否则「还没渲」也会让「不在」成立。
-  const row = page.getByTestId('source-row-custom')
+  const row = page.getByRole('combobox', { name: 'Source', exact: true })
   await until('custom source row renders', () => row.query() != null)
   expect(page.getByTestId('manual-override-input').query(), '没点「修改」时输入框不该在').toBeNull()
-  expect((await row.element()).getAttribute('data-in-use')).toBe('true')
-  expect((await row.element()).textContent).toContain(reclaude)
+  expect((await row.element()).textContent).toContain('Custom path')
+  expect(host.textContent).toContain(reclaude)
 })
 
-it('三种来源各一行,在用的那一行标着「在用」', async () => {
+it('来源下拉显示实际本机副本，保留来源说明和手动指定入口', async () => {
   const brew: Installation = {
     id: '/opt/homebrew/Cellar/claude/2.1.280/bin/claude',
     realpath: '/opt/homebrew/Cellar/claude/2.1.280/bin/claude',
@@ -175,20 +181,15 @@ it('三种来源各一行,在用的那一行标着「在用」', async () => {
   vm.used = undefined
   mount()
 
-  const local = page.getByTestId('source-row-local')
-  await until('local is in the document', () => local.query() != null)
-  expect((await local.element()).getAttribute('data-in-use')).toBe('true')
-  // 说清是谁装的、在哪 —— 用户才知道为什么这一行没有更新和卸载。
-  expect((await local.element()).textContent).toContain('Homebrew')
-  expect((await local.element()).textContent).toContain('/opt/homebrew/bin/claude')
-  expect((await page.getByTestId('source-row-managed').element()).getAttribute('data-in-use')).toBe('false')
-  // 咕咕那份还没装:有一个「安装并切换」—— 从别处装的迁到咕咕管理就走这里。
-  await until('source-managed-install is in the document', () => page.getByTestId('source-managed-install').query() != null)
-
-  // 没设过自定义路径时「指定…」也点得开。❌ 曾经把按钮放在不可选的单选项里,单选项带
-  // aria-disabled,按钮跟着被当成禁用 —— 真机取证时点不动。
-  await userEvent.click(page.getByTestId('manual-override-open'))
-  await until('manual-override-input is in the document', () => page.getByTestId('manual-override-input').query() != null)
+  const source = page.getByRole('combobox', { name: 'Source', exact: true })
+  await until('source selector renders', () => source.query() != null)
+  expect((await source.element()).textContent).toContain('Installed on this computer')
+  await userEvent.click(source)
+  const localOption = page.getByRole('option', { name: /Installed on this computer/ })
+  expect((await localOption.element()).textContent).toContain('homebrew')
+  expect((await localOption.element()).textContent).toContain('/opt/homebrew/bin/claude')
+  await userEvent.click(page.getByRole('option', { name: 'Custom path', exact: true }))
+  await until('manual input opens from a selectable custom option', () => page.getByTestId('manual-override-input').query() != null)
 })
 
 function brewCopy(): Installation {
@@ -211,12 +212,10 @@ it('上次指定的自定义路径切走之后还在那一行里,点一下就切
   vm.used = { kind: 'auto' }
   mount()
 
-  const custom = page.getByTestId('source-row-custom')
-  await until('custom is in the document', () => custom.query() != null)
-  expect((await custom.element()).getAttribute('data-in-use')).toBe('false')
-  expect((await custom.element()).textContent).toContain('my-wrapper')
-
-  await userEvent.click(page.getByTestId('source-row-custom').getByRole('radio'))
+  const source = page.getByRole('combobox', { name: 'Source', exact: true })
+  await until('source selector renders', () => source.query() != null)
+  expect((await source.element()).textContent).toContain('Installed on this computer')
+  await selectSource('Custom path')
   expect(setUsedCalls.at(-1)).toEqual({ kind: 'cli', command: 'my-wrapper' })
 })
 
@@ -236,7 +235,7 @@ it('面板开着时把咕咕那份卸掉:「在用」落回本机找到的,不�
   installations.push(brewCopy(), managed)
   vm.used = { kind: 'method', method: 'mise' }
   mount()
-  await until('source-row-managed has data-in-use=true', () => page.getByTestId('source-row-managed').query()?.getAttribute('data-in-use') === 'true')
+  await until('source selects the managed copy', () => page.getByRole('combobox', { name: 'Source', exact: true }).query()?.textContent?.includes('Managed by Gugu') === true)
 
   // 卸掉:副本少了一份,存下的选择还是「咕咕管理」(运行时据此落回自动嗅探)。
   installations.splice(installations.indexOf(managed), 1)
@@ -244,6 +243,5 @@ it('面板开着时把咕咕那份卸掉:「在用」落回本机找到的,不�
   mount({ installDocs: 'https://example.com/docs' })
 
   // 重绘是异步的 —— 用会重试的断言等它落定。
-  await until('source-row-managed has data-in-use=false', () => page.getByTestId('source-row-managed').query()?.getAttribute('data-in-use') === 'false')
-  await until('source-row-local has data-in-use=true', () => page.getByTestId('source-row-local').query()?.getAttribute('data-in-use') === 'true')
+  await until('source falls back to the local copy', () => page.getByRole('combobox', { name: 'Source', exact: true }).query()?.textContent?.includes('Installed on this computer') === true)
 })
