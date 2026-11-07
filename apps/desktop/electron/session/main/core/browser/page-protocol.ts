@@ -4,6 +4,7 @@ import type { WebContents } from 'electron';
 import { isSupportedBrowserNavigationUrl } from './browser-navigation';
 import { pageNetworkEvent } from './page-network-events';
 import { pageNavigationAccess } from './page-navigation-access';
+import { assertCredentialAgentContents } from './credential-isolation-registry';
 
 type PageEvent = (method: string, params: Record<string, unknown>, sessionId?: string) => void;
 type PageProtocolOptions = {
@@ -50,6 +51,7 @@ export interface PageProtocol {
  * Closing/cancelling a lease releases its debugger, never the person's page or site login.
  */
 export function createPageProtocol(contents: WebContents, options: PageProtocolOptions = {}): PageProtocol {
+  assertCredentialAgentContents(contents);
   const debuggerApi = contents.debugger;
   const lifetime = new AbortController();
   const messages = new Set<PageEvent>();
@@ -62,6 +64,7 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
 
   const assertLive = () => {
     if (closed || contents.isDestroyed()) throw new Error(closed ?? 'the browser tab was closed');
+    assertCredentialAgentContents(contents);
     options.signal?.throwIfAborted();
     navigation.assertCurrent();
   };
@@ -98,7 +101,17 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
     if (method === 'Page.frameStartedNavigating' && typeof params.url === 'string' && !isSupportedBrowserNavigationUrl(params.url)) return;
     try { assertLive(); }
     catch (error) { close(error instanceof Error ? error.message : String(error)); return; }
-    if (method === 'Target.attachedToTarget' && typeof params.sessionId === 'string') children.set(params.sessionId, sessionId);
+    if (method === 'Target.attachedToTarget') {
+      const target = params.targetInfo as { type?: unknown } | undefined;
+      // Related service/shared workers can serve OTHER pages in this partition and see
+      // their request bodies. Never make such a session addressable by this page lease.
+      // The native filter below prevents attachment; this is a fail-closed backstop.
+      if (target?.type !== 'iframe' || typeof params.sessionId !== 'string') {
+        close('page protocol: unexpected related target');
+        return;
+      }
+      children.set(params.sessionId, sessionId);
+    }
     if (method === 'Target.detachedFromTarget' && typeof params.sessionId === 'string') {
       const remove = (id: string) => {
         for (const [child, parent] of children) if (parent === id) remove(child);
@@ -145,7 +158,7 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
       assertLive();
       if (sessionId && !children.has(sessionId)) throw new Error('unknown page session');
       const targetCommand = method === 'Target.getTargetInfo' && !Object.hasOwn(params, 'targetId')
-        || method === 'Target.setAutoAttach' && params.flatten === true
+        || method === 'Target.setAutoAttach' && params.flatten === true && typeof params.autoAttach === 'boolean'
         || method === 'Target.detachFromTarget' && typeof params.sessionId === 'string' && children.has(params.sessionId);
       if ((!PAGE_METHODS.has(method) && !targetCommand) || method.startsWith('Target.') && Object.hasOwn(params, 'targetId')) {
         throw new Error(`page protocol: ${method} is not available (this connection drives one tab)`);
@@ -179,9 +192,16 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
         signal?.throwIfAborted();
         if (sessionId && !children.has(sessionId)) throw new Error('unknown page session');
       }
+      // Filter BEFORE native dispatch, including recursively attached OOPIF sessions.
+      // Dropping worker events afterwards would leave an actual debugger on the worker.
+      const nativeParams = method === 'Target.setAutoAttach' ? {
+        autoAttach: params.autoAttach, flatten: true,
+        waitForDebuggerOnStart: params.waitForDebuggerOnStart === true,
+        filter: [{ type: 'iframe', exclude: false }, { exclude: true }],
+      } : params;
       return bounded(method === 'Page.captureScreenshot' && !sessionId && options.capture
         ? options.capture(params)
-        : debuggerApi.sendCommand(method, params, sessionId), signal);
+        : debuggerApi.sendCommand(method, nativeParams, sessionId), signal);
     },
     onMessage(listener) {
       if (!closed) {

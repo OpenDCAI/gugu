@@ -348,7 +348,7 @@ describe('#7191 只把这一个页签交给 Playwright', () => {
     dbg.frameTree.frame.url = '';
     const { call, transport } = connect('child-document', 'parent-tab', wc);
     await call('Target.setAutoAttach', {});
-    dbg.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child-1' }, '');
+    dbg.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child-1', targetInfo: { type: 'iframe' } }, '');
     const response = await call('Page.getFrameTree', {}, 'child-1');
     expect(response.result.frameTree.frame.url).toBe('');
     expect(dbg.commands.map((command) => command.method)).not.toContain('Runtime.evaluate');
@@ -398,7 +398,7 @@ describe('#7191 只把这一个页签交给 Playwright', () => {
     await call('Target.setAutoAttach', {});
     await call('Runtime.evaluate', { expression: '1' }, 'gugu-agent-page');
     expect(dbg.commands.at(-1)).toMatchObject({ method: 'Runtime.evaluate', sessionId: undefined });
-    dbg.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child-1' }, '');
+    dbg.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child-1', targetInfo: { type: 'iframe' } }, '');
     await call('Runtime.enable', {}, 'child-1');
     expect(dbg.commands.at(-1)).toMatchObject({ method: 'Runtime.enable', sessionId: 'child-1' });
     expect((await call('Runtime.enable', {}, 'stranger')).error?.message).toBe('unknown session');

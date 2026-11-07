@@ -1,4 +1,4 @@
-import type { BrowserWindow, NativeImage, Rectangle, WebContents, WebContentsView } from 'electron';
+import type { BrowserWindow, NativeImage, Rectangle, WebContents, WebContentsView, WebContentsDidStartNavigationEventParams } from 'electron';
 import { anySignal } from '@gugu/core/shared/anySignal';
 
 export type BrowserPageLease = {
@@ -28,6 +28,14 @@ export class BrowserPageRuntime {
   private destinationStarted = false;
   private captureTail: Promise<unknown> = Promise.resolve();
   private navigation = 0;
+  private preparedNavigation = 0;
+  private readonly nativeNavigationStarted = (details: WebContentsDidStartNavigationEventParams) => {
+    if (details.isMainFrame) this.preparedNavigation += 1;
+  };
+  private readonly nativeNavigationCommitted = () => { this.preparedNavigation += 1; };
+  private readonly nativeInPageNavigation = (_event: unknown, _url: string, isMainFrame: boolean) => {
+    if (isMainFrame) this.preparedNavigation += 1;
+  };
   private stoppedStartup = -1;
   private attached: (() => void) | null = null;
   private attachment = new Promise<void>(resolve => { this.attached = resolve; });
@@ -37,6 +45,9 @@ export class BrowserPageRuntime {
     view.setBounds({ x: 0, y: 0, ...this.viewport });
     view.setVisible(false);
     runtimes.set(this.contents, this);
+    this.contents.on('did-start-navigation', this.nativeNavigationStarted);
+    this.contents.on('did-navigate', this.nativeNavigationCommitted);
+    this.contents.on('did-navigate-in-page', this.nativeInPageNavigation);
     this.contents.once('destroyed', () => this.finish(false));
   }
 
@@ -90,6 +101,7 @@ export class BrowserPageRuntime {
 
   /** Navigation cannot run site scripts until the native viewport exists. Newer requests supersede old ones. */
   async navigate(url: string): Promise<void> {
+    this.preparedNavigation += 1;
     this.destination = url;
     const revision = ++this.navigation;
     await this.ready;
@@ -103,11 +115,46 @@ export class BrowserPageRuntime {
     await loading;
   }
 
+  /** Prepare without exposing/navigating the destination. Commit begins native navigation
+   * synchronously: a caller's final authorization check cannot be separated by ready's await.
+   * Any intervening navigation or a second commit invalidates the prepared operation.
+   */
+  async prepareNavigation(url: string): Promise<{ commit(): Promise<void> }> {
+    const expected = this.navigation;
+    const prepared = ++this.preparedNavigation;
+    await this.ready;
+    this.assertLive();
+    let consumed = false;
+    return { commit: () => {
+      this.assertLive();
+      if (consumed || expected !== this.navigation || prepared !== this.preparedNavigation) throw new Error('the prepared browser navigation was invalidated');
+      consumed = true;
+      this.preparedNavigation += 1;
+      this.destination = url;
+      this.navigation += 1;
+      this.destinationStarted = true;
+      return this.contents.loadURL(url);
+    } };
+  }
+
   async reload(ignoringCache = false): Promise<void> {
+    this.preparedNavigation += 1;
     if (this.state !== 'ready' || !this.destinationStarted) return this.navigate(this.destination);
     this.assertLive();
     if (ignoringCache) this.contents.reloadIgnoringCache();
     else this.contents.reload();
+  }
+
+  goBack(): void {
+    this.preparedNavigation += 1;
+    this.assertLive();
+    if (this.contents.navigationHistory.canGoBack()) this.contents.navigationHistory.goBack();
+  }
+
+  goForward(): void {
+    this.preparedNavigation += 1;
+    this.assertLive();
+    if (this.contents.navigationHistory.canGoForward()) this.contents.navigationHistory.goForward();
   }
 
   raise(): void {
@@ -117,6 +164,7 @@ export class BrowserPageRuntime {
   }
 
   stop(): void {
+    this.preparedNavigation += 1;
     if (!this.destinationStarted) this.stoppedStartup = this.navigation;
     else this.navigation += 1;
     if (!this.closed && !this.contents.isDestroyed()) this.contents.stop();
@@ -159,6 +207,9 @@ export class BrowserPageRuntime {
   private finish(closeContents: boolean): void {
     if (this.closed) return;
     this.state = 'closed';
+    this.contents.removeListener('did-start-navigation', this.nativeNavigationStarted);
+    this.contents.removeListener('did-navigate', this.nativeNavigationCommitted);
+    this.contents.removeListener('did-navigate-in-page', this.nativeInPageNavigation);
     runtimes.delete(this.contents);
     this.lifetime.abort(new Error('the browser tab was closed'));
     this.stopFrames();

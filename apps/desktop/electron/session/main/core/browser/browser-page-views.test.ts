@@ -14,10 +14,16 @@ const state = vi.hoisted(() => ({
   registered: new Map<string, string>(),
   adopted: [] as Array<{ browserId: string; placement: { window: () => unknown; origin: () => { x: number; y: number } } }>,
   boxes: [] as Array<{ parent: unknown; options: any }>,
+  nativeApp: undefined as unknown as EventEmitter,
+  nativeSessions: new Map<string, object>(),
+  identities: new Map<string, object>(),
+  owners: new Map<string, any>(),
+  adoptHook: undefined as (() => void) | undefined,
 }));
 
 vi.mock('electron', async () => {
   const { EventEmitter: Emitter } = await import('node:events');
+  state.nativeApp = new Emitter();
   class FakeWebContents extends Emitter {
     static nextId = 100;
     id = FakeWebContents.nextId++;
@@ -25,6 +31,7 @@ vi.mock('electron', async () => {
     url = '';
     loaded: string[] = [];
     zoom = 1;
+    session: object = {};
     navigationHistory = { canGoBack: () => false, canGoForward: () => false, goBack: () => {}, goForward: () => {} };
     isDestroyed() {
       return this.destroyed;
@@ -41,6 +48,7 @@ vi.mock('electron', async () => {
       return Promise.resolve();
     }
     setBackgroundThrottling = vi.fn();
+    setWindowOpenHandler = vi.fn();
     executeJavaScript = vi.fn(async () => undefined);
     capturePage = vi.fn(async () => ({ isEmpty: () => false, toJPEG: () => Buffer.from([1, 2]) }));
     beginFrameSubscription = vi.fn((_dirty: boolean, callback: (image: { isEmpty: () => boolean }) => void) => { queueMicrotask(() => callback({ isEmpty: () => false })); });
@@ -76,7 +84,11 @@ vi.mock('electron', async () => {
     visible = true;
     constructor(readonly options: { webPreferences?: Record<string, unknown>; webContents?: FakeWebContents }) {
       this.webContents = options.webContents ?? new FakeWebContents();
+      const partition = String(options.webPreferences?.partition ?? '');
+      if (!state.nativeSessions.has(partition)) state.nativeSessions.set(partition, {});
+      this.webContents.session = state.nativeSessions.get(partition)!;
       state.views.push(this);
+      state.nativeApp.emit('web-contents-created', {}, this.webContents);
     }
     setBounds(bounds: unknown) {
       this.bounds = bounds;
@@ -89,6 +101,8 @@ vi.mock('electron', async () => {
     }
   }
   return {
+    app: state.nativeApp,
+    webContents: { getAllWebContents: () => state.views.map(view => view.webContents) },
     WebContentsView,
     BaseWindow: class { constructor() { throw new Error('browser pages must not create windows'); } },
     BrowserWindow: { getAllWindows: () => state.windows },
@@ -142,16 +156,27 @@ vi.mock('@main/app/window', () => ({ getMainWindow: () => mainWindow }));
 vi.mock('@main/lib/events', () => ({ events: { emit: (_channel: unknown, payload: unknown) => state.emitted.push(payload) } }));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('../../../../devtools-lock', () => ({ hardenWebPreferences: <T>(prefs: T) => prefs }));
-vi.mock('./browser-webcontents-registry', () => ({
+vi.mock('./browser-webcontents-registry', async () => {
+  const { assertCredentialNativeAdoption } = await import('./credential-isolation-registry');
+  return {
   browserWebContentsRegistry: {
     get registeredPartitions() {
       return new Set(state.registered.values());
     },
     isRegistered: (browserId: string, partition: string) => state.registered.get(browserId) === partition,
-    adoptPageWebContents: (browserId: string, _webContents: unknown, placement: (typeof state.adopted)[number]['placement']) =>
-      state.adopted.push({ browserId, placement }),
+    isRegisteredForSession: (id: string, sid: string, partition: string) => sid === 'fixture-session' && state.registered.get(id) === partition,
+    registrationIdentity: (id: string) => state.identities.get(id),
+    browsersOfSession: () => [...state.owners].map(([browserId, webContents]) => ({ browserId, webContents })),
+    browserIdFor: (id: number) => [...state.owners].find(([, wc]) => wc.id === id)?.[0],
+    adoptPageWebContents: (browserId: string, contents: any, placement: (typeof state.adopted)[number]['placement']) => {
+      assertCredentialNativeAdoption(contents);
+      state.owners.set(browserId, contents);
+      contents.once('destroyed', () => { if (state.owners.get(browserId) === contents) state.owners.delete(browserId); });
+      state.adopted.push({ browserId, placement });
+      state.adoptHook?.();
+    },
   },
-}));
+}; });
 
 import {
   destroyBrowserPage,
@@ -166,6 +191,10 @@ import {
   visibleHostOfPage,
 } from './browser-page-views';
 import { acquireBrowserPage } from './browser-page-runtime';
+import { prepareCredentialBrowserPartition } from './credential-browser-destination';
+import { assertCredentialAgentContents, credentialAgentPartitionBlocked, registerPrivateCredentialSurface } from './credential-isolation-registry';
+import type { CredentialUseBinding } from './credential-use-contract';
+import { createPageProtocol } from './page-protocol';
 import { windowLayerResponse } from '../../../../window-layers';
 import { agentOverlayOfFrame, agentOverlayWindowName, buildTagWindowName, isBuildTagWindowName } from '@shared/aux-window';
 
@@ -193,6 +222,8 @@ beforeEach(() => {
   state.adopted.length = 0;
   state.registered.clear();
   state.boxes.length = 0;
+  state.nativeSessions.clear(); state.identities.clear(); state.owners.clear();
+  state.adoptHook = undefined;
 });
 
 afterEach(() => {
@@ -720,5 +751,149 @@ describe('real cursor-layer input still reaches its page', () => {
     }
     expect(view.webContents.inputs).toEqual([]);
     expect(view.webContents.focused).toBe(0);
+  });
+});
+
+describe('credential fresh native destination', () => {
+  let sequence = 0;
+  const releases: Array<() => void> = [];
+  async function fixture() {
+    const id = 'fresh-' + ++sequence, partition = 'persist:gugu-browser-' + id;
+    const binding: CredentialUseBinding = { requestId: id, useId: id + '-use', accountId: 'owner', installationId: 'install',
+      agentId: 'agent', sessionId: 'fixture-session', browserId: id, loginSurfaceId: id + '-login', loginSurfaceEpoch: 'epoch',
+      documentId: 'document', frameId: 'top', formFingerprint: 'form', credentialId: 'credential', credentialVersion: '1',
+      lockEpoch: 'lock', origin: 'https://example.test', operation: 'login-submit' };
+    state.registered.set(id, partition); state.identities.set(id, {});
+    expect(mountBrowserPage({ browserId: id, partition, url: binding.origin, windowName: '' }).success).toBe(true);
+    const source = state.views.at(-1);
+    await settled(source);
+    layoutBrowserPage({ browserId: id, windowName: '', rect: RECT, mode: 'shown' });
+    const { WebContentsView } = await import('electron');
+    const login = new WebContentsView({ webPreferences: { partition } });
+    const release = registerPrivateCredentialSurface({ ...binding, partition, contents: login.webContents });
+    releases.push(release);
+    const ports = await prepareCredentialBrowserPartition(binding);
+    return { ...ports, binding, partition, source, login,
+      cleanup: () => { ports.isolation.beginCleanup(); login.webContents.close(); release(); } };
+  }
+  afterEach(() => {
+    for (const view of state.views) if (!view.webContents.isDestroyed()) view.webContents.close();
+    for (const release of releases.splice(0)) release();
+  });
+
+  it('loads a hidden unregistered fresh page, then synchronously publishes it with the original layout', async () => {
+    const f = await fixture();
+    expect(f.source.webContents.isDestroyed()).toBe(true);
+    expect(await snapshotBrowserPage(f.binding.browserId)).toBeNull();
+    f.cleanup();
+    const destination = await f.destination.prepare(f.binding), candidate = state.views.at(-1);
+    state.emitted.length = 0;
+    candidate.webContents.emit('console-message', { message: 'private preparation' });
+    expect(state.emitted).toEqual([]);
+    expect(candidate.visible).toBe(false);
+    expect(() => assertCredentialAgentContents(candidate.webContents)).toThrow('credential_private_page_unavailable');
+    await destination.loadOrigin(f.binding.origin);
+    expect(candidate.webContents.loaded).toEqual([f.binding.origin]);
+    expect(state.owners.has(f.binding.browserId)).toBe(false);
+    expect(destination.publish()).toEqual({ status: 'published' });
+    expect(state.owners.get(f.binding.browserId)).toBe(candidate.webContents);
+    expect(() => assertCredentialAgentContents(candidate.webContents)).toThrow();
+    expect(await snapshotBrowserPage(f.binding.browserId)).toBeNull();
+    state.emitted.length = 0;
+    candidate.webContents.emit('console-message', { message: 'pending confirmation' });
+    expect(state.emitted).toEqual([]);
+    expect(candidate.visible).toBe(false);
+    destination.confirm();
+    expect(mountBrowserPage({ browserId: f.binding.browserId, partition: f.partition, url: f.binding.origin, windowName: '' }).success).toBe(true);
+    expect(candidate.bounds).toEqual(RECT);
+    expect(candidate.visible).toBe(true);
+    expect(() => f.destination.assertCurrent(f.binding)).not.toThrow();
+    await destination.dispose(); // Cleanup cannot close an already published page.
+    expect(candidate.webContents.isDestroyed()).toBe(false);
+    expect(() => destination.publish()).toThrow();
+  });
+
+  it('retracts an adopted pending target before any late confirmation can open admission', async () => {
+    const f = await fixture(); f.cleanup();
+    const destination = await f.destination.prepare(f.binding), candidate = state.views.at(-1);
+    await destination.loadOrigin(f.binding.origin); destination.publish();
+    destination.retract();
+    expect(candidate.webContents.isDestroyed()).toBe(true);
+    expect(() => destination.confirm()).toThrow();
+    expect(credentialAgentPartitionBlocked(f.partition)).toBe(true);
+    await destination.dispose();
+    expect(state.owners.has(f.binding.browserId)).toBe(false);
+  });
+
+  it.each(['synchronous callback', 'microtask'] as const)('denies Agent access throughout %s revocation before confirmation', async timing => {
+    const f = await fixture(); f.cleanup();
+    const destination = await f.destination.prepare(f.binding), candidate = state.views.at(-1);
+    await destination.loadOrigin(f.binding.origin);
+    const revoke = () => {
+      expect(() => createPageProtocol(candidate.webContents)).toThrow();
+      destination.retract();
+      expect(credentialAgentPartitionBlocked(f.partition)).toBe(true);
+    };
+    if (timing === 'synchronous callback') {
+      state.adoptHook = revoke;
+      expect(() => destination.publish()).toThrow();
+      state.adoptHook = undefined;
+    } else {
+      destination.publish();
+      await Promise.resolve(); revoke();
+    }
+    await destination.dispose();
+    expect(() => destination.confirm()).toThrow();
+    expect(state.owners.has(f.binding.browserId)).toBe(false);
+    expect(candidate.webContents.isDestroyed()).toBe(true);
+    expect(await snapshotBrowserPage(f.binding.browserId)).toBeNull();
+  });
+
+  it.each(['revoke', 'discard'] as const)('cannot publish after %s while actual native loading is pending', async action => {
+    const f = await fixture(); f.cleanup();
+    const destination = await f.destination.prepare(f.binding), candidate = state.views.at(-1);
+    let finish!: () => void, started!: () => void;
+    const dispatched = new Promise<void>(resolve => { started = resolve; });
+    candidate.webContents.loadURL = vi.fn(() => {
+      started(); return new Promise<void>(resolve => { finish = resolve; });
+    });
+    const loading = destination.loadOrigin(f.binding.origin);
+    await dispatched;
+    if (action === 'revoke') f.isolation.invalidate();
+    else await destination.dispose();
+    finish();
+    await expect(loading).rejects.toThrow();
+    expect(() => destination.publish()).toThrow();
+    expect(candidate.webContents.isDestroyed()).toBe(true);
+    expect(state.owners.has(f.binding.browserId)).toBe(false);
+    expect(credentialAgentPartitionBlocked(f.partition)).toBe(true);
+  });
+
+  it('refuses a closed and reopened tab with identical IDs, leaving the replacement untouched', async () => {
+    const f = await fixture(); f.cleanup();
+    const destination = await f.destination.prepare(f.binding), candidate = state.views.at(-1);
+    await destination.loadOrigin(f.binding.origin);
+    state.identities.set(f.binding.browserId, {});
+    expect(() => destination.publish()).toThrow();
+    expect(state.owners.has(f.binding.browserId)).toBe(false);
+    await destination.dispose();
+    expect(candidate.webContents.isDestroyed()).toBe(true);
+  });
+
+  it('does not transfer a private redirect path/query or retry a failed destination', async () => {
+    const f = await fixture(); f.cleanup();
+    const destination = await f.destination.prepare(f.binding), candidate = state.views.at(-1);
+    await expect(destination.loadOrigin(f.binding.origin + '/private?value=test')).rejects.toThrow();
+    expect(candidate.webContents.loaded).toEqual([]);
+    expect(candidate.webContents.isDestroyed()).toBe(true);
+    await expect(f.destination.prepare(f.binding)).rejects.toThrow();
+  });
+
+  it('does not allocate a new target before private retirement is confirmed', async () => {
+    const f = await fixture();
+    const count = state.views.length;
+    await expect(f.destination.prepare(f.binding)).rejects.toThrow();
+    expect(state.views.length).toBe(count);
+    f.cleanup();
   });
 });

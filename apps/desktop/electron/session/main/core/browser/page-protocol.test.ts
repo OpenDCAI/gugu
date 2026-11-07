@@ -142,7 +142,7 @@ describe('host-selected page protocol lease', () => {
   it('checks the exact child history entry, permits supported history and refuses an unknown entry', async () => {
     const current = page(), lease = createPageProtocol(current.contents);
     await lease.send('Runtime.enable');
-    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child' });
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child', targetInfo: { type: 'iframe' } });
     current.debuggerApi.sendCommand.mockClear();
     current.debuggerApi.sendCommand.mockResolvedValue({ entries: [{ id: 18, url: 'https://example.test/history' }] });
     await lease.send('Page.navigateToHistoryEntry', { entryId: 18 }, 'child');
@@ -158,7 +158,7 @@ describe('host-selected page protocol lease', () => {
   it.each(['cancel', 'close', 'detach'])('does not navigate after %s while history lookup is pending', async action => {
     const current = page(), lease = createPageProtocol(current.contents), controller = new AbortController();
     await lease.send('Runtime.enable');
-    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child' });
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child', targetInfo: { type: 'iframe' } });
     current.debuggerApi.sendCommand.mockClear();
     let finish!: (value: unknown) => void;
     current.debuggerApi.sendCommand.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
@@ -195,7 +195,7 @@ describe('host-selected page protocol lease', () => {
     const current = page(), lease = createPageProtocol(current.contents), heard = vi.fn();
     lease.onMessage(heard);
     await lease.send('Network.enable');
-    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child' });
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child', targetInfo: { type: 'iframe' } });
     heard.mockClear();
     const params = { requestId: 'request', request: { headers: { cOoKiE: 'secret=hidden', Accept: 'text/html' }, url: 'https://example.test/' },
       associatedCookies: [{ cookie: { name: 'secret', value: 'hidden', httpOnly: true } }] };
@@ -275,11 +275,11 @@ describe('host-selected page protocol lease', () => {
     lease.onMessage(heard);
     await lease.send('Target.setAutoAttach', { autoAttach: true, flatten: true });
     current.debuggerApi.emit('message', {}, 'Runtime.consoleAPICalled', {}, 'foreign');
-    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'stolen' }, 'foreign');
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'stolen', targetInfo: { type: 'iframe' } }, 'foreign');
     expect(heard).not.toHaveBeenCalled();
     await expect(lease.send('Runtime.evaluate', {}, 'stolen')).rejects.toThrow('unknown page session');
-    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child' });
-    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'grandchild' }, 'child');
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child', targetInfo: { type: 'iframe' } });
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'grandchild', targetInfo: { type: 'iframe' } }, 'child');
     await lease.send('Runtime.evaluate', {}, 'grandchild');
     expect(current.debuggerApi.sendCommand).toHaveBeenLastCalledWith('Runtime.evaluate', {}, 'grandchild');
     current.debuggerApi.emit('message', {}, 'Target.detachedFromTarget', { sessionId: 'child' });
