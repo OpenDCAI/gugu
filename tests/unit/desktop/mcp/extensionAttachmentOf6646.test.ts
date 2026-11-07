@@ -30,6 +30,15 @@ function injected(members: string[], content = attachment('share-1.0.0.guguext',
 }
 
 describe('app_install from a chat message (#6646)', () => {
+  test('reads a message URI without dropping its chat identity', async () => {
+    const id = '44444444-4444-4444-8444-444444444444'
+    const deps = {
+      restGet: async () => [{ id, chat_id: CHAT, content: attachment('share.guguext', 'application/vnd.gugu.extension+zip') }],
+      restRpc: async (name: string) => name === 'can_read_message' ? true : [{ user_id: AGENT }],
+    }
+    expect(await extensionAttachmentOf(context, `gugu-chat://${CHAT}/${id}`, deps)).toEqual({ message_id: id })
+    await expect(extensionAttachmentOf(context, `gugu-chat://${id}/${id}`, deps)).rejects.toThrow('there is no message')
+  })
   test('hands on the card\'s message, an old card too (#7290) — never its URL', async () => {
     await expect(extensionAttachmentOf(context, 'm1', injected([AGENT, BOB]))).resolves.toEqual({ message_id: 'm1' })
   })

@@ -132,13 +132,12 @@ describe('the folder\'s tools as tools.js gives them', () => {
     expect(calls[0]).toEqual(['list', { chat: CHAT }])
     expect(all).toMatchObject({ chat_id: CHAT, documents: 2, files: 1, total: 3, rows: '1-3', next: null })
     expect(all.items[0]).toEqual({
-      id: DOC, name: 'notes [v2].md', path: undefined, metadata: {}, type: 'text', size: 10, version: 1, by, updated_at: '2026-10-11T00:00:00Z',
-      link: `[notes \\[v2\\].md](gugu-file://${DOC})`,
+      id: `gugu-file://${DOC}`, name: 'notes [v2].md', path: undefined, metadata: {}, type: 'text', size: 10, version: 1, by, updated_at: '2026-10-11T00:00:00Z',
     })
     expect(await list!.run({ chat_id: CHAT, rows: '2' })).toMatchObject({ total: 3, rows: '1-2', next: '3-4' })
     expect(await list!.run({ chat_id: CHAT, rows: '3-4' })).toMatchObject({ rows: '3-3', next: null })
-    expect(((await list!.run({ chat_id: CHAT, kind: 'file' })) as { items: { id: string }[] }).items.map((item) => item.id)).toEqual([PDF])
-    expect(((await list!.run({ chat_id: CHAT, kind: 'document', name: 'PRICE' })) as { items: { id: string }[] }).items.map((item) => item.id)).toEqual([SHEET])
+    expect(((await list!.run({ chat_id: CHAT, kind: 'file' })) as { items: { id: string }[] }).items.map((item) => item.id)).toEqual([`gugu-file://${PDF}`])
+    expect(((await list!.run({ chat_id: CHAT, kind: 'document', name: 'PRICE' })) as { items: { id: string }[] }).items.map((item) => item.id)).toEqual([`gugu-file://${SHEET}`])
     await expect(list!.run({ chat_id: CHAT, rows: 'all' })).rejects.toThrow(/rows takes "20" or "21-40"/)
   })
 
@@ -174,8 +173,7 @@ describe('the folder\'s tools as tools.js gives them', () => {
     const [head, blank, ...body] = page.split('\n')
     expect(blank).toBe('')
     expect(JSON.parse(head!)).toEqual({
-      id: DOC, name: 'notes [v2].md', type: 'text', by, updated_at: '2026-10-11T00:00:00Z',
-      link: `[notes \\[v2\\].md](gugu-file://${DOC})`, total_lines: 7, lines: '1-3', next_offset: 4,
+      id: `gugu-file://${DOC}`, name: 'notes [v2].md', type: 'text', by, updated_at: '2026-10-11T00:00:00Z', total_lines: 7, lines: '1-3', next_offset: 4,
     })
     expect(body.join('\n')).toBe('# Notes\n\n## One\n')
     expect(calls[0]).toEqual(['open', { id: DOC }, { readOnly: true }])
@@ -218,7 +216,7 @@ describe('the folder\'s tools as tools.js gives them', () => {
     const [head, blank, ...body] = page.split('\n')
     expect(blank).toBe('')
     expect(JSON.parse(head!)).toMatchObject({
-      id: LEGACY_TEXT,
+      id: `gugu-file://${LEGACY_TEXT}`,
       name: 'legacy.md',
       type: 'binary',
       read_only: true,
@@ -259,7 +257,7 @@ describe('the folder\'s tools as tools.js gives them', () => {
     writeFileSync(mine.saved_to, 'my change, made on version 1')
     const theirs = join(mkdtempSync(join(tmpdir(), 'folder-tools-')), 'deck-theirs.pdf')
     writeFileSync(theirs, 'their change')
-    expect(await edit!.run({ item_id: PDF, path: theirs, expected_version: 1 }, { agent: OTHER_AGENT })).toMatchObject({ replaced: PDF, version: 2 })
+    expect(await edit!.run({ item_id: PDF, path: theirs, expected_version: 1 }, { agent: OTHER_AGENT })).toMatchObject({ replaced: `gugu-file://${PDF}`, version: 2 })
     const replacements = calls.filter((call) => call[0] === 'replace').length
     await expect(edit!.run({ item_id: PDF, path: mine.saved_to, expected_version: mine.version }, { agent: AGENT }))
       .rejects.toThrow('deck.pdf: you started from version 1, it is version 2 now — someone stored a newer one since you read it, and nothing was written.')
@@ -273,7 +271,7 @@ describe('the folder\'s tools as tools.js gives them', () => {
   test('create with content: a text file — markdown unless it says otherwise, JSON when it is an object; its source messages', async () => {
     const { create } = await tools()
     const made = await create!.run({ chat_id: CHAT, title: '周报', content: '# 周报', source_message_ids: [`msg:${MESSAGE}`] })
-    expect(calls.at(-1)).toEqual(['upload', { chat: CHAT }, '周报', 'text/markdown', '# 周报', { sourceMessageIds: [MESSAGE] }])
+    expect(calls.at(-1)).toEqual(['upload', { chat: CHAT }, '周报', 'text/markdown', '# 周报', { sourceMessageIds: [`msg:${MESSAGE}`] }])
     expect(made).toMatchObject({ created: { name: '周报', type: 'text' }, stored_as: expect.stringMatching(/^a text file/) })
     await create!.run({ chat_id: CHAT, title: 'state.json', content: '{"votes":{}}' })
     expect(calls.at(-1)?.slice(0, 4)).toEqual(['upload', { chat: CHAT }, 'state.json', 'application/json'])
@@ -332,14 +330,14 @@ describe('the folder\'s tools as tools.js gives them', () => {
 
   test('edit: name renames it; path with expected_version gives a stored file its next version — a text file is never replaced', async () => {
     const { edit } = await tools()
-    expect(await edit!.run({ item_id: DOC, name: ' plan.md ' })).toMatchObject({ renamed: { id: DOC, name: 'plan.md' } })
+    expect(await edit!.run({ item_id: DOC, name: ' plan.md ' })).toMatchObject({ renamed: { id: `gugu-file://${DOC}`, name: 'plan.md' } })
     expect(calls.at(-1)).toEqual(['rename', { id: DOC }, 'plan.md'])
     const path = join(mkdtempSync(join(tmpdir(), 'folder-tools-')), 'deck-v2.pdf')
     writeFileSync(path, Buffer.from([9, 8, 7]))
-    expect(await edit!.run({ item_id: PDF, path, expected_version: 1 })).toMatchObject({ replaced: PDF, version: 2 })
+    expect(await edit!.run({ item_id: PDF, path, expected_version: 1 })).toMatchObject({ replaced: `gugu-file://${PDF}`, version: 2 })
     expect(calls.at(-1)).toEqual(['replace', { id: PDF }, new Uint8Array([9, 8, 7]), { expectedVersion: 1 }])
     // A version as digits in a string (a bridge that sends every argument as text) is the same number.
-    expect(await edit!.run({ item_id: PDF, path, expected_version: '2' })).toMatchObject({ replaced: PDF, version: 3 })
+    expect(await edit!.run({ item_id: PDF, path, expected_version: '2' })).toMatchObject({ replaced: `gugu-file://${PDF}`, version: 3 })
     await expect(edit!.run({ item_id: DOC, path, expected_version: 1 })).rejects.toThrow(/is a text file: change it with old and new/)
   })
 
@@ -461,11 +459,12 @@ describe('the tools and subfolders', () => {
 
   test('list says each path, counts folders, and with folder asks for that folder only', async () => {
     const { list } = await tools()
-    const all = (await list.run({ chat_id: CHAT })) as { documents: number; files: number; folders: number; items: { path: string; type: string }[] }
+    const all = (await list.run({ chat_id: CHAT })) as { documents: number; files: number; folders: number; items: { id: string; path: string; type: string }[] }
     expect(all).toMatchObject({ documents: 1, files: 1, folders: 1 })
     expect(all.items.map((row) => [row.path, row.type])).toEqual([['合同', 'folder'], ['合同/deck.pdf', 'binary'], ['notes.md', 'text']])
-    // A folder is listed and entered, never opened: no link to open it with; a file has one.
-    expect((all.items as { type: string; link?: string }[]).map((row) => row.type === 'folder' ? 'link' in row : typeof row.link)).toEqual([false, 'string', 'string'])
+    // Folder ids remain folder ids; file ids themselves are links, without duplicate fields.
+    expect(all.items.map((row) => row.id)).toEqual([BOX, `gugu-file://${PDF}`, `gugu-file://${DOC}`])
+    expect(all.items.every((row) => !('link' in row) && !('ref' in row))).toBe(true)
     expect(calls.at(-1)).toEqual(['list', { chat: CHAT }])
     await list.run({ chat_id: CHAT, folder: '合同' })
     expect(calls.at(-1)).toEqual(['list', { chat: CHAT, folder: '合同' }])
@@ -487,12 +486,12 @@ describe('the tools and subfolders', () => {
 
   test('edit\'s name with / moves it (a leading / to the top); a name the folder has is said in the agent\'s words', async () => {
     const { edit } = await tools()
-    expect(await edit.run({ item_id: DOC, name: '合同/2026/notes.md' })).toMatchObject({ moved: { id: DOC, name: 'notes.md', path: '合同/2026/notes.md' } })
+    expect(await edit.run({ item_id: DOC, name: '合同/2026/notes.md' })).toMatchObject({ moved: { id: `gugu-file://${DOC}`, name: 'notes.md', path: '合同/2026/notes.md' } })
     expect(calls.at(-1)).toEqual(['move', { id: DOC }, { folder: '合同/2026', name: 'notes.md' }])
     await edit.run({ item_id: DOC, name: '/notes.md' })
     expect(calls.at(-1)).toEqual(['move', { id: DOC }, { folder: '', name: 'notes.md' }])
     // Ending in /: into that folder, its name kept (no name sent); / alone, the top.
-    expect(await edit.run({ item_id: DOC, name: '合同/' })).toMatchObject({ moved: { id: DOC } })
+    expect(await edit.run({ item_id: DOC, name: '合同/' })).toMatchObject({ moved: { id: `gugu-file://${DOC}` } })
     expect(calls.at(-1)).toEqual(['move', { id: DOC }, { folder: '合同' }])
     await edit.run({ item_id: DOC, name: '/' })
     expect(calls.at(-1)).toEqual(['move', { id: DOC }, { folder: '' }])
@@ -561,7 +560,7 @@ describe('several files at once: item_ids, and list save', () => {
     const answer = (await list.run({ chat_id: CHAT, kind: 'file', rows: '1-5', save: true }, { agent: AGENT })) as { total: number; saved_to: string }
     expect(answer).toEqual({ chat_id: CHAT, total: 45, saved_to: join(tmpdir(), 'gugu-workspace', AGENT.slice('user:'.length), CHAT, 'list.json') })
     const saved = JSON.parse(readFileSync(answer.saved_to, 'utf8')) as { id: string; by: unknown; updated_at: string }[]
-    expect(saved.map((row) => row.id)).toEqual(ids(45))
+    expect(saved.map((row) => row.id)).toEqual(ids(45).map(id => `gugu-file://${id}`))
     expect(saved[0]).toMatchObject({ by, updated_at: '2026-10-11T00:00:00Z' })
     await expect(list.run({ chat_id: CHAT, save: true })).rejects.toThrow(/^list: only an agent saves/)
   })

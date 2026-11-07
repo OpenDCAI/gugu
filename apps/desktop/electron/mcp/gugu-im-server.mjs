@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { conversationLink, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
+import { conversationLink, groupFileLink, parseGroupFileLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { resolveReplyDelivery } from '@gugu/core/shared/replyDelivery'
 import { archivedDeliveryReceipt, messageDeliveryBlocks } from './message-delivery-blocks.mjs'
 
@@ -55,9 +55,8 @@ const log = createLogger('gugu-mcp-host')
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 // ── id 边界（id 收敛第三刀，见 typedId.mjs）─────────────────────────────────────────
-// 存储层是裸 UUID；agent 看到的 identity id 一律 `user:<id>`（人和 agent 同表同列，一种标签），消息 id 一律
-// `msg:<id>`。入参在 dispatchTool 解码（裸 id / 类型不符当场报错），出参在同一处按字段名编码。chat_id 不动：它
-// 本就接受可读的 public_id。编解码只在这一处，双向强制。
+// Identity addresses keep their typed spelling. Resource rows use the shared link serializer; message relationships
+// retain msg: ids. Inputs accept those links and older message ids at the existing dispatch boundary.
 const USER_ID_FIELDS = new Set([
   'actor_user_id', 'user_id', 'sender_user_id', 'owner_user_id', 'peer_user_id', 'friend_user_id', 'source_sender_user_id', 'agent_user_id',
   'creator_user_id', 'author_id', 'inviter_user_id', 'inviter_account_user_id', 'invitee_user_id', 'decision_user_id',
@@ -71,13 +70,13 @@ const MESSAGE_ID_LIST_FIELDS = new Set(['source_message_ids'])
 /** def.messageRows 的工具(history/search):行的 `id` 就是消息 id。集合从 TOOL_DEFS 派生,❌ 不再手维护侧表。 */
 let MESSAGE_ROW_TOOLS = new Set()
 
-function decodeIdList(kind, list, field) {
+function decodeIdList(kind, list, field, decode = decodeTypedId) {
   if (list == null) return list
   if (!Array.isArray(list)) return list
   // Blank / non-string entries are left for the handler's own validation, whose messages name the
   // parameter contract; only real ids are decoded here.
   return list.map((value, index) =>
-    typeof value === 'string' && value.trim() ? decodeTypedId(kind, value, `${field}[${index}]`) : value,
+    typeof value === 'string' && value.trim() ? decode(kind, value, `${field}[${index}]`) : value,
   )
 }
 
@@ -232,8 +231,8 @@ export async function resolveRecipientAddresses(list, deps, field = 'to_user_ids
   })
 }
 
-/** agent → host: typed ids back to storage form; bare ids and wrong kinds fail loud by parameter name. */
-function decodeImArgs(args) {
+/** agent → host: resource links and typed addresses back to storage form. */
+async function decodeImArgs(args, deps) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return args
   const out = { ...args }
   for (const field of USER_ID_LIST_FIELDS) {
@@ -245,11 +244,19 @@ function decodeImArgs(args) {
       ? decodeRecipientList(normalized, field)
       : decodeIdList('user', normalized, field)
   }
+  const messageId = async (_kind, value, field) => {
+    const link = parseGuguLink(value)
+    if (link?.kind === 'chat' && link.messageId) {
+      if (out.chat_id && await resolveChatIdInput(out.chat_id, deps) !== link.chatId) throw new Error(`${field}: message link belongs to another chat`)
+      return link.messageId
+    }
+    return decodeTypedId('msg', value, field)
+  }
   for (const field of MESSAGE_ID_FIELDS) {
-    if (typeof out[field] === 'string' && out[field].trim()) out[field] = decodeTypedId('msg', out[field], field)
+    if (typeof out[field] === 'string' && out[field].trim()) out[field] = await messageId('msg', out[field], field)
   }
   for (const field of MESSAGE_ID_LIST_FIELDS) {
-    if (field in out) out[field] = decodeIdList('msg', out[field], field)
+    if (Array.isArray(out[field])) out[field] = await Promise.all(decodeIdList('msg', out[field], field, messageId))
   }
   return out
 }
@@ -543,10 +550,16 @@ async function ownerDirectChatId(address, deps) {
   return chatId
 }
 
-async function resolveChatIdInput(chatId, deps) {
+async function resolveChatIdInput(chatId, deps, { message = false } = {}) {
   if (UUID_RE.test(String(chatId))) return String(chatId)
   const publicId = String(chatId ?? '').trim()
   if (!publicId) return null
+  const link = parseGuguLink(publicId)
+  if (link?.kind === 'chat') {
+    if (link.messageId && !message) throw new Error('chat_id names a message; read it with message_history or pass it as a message id')
+    return link.chatId
+  }
+  if (/^gugu(?:-[a-z0-9-]+)?:\/\//i.test(publicId)) throw new Error('chat_id requires a conversation link')
   if (/^(aid|user|gugu):/.test(publicId)) return await ownerDirectChatId(publicId, deps)
   // Production public_id values are numeric. Preserve non-production/internal opaque ids
   // used by injected callers; the schema description still directs agents to UUID ids.
@@ -561,7 +574,7 @@ async function resolveChatIdInput(chatId, deps) {
 
 async function requireChat(args, deps) {
   const explicit = args && typeof args.chat_id === 'string' ? args.chat_id.trim() : ''
-  if (explicit) return await resolveChatIdInput(explicit, deps)
+  if (explicit) return await resolveChatIdInput(explicit, deps, { message: args.action === 'history' })
   throw new Error('chat_id is required; the gugu MCP server never infers a conversation target')
 }
 
@@ -780,7 +793,7 @@ export async function groupDataFileOf(context, { chatId, name, content, itemId }
   const chat = await requireChat({ chat_id: String(chatId) }, deps)
   // 摩擦单 F102 (S20): the data is already in the group — that file itself, read as this agent; never a copy of it.
   if (itemId !== undefined) {
-    const item = await workspaceRpcItem(deps, 'workspace_get_as', { p_item_id: String(itemId) }, 'app_install')
+    const item = await workspaceRpcItem(deps, 'workspace_get_as', { p_item_id: parseGroupFileLink(String(itemId))?.itemId ?? String(itemId) }, 'app_install')
     if (String(item.chat_id) !== chat) throw new Error(`data.item_id ${itemId} is a file of another chat, not ${chatId}`)
     if (item.kind !== 'document') throw new Error(`data.item_id ${itemId} (${item.filename}) is a stored file, not a document an App opens`)
     return { item: summarizeWorkspaceItem(item), link: workspaceFileLink(item), reused: true }
@@ -833,7 +846,7 @@ export async function extensionCheckScopeOf(context, { chatId, itemId }, injecte
   const addressed = chatId ? await requireChat({ chat_id: String(chatId) }, deps) : null
   const chat = addressed ? (await topicSourceChatIdOf(deps, addressed)) ?? addressed : null
   if (itemId) {
-    const item = await workspaceRpcItem(deps, 'workspace_get_as', { p_item_id: String(itemId) }, 'app_check')
+    const item = await workspaceRpcItem(deps, 'workspace_get_as', { p_item_id: parseGroupFileLink(String(itemId))?.itemId ?? String(itemId) }, 'app_check')
     const itemChat = String(item.chat_id)
     if (chat && chat !== itemChat) {
       throw new Error(`app_check: file ${itemId} is in chat ${itemChat}, not ${chatId}; pass its item_id alone`)
@@ -862,8 +875,10 @@ async function agentCanSee(deps, message, readerId = deps.context.agentId) {
  */
 export async function extensionAttachmentOf(context, messageId, injected = {}) {
   const deps = createDeps(context, injected)
+  const link = typeof messageId === 'string' ? parseGuguLink(messageId) : null
+  if (link?.kind === 'chat' && link.messageId) messageId = link.messageId
   const [message] = await deps.restGet(`messages?id=eq.${enc(messageId)}&select=id,chat_id,content,file_item_id,file_version,file_blob_id`)
-  if (!message || !(await agentCanSee(deps, message))) throw new Error(`app_install: there is no message ${messageId} you can read`)
+  if (!message || (link?.kind === 'chat' && link.chatId !== message.chat_id) || !(await agentCanSee(deps, message))) throw new Error(`app_install: there is no message ${messageId} you can read`)
   // The message was just read as the owner, so the owner is in that chat and its member list is never empty; an empty
   // read is a failed read, which memberRowsOfMyChat says loudly instead of calling it "not in the chat".
   const members = await memberRowsOfMyChat(message.chat_id, deps)
@@ -883,10 +898,12 @@ export async function extensionAttachmentOf(context, messageId, injected = {}) {
 /** A widget is one readable message in a chat this agent belongs to, just like an App attachment. */
 export async function widgetCheckScopeOf(context, messageId, injected = {}) {
   const deps = createDeps(context, injected)
+  const link = typeof messageId === 'string' ? parseGuguLink(messageId) : null
+  if (link?.kind === 'chat' && link.messageId) messageId = link.messageId
   const unreadable = () => new Error(`app_check: there is no widget message ${messageId} you can read`)
   if (typeof messageId !== 'string' || !UUID_RE.test(messageId)) throw unreadable()
   const [message] = await deps.restGet(`messages?id=eq.${enc(messageId)}&select=id,chat_id,content,content_type,sender_user_id`)
-  if (!message || !(await agentCanSee(deps, message))) throw unreadable()
+  if (!message || (link?.kind === 'chat' && link.chatId !== message.chat_id) || !(await agentCanSee(deps, message))) throw unreadable()
   const members = await memberRowsOfMyChat(message.chat_id, deps)
   if (!members.some((row) => String(row.user_id) === context.agentId)) throw unreadable()
   const references = (message.content ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
@@ -1568,11 +1585,21 @@ async function handleMessage(args, deps) {
     ? (await ownerFriendOfDm(deps, chatId) ? await currentAuthUserId(deps) : deps.context.agentId)
     : null
   if (args.action === 'history') {
+    const anchorId = parseGuguLink(String(args.chat_id))?.messageId
+    if (anchorId && (args.before_seq !== undefined || args.thread_root_id !== undefined)) throw new Error('A message link cannot be combined with before_seq or thread_root_id')
+    let anchor = null
+    if (anchorId) {
+      const [row] = await deps.restGet(`messages?id=eq.${enc(anchorId)}&chat_id=eq.${enc(chatId)}&deleted_at=is.null&select=id,chat_id,seq,thread_root_id`)
+      if (!row || row.chat_id !== chatId || !Number.isSafeInteger(Number(row.seq)) || !(await agentCanSee(deps, row, readAs))) throw new Error('Conversation or message is unavailable for this reader')
+      anchor = row
+    }
     const rows = await messageHistoryPage(deps, chatId, { asUserId: readAs,
-      threadRootId: args.thread_root_id ? String(args.thread_root_id) : null,
-      beforeSeq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
+      threadRootId: anchor ? anchor.thread_root_id : args.thread_root_id ? String(args.thread_root_id) : null,
+      beforeSeq: anchor ? Number(anchor.seq) + 1 : Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
       limit: clampLimit(args.limit, 20, 1, 100) })
-    return JSON.stringify((rows ?? []).map(withFolderFile))
+    if (anchor && rows?.[0]?.id !== anchorId) throw new Error('Conversation or message is unavailable for this reader')
+    if (!rows?.length && !(await deps.restRpc('chat_facts', { p_chat_id: chatId, p_as_user_id: readAs }))?.length) throw new Error('Conversation or message is unavailable for this reader')
+    return JSON.stringify((rows ?? []).map(row => withFolderFile(row, chatId)))
   }
   if (args.action === 'search') {
     const rows = await deps.restRpc('message_search_as', {
@@ -1582,7 +1609,8 @@ async function handleMessage(args, deps) {
       p_before_seq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
       p_limit: clampLimit(args.limit, 20, 1, 100),
     })
-    return JSON.stringify((rows ?? []).map(withFolderFile))
+    if (!rows?.length && !(await deps.restRpc('chat_facts', { p_chat_id: chatId, p_as_user_id: readAs }))?.length) throw new Error('Conversation or message is unavailable for this reader')
+    return JSON.stringify((rows ?? []).map(row => withFolderFile(row, chatId)))
   }
   throw new Error(`gugu_message: unknown action ${args.action}`)
 }
@@ -1816,7 +1844,7 @@ async function handleConv(args, deps) {
     const [chats, ownerDms, pinned] = await Promise.all([myChats(deps), ownerFriendDms(deps), ownerPinnedChatIds(deps)])
     const rows = [
       ...chats.map((c) => ({
-        id: c.chat_id,
+        id: UUID_RE.test(c.chat_id) ? conversationLink(c.chat_id) : c.chat_id,
         public_id: c.public_id,
         kind: c.kind,
         status: c.status,
@@ -1827,7 +1855,7 @@ async function handleConv(args, deps) {
       })),
       // #84 主人与好友的私聊:名字用主人的备注,没有就用好友自己的名字;friend_user_id 直接喂代发工具。
       ...ownerDms.map((c) => ({
-        id: c.chat_id,
+        id: UUID_RE.test(c.chat_id) ? conversationLink(c.chat_id) : c.chat_id,
         public_id: c.public_id,
         kind: c.kind,
         status: c.status,
@@ -1942,7 +1970,7 @@ async function handleTopic(args, deps) {
     // (这条读已经带 p_as_user_id 按 agent 自己判了;仍然留这道闸,因为 RPC 本身也可能读空。)
     if (joined.size === 0) {
       return JSON.stringify({
-        ...row,
+        ...row, chat_id: UUID_RE.test(row.chat_id) ? conversationLink(row.chat_id) : row.chat_id,
         member_user_ids_unavailable:
           '话题建好了,但用当前身份读不到它的成员名单(主人不在这条线里)。'
           + '用 topic_members 以这条话题自己的 chat_id 再查一次。',
@@ -1951,7 +1979,7 @@ async function handleTopic(args, deps) {
     // 服务端会**悄悄滤掉**不在来源线里的人。悄悄这件事不对:调用方以为三个人都进去了。
     const dropped = (memberUserIds ?? []).filter((id) => !joined.has(id))
     return JSON.stringify({
-      ...row,
+      ...row, chat_id: UUID_RE.test(row.chat_id) ? conversationLink(row.chat_id) : row.chat_id,
       member_user_ids: [...joined],
       ...(dropped.length
         ? {
@@ -1973,7 +2001,7 @@ async function handleTopic(args, deps) {
       p_source_chat_id: sourceChatId,
       p_as_user_id: deps.context.agentId,
     })
-    return Array.isArray(rows) ? rows : []
+    return Array.isArray(rows) ? rows.map(row => ({ ...row, chat_id: UUID_RE.test(row.chat_id) ? conversationLink(row.chat_id) : row.chat_id })) : []
   }
   if (args.action === 'delete') {
     if (typeof args.confirm_name !== 'string' || args.confirm_name.length === 0) {
@@ -2037,7 +2065,7 @@ async function handleGroup(args, deps) {
   }
   if (args.action === 'list') {
     const [groups, pinned] = await Promise.all([ownerGroupsAs(deps, deps.context.agentId, 'group_list'), ownerPinnedChatIds(deps)])
-    return groups.map((group) => ({ ...group, pinned: pinned.has(group.chat_id) }))
+    return groups.map((group) => ({ ...group, pinned: pinned.has(group.chat_id), chat_id: UUID_RE.test(group.chat_id) ? conversationLink(group.chat_id) : group.chat_id }))
   }
   const admin = groupAdmin(deps)
   if (args.action === 'join-decide') return JSON.stringify(await admin.decideJoin(args.request_id, args.accept))
@@ -2316,9 +2344,10 @@ function attachmentNameOf(message) {
 }
 
 /** 历史 / 搜索的一行:附件指着的群文件夹文件写成一个 file 链接(那一版),替掉两列裸 id。 */
-function withFolderFile(row) {
+function withFolderFile(row, chatId) {
   const { file_item_id: itemId, file_version: version, ...rest } = row
-  return typeof itemId === 'string' && Number.isInteger(version) ? { ...rest, file: groupFileLink(itemId, { version }) } : rest
+  return { ...rest, ...(UUID_RE.test(chatId) && UUID_RE.test(row.id) ? { id: conversationLink(chatId, row.id) } : {}),
+    ...(typeof itemId === 'string' && Number.isInteger(version) ? { file: groupFileLink(itemId, { version }) } : {}) }
 }
 
 async function handleFile(args, deps) {
@@ -2547,7 +2576,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_history',
     messageRows: true,
-    description: 'Read a chat\'s main timeline, or one thread with thread_root_id. Rows carry seq; page back with limit and before_seq.',
+    description: 'Read main timeline/thread_root_id. Message URI: anchor + limit-1 older rows, no before_seq/thread_root_id.',
     schema: z.object({
       chat_id: chatIdSchema,
       thread_root_id: z.string().optional(),
@@ -2904,8 +2933,9 @@ async function dispatchTool(context, name, args, injected, state) {
     )
   }
   // The id boundary lives here, on the one path both the SDK server and the exported callTool take.
-  const decoded = decodeImArgs(args || {})
-  const out = await def.handler(decoded, createDeps(context, injected, state))
+  const deps = createDeps(context, injected, state)
+  const decoded = await decodeImArgs(args || {}, deps)
+  const out = await def.handler(decoded, deps)
   if (def.rawOutput) return out
   // 列表工具(def.list)的 handler 回整张排好序的表,在这里按 list-window 的约定切窗(与 sessionpage 注册机同一个函数)。
   return encodeImOutput(name, decoded, def.list ? JSON.stringify(windowResult(def.list, out, decoded)) : out)
@@ -2927,7 +2957,7 @@ export async function callToolWithState(context, name, args, deps, state) {
 export async function sendWidgetOf(context, args, content, injected = {}, state = createSessionState()) {
   if (context.forkOf !== undefined) throw new Error('widget_send is unavailable in a side chat')
   const deps = createDeps(context, injected, state)
-  const decoded = decodeImArgs(args)
+  const decoded = await decodeImArgs(args, deps)
   const chatId = await requireChat(decoded, deps)
   await assertGroupRulesSeen(deps, chatId, 'widget_send')
   const replyToMessageId = decoded.reply_to_message_id ?? null

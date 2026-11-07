@@ -201,6 +201,7 @@ describe('A4: a new file\'s source messages', () => {
   it('anything but message ids is refused, said how; none is none', () => {
     expect(sourceMessageIdsOf(undefined)).toEqual([]);
     expect(sourceMessageIdsOf([MESSAGE, MESSAGE])).toEqual([MESSAGE]);
+    expect(sourceMessageIdsOf([`gugu-chat://${CHAT}/${MESSAGE}`, `msg:${MESSAGE}`, MESSAGE])).toEqual([MESSAGE]);
     expect(() => sourceMessageIdsOf(['msg:abc'])).toThrow(AppFileError);
     expect(() => sourceMessageIdsOf(MESSAGE)).toThrow(/sourceMessageIds takes message ids/);
   });

@@ -8,6 +8,7 @@ import type { BridgeCaller } from './extension-bridge';
 import type { DesktopFilePage } from './app-files';
 import { fileSync } from './file-sync';
 import { resourceChatIdOf } from '@shared/extensions/app-files-core';
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { extensionProjections } from './extension-projection-bridge';
 
 /**
@@ -214,6 +215,9 @@ export async function handedChatsAs(agentUserId: string, chatIds: readonly strin
     chatIds.map(async (named) => {
       const refusal = new Error(`${named}: not a chat you are in, so it was not handed over`);
       let chatId = named.trim();
+      const target = parseGuguLink(chatId);
+      if (target?.kind === 'chat' && !target.messageId) chatId = target.chatId;
+      else if (/^gugu(?:-[a-z0-9-]+)?:\/\//i.test(chatId)) throw refusal;
       if (/^\d+$/.test(chatId)) {
         const { data, error } = await client.rpc('chat_facts', { p_chat_id: chatId, p_as_user_id: agentUserId });
         if (error) throw doorFailed(named, 'which chat this number is', error);

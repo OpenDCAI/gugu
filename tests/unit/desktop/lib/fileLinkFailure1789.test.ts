@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '../../../../apps/desktop/src/i18n'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 import { followLink, openTarget } from '../../../../apps/desktop/src/lib/guguLinks'
+import { guguLink } from '@gugu/core/shared/ui/guguLink'
+import { askTaskReveal, takeTaskReveal } from '../../../../apps/desktop/src/hooks/useSourceMessageReveal'
+import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 
 const state = vi.hoisted(() => ({ open: vi.fn(), metadata: vi.fn(), notice: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
@@ -21,6 +24,27 @@ beforeEach(async () => {
 })
 
 describe('file-link failure notices', () => {
+  it('wakes an already mounted task reveal only after the host opened its session', async () => {
+    const asked = vi.fn()
+    window.addEventListener(UI_EVENTS.chatAsked, asked)
+    try {
+      const session = { kind: 'session' as const, sessionId: 'current-session', itemId: 'original-item' }
+      await expect(openTarget(session)).rejects.toThrow()
+      expect(asked).not.toHaveBeenCalled()
+      state.open.mockResolvedValue({ kind: 'opened' })
+      await expect(openTarget(session)).resolves.toBe(true)
+      expect(asked).toHaveBeenCalledTimes(1)
+    } finally { window.removeEventListener(UI_EVENTS.chatAsked, asked) }
+  })
+  it('clears only the failed session-item reveal, retaining a newer request for the same session', async () => {
+    const session = { kind: 'session' as const, sessionId: 'unavailable-session', itemId: 'original-item' }
+    askTaskReveal(session.sessionId, guguLink(session))
+    await expect(openTarget(session)).rejects.toThrow()
+    expect(takeTaskReveal(session.sessionId)).toBeUndefined()
+    askTaskReveal(session.sessionId, 'a-newer-item')
+    await expect(openTarget(session)).rejects.toThrow()
+    expect(takeTaskReveal(session.sessionId)).toBe('a-newer-item')
+  })
   it('names the offline file-holding computer without a protocol or message prefix', async () => {
     state.metadata.mockResolvedValue({ status: 'ready', revision: { source: 'local', host_online: false } })
     await expect(openTarget(target)).rejects.toThrow(/^存放这个文件的电脑当前离线，请等电脑上线后再试$/)

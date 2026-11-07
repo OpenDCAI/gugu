@@ -60,13 +60,11 @@ const TEXT_MAX_BYTES = 1024 * 1024
 const STORED_MAX_BYTES = 25 * 1024 * 1024
 const bytesOf = (text) => Buffer.byteLength(text, 'utf8')
 
-/** The file as a link, handed over whole: in a message it shows as that file and opens it (never assembled by the agent). */
-const linkOf = async (entry) => `[${entry.name.replace(/[[\]\\]/g, (c) => `\\${c}`)}](${await gugu.linkTo({ kind: 'file', file: entry.id })})`
-/** A file's link — a folder has none: it is listed and entered, never opened (子文件夹). */
-const linked = async (entry) => (entry.type === 'folder' ? {} : { link: await linkOf(entry) })
+/** File ids are links; a folder is listed and entered, never opened (子文件夹). */
+const idOf = async (entry) => entry.type === 'folder' ? entry.id : gugu.linkTo({ kind: 'file', file: entry.id })
 const byOf = (entry) => (entry.createdBy?.id ? { id: entry.createdBy.id, name: entry.createdBy.name, kind: entry.createdBy.kind } : null)
 const rowOf = async (entry) => ({
-  id: entry.id,
+  id: await idOf(entry),
   name: entry.name,
   path: entry.path,
   type: entry.type,
@@ -75,7 +73,6 @@ const rowOf = async (entry) => ({
   by: byOf(entry),
   updated_at: entry.updatedAt,
   metadata: entry.metadata ?? {},
-  ...await linked(entry),
 })
 
 /** `rows`, as every listing tool takes it: "20" is the first 20, "21-40" rows 21 to 40; default the first 20. */
@@ -211,7 +208,7 @@ async function saveLocally(entry, data, agent) {
 
 export const list = {
   description:
-    'The files in a chat\'s folder (群文件夹 of a source group or private chat), newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, version, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
+    'The files in a chat\'s folder (群文件夹 of a source group or private chat), newest first: id (file URI), name, path, type, size, version, who made it. Link as [name](id), escaping [] and \\ in name. The header counts text files, stored files and folders. folder lists its direct children.',
   inputSchema: {
     type: 'object',
     required: ['chat_id'],
@@ -280,7 +277,7 @@ export const read = {
   async run({ item_id, offset, limit, save }, { agent } = {}) {
     return withFile(item_id, { readOnly: true }, async (f) => {
       const entry = f.entry
-      const head = { id: entry.id, name: entry.name, type: entry.type, by: byOf(entry), updated_at: entry.updatedAt, link: await linkOf(entry) }
+      const head = { id: await idOf(entry), name: entry.name, type: entry.type, by: byOf(entry), updated_at: entry.updatedAt }
       if (f.readOnlyReason === 'stored-bytes' && save !== true) {
         return pageOf(f.text, {
           ...head,
@@ -300,7 +297,7 @@ export const read = {
 
 export const create = {
   description:
-    'Put a new file in a chat\'s folder: content makes a text file (markdown; JSON when the content is a JSON object), path puts a file from this computer there; folder puts it in that subfolder (made when it is not there), and folder alone makes the subfolder. A name already in that folder gets " (2)", " (3)": the answer says the name it got. Its link, in a message, opens it. A file made from a topic is in its source group or private chat\'s shared folder.',
+    'Put a new file in a chat\'s folder: content makes a text file (markdown; JSON when the content is a JSON object), path puts a file from this computer there; folder puts it in that subfolder (made when it is not there), and folder alone makes the subfolder. A name already in that folder gets " (2)", " (3)": the answer says the name it got. Its id URI opens it in a message. A file made from a topic is in its source group or private chat\'s shared folder.',
   inputSchema: {
     type: 'object',
     required: ['chat_id'],
@@ -348,11 +345,10 @@ export const create = {
       }
       file = new File([bytes], name)
     }
-    const sourceMessageIds = (source_message_ids ?? []).map((id) => String(id).replace(/^msg:/, ''))
+    const sourceMessageIds = source_message_ids ?? []
     const [entry] = await gugu.files.upload(folder === undefined ? { chat: chat_id } : { chat: chat_id, folder }, file, { sourceMessageIds, ...(keep === undefined ? {} : { keep }) })
     return {
-      created: { id: entry.id, name: entry.name, path: entry.path, type: entry.type, size: entry.size },
-      link: await linkOf(entry),
+      created: { id: await idOf(entry), name: entry.name, path: entry.path, type: entry.type, size: entry.size },
       stored_as:
         entry.type === 'binary'
           ? `stored bytes (${entry.contentType}): read saves it on this computer; edit with path and the version read gave stores its next version`
@@ -407,12 +403,12 @@ export const edit = {
       }
       if (slash >= 0) {
         const moved = await moveTo(item_id)
-        return { moved: { id: moved.id, name: moved.name, path: moved.path }, ...await linked(moved) }
+        return { moved: { id: await idOf(moved), name: moved.name, path: moved.path } }
       }
       const renamed = await gugu.files.rename({ id: item_id }, wanted).catch((error) => {
         throw taken(error, item_id)
       })
-      return { renamed: { id: renamed.id, name: renamed.name, path: renamed.path }, ...await linked(renamed) }
+      return { renamed: { id: await idOf(renamed), name: renamed.name, path: renamed.path } }
     }
     if (path !== undefined) {
       const bytes = await localFile(path, 'edit')
@@ -435,7 +431,7 @@ export const edit = {
         }
         throw said(error, item_id)
       })
-      return { replaced: replaced.id, version: replaced.version, link: await linkOf(replaced) }
+      return { replaced: await idOf(replaced), version: replaced.version }
     }
     if (typeof old !== 'string' || !old) throw new Error('old must not be empty: copy the text to replace from read')
     if (typeof next !== 'string') throw new Error('new is the text that goes in old\'s place (an empty string removes it)')

@@ -1,28 +1,21 @@
-import { conversationLink, parseConversationLink } from './guguLink';
+import { guguLink, parseGuguLink } from './guguLink';
 
 export type MessageQuoteSource =
   | { kind: 'session'; sessionId: string; itemId: string }
   | { kind: 'chat'; chatId: string; messageId: string };
 
-const escapePart = (value: string) => encodeURIComponent(value).replace(/[()]/g, char => `%${char.charCodeAt(0).toString(16)}`);
 const escapeLabel = (value: string) => value.replace(/\\/g, '\\\\').replace(/([[\]])/g, '\\$1').replace(/[\r\n]+/g, ' ');
 
 /** A timeline item keeps its own identity; an IM message keeps its real chat/message identity. */
 export function messageQuoteLink(source: MessageQuoteSource): string {
-  if (source.kind === 'chat') return conversationLink(source.chatId, source.messageId);
-  if (!source.sessionId || !source.itemId) throw new Error('A session quote needs its session and original item');
-  return `gugu-session://${escapePart(source.sessionId)}?message=${escapePart(source.itemId)}`;
+  return guguLink(source);
 }
 
 export function parseMessageQuoteLink(link: string): MessageQuoteSource | null {
-  const chat = parseConversationLink(link);
-  if (chat?.messageId) return { kind: 'chat', chatId: chat.chatId, messageId: chat.messageId };
-  const match = /^gugu-session:\/\/([^/?#]+)\?message=([^&#]+)$/.exec(link);
-  if (!match) return null;
-  try {
-    const sessionId = decodeURIComponent(match[1]!), itemId = decodeURIComponent(match[2]!);
-    return sessionId && itemId ? { kind: 'session', sessionId, itemId } : null;
-  } catch { return null; }
+  const target = parseGuguLink(link);
+  if (target?.kind === 'chat' && target.messageId) return { kind: 'chat', chatId: target.chatId, messageId: target.messageId };
+  if (target?.kind === 'session' && target.itemId) return { kind: 'session', sessionId: target.sessionId, itemId: target.itemId };
+  return null;
 }
 
 /** Ordinary prompt text already survives queues and native histories; no separate transient reply state. */

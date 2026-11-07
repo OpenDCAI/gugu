@@ -6,7 +6,7 @@ import { readComposer, writeComposer } from '../../support/composerEditor'
 import { stubVisibleIntersection } from '../../support/visibleIntersection'
 const lifeRead = vi.hoisted(() => vi.fn())
 const transcriptCommands = vi.hoisted(() => vi.fn())
-const transcriptView = vi.hoisted(() => ({ setScrollMode: vi.fn(), openItem: vi.fn(() => false) }))
+const transcriptView = vi.hoisted(() => ({ setScrollMode: vi.fn(), scrollToItem: vi.fn(), openItem: vi.fn(() => false) }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class extends Error {}, fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   setSessionOption: vi.fn(), onMachineEvent: vi.fn(() => () => {}), onLinkChange: vi.fn(() => () => {}),
@@ -26,12 +26,36 @@ import { state, changed, EMPTY } from '../../../apps/desktop/src/lib/sessionInpu
 import type { SessionInputOutbox } from '../../../apps/desktop/src/lib/sessionInputOutbox'
 import { SessionInputQueue } from '../../../apps/desktop/src/components/chat/SessionInputQueue'
 import { translateSessionMessage } from '../../../apps/desktop/src/session/renderer/localization/locale-store'
+import { askTaskReveal, takeTaskReveal } from '../../../apps/desktop/src/hooks/useSourceMessageReveal'
+import { messageQuoteLink } from '@gugu/core/shared/ui/messageQuote'
 let harness: ReturnType<typeof createReactHarness>
 const oldScroll = Element.prototype.scrollTo
 const oldWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
 beforeEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }); harness = createReactHarness(); stubVisibleIntersection(); Element.prototype.scrollTo = () => undefined })
 afterEach(() => { Object.defineProperty(window, 'innerWidth', oldWidth); harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals();
-  Object.assign(state(), { accountId: null, queue: null, rows: EMPTY, valid: () => false }); changed(); lifeRead.mockReset(); transcriptView.setScrollMode.mockClear()
+  Object.assign(state(), { accountId: null, queue: null, rows: EMPTY, valid: () => false }); changed(); lifeRead.mockReset(); transcriptView.setScrollMode.mockClear(); transcriptView.scrollToItem.mockClear()
+})
+it('retains a linked item until both the phone transcript view and its history are ready', async () => {
+  const sessionId = 'linked-phone-task'
+  const reference = messageQuoteLink({ kind: 'session', sessionId, itemId: 'original' })
+  askTaskReveal(sessionId, reference)
+  const onLoadOlder = vi.fn(async () => undefined)
+  const props = {
+    deviceId: 'desktop', sessionId, agentName: 'Test agent', sessionRuntime: 'acp' as const,
+    respondingItemId: null, onRespond: vi.fn(), onSend: vi.fn(), pendingSends: [], sending: false, agentWorking: false,
+    onStop: vi.fn(), stopping: false, onLoadOlder,
+  }
+  try {
+    await renderWithAppProviders(harness, createNode(SessionConversation, { ...props, timeline: emptyAgentWatchTimeline(), historyReady: false }))
+    await waitForCondition(() => !!harness.container.querySelector('[data-testid="prompt-editor"]'), 'phone transcript view ready')
+    expect(transcriptView.scrollToItem).not.toHaveBeenCalled()
+    const timeline = { ...emptyAgentWatchTimeline(), turns: [{ id: 'turn-1', seq: 1, initiator: 'user' as const,
+      items: [{ kind: 'message' as const, id: 'original', role: 'user' as const, seq: 0, text: 'Original linked item' }] }] }
+    await renderWithAppProviders(harness, createNode(SessionConversation, { ...props, timeline, historyReady: true }))
+    await vi.waitFor(() => expect(transcriptView.scrollToItem).toHaveBeenLastCalledWith('original', { align: 'center' }))
+    expect(takeTaskReveal(sessionId)).toBeUndefined()
+    expect(onLoadOlder).not.toHaveBeenCalled()
+  } finally { takeTaskReveal(sessionId) }
 })
 it('puts each App draft in the real task composer once, preserving human edits and sending nothing', async () => {
   const onSend = vi.fn(), applied = vi.fn()

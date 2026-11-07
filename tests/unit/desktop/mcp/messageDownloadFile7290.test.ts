@@ -120,12 +120,12 @@ describe('message_download_file by source_message_id (#7290)', () => {
   })
 
   test('folder-backed message: resolves its immutable message reference as this agent', async () => {
-    const { call, fetched, asked } = await setup({ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: 'item-1', file_version: 3 })
+    const { call, fetched, asked } = await setup({ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: '0d000000-0000-4000-8000-000000000001', file_version: 3 })
     const receipt = JSON.parse(await call())
     expect(asked).toEqual([[{ message_id: 'm1' }]])
     expect(fetched).toEqual(['verified original'])
-    expect(receipt).toMatchObject({ file: 'gugu-file://item-1?v=3' })
-    expect(receipt.next).toContain('message_send_file {file: "gugu-file://item-1?v=3", file_path}')
+    expect(receipt).toMatchObject({ file: 'gugu-file://0d000000-0000-4000-8000-000000000001?v=3' })
+    expect(receipt.next).toContain('message_send_file {file: "gugu-file://0d000000-0000-4000-8000-000000000001?v=3", file_path}')
   })
 
   // Preserve X2: the host receives the exact message and agent identity, never the token's owner or a body URL.
@@ -133,10 +133,10 @@ describe('message_download_file by source_message_id (#7290)', () => {
     const home = await mkdtemp(join(tmpdir(), 'gugu-download-as-')); homes.push(home)
     const calls: unknown[] = []
     const context = { agentId: AGENT, getAccessToken: async () => 'owner-token', guguHome: home, resolveFile: async (ref: unknown, actor: string) => {
-      calls.push([ref, actor]); return verifiedFileHandle(Buffer.from('bytes'), { file_name: 'deck.pdf', item_id: 'item-1', version: 3 })
+      calls.push([ref, actor]); return verifiedFileHandle(Buffer.from('bytes'), { file_name: 'deck.pdf', item_id: '0d000000-0000-4000-8000-000000000001', version: 3 })
     } }
     const receipt = JSON.parse(await callTool(context, 'message_download_file', { source_message_id: 'msg:m1' }, {
-      restGet: async () => [{ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: 'item-1', file_version: 3, file_blob_id: null }],
+      restGet: async () => [{ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: '0d000000-0000-4000-8000-000000000001', file_version: 3, file_blob_id: null }],
       restRpc: async () => true,
       fetch: async () => { throw Error('No independent object fetch is permitted') },
     }))
@@ -159,7 +159,7 @@ describe('message_download_file by source_message_id (#7290)', () => {
     const gone = await setup({ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: null, file_version: 3 })
     await expect(gone.call()).rejects.toThrow('was deleted from the group folder')
     expect(gone.fetched).toEqual([])
-    const unsigned = await setup({ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: 'item-1', file_version: 3 }, { signed: false })
+    const unsigned = await setup({ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: '0d000000-0000-4000-8000-000000000001', file_version: 3 }, { signed: false })
     await expect(unsigned.call()).rejects.toThrow('no longer readable')
   })
 })

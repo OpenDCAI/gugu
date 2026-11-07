@@ -986,7 +986,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     cloud.join('00000000-0000-4000-8000-000000000009', AGENT, { listenMode: 'active' })
     cloud.join('00000000-0000-4000-8000-000000000009', HUMAN)
     const envelope = '[附件] two.png (image/png)\n[Size] 3\n[Kind] image'
-    cloud.post({ chatId: '00000000-0000-4000-8000-000000000009', id: '10000000-0000-4000-8000-00000000000b', seq: 1, senderUserId: HUMAN, senderType: 'human', content: envelope, fileItemId: 'item-2', fileVersion: 4 })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000009', id: '10000000-0000-4000-8000-00000000000b', seq: 1, senderUserId: HUMAN, senderType: 'human', content: envelope, fileItemId: '0d000000-0000-4000-8000-000000000002', fileVersion: 4 })
     cloud.post({ chatId: '00000000-0000-4000-8000-000000000009', id: '10000000-0000-4000-8000-00000000000a', seq: 2, senderUserId: HUMAN, senderType: 'human', content: envelope, fileItemId: null, fileVersion: 4 })
     // 悄悄话的附件:不进群文件夹,消息直接指字节 ⇒ 按这条消息签(能读这条消息的人才签得到)。
     cloud.post({ chatId: '00000000-0000-4000-8000-000000000009', id: '10000000-0000-4000-8000-00000000000c', seq: 3, senderUserId: HUMAN, senderType: 'human', content: envelope, fileBlobId: 'blob-9' })
@@ -1001,7 +1001,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(asked).toEqual([{ message_id: '10000000-0000-4000-8000-00000000000b' }, { message_id: '10000000-0000-4000-8000-00000000000c' }])
     expect(injections.map((entry) => entry.attachments?.length ?? 0)).toEqual([1, 0, 1])
     expect(injections[1]!.text).toContain('[附件] two.png (image/png)')
-    expect(injections[0]!.text).toContain('[Folder file gugu-file://item-2?v=4')
+    expect(injections[0]!.text).toContain('[Folder file gugu-file://0d000000-0000-4000-8000-000000000002?v=4')
     expect(injections[2]!.text, '悄悄话附件不在文件夹里').not.toContain('[Folder file')
   })
 
@@ -1013,7 +1013,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     cloud.join('00000000-0000-4000-8000-000000000008', AGENT, { listenMode: 'active' })
     cloud.join('00000000-0000-4000-8000-000000000008', HUMAN)
     const pkg = '[附件] poll-0.1.0.guguext (application/vnd.gugu.extension+zip)\n[Size] 1200\n[Kind] file'
-    cloud.post({ chatId: '00000000-0000-4000-8000-000000000008', id: '10000000-0000-4000-8000-000000000005', seq: 1, senderUserId: HUMAN, senderType: 'human', content: pkg, fileItemId: 'item-7', fileVersion: 1 })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000008', id: '10000000-0000-4000-8000-000000000005', seq: 1, senderUserId: HUMAN, senderType: 'human', content: pkg, fileItemId: '0d000000-0000-4000-8000-000000000007', fileVersion: 1 })
     cloud.post({ chatId: '00000000-0000-4000-8000-000000000008', id: '10000000-0000-4000-8000-000000000006', seq: 2, senderUserId: HUMAN, senderType: 'human', content: '[附件] a.pdf (application/pdf)\n[URL] https://example.test/a.pdf\n[Size] 3\n[Kind] file' })
     cloud.post({ chatId: '00000000-0000-4000-8000-000000000008', id: '10000000-0000-4000-8000-000000000004', seq: 3, senderUserId: HUMAN, senderType: 'human', content: pkg, fileItemId: null, fileVersion: 1 })
     const asked: unknown[] = []
@@ -1031,7 +1031,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(text).toContain('[File saved at local path: /tmp/gugu-home/chat-media/abc-poll-0.1.0.guguext]')
     expect(text.match(/\[File saved at local path:/g)).toHaveLength(1)
     // 它是群文件夹里的哪个文件、哪一版,怎么再发、怎么把改过的发成下一版:只在指着条目的那一条上。
-    expect(text).toContain('[Folder file gugu-file://item-7?v=1 — show it again: message_send_file {file: "gugu-file://item-7?v=1"}')
+    expect(text).toContain('[Folder file gugu-file://0d000000-0000-4000-8000-000000000007?v=1 — show it again: message_send_file {file: "gugu-file://0d000000-0000-4000-8000-000000000007?v=1"}')
     expect(text.match(/\[Folder file /g)).toHaveLength(1)
     expect(text).toContain('[URL] https://example.test/a.pdf')
     expect(text).toContain('[File not saved: Legacy file requires verified private metadata]')
@@ -1045,7 +1045,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     cloud.join('00000000-0000-4000-8000-000000000007', AGENT, { listenMode: 'active' })
     cloud.join('00000000-0000-4000-8000-000000000007', HUMAN)
     cloud.post({ chatId: '00000000-0000-4000-8000-000000000007', id: '10000000-0000-4000-8000-000000000002', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'before the file' })
-    cloud.post({ chatId: '00000000-0000-4000-8000-000000000007', id: '10000000-0000-4000-8000-000000000003', seq: 2, senderUserId: HUMAN, senderType: 'human', content: '[附件] deck.pptx (application/vnd.openxmlformats-officedocument.presentationml.presentation)\n[Size] 9\n[Kind] file', fileItemId: 'item-9', fileVersion: 2 })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000007', id: '10000000-0000-4000-8000-000000000003', seq: 2, senderUserId: HUMAN, senderType: 'human', content: '[附件] deck.pptx (application/vnd.openxmlformats-officedocument.presentationml.presentation)\n[Size] 9\n[Kind] file', fileItemId: '0d000000-0000-4000-8000-000000000009', fileVersion: 2 })
     cloud.post({ chatId: '00000000-0000-4000-8000-000000000007', id: '10000000-0000-4000-8000-000000000001', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'after the file' })
     const { deps, injections } = makeDeps(cloud, {
       downloadAttachment: async () => { throw new Error('chat attachment download failed (503)') },
@@ -1076,7 +1076,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       cloud.addChat('00000000-0000-4000-8000-000000000004', 'group')
       cloud.join('00000000-0000-4000-8000-000000000004', AGENT, { listenMode: 'active' })
       cloud.join('00000000-0000-4000-8000-000000000004', HUMAN)
-      cloud.post({ chatId: '00000000-0000-4000-8000-000000000004', id: '10000000-0000-4000-8000-000000000009', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '[附件] two.png (image/png)\n[Size] 3\n[Kind] image', fileItemId: 'item-2', fileVersion: 4 })
+      cloud.post({ chatId: '00000000-0000-4000-8000-000000000004', id: '10000000-0000-4000-8000-000000000009', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '[附件] two.png (image/png)\n[Size] 3\n[Kind] image', fileItemId: '0d000000-0000-4000-8000-000000000002', fileVersion: 4 })
       const resolve = createNodeFileResolver(join(home, 'cache'), async () => ({ supabaseUrl: 'https://db.example.test', anonKey: 'anon', token: 'owner-token' }))
       const { deps, injections } = makeDeps(cloud, { env: { GUGU_HOME: home }, downloadAttachment: async (ref, name, actorId) => {
         const file = await resolve(ref, { accountId: HUMAN, actorId })
@@ -1101,7 +1101,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     const row = { chat_id: 'c', id: '10000000-0000-4000-8000-00000000000e', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z', group_rules: null, named_identities: {} }
     expect(() => unreadRowFromRpc(row)).toThrow('no file_item_id / file_version / file_blob_id')
     expect(() => unreadRowFromRpc({ ...row, file_item_id: null, file_version: null })).toThrow('database is older than this client')
-    expect(unreadRowFromRpc({ ...row, file_item_id: 'item-1', file_version: 2, file_blob_id: null })).toMatchObject({ fileItemId: 'item-1', fileVersion: 2, fileBlobId: null })
+    expect(unreadRowFromRpc({ ...row, file_item_id: '0d000000-0000-4000-8000-000000000001', file_version: 2, file_blob_id: null })).toMatchObject({ fileItemId: '0d000000-0000-4000-8000-000000000001', fileVersion: 2, fileBlobId: null })
     expect(unreadRowFromRpc({ ...row, file_item_id: null, file_version: null, file_blob_id: 'blob-1' })).toMatchObject({ fileItemId: null, fileVersion: null, fileBlobId: 'blob-1' })
   })
 

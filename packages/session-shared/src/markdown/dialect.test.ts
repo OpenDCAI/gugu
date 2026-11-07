@@ -119,6 +119,9 @@ describe('markdown dialect', () => {
     expect(hrefAfter(groupFile)).toBe(groupFile);
     const conversation = 'gugu-chat://aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/11111111-2222-4333-8444-555555555555';
     expect(hrefAfter(conversation)).toBe(conversation);
+    const session = 'gugu-session://Session-A?message=turn%3A2';
+    expect(hrefAfter(session)).toBe(session);
+    expect(hrefAfter('gugu-unknown://anything')).toBeUndefined();
     expect(hrefAfter('javascript:alert(1)')).toBeUndefined();
     expect(hrefAfter('ab:x')).toBeUndefined();
     // An image may name a group's file (an App page's markdown draws it); no other new scheme reaches an image.
