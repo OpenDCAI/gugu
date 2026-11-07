@@ -13,7 +13,6 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({ useChatStore:
 }) }))
 vi.mock('../../../../apps/desktop/src/lib/sidebarChatsBridge', () => ({ useSidebarChatView: () => ({ focusedChatId: null }) }))
 vi.mock('../../../../apps/desktop/src/lib/projectGroupChatsBridge', () => ({ useProjectGroupChats: () => new Set() }))
-vi.mock('../../../../apps/desktop/src/hooks/useMarkProjectTopicsReadOnOpen', () => ({ useMarkProjectTopicsReadOnOpen: () => undefined }))
 vi.mock('../../../../apps/desktop/src/components/assistant/TaskChatScope', () => ({ TaskChatScope: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock('../../../../apps/desktop/src/components/ChatAreaPanel', () => ({ ChatAreaPanel: () => { state.renders(); return <div>Legacy IM transcript</div> } }))
 import { ChatSlotHost } from '../../../../apps/desktop/src/components/ChatSlotHost'

@@ -851,6 +851,7 @@ export default {
     "title": "发送到"
   },
   "topic": {
+    "calledYou": "有人 @ 你",
     "pins": {
       "pin": "将“{{name}}”置顶到主群",
       "unpin": "取消置顶“{{name}}”",

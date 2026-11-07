@@ -6,7 +6,6 @@ import { ChatAreaPanel } from './ChatAreaPanel'
 import { TaskChatScope } from './assistant/TaskChatScope'
 import type { AssistantChatHandlers } from './assistant/AssistantChatSlot'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
-import { useMarkProjectTopicsReadOnOpen } from '../hooks/useMarkProjectTopicsReadOnOpen'
 import { useChatStore } from '../store/chatContext'
 
 import { isOwnedAgentPeer, openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
@@ -35,7 +34,6 @@ export const ChatSlotHost = memo(function ChatSlotHost(handlers: AssistantChatHa
     (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),
     () => slots?.getSlots() ?? EMPTY,
   )
-  useMarkProjectTopicsReadOnOpen(entries, projectGroupChats)
   return (
     <>
       {[...entries].flatMap(([key, element]) => {

@@ -10,6 +10,7 @@
 .gg-topic-name > svg { flex-shrink: 0; color: var(--faint-fg); }
 .gg-topic-time { flex-shrink: 0; color: var(--faint-fg); font-size: var(--font-caption); }
 .gg-topic-preview { color: var(--muted-fg); font-size: var(--font-caption); }
+.gg-topic-preview[data-calling] { color: var(--danger-solid); font-weight: var(--font-weight-semibold); }
 .gg-topic-menu-pin { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); opacity: 0; pointer-events: none; }
 .gg-topic-menu-row:is(:hover, :focus-within, :has([data-highlighted])) .gg-topic-menu-pin { opacity: 1; pointer-events: auto; }
 .gg-topic-menu-row:is(:hover, :focus-within, :has([data-highlighted])) .gg-topic-menu-unread { display: none; }
