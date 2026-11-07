@@ -12,7 +12,7 @@
   {
     "rule": "copy-leaks-internal-detail",
     "file": "apps/desktop/src/i18n/locales/en-US/messaging.ts",
-    "count": 11
+    "count": 10
   },
   {
     "rule": "copy-leaks-internal-detail",
@@ -32,7 +32,7 @@
   {
     "rule": "copy-leaks-internal-detail",
     "file": "apps/desktop/src/i18n/locales/zh-CN/messaging.ts",
-    "count": 11
+    "count": 10
   },
   {
     "rule": "copy-leaks-internal-detail",

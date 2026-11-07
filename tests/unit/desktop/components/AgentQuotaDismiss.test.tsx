@@ -2,10 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
 
-const stored = vi.hoisted(() => ({ dismiss: vi.fn(), retry: vi.fn(), failure: null as null | Record<string, unknown> }))
+const stored = vi.hoisted(() => ({ dismiss: vi.fn(), failure: null as null | Record<string, unknown> }))
 const notices = vi.hoisted(() => ({ notify: vi.fn(), dismissNotice: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/notices', () => notices)
-vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({ ...stored, readFailed: false }) }))
+vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => stored }))
 vi.mock('../../../../apps/desktop/src/store/contactsContext', () => ({ useContactsStore: () => ({ contacts: [] }) }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ requeueErroredDeviceCommand: vi.fn(), getCurrentAuthUserId: async () => null, chatDb: {} }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {} }))

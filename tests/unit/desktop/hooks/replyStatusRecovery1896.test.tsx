@@ -23,10 +23,9 @@ const empty = { failures: [], recovered: [] }
 const failure = { agentUserId: 'agent', commandId: 'cmd', revision: 'one', at: 1, reason: 'weeklyQuota' }
 function Probe({ chatId = 'chat' }: { chatId?: string }) {
   const state = useStoredAgentTurnFailure({ chatId, threadRootId: null }, ['agent'])
-  return <div><span data-failure>{state.failure?.commandId}</span><span data-read-failed>{String(state.readFailed)}</span></div>
+  return <div><span data-failure>{state.failure?.commandId}</span></div>
 }
 let ui: ReturnType<typeof createReactHarness>
-const failed = () => ui.container.querySelector('[data-read-failed]')?.textContent
 const current = () => ui.container.querySelector('[data-failure]')?.textContent
 const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
 const reconnect = () => act(async () => bus.subscribed?.())
@@ -41,20 +40,18 @@ beforeEach(() => {
 afterEach(() => { ui.cleanup(); vi.useRealTimers() })
 
 describe('automatic reply-status read recovery (#1896)', () => {
-  it('retries a slow failed read without user action and clears the failed-read state after success', async () => {
+  it('retries a slow failed read without user action', async () => {
     const slow = deferred<typeof empty>()
     read.mockReturnValueOnce(slow.promise)
     await ui.render(createNode(Probe, {}))
     await advance(63_000)
     expect(read).toHaveBeenCalledTimes(1)
     await act(async () => slow.reject(new Error('statement timeout')))
-    expect(failed()).toBe('true')
     expect(log.error).toHaveBeenCalledWith({ scope: { chatId: 'chat', threadRootId: null }, error: 'Error: statement timeout' }, 'could not read agent reply outcome')
     await advance(999)
     expect(read).toHaveBeenCalledTimes(1)
     await advance(1)
     expect(read).toHaveBeenCalledTimes(2)
-    expect(failed()).toBe('false')
   })
 
   it('backs off repeated failures to 30 seconds and continues retrying', async () => {
@@ -68,7 +65,6 @@ describe('automatic reply-status read recovery (#1896)', () => {
       expect(read).toHaveBeenCalledTimes(index + 2)
     }
     expect(log.error).toHaveBeenCalledTimes(delays.length + 1)
-    expect(failed()).toBe('true')
   })
 
   it('starts again at one second after a successful recovery', async () => {
@@ -76,14 +72,12 @@ describe('automatic reply-status read recovery (#1896)', () => {
     await ui.render(createNode(Probe, {}))
     await advance(1_000)
     await advance(2_000)
-    expect(failed()).toBe('false')
     read.mockRejectedValueOnce(new Error('offline again'))
     await reconnect()
     await advance(999)
     expect(read).toHaveBeenCalledTimes(4)
     await advance(1)
     expect(read).toHaveBeenCalledTimes(5)
-    expect(failed()).toBe('false')
   })
 
   it('keeps verified turn failures while reads fail, then applies the recovered result', async () => {
@@ -94,7 +88,6 @@ describe('automatic reply-status read recovery (#1896)', () => {
     expect(current()).toBe('cmd')
     await advance(1_000)
     expect(current()).toBe('')
-    expect(failed()).toBe('false')
   })
 
   it('an event refresh replaces a scheduled retry instead of leaving an extra read behind', async () => {
@@ -115,7 +108,6 @@ describe('automatic reply-status read recovery (#1896)', () => {
     await act(async () => old.reject(new Error('old timeout')))
     await advance(30_000)
     expect(read).toHaveBeenCalledTimes(2)
-    expect(failed()).toBe('false')
     expect(log.error).not.toHaveBeenCalled()
   })
 
@@ -138,6 +130,5 @@ describe('automatic reply-status read recovery (#1896)', () => {
     await advance(30_000)
     expect(read).toHaveBeenCalledTimes(3)
     expect(read).toHaveBeenLastCalledWith({ chatId: 'other', threadRootId: null }, ['agent'])
-    expect(failed()).toBe('false')
   })
 })

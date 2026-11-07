@@ -4,7 +4,6 @@ import { createNode, createReactHarness } from '../../../support/testHarness'
 
 const stored = vi.hoisted(() => ({
   failure: null as null | { agentUserId: string; commandId: string; at: number; reason: 'generic'; revision: string },
-  readFailed: true,
   dismiss: vi.fn(),
 }))
 vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => stored }))
@@ -17,13 +16,10 @@ import { AgentTurnFailureSlot } from '../../../../apps/desktop/src/components/Ag
 
 let ui: ReturnType<typeof createReactHarness>
 const props = { chatId: 'chat', threadRootId: null, profiles: { agent: { displayName: 'Test Agent' } } }
-beforeEach(() => { ui = createReactHarness(); stored.failure = null; stored.readFailed = true })
+beforeEach(() => { ui = createReactHarness(); stored.failure = null })
 afterEach(() => ui.cleanup())
 
 it('does not add a warning, a retry button or a notice row when background status reads fail', async () => {
-  await ui.render(createNode(AgentTurnFailureSlot, props))
-  expect(ui.container.childElementCount).toBe(0)
-  stored.readFailed = false
   await ui.render(createNode(AgentTurnFailureSlot, props))
   expect(ui.container.childElementCount).toBe(0)
 })

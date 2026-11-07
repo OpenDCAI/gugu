@@ -27,7 +27,7 @@ export function useStoredAgentTurnFailure(scope: StoredFailureScope | null, agen
   const ids = [...new Set(agentIds)].sort().join(',')
   const scopeKey = scope === null ? null : JSON.stringify(scope)
   const subject = JSON.stringify([user?.id, scopeKey, ids])
-  const [snapshot, setSnapshot] = useState<{ subject: string; rows: StoredAgentTurnFailure[]; readFailed: boolean }>({ subject: '', rows: [], readFailed: false })
+  const [snapshot, setSnapshot] = useState<{ subject: string; rows: StoredAgentTurnFailure[] }>({ subject: '', rows: [] })
   // 关掉记在本机存储里（按命令、按那一版），❌ 只记在组件里：切走再回来、重开 App 都还认得（owner 10-28 Codex 91）。
   const [dismissals, setDismissals] = useState<{ userId: string | undefined; value: AgentTurnFailureDismissals }>(() => ({ userId: user?.id, value: loadDismissals(user?.id) }))
   const currentDismissals = dismissals.userId === user?.id ? dismissals.value : loadDismissals(user?.id)
@@ -61,11 +61,10 @@ export function useStoredAgentTurnFailure(scope: StoredFailureScope | null, agen
           const pending = rows.filter((row) => now[row.commandId]?.revision === null)
           return pending.length ? { ...now, ...Object.fromEntries(pending.map((row) => [row.commandId, { revision: row.revision, at: Date.now() }])) } : null
         })
-        setSnapshot({ subject, rows, readFailed: false })
+        setSnapshot({ subject, rows })
       }, (error: unknown) => {
         if (!live || current !== generation) return
         log.error({ scope: where, error: String(error) }, 'could not read agent reply outcome')
-        setSnapshot((previous) => ({ subject, rows: previous.subject === subject ? previous.rows : [], readFailed: true }))
         // Only reread the status; a failed read must never resend an agent's command.
         retryTimer = setTimeout(refresh, retryDelay)
         retryDelay = Math.min(retryDelay * 2, 30_000)
@@ -109,6 +108,5 @@ export function useStoredAgentTurnFailure(scope: StoredFailureScope | null, agen
   return {
     failure: rows.find((row) => currentDismissals[row.commandId]?.revision !== row.revision) ?? null,
     dismiss,
-    readFailed: snapshot.subject === subject && snapshot.readFailed,
   }
 }
