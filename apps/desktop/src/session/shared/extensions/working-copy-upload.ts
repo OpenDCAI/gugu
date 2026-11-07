@@ -22,6 +22,43 @@ export function nextPartBytes(bytes: number, tookMs: number): number {
 }
 
 /**
+ * One version of a working copy's file, piece after piece, here or on another machine: the one reading of a whole file.
+ * `begin` hears each try before its first piece (`false`: not read at all); changed while read, it is read once more from
+ * the start and `changing` thrown if it moves again — pieces of two versions are neither. Aborted: `stopped`, no piece more.
+ */
+export async function readOneVersion(
+  readPiece: (offset: number, length: number) => Promise<{ size: number; etag: string | null; data: Uint8Array<ArrayBuffer> }>,
+  reader: {
+    begin(size: number): boolean | void | Promise<boolean | void>;
+    piece(bytes: Uint8Array<ArrayBuffer>, at: number, size: number): void | Promise<void>;
+    signal?: AbortSignal;
+    firstPart?: number;
+    stopped(): Error;
+    changing(): Error;
+  },
+): Promise<{ size: number; etag: string | null } | null> {
+  for (let attempt = 0; ; attempt++) {
+    let at = 0;
+    let part = reader.firstPart ?? SMALLEST_PART_BYTES;
+    let started = Date.now();
+    if (reader.signal?.aborted) throw reader.stopped();
+    let next = await readPiece(0, part);
+    const { size, etag } = next;
+    if (await reader.begin(size) === false) return null;
+    for (;;) {
+      if (next.data.byteLength > 0) await reader.piece(next.data, at += next.data.byteLength, size);
+      if (at >= size || next.data.byteLength === 0) return { size, etag };
+      if (reader.signal?.aborted) throw reader.stopped();
+      part = nextPartBytes(part, Date.now() - started);
+      started = Date.now();
+      next = await readPiece(at, part);
+      if (next.etag !== etag) break;
+    }
+    if (attempt > 0) throw reader.changing();
+  }
+}
+
+/**
  * Every file going into a working copy, from a page's bytes or the person's picker, on this computer or another: part by
  * part, each written down on its machine as it comes — a file of any size, with what one call carries across machines
  * (`APP_CALL_MAX_BYTES`). One already there is `name-taken` until `replace` says so, or `expectedEtag` names the version being saved over; progress is the bytes sent of them all.

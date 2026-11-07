@@ -370,9 +370,11 @@ describe('gugu.files on a working copy', () => {
     fs.symlinkSync(outside, path.join(root, 'out'));
     const sibling = `r22-${path.basename(root)}`;
     const a = new Page(nextId++, null);
-    await expect(files.create(a.surface, { name: `../${sibling}/x.md`, content: '' })).rejects.toThrow();
-    await expect(files.create(a.surface, { name: 'out/made/x.md', content: '' })).rejects.toThrow();
-    await expect(files.rename(a.surface, { ref: { workspace: WS, id: 'mine.md' }, name: 'out/moved/mine.md' })).rejects.toThrow();
+    // Refused as not in the working copy, not by any other error on the way.
+    const notInside = /^No file ".+" in this working copy$/;
+    await expect(files.create(a.surface, { name: `../${sibling}/x.md`, content: '' })).rejects.toThrow(notInside);
+    await expect(files.create(a.surface, { name: 'out/made/x.md', content: '' })).rejects.toThrow(notInside);
+    await expect(files.rename(a.surface, { ref: { workspace: WS, id: 'mine.md' }, name: 'out/moved/mine.md' })).rejects.toThrow(notInside);
     expect([fs.existsSync(path.join(root, '..', sibling)), fs.readdirSync(outside)]).toEqual([false, []]);
     fs.rmSync(outside, { recursive: true, force: true });
   });
