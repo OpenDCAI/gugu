@@ -18,7 +18,7 @@ import { useStoredAgentTurnFailure } from '../../../../apps/desktop/src/hooks/us
 const failure = (revision = 'one', commandId = 'cmd') => ({ agentUserId: 'agent', commandId, revision, at: 1, reason: 'weeklyQuota' })
 function Probe({ chatId = 'chat', thread = null, anyChat = false }: { chatId?: string; thread?: string | null; anyChat?: boolean }) {
   const state = useStoredAgentTurnFailure(anyChat ? 'any-chat' : { chatId, threadRootId: thread }, ['agent'])
-  return <div><span data-failure>{state.failure?.commandId}</span><span data-read-failed>{String(state.readFailed)}</span><button onClick={() => state.dismiss('cmd')}>dismiss</button></div>
+  return <div><span data-failure>{state.failure?.commandId}</span><button onClick={() => state.dismiss('cmd')}>dismiss</button></div>
 }
 let ui: ReturnType<typeof createReactHarness>
 const current = () => ui.container.querySelector('[data-failure]')?.textContent
@@ -89,13 +89,13 @@ describe('其他设备的额度通知由命令结果驱动', () => {
     const old = deferred<ReturnType<typeof failure>[]>(); read.mockReturnValueOnce(old.promise).mockResolvedValue([])
     await ui.render(createNode(Probe, {})); await ui.render(createNode(Probe, { chatId: 'other' }))
     await act(async () => old.reject(new Error('old request')))
-    expect(current()).toBe(''); expect(ui.container.querySelector('[data-read-failed]')?.textContent).toBe('false')
+    expect(current()).toBe('')
     expect(bus.off).toHaveBeenCalled()
   })
-  it('读取失败保留已核实通知并显示读取失败，不冒充没有失败', async () => {
+  it('读取失败保留已核实通知', async () => {
     read.mockResolvedValueOnce([failure()]).mockRejectedValue(new Error('offline'))
     await ui.render(createNode(Probe, {})); await emit()
-    expect(current()).toBe('cmd'); expect(ui.container.querySelector('[data-read-failed]')?.textContent).toBe('true')
+    expect(current()).toBe('cmd')
   })
 
 })

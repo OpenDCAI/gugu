@@ -54,8 +54,7 @@ export default {
         "retry": "Retry",
         "retrying": "Retrying…",
         "title": "Task failed to start"
-      },
-      "statusReadFailed": "Could not read the task status: {{reason}}"
+      }
     },
     "turnFailure": {
       "card": {

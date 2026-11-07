@@ -14,7 +14,7 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {} }))
 vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({
   failure: { agentUserId: 'agent-1', commandId: 'command-1', at: 1, reason: 'generic', revision: 'r1' },
-  readFailed: false, dismiss: vi.fn(), retry: vi.fn(),
+  dismiss: vi.fn(),
 }) }))
 
 import { AgentConversationNoticeSlot, AgentFailureSlotHost, AgentTurnFailureBar } from '../../../../apps/desktop/src/components/AgentTurnFailureBar'

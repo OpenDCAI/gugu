@@ -14,7 +14,7 @@ vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: toast }))
 vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({
   useStoredAgentTurnFailure: (_scope: unknown, agentIds: readonly string[]) => ({
     failure: (stored.agentIds = agentIds).includes('agent-1') ? { agentUserId: 'agent-1', commandId: 'cmd-1', at: 1, reason: stored.reason, revision: 'r' } : null,
-    readFailed: false, dismiss: vi.fn(), retry: vi.fn(),
+    dismiss: vi.fn(),
   }),
 }))
 import { AgentTurnFailureSlot } from '../../../../apps/desktop/src/components/AgentTurnFailureBar'

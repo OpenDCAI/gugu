@@ -54,8 +54,7 @@ export default {
         "retry": "重试",
         "retrying": "重试中…",
         "title": "任务启动失败"
-      },
-      "statusReadFailed": "无法读取任务状态：{{reason}}"
+      }
     },
     "turnFailure": {
       "card": {
