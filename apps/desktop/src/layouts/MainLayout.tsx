@@ -566,11 +566,15 @@ function InnerLayout({
   // #7199 手机上和个人助理的那条私聊就是底栏「助理」那一格(owner 10-16「点进去成两个 app 了」):对话列表、通知、联系人「发消息」
   // 打开它都切到那一格的聊天,❌ 在对话页里另开一屏。在画出来之前换过去,对话页 ❌ 先闪一帧那条私聊。
   useEffect(() => {
-    if (!mobile || !phoneAssistant.available) return
-    const open = () => setActiveTab('assistant')
+    if (!mobile) return
+    const open = () => { void import('@/lib/connectionBridge').then(async ({ connectionBridge }) => {
+      const route = await Promise.resolve().then(() => connectionBridge().routing.read()).catch(() => null)
+      if (route?.mode === 'legacy' && phoneAssistant.available) setActiveTab('assistant')
+      else openSettingsSection('connectors')
+    }) }
     window.addEventListener(UI_EVENTS.openAssistantConnectors, open)
     return () => window.removeEventListener(UI_EVENTS.openAssistantConnectors, open)
-  }, [setActiveTab, mobile, phoneAssistant.available])
+  }, [openSettingsSection, mobile,phoneAssistant.available,setActiveTab])
   useLayoutEffect(() => {
     if (!assistantOnPhone || activeTab !== 'chats' || mobilePane !== 'chat' || !phoneAssistant.available) return
     setMobilePane('list')

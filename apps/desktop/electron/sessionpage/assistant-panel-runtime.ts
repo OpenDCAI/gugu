@@ -20,6 +20,7 @@ import { collectAssistantPanelFiles, publishAssistantPanelCollection, type Panel
 import { createAssistantPanelBodyFailures } from './assistant-panel-body-failures'
 import { isPersonalAssistantAgent } from './assistant-agent-role'
 import { anySignal } from '@gugu/core/shared/anySignal'
+import type { ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 
 type Auth = { accessToken: string; userId: string }
 type Binding = AssistantPanelHome & { sessionId: string }
@@ -30,6 +31,7 @@ export function createAssistantPanelRuntime(deps: {
   getAuth(): Promise<Auth | null>; instanceId(): string | null; deviceId(): Promise<string>
   local: typeof assistantPanelLocal; guguHome: string; kind: AssistantHomeKind; env: NodeJS.ProcessEnv
   failed(domain: string): void; locale(): string
+  connectionAuthority?(): Promise<ConnectionRoute>
 }) {
   const hostAuth = () => withBoundedOperation(2000,() => new Error('PANEL_AUTH_TIMEOUT'),() => deps.getAuth())
   const bindings = new Map<string, Binding>()
@@ -139,8 +141,14 @@ export function createAssistantPanelRuntime(deps: {
       locale: deps.locale,
       resourceChanged: (operation, notice) => resources.notice(operation, notice),
       assertCurrent: async () => { await auth() },readBody,
-      applyService: async change => applyAssistantPanelService(change,async () => deps.local.apply(change,change.operation === 'remove' || !change.payload.bodyItemId ? null : await readBody(change),
-        (await deps.local.sessions(binding.ownerId)).filter(row => row.agentId === binding.assistantId).map(row => row.summary.conversationId),binding.ownerId),cloud),
+      applyService: async change => {
+        if (change.domain === 'integrations' && deps.connectionAuthority) {
+          const route = await deps.connectionAuthority()
+          if (route.mode !== 'legacy' || route.phase !== 'stable' || !route.acceptingNewOperations) throw new Error('CONNECTION_ROUTE_CHANGED')
+        }
+        return applyAssistantPanelService(change,async () => deps.local.apply(change,change.operation === 'remove' || !change.payload.bodyItemId ? null : await readBody(change),
+          (await deps.local.sessions(binding.ownerId)).filter(row => row.agentId === binding.assistantId).map(row => row.summary.conversationId),binding.ownerId),cloud)
+      },
       invalidate: () => invalidateAssistantIndex(deps.guguHome,binding.cwd,binding.kind,binding.ownerId),
     })
     async function currentInstance() {
@@ -277,6 +285,10 @@ export function createAssistantPanelRuntime(deps: {
           state.again = false
           if (disposed) return
           await auth()
+          if (domain === 'integrations' && deps.connectionAuthority) {
+            const route = await deps.connectionAuthority()
+            if (route.mode !== 'legacy' || route.phase !== 'stable' || !route.acceptingNewOperations) return
+          }
           const instanceId = deps.instanceId(),deviceId = await deps.deviceId()
           if (!instanceId) throw new Error('PANEL_RUNTIME_LEASE_UNAVAILABLE')
           await publishAssistantPanelCollection({ assistantId: binding.assistantId,instanceId,deviceId,domain,cloud,

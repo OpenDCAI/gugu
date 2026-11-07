@@ -16,14 +16,14 @@ export const LibraryHostScope = observer(function LibraryHostScope({
   children: ReactNode;
 }) {
   const { translate } = useSessionMessages();
-  // 本机(或没带):应用根上那一份就是本机的,原样用。
-  if (!host?.remote) return <>{children}</>;
-  const online = remoteHostsStore.device(host.remote.deviceId)?.isOnline ?? host.remote.online;
+  // A supplied local owner host carries its own account metadata and actions.
+  if (!host) return <>{children}</>;
+  const online = !host.remote || (remoteHostsStore.device(host.remote.deviceId)?.isOnline ?? host.remote.online);
   const unavailable = !online && !host.prepareAssistantAction;
   return (
     <LibraryHostProvider value={host}>
       <IntegrationsProvider>
-        {unavailable ? <p role="status" className="text-xs text-foreground-muted">{translate('deviceScope.unreachable',{ device: host.remote.deviceLabel })}</p> : null}
+        {unavailable && host.remote ? <p role="status" className="text-xs text-foreground-muted">{translate('deviceScope.unreachable',{ device: host.remote.deviceLabel })}</p> : null}
         <fieldset disabled={unavailable} className="contents" data-testid="library-host-scope">
           {children}
         </fieldset>

@@ -21,6 +21,7 @@ import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { ArrowUpToLine, ChevronLeft, Mic, Paperclip, Search, Sparkles } from '@/lib/icons'
 import { useReportChatOnScreen } from '@/lib/onScreenChat'
 import { UI_EVENTS } from '@/lib/uiEvents'
+import { connectionBridge } from '@/lib/connectionBridge'
 import { searchInChat } from '@renderer/features/global-search/search-session'
 import { showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat'
 import { ShellSlot } from '@/session/renderer/features/assistant/assistant-shell'
@@ -117,10 +118,12 @@ function MobileAssistantAppContent({
   const { t } = useTranslation('assistant')
   const [route, setRoute] = useState<PhoneRoute>({ tab: 'chat' })
   useEffect(() => {
-    const open = () => setRoute({ tab: 'profile', sub: 'connectors' })
-    window.addEventListener(UI_EVENTS.openAssistantConnectors, open)
-    return () => window.removeEventListener(UI_EVENTS.openAssistantConnectors, open)
-  }, [])
+    const open = () => { void Promise.resolve().then(() => connectionBridge().routing.read()).then(authority => {
+      if (authority.mode === 'legacy') setRoute({ tab: 'profile',sub: 'connectors' })
+    }).catch(() => {}) }
+    window.addEventListener(UI_EVENTS.openAssistantConnectors,open)
+    return () => window.removeEventListener(UI_EVENTS.openAssistantConnectors,open)
+  },[])
   const open = useCallback((target: PhoneRoute) => {
     const next = phoneNextRoute(route, target)
     // The assistant already owns one phone layer. Internal routes update its

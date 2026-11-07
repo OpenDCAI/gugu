@@ -38,5 +38,5 @@ export type GitHubRemoveAccountResponse =
   | { success: false; error: string };
 
 export type GitHubAuthResponse =
-  | { success: true; account: GitHubAccountSummary }
+  | { success: true; account: GitHubAccountSummary; user?: GitHubUser }
   | { success: false; error: string };

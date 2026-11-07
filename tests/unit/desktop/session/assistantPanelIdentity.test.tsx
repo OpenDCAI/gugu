@@ -6,6 +6,7 @@ import { createReactHarness } from '../../../support/testHarness'
 const world = vi.hoisted(() => ({ home: null as object | null, loading: false }))
 vi.mock('react-i18next',async original => ({ ...await original<object>(),useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('@/lib/useAssistantHome', () => ({ useAssistantHome: () => ({ home: world.home, identityLoading: world.loading, contact: null, cloudDeviceId: null }) }))
+vi.mock('@/lib/connectionBridge',() => ({ useConnectionAuthority: () => ({ route: { mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true } }) }))
 vi.mock('@/components/assistant/assistant-panel-files', () => ({ ASSISTANT_PANEL_CHANGED: 'panel-change',useCloudAssistantFiles: (_assistant: string,chat: string,device: string) => chat && device ? {} : undefined }))
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: {} }))
 vi.mock('@renderer/lib/ipc', () => ({ rpc: {} }))

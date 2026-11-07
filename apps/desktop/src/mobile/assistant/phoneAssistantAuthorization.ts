@@ -6,15 +6,17 @@ import { waitForAssistantControl } from '@/lib/assistantControlReady'
 import { isAssistantActionRefusal } from '@/lib/assistantActionRefusal'
 import { getRendererSession } from '@/lib/sessionPublication'
 import { machineRpc } from '../agent-watch/sessionpage-rpc'
+import { createLegacyConnectionGuard } from '@/components/connections/legacy-connection-routing'
 
 /** Constructing the API is inert. Only an explicit authorization mutation can
  * prepare its existing host; cancel/progress never start one. */
 export function phoneAssistantAuthorization(deviceId: string, home: AssistantHomePlace | null) {
-  const native = machineRpc(deviceId), ownerId = getRendererSession()?.user.id
+  const native = machineRpc(deviceId), ownerId = getRendererSession()?.user.id,guard = createLegacyConnectionGuard()
   let preparing: Promise<void> | null = null
   function assertOwner() { if (!ownerId || getRendererSession()?.user.id !== ownerId) throw new Error(i18n.t('assistant:machine.accessFailed')) }
   async function prepare() {
     assertOwner()
+    await guard(true)
     preparing ??= (async () => {
       if (home?.kind === 'cloud') {
         try { await wakeCloudComputer() }
@@ -36,7 +38,10 @@ export function phoneAssistantAuthorization(deviceId: string, home: AssistantHom
       const method = Reflect.get(target,key,receiver)
       if (['connect','authorize','platformOAuthStart','cliLoginStart','cliToolPrepare'].includes(String(key))) return async (...args: unknown[]) => {
         await prepare()
-        return method(...args)
+        await guard(true)
+        const result = await method(...args)
+        await guard()
+        return result
       }
       return method
     },
@@ -44,7 +49,7 @@ export function phoneAssistantAuthorization(deviceId: string, home: AssistantHom
   const github = new Proxy(native.github,{
     get(target,key,receiver) {
       const method = Reflect.get(target,key,receiver)
-      if (key === 'auth') return async (...args: unknown[]) => { await prepare(); return method(...args) }
+      if (key === 'auth') return async (...args: unknown[]) => { await prepare(); await guard(true); const result = await method(...args); await guard(); return result }
       return method
     },
   })

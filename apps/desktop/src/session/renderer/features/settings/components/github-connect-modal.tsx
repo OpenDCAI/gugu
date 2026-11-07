@@ -1,4 +1,5 @@
 import { AlertCircle, ArrowRight, KeyRound, type IconComponent, Terminal } from '@/lib/icons'
+import { notify } from '@/lib/notices'
 import { useState } from 'react';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import {
@@ -72,6 +73,7 @@ function GithubConnectModalBody({ onSuccess, onClose, host }: BaseModalProps<voi
       }
 
       if (result.importedAccountIds.length === 0) {
+        if (host?.connectionMetadataExpected) notify({ tier: 'error',title: translate('github.noCliSession') });
         setError({
           method: 'cli',
           message: translate('github.noCliSession'),
@@ -113,7 +115,7 @@ function GithubConnectModalBody({ onSuccess, onClose, host }: BaseModalProps<voi
           loading={cliLoading}
           disabled={anyLoading}
           onClick={() => void refreshCliAuth()}
-          error={error?.method === 'cli' ? error.message : undefined}
+          error={!host?.connectionMetadataExpected && error?.method === 'cli' ? error.message : undefined}
         />
 
         <ConnectMethodCard
@@ -125,7 +127,7 @@ function GithubConnectModalBody({ onSuccess, onClose, host }: BaseModalProps<voi
           loading={deviceFlowLoading}
           disabled={anyLoading}
           onClick={connectDeviceFlow}
-          error={error?.method === 'device_flow' ? error.message : undefined}
+          error={!host?.connectionMetadataExpected && error?.method === 'device_flow' ? error.message : undefined}
         />
       </DialogContentArea>
       <DialogFooter>

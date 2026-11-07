@@ -8,6 +8,9 @@ import { cachedAssistantPanelIntegration,peekAssistantPanelIntegration,peekAssis
 import { machineKey, usePhoneRead } from './usePhoneRead'
 import type { PhoneMachineState } from './phoneMachine'
 import type { Persona } from './phoneProfileModel'
+import { useEffect } from 'react'
+import { useConnectionAuthority,useOwnerConnectionStore } from '@/lib/connectionBridge'
+import { readOwnerConnectionMetadata,peekOwnerConnectionMetadata,CONNECTIONS_CHANGED } from '@/components/connections/owner-connection-metadata'
 
 
 export type PhonePersona = {
@@ -53,10 +56,17 @@ export type PhoneIntegrations = {
 export function usePhoneIntegrations(machine: PhoneMachineState, active: boolean): { data: PhoneIntegrations | null; loading: boolean; error: unknown; retry: () => void } {
   const { resolvedLocale } = useLocale()
   const ready = machine.state === 'ready' ? machine.machine : null
-  const read = usePhoneRead(active && ready ? `integrations|${machineKey(ready)}|${resolvedLocale}` : null,
-    () => readAssistantPanelIntegrations(ready!.panel!,resolvedLocale),'read assistant integration metadata',undefined,() => peekAssistantPanelIntegrations(ready?.panel,resolvedLocale))
-  const items = useAssistantIntegrationSummaries(ready?.panel,read.state === 'ok' ? read.data.items : EMPTY_INTEGRATION_SUMMARIES,resolvedLocale)
-  return { data: read.state === 'ok' ? { ...read.data,items } : null,loading: read.state === 'loading',error: read.state === 'error' ? read.error : null,retry: read.reload }
+  const authority = useConnectionAuthority(),ownerMode = authority.route?.mode === 'owner'
+  const owner = useOwnerConnectionStore(null,authority.route,ownerMode)
+  const panel = ownerMode ? owner : authority.route?.mode === 'legacy' ? ready?.panel : undefined
+  const key = active && panel ? `integrations|${panel.ownerId}|${authority.route!.mode}|${authority.route!.epoch}|${ownerMode ? 'all' : machineKey(ready!)}|${resolvedLocale}` : null
+  const read = usePhoneRead(key,() => ownerMode ? readOwnerConnectionMetadata(owner!,resolvedLocale) : readAssistantPanelIntegrations(panel!,resolvedLocale),
+    'read connection metadata',undefined,() => ownerMode ? owner && peekOwnerConnectionMetadata(owner,resolvedLocale) : peekAssistantPanelIntegrations(panel,resolvedLocale))
+  useEffect(() => { if (!ownerMode || !active) return; window.addEventListener(CONNECTIONS_CHANGED,read.reload)
+    return () => window.removeEventListener(CONNECTIONS_CHANGED,read.reload) },[ownerMode,active,read.reload])
+  const items = useAssistantIntegrationSummaries(panel,read.state === 'ok' ? read.data.items : EMPTY_INTEGRATION_SUMMARIES,resolvedLocale)
+  return { data: key && read.state === 'ok' ? { ...read.data,items } : null,loading: authority.loading || !!key && read.state === 'loading',
+    error: authority.error ?? (key && read.state === 'error' ? read.error : null),retry: () => { void authority.reload(); read.reload() } }
 }
 
 export function usePhoneIntegrationDetail(machine: PhoneMachineState,summary: IntegrationMetadata | null | undefined) {

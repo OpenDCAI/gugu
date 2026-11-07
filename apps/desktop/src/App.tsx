@@ -29,12 +29,13 @@ import { rendererCommandEventName } from './lib/rendererCommandProtocol'
 import { sessionCoordinator } from './lib/sessionCoordinator'
 import { publishSelfIdentity } from './lib/selfIdentityBridge'
 import { installAssistantPanelHost } from './components/assistant/assistant-panel-host'
+import { installConnectionHost } from './components/connections/connection-host'
 import { usePhoneImeDismiss } from './mobile/usePhoneImeDismiss'
 
 import { platform } from './platform'
 import { type RendererRpcHandlers, useRendererRpcHandlers } from './rpc-renderer/rendererRpc'
 
-if (typeof window !== 'undefined') installAssistantPanelHost()
+if (typeof window !== 'undefined') { installAssistantPanelHost(); installConnectionHost() }
 
 // ── URL-based view detection ───────────────────────────────────────────────────
 

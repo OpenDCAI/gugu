@@ -1,3 +1,9 @@
+import { connectionReadOptions } from '@/components/connections/connection-read-policy';
+import { useConnectionReadNotice } from '@/components/connections/useConnectionReadNotice';
+import { connectionNeedsConfirmation } from '@/components/connections/connection-application-status';
+import { CONNECTIONS_CHANGED, peekOwnerConnectionMetadata,ownerConnectionMetadataView } from '@/components/connections/owner-connection-metadata';
+import { builtinConnectionCatalog } from '@/components/connections/builtin-connection-catalog';
+import type { ConnectionMetadataSnapshot } from '@/components/connections/connection-metadata';
 import { peekAssistantPanelIntegrations } from '@/components/assistant/assistant-panel-integrations';
 import { EMPTY_INTEGRATION_SUMMARIES,useAssistantIntegrationSummaries } from '@/components/assistant/useAssistantIntegrationSummaries';
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
@@ -33,6 +39,7 @@ type RawConnectionMutationResult = { success: boolean; error?: string; errorType
 
 type IntegrationsContextValue = {
   integrations: IntegrationMetadata[];
+  connectionOperations: ConnectionMetadataSnapshot['application'];
   integrationById: Partial<Record<string, IntegrationMetadata>>;
   connectionStatus: ConnectionStatusByIntegration;
   checkedConnections: ConnectionStatusByIntegration;
@@ -88,12 +95,15 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const queryClient = useQueryClient();
   const host = useLibraryHost();
   const api = host.integrations;
+  const metadata = host.connectionMetadata ?? host.assistantPanel;
+  const metadataExpected = host.connectionMetadataExpected ?? host.assistantPanelExpected;
   useEffect(() => {
-    if (!host.assistantPanelExpected) return;
+    if (!metadataExpected) return;
     const refresh = () => { void queryClient.invalidateQueries({ predicate: query => query.queryKey.includes(host.key) }); };
     window.addEventListener(ASSISTANT_PANEL_CHANGED,refresh);
-    return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,refresh);
-  },[host.assistantPanelExpected,host.key,queryClient]);
+    window.addEventListener(CONNECTIONS_CHANGED,refresh);
+    return () => { window.removeEventListener(ASSISTANT_PANEL_CHANGED,refresh); window.removeEventListener(CONNECTIONS_CHANGED,refresh); };
+  },[metadataExpected,host.key,queryClient]);
   const remote = !!host.remote;
   const statusKey = useMemo(() => [...ISSUE_CONNECTION_STATUS_QUERY_KEY, host.key] as const, [host.key]);
   const [mutatingIntegrationIds, setMutatingIntegrationIds] = useState<Set<string>>(
@@ -101,9 +111,17 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   );
 
   // 那台机器离线就不问(问不到,只会挂满超时)。
-  const enabled = host.assistantPanelExpected ? !!host.assistantPanel || !!host.assistantPanelError : host.remote?.online !== false;
+  const enabled = metadataExpected ? !!metadata || !!host.connectionMetadataError || !!host.assistantPanelError : host.remote?.online !== false;
   // 插件的中英两份由那台机器的主进程按这台桌面的界面语言解析成字符串;换语言重取。
   const locale = useSyncExternalStore(subscribeSessionLocale, () => getSessionLocaleSnapshot().resolvedLocale);
+  const initialMetadata = () => host.connectionMetadata ? peekOwnerConnectionMetadata(host.connectionMetadata,locale) : peekAssistantPanelIntegrations(host.assistantPanel,locale);
+  const { data: ownerSnapshot,failureCount: ownerReadFailures } = useQuery({
+    queryKey: ['connections:snapshot', host.key], queryFn: () => host.connectionMetadata!.snapshot(),
+    initialData: () => host.connectionMetadata?.peekSnapshot?.(), enabled: !!host.connectionMetadata,
+    staleTime: Infinity, refetchOnWindowFocus: true, ...connectionReadOptions,
+    refetchInterval: query => query.state.data?.application.some(connectionNeedsConfirmation) ? 3000 : 15_000,
+  });
+  useConnectionReadNotice(`snapshot:${host.key}`,!!ownerSnapshot,host.connectionMetadataExpected ? ownerReadFailures : 0);
   const {
     data: listData,
     error: listError,
@@ -111,15 +129,16 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   } = useQuery({
     queryKey: [...INTEGRATIONS_LIST_QUERY_KEY, host.key, locale],
     queryFn: () => api.list(locale),
-    initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.items,
+    initialData: () => host.connectionMetadataExpected ? builtinConnectionCatalog(locale) : initialMetadata()?.items,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     enabled,
-    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
-    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
+    refetchInterval: query => metadataExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+    ...(host.connectionMetadataExpected ? connectionReadOptions : metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
 
-  const integrations = useAssistantIntegrationSummaries(host.assistantPanel,listData ?? EMPTY_INTEGRATION_SUMMARIES,locale);
+  const ownerItems = useMemo(() => ownerSnapshot ? ownerConnectionMetadataView(ownerSnapshot,locale).items : undefined,[ownerSnapshot,locale]);
+  const integrations = useAssistantIntegrationSummaries(metadata,ownerItems ?? listData ?? EMPTY_INTEGRATION_SUMMARIES,locale);
 
   useEffect(() => {
     // @issue 的图标是聊天里用的,聊天只跟本机那一份走。
@@ -129,33 +148,33 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const { data: statusData, error: connectionReadError, isFetching: isCheckingConnections } = useQuery({
     queryKey: statusKey,
     queryFn: () => api.checkAllConnections(),
-    initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.statuses,
+    initialData: () => initialMetadata()?.statuses,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
     enabled,
-    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
-    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
+    refetchInterval: query => metadataExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+    ...(host.connectionMetadataExpected ? connectionReadOptions : metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
 
   const { data: configuredData, error: configuredConnectionsError, isFetching: isCheckingConfiguredConnections } =
     useQuery({
       queryKey: [...statusKey, 'configured'],
       queryFn: () => api.checkConfiguredConnections(),
-      initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.configured,
+      initialData: () => initialMetadata()?.configured,
       staleTime: Infinity,
       refetchOnWindowFocus: false,
       enabled,
-    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
-      ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
+    refetchInterval: query => metadataExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+      ...(host.connectionMetadataExpected ? connectionReadOptions : metadataExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
     });
   const configuredConnections = configuredData ?? {};
 
   const invalidateStatuses = useCallback(() => {
     // A completed authorization invalidates both the file snapshot and all visible consumers.
     // The host's subsequent publication uses the same event when authorization finishes elsewhere.
-    host.assistantPanel?.invalidate();
+    metadata?.invalidate();
     void queryClient.invalidateQueries({ queryKey: statusKey });
-  }, [queryClient, statusKey, host.assistantPanel]);
+  }, [queryClient, statusKey, metadata]);
 
   const setIntegrationMutating = useCallback((integrationId: string, isMutating: boolean) => {
     setMutatingIntegrationIds((current) => {
@@ -186,7 +205,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
           const name = integrations.find((integration) => integration.id === integrationId)?.name ?? integrationId;
           return { success: false, error: integrationErrorText(translateSessionMessage, name, result) || fallbackError };
         }
-        if (!host.assistantPanelExpected || change.operation !== 'removed') await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
+        if (!host.connectionMetadataExpected && (!host.assistantPanelExpected || change.operation !== 'removed')) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
           resource: 'integrations', operation: change.operation, id: change.id ?? integrationId, deviceId: host.remote?.deviceId,
           ...(change.operation === 'removed' ? {} : { after: { name: integrations.find(integration => integration.id === integrationId)?.name ?? integrationId } }),
         }, ownerId);
@@ -196,7 +215,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         invalidateStatuses();
       }
     },
-    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId,host.assistantPanelExpected]
+    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId,host.assistantPanelExpected,host.connectionMetadataExpected]
   );
 
   const connectIntegration = useCallback(
@@ -251,10 +270,10 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
           cancelled: () => cliGenerations.current.get(integrationId) !== generation,
           timeoutError: () => new Error(translateSessionMessage('integrations.cliPrepareTimedOut')),
         });
-        if (!result) return { success: false as const, error: 'This connection attempt was cancelled.' };
+        if (!result) return { success: false as const, error: 'This connection attempt was cancelled.', cancelled: true as const };
         if (result.success && 'connected' in result) {
           invalidateStatuses();
-          await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
+          if (!host.connectionMetadataExpected) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
             { resource: 'integrations', operation: 'saved', id: integrationId, deviceId: host.remote?.deviceId }, ownerId);
         }
         return result;
@@ -262,7 +281,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         setIntegrationMutating(integrationId, false);
       }
     },
-    [api, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId]
+    [api, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId,host.connectionMetadataExpected]
   );
 
   const waitCliLogin = useCallback(
@@ -270,11 +289,11 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
       const ownerId = cachedDevicesAccount();
       const result = await api.cliLoginWait(integrationId);
       if (result.status !== 'pending') invalidateStatuses();
-      if (result.status === 'connected') await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
+      if (result.status === 'connected' && !host.connectionMetadataExpected) await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
         { resource: 'integrations', operation: 'saved', id: integrationId, deviceId: host.remote?.deviceId }, ownerId);
       return result;
     },
-    [api, invalidateStatuses, host.remote?.deviceId]
+    [api, invalidateStatuses, host.remote?.deviceId,host.connectionMetadataExpected]
   );
 
   const readCliProgress = useCallback((integrationId: string) => api.cliLoginProgress(integrationId), [api]);
@@ -300,12 +319,13 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     <IntegrationsContext.Provider
       value={{
         integrations,
+        connectionOperations: ownerSnapshot?.application ?? [],
         integrationById,
         connectionStatus,
         checkedConnections: statusData ?? {},
-        connectionCheckError: host.assistantPanelExpected && statusData !== undefined && isAssistantPanelReadRetryable(connectionReadError) ? null : connectionReadError,
+        connectionCheckError: metadataExpected && statusData !== undefined && isAssistantPanelReadRetryable(connectionReadError) ? null : connectionReadError,
         hasConfiguredConnections: configuredData !== undefined,
-        configuredConnectionsError: host.assistantPanelExpected && configuredData !== undefined && isAssistantPanelReadRetryable(configuredConnectionsError) ? null : configuredConnectionsError,
+        configuredConnectionsError: metadataExpected && configuredData !== undefined && isAssistantPanelReadRetryable(configuredConnectionsError) ? null : configuredConnectionsError,
         configuredConnections,
         isCheckingConfiguredConnections,
         isCheckingConnections: isCheckingConnections,

@@ -6,6 +6,12 @@ import { CloudComputerWakeError } from '@gugu/core/cloud/cloudComputer'
 import { createReactHarness } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 const fixture=vi.hoisted(()=>({wake:vi.fn(),start:vi.fn(),reconnect:vi.fn(),prepare:vi.fn(async()=>({status:'ready'}))}))
+vi.mock('@/lib/connectionBridge',() => ({ useConnectionAuthority: () => ({ route: { mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true } }),
+  useOwnerConnectionStore: () => undefined,connectionBridge: () => ({ routing: {
+    read: async () => ({ mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true }),assert: async () => {},
+  } }),
+}))
+vi.mock('@/store/devicesContext',() => ({ useDevicesStore: () => ({ devices: [] }) }))
 vi.mock('@/lib/cloudComputerStore',()=>({wakeAndWaitOnline:fixture.wake}))
 vi.mock('@/lib/listDevicesOnceIdentified',()=>({listDevicesOnceIdentified:vi.fn(async()=>[])}))
 vi.mock('@/lib/assistantPanelBridge',()=>({useAssistantPanelAccountId:()=> 'owner',requireAssistantPanelBridge:vi.fn()}))

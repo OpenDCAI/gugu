@@ -61,10 +61,10 @@ function ConnectedAppsCatalogContent({
       className="connected-app-row"
       data-testid={`assistant-connector-${app.id}`}
       leading={icon(app, 32)}
-      title={app.name}
+      title={app.connectionStatus ? `${app.name} · ${app.connectionStatus}` : app.name}
       description={app.description || <span aria-hidden="true">&nbsp;</span>}
       control={
-        app.saved && app.state !== 'connected' ? (
+        !app.connectionStatus && app.saved && app.state !== 'connected' ? (
           <span className="connected-app-status" data-state={app.state}>
             {t(`connectors.${app.state}`)}
           </span>

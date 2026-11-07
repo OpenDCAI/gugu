@@ -9,6 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 import { useAssistantPanelPage } from '../../../../apps/desktop/src/lib/assistantPanelPage'
+vi.mock('@/lib/connectionBridge',() => ({ useConnectionAuthority: () => ({ route: { mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true } }),
+  useOwnerConnectionStore: () => undefined,connectionBridge: () => ({ routing: {
+    read: async () => ({ mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true }),assert: async () => {},
+  } }),
+}))
 
 vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'absent', error: '', refresh: async () => {}, apply: () => {} }) }))
 vi.mock('@/lib/assistantPanelBridge',() => ({ useAssistantPanelAccountId: () => 'owner',requireAssistantPanelBridge: () => { throw new Error('Unexpected identity lookup') } }))
@@ -210,7 +215,7 @@ describe('咕咕 · 连接应用 · 住在电脑上(非会员)', () => {
     await renderNode(createNode(HomeConnectorsSettings, { home: here, assistantName: '小咕' }))
     await clickElement(q('assistant-connector-notion')!)
     await clickElement(q('assistant-connector-connect')!)
-    expect(showSetup).toHaveBeenCalledWith(expect.objectContaining({ integration: 'notion', host: expect.objectContaining({ key: 'assistant-panel:owner:a1' }) }))
+    expect(showSetup).toHaveBeenCalledWith(expect.objectContaining({ integration: 'notion', host: expect.objectContaining({ key: 'assistant-panel:owner:a1:0' }) }))
   })
 })
 

@@ -460,6 +460,20 @@ describe('cliLoginWait —— 记录与命令同进同退', () => {
     expect(fake.launchers.size).toBe(0);
     expect(fake.records.has('dingtalk')).toBe(false);
   }, TIMEOUT);
+  it('owner device revocation removes the CLI login state and launcher for the exact account', async () => {
+    const service = new IntegrationConnectionService();
+    await startAndExit(service);
+    await service.disconnectLocalAccount('dingtalk','default');
+    expect(fake.launchers.size).toBe(0);
+    expect(fake.records.has('dingtalk')).toBe(false);
+  }, TIMEOUT);
+  it('owner device revocation refuses another account before touching CLI state', async () => {
+    const service = new IntegrationConnectionService();
+    await startAndExit(service);
+    await expect(service.disconnectLocalAccount('dingtalk','another')).rejects.toMatchObject({ knownNoEffect: true,code: 'CONNECTION_ACCOUNT_MISMATCH' });
+    expect(fake.launchers.has('dws')).toBe(true);
+    expect(fake.records.has('dingtalk')).toBe(true);
+  }, TIMEOUT);
 });
 
 

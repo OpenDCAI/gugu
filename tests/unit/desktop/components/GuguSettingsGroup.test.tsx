@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, typeInto } from '../../../support/testHarness'
 
 type Mine = { contact: { id: string; display_name: string; avatar: string | null } | null; agentId: string | null; loading: boolean; error: string | null }
+const authority = vi.hoisted(() => ({ mode: 'legacy' as 'legacy' | 'owner' }))
+vi.mock('@/lib/connectionBridge',() => ({ useConnectionAuthority: () => ({ route: { mode: authority.mode,epoch: '0',phase: 'stable',acceptingNewOperations: true } }) }))
 const mine = vi.hoisted(() => ({ value: { contact: null, agentId: null, loading: false, error: null } as Mine }))
 // 这台宿主有没有本机运行时(桌面 = 有;手机 / 网页 = 没有):会议提醒读的是桌面主进程的日历,手机壳里没有那一层。
 const runtime = vi.hoisted(() => ({ agentRuntime: true }))
@@ -71,6 +73,7 @@ afterEach(() => {
   wake.mockClear()
   invoke.mockClear()
   runtime.agentRuntime = true
+  authority.mode = 'legacy'
 })
 
 async function render(node: ReactNode, cloud: typeof awake | typeof asleep, updateAgentProfile = vi.fn(async () => {}), devices: unknown[] = []) {

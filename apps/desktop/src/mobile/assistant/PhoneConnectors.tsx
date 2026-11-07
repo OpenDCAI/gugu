@@ -30,6 +30,7 @@ import './phone-connector.css'
 import { ReadFailed } from './PhoneMachineView'
 import { ConnectedAppsCatalog } from '@/components/assistant/ConnectedAppsCatalog'
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
+import { createLegacyConnectionGuard } from '@/components/connections/legacy-connection-routing'
 
 type Integrations = ReturnType<typeof usePhoneIntegrations>
 /** Apps open their details before authorization; device access lives in the device section. */
@@ -110,10 +111,13 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
 
   const disconnect = async () => {
     if (!view || machine.state !== 'ready' || !machine.machine.panel || !confirm) return
+    const guard = createLegacyConnectionGuard()
+    await guard(true)
     const panel = machine.machine.panel
     const rows = await panel.collection('integrations')
     for (const row of rows.filter(row => row.data.providerId === view.item.id && typeof row.data.accountId === 'string'
       && (!confirm.accountId || row.data.accountId === confirm.accountId))) await panel.change(row,'remove')
+    await guard()
     await reportAssistantAppChange(machine.machine, assistant.id, { resource: 'integrations', operation: 'removed', section: 'accounts',
       id: confirm.accountId ? `${view.item.id}:${confirm.accountId}` : view.item.id, deviceId: homeDeviceId ?? undefined })
   }

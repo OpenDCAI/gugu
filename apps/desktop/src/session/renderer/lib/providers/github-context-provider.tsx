@@ -135,6 +135,7 @@ export function GithubContextProvider({ children }: { children: React.ReactNode 
   return <GithubContext.Provider value={value}>{children}</GithubContext.Provider>;
 }
 
+export function useOptionalGithubContext() { return useContext(GithubContext); }
 export function useGithubContext() {
   const ctx = useContext(GithubContext);
   if (!ctx) {

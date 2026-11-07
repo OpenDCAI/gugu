@@ -410,7 +410,7 @@ import { integrationCredentialStore } from './session/main/core/integrations/int
 import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { startupDiscovery } from './sessionpage/startup-discovery'
-import { createAssistantPanelRuntime } from './sessionpage/assistant-panel-runtime'
+import { createPanelConnectionRuntime } from './sessionpage/panel-connection-runtime'
 import { isPersonalAssistantAgent, personalAssistantSessionBindings } from './sessionpage/assistant-agent-role'
 import { assistantWorkBinding, assistantWorkForAgent } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
@@ -3537,7 +3537,7 @@ function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   return out
 }
 let emdashBridge: EmdashBridgeModule | null = null
-let assistantPanelRuntime: ReturnType<typeof createAssistantPanelRuntime> | null = null
+let assistantPanelRuntime: ReturnType<typeof createPanelConnectionRuntime> | null = null
 let reconcileSessionpagePlatformOnResume: (() => Promise<void>) | null = null
 let sessionpagePlatformRecovery: SessionpagePlatformRecoveryCoordinator | null = null
 let sessionpagePlatformRecoveryHooks: SessionpagePlatformHooks | null = null
@@ -5102,10 +5102,10 @@ app.whenReady().then(async () => {
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
     })
-    app.once('will-quit', nativeInbox.dispose)
+    app.once('will-quit', () => { nativeInbox.dispose(); assistantPanelRuntime?.dispose() })
     // 项目的跨设备身份由宿主的群对照维护；每次写入后通知渲染层重读。
     emdash.setUserLibraryOwner(async () => (await getSessionpageAuth())?.userId ?? null)
-    const assistantPanel = assistantPanelRuntime = createAssistantPanelRuntime({
+    const assistantPanel = assistantPanelRuntime = createPanelConnectionRuntime({
       locale: currentHostLocale,
       getAuth: getSessionpageAuth,
       instanceId: () => deviceRuntimeHost?.instanceId ?? null,

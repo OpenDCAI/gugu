@@ -5,5 +5,6 @@ export function isAssistantActionRefusal(error: unknown): boolean {
     'server_outdated', 'client_outdated', 'forbidden', 'unauthorized',
     'plan_required', 'membership_expired', 'credits_exhausted',
     'version_match_failed', 'version_match_unavailable', 'connection_prepare_timeout',
+    'outcome-unknown', 'operation-pending', 'route-changed', 'account-changed', 'quiescing',
   ].includes(code)
 }

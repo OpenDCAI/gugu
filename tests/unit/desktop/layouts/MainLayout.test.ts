@@ -26,6 +26,11 @@ import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stor
 import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
 import * as needsYouTasks from '../../../../apps/desktop/src/components/needsYou/useNeedsYouTasks'
 const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[], remote: false }))
+const connectionAuthority = vi.hoisted(() => ({ mode: 'legacy',failed: false }))
+vi.mock('@/lib/connectionBridge',() => ({ connectionBridge: () => ({ routing: { read: async () => {
+  if (connectionAuthority.failed) throw new Error('ROUTING_UNAVAILABLE')
+  return { mode: connectionAuthority.mode,epoch: '1',phase: 'stable',acceptingNewOperations: true }
+} } }) }))
 vi.mock('../../../../apps/desktop/src/lib/ownedAgentConversation', async original => {
   const actual = await original<typeof import('../../../../apps/desktop/src/lib/ownedAgentConversation')>()
   return { ...actual, ownedAgentConversation: (...args: Parameters<typeof actual.ownedAgentConversation>) => taskRoute.remote
@@ -341,6 +346,7 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
   taskRoute.remote = false
+  connectionAuthority.mode = 'legacy'; connectionAuthority.failed = false
   vi.stubGlobal('matchMedia', () => ({ matches: false }))
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
     configurable: true,
@@ -843,6 +849,15 @@ describe('MainLayout', () => {
     await act(async () => { window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors)) })
     expect(layerOpen('mobile-assistant-layer')).toBe(true)
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')?.getAttribute('data-visible')).toBe('true')
+  })
+  it.each(['owner','read-error'])('opens standalone phone settings without an assistant for %s',async state => {
+    platformMock.kind = 'capacitor'; platformMock.capabilities.sessionHost = false
+    phoneAssistantMock.state.available = false
+    connectionAuthority.mode = 'owner'; connectionAuthority.failed = state === 'read-error'
+    await harness.render(createNode(MainLayout,{ user: { id: 'user-1',email: 'user@example.com',nickname: 'User' } }))
+    await act(async () => { window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors)) })
+    await vi.waitFor(() => expect(harness.container.querySelector('[data-testid="mock-settings-panel"][data-section="connectors"]')).not.toBeNull())
+    expect(layerOpen('mobile-assistant-layer')).toBe(false)
   })
   // owner 10-16「得考虑最开始没有创建咕咕的新用户」:没有它,那一行照样在,头像是淡一点的默认咕咕 + 小「+」,点进去是安家引导。
   it('keeps the 咕咕 row first for a new user with no assistant, and marks it as the place to set one up', async () => {

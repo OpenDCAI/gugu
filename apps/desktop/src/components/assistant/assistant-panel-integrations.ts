@@ -1,10 +1,9 @@
 import { integrationIcons } from '@gugu/session-plugins/integration-icons'
 import { builtinIntegrationSummary, readIntegrationCatalogMetadata } from '@gugu/session-plugins/integration-summaries'
-import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
-import { assistantPanelCollection,AssistantPanelError,type AssistantPanelItem } from '@gugu/core/cloud/assistantPanel'
-import type { ConnectionStatus } from '@/session/shared/issue-providers'
+import { connectionMetadataCollection, type ConnectionMetadataStore, type ConnectionMetadataItem, type ConnectionMetadataSnapshot } from '../connections/connection-metadata'
+import { AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
-import { assistantAccountDisplayName } from './assistant-app-connections'
+import { connectionMetadataView } from '../connections/connection-metadata-view'
 
 /** Catalogs and saved account metadata come from the same complete cloud
  * collection. Reading authorization status never verifies credentials. */
@@ -15,27 +14,28 @@ export function integrationListCopy(id: string,name: unknown,description: unknow
   return { name: summaryNameMissing ? locale === 'zh-CN' ? '应用' : 'Application' : name.trim(),
     description: typeof description === 'string' ? description : '',summaryNameMissing }
 }
-export async function readAssistantPanelIntegrations(panel: AssistantPanelFiles, locale: string) {
+export async function readAssistantPanelIntegrations(panel: ConnectionMetadataStore, locale: string) {
   const rows = await integrationRows(panel)
   const snapshot = await panel.snapshot()
   return parseAssistantPanelIntegrations(rows,snapshot,locale)
 }
-async function integrationRows(panel: AssistantPanelFiles): Promise<AssistantPanelItem[]> {
+async function integrationRows(panel: ConnectionMetadataStore): Promise<ConnectionMetadataItem[]> {
   try { return await panel.collection('integrations') }
   catch (error) {
     // A publication failure does not erase previously published applications.
-    const rows = assistantPanelCollection(await panel.snapshot(),'integrations',panel.deviceId).items
+    const rows = connectionMetadataCollection(await panel.snapshot(),panel.deviceId)
     if (!rows.some(row => row.resource_key.startsWith('catalog:'))) throw error
     return rows
   }
 }
-function assertCatalogReadable(snapshot: Snapshot | undefined,row: AssistantPanelItem) {
+function assertCatalogReadable(snapshot: Snapshot | undefined,row: ConnectionMetadataItem) {
   if (row.stale_at) throw new AssistantPanelError('stale','PANEL_RESOURCE_STALE')
   if (snapshot?.application.some(change => change.domain === 'integrations' && change.resourceKey === row.resource_key && change.status === 'failed'))
     throw new AssistantPanelError('application-failed','PANEL_APPLICATION_FAILED')
 }
-type Snapshot = Awaited<ReturnType<AssistantPanelFiles['snapshot']>>
-function parseAssistantPanelIntegrations(rows: AssistantPanelItem[],snapshot: Snapshot,locale: string) {
+type Snapshot = ConnectionMetadataSnapshot
+export function parseAssistantPanelIntegrations(rows: ConnectionMetadataItem[],snapshot: Snapshot,locale: string) {
+  rows = rows.filter(row => !row.deleted_at)
   const catalog = rows.filter(row => row.resource_key.startsWith('catalog:'))
   const items: IntegrationMetadata[] = catalog.map(row => ({
     id: String(row.data.providerId),catalogVersion: row.body_sha256 ?? row.revision,...integrationListCopy(String(row.data.providerId),row.data.displayName,row.data.description,locale),
@@ -44,51 +44,30 @@ function parseAssistantPanelIntegrations(rows: AssistantPanelItem[],snapshot: Sn
     capabilities: { requiresRepositoryUrl: false,supportsIssueContext: false },auth: { methods: [] },
     icon: integrationIcons[String(row.data.providerId)] ?? { kind: 'svg',variants: [] },abilities: [],playbooks: [],multiAccount: false,metadataOnly: true,
   }))
-  const accounts = rows.filter(row => !row.resource_key.startsWith('catalog:'))
-  const configured: Record<string, boolean> = {}, statuses: Record<string, ConnectionStatus> = {}
-  const accountChecks = new Map<string, boolean>()
-  for (const row of accounts) {
-    const checkedAt = typeof row.data.checkedAt === 'number' ? row.data.checkedAt : Date.parse(String(row.data.checkedAt ?? ''))
-    if (row.observed_at && !row.stale_at && Number.isFinite(checkedAt)
-      && !snapshot.application.some(change => change.domain === 'integrations' && change.resourceKey === row.resource_key)
-      && ['ok','connected','reauth','failed'].includes(String(row.data.checkResult))) accountChecks.set(row.resource_key,['ok','connected'].includes(String(row.data.checkResult)))
-  }
-  for (const item of items) {
-    const saved = accounts.filter(row => row.data.providerId === item.id && row.data.configured === true)
-    configured[item.id] = saved.length > 0
-    const primary = saved.find(row => row.data.isDefault === true) ?? saved[0]
-    const metadata = primary?.data.publicMetadata as Record<string, unknown> | undefined
-    const accountName = assistantAccountDisplayName(metadata?.displayName) ?? assistantAccountDisplayName(metadata?.login)
-      ?? assistantAccountDisplayName(primary?.data.displayName)
-    const result = primary && accountChecks.has(primary.resource_key) ? primary.data.checkResult : undefined
-    if (result === 'ok' || result === 'connected' || result === 'reauth' || result === 'failed') statuses[item.id] = {
-      connected: result === 'ok' || result === 'connected',capabilities: item.capabilities,
-      ...(result === 'reauth' ? { errorType: 'authorization_expired' as const } : {}),
-      ...(accountName ? { displayName: accountName } : {}),
-    }
-  }
-  return { items,configured,statuses,accounts,accountChecks }
+  return connectionMetadataView(items,rows,snapshot)
 }
 
 /** The same parser backs first-frame local content and background cloud verification. */
-export function peekAssistantPanelIntegrations(panel: AssistantPanelFiles | undefined,locale: string) {
+export function peekAssistantPanelIntegrations(panel: ConnectionMetadataStore | undefined,locale: string) {
   const snapshot = panel?.peekSnapshot?.()
   if (!snapshot) return undefined
-  const collection = assistantPanelCollection(snapshot,'integrations',panel?.deviceId)
-  if (collection.state !== 'ready' && !collection.items.some(row => row.resource_key.startsWith('catalog:'))) return undefined
-  return parseAssistantPanelIntegrations(collection.items,snapshot,locale)
+  const rows = connectionMetadataCollection(snapshot,panel?.deviceId)
+  const markerKey = panel?.deviceId ? `__collection__:${panel.deviceId}` : '__collection__'
+  const marker = snapshot.items.find(row => row.domain === 'integrations' && row.resource_key === markerKey && !row.deleted_at)
+  if ((marker?.stale_at || marker?.data.state !== 'ready') && !rows.some(row => row.resource_key.startsWith('catalog:'))) return undefined
+  return parseAssistantPanelIntegrations(rows,snapshot,locale)
 }
-function parseIntegrationBody(row: AssistantPanelItem,id: string,locale: string,bytes: Uint8Array): IntegrationMetadata {
+function parseIntegrationBody(row: ConnectionMetadataItem,id: string,locale: string,bytes: Uint8Array): IntegrationMetadata {
   const data = JSON.parse(new TextDecoder('utf-8',{ fatal: true }).decode(bytes))
   const item = data[locale === 'zh-CN' ? 'zh-CN' : 'en'] as IntegrationMetadata
   if (data.version !== 1 || !item || item.id !== id || typeof item.name !== 'string' || item.description !== undefined && typeof item.description !== 'string' || !Array.isArray(item.auth?.methods)) throw new Error('PANEL_INTEGRATION_UNAVAILABLE')
   return { ...item,...integrationListCopy(id,item.name === id ? row.data.displayName : item.name,item.description,locale),icon: integrationIcons[id] ?? item.icon }
 }
-export function peekAssistantPanelIntegration(panel: AssistantPanelFiles | undefined,id: string | undefined,locale: string) {
+export function peekAssistantPanelIntegration(panel: ConnectionMetadataStore | undefined,id: string | undefined,locale: string) {
   if (!panel || !id) return undefined
   const snapshot = panel.peekSnapshot?.()
   if (!snapshot) return undefined
-  const row = assistantPanelCollection(snapshot,'integrations',panel.deviceId).items.find(row => row.resource_key === `catalog:${id}`)
+  const row = connectionMetadataCollection(snapshot,panel.deviceId).find(row => row.resource_key === `catalog:${id}`)
   if (!row) return undefined
   const bytes = panel.peekBody?.(row)
   if (!bytes) return undefined
@@ -96,8 +75,8 @@ export function peekAssistantPanelIntegration(panel: AssistantPanelFiles | undef
 }
 
 type DetailEntry = { version: string | undefined; promise: Promise<IntegrationMetadata>; value?: IntegrationMetadata }
-const integrationDetails = new WeakMap<AssistantPanelFiles, Map<string, DetailEntry>>()
-export function cachedAssistantPanelIntegration(panel: AssistantPanelFiles | undefined,id: string | undefined,locale: string,version: string | undefined) {
+const integrationDetails = new WeakMap<ConnectionMetadataStore, Map<string, DetailEntry>>()
+export function cachedAssistantPanelIntegration(panel: ConnectionMetadataStore | undefined,id: string | undefined,locale: string,version: string | undefined) {
   if (!panel || !id || !version) return undefined
   const snapshot = panel.peekSnapshot?.()
   const row = snapshot?.items.find(item => item.domain === 'integrations' && item.resource_key === `catalog:${id}`)
@@ -107,7 +86,7 @@ export function cachedAssistantPanelIntegration(panel: AssistantPanelFiles | und
 }
 
 /** Content versions share an in-flight read and a parsed result; account state is never cached here. */
-export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,id: string,locale: string,version?: string): Promise<IntegrationMetadata> {
+export async function readAssistantPanelIntegration(panel: ConnectionMetadataStore,id: string,locale: string,version?: string): Promise<IntegrationMetadata> {
   const key = `${id}|${locale}`
   const entries = integrationDetails.get(panel) ?? new Map<string, DetailEntry>()
   integrationDetails.set(panel,entries)
@@ -132,7 +111,7 @@ export async function readAssistantPanelIntegration(panel: AssistantPanelFiles,i
 
 /** Missing names and descriptions are optional enrichment. Four workers avoid queuing
  * a whole catalog ahead of the entry the person explicitly opens. */
-export async function enrichAssistantPanelIntegrations(panel: AssistantPanelFiles,items: readonly IntegrationMetadata[],locale: string,
+export async function enrichAssistantPanelIntegrations(panel: ConnectionMetadataStore,items: readonly IntegrationMetadata[],locale: string,
   updated: (id: string,summary: Pick<IntegrationMetadata,'name' | 'description'>) => void,active: () => boolean = () => true): Promise<void> {
   const missing = items.filter(item => item.metadataOnly && !builtinIntegrationSummary(item.id,locale) && (!item.description || item.name === item.id || item.summaryNameMissing))
   let next = 0

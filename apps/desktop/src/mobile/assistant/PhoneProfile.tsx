@@ -19,13 +19,15 @@ import { ChevronRight, Link, Monitor, Pencil } from '@/lib/icons'
 import { AssistantDiaryDetail, AssistantDiaryList } from '@/session/renderer/features/assistant/assistant-diary'
 import { AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { PhonePageProps } from './MobileAssistantApp'
-import { PhoneConnectorDetail, PhoneConnectorsPage } from './PhoneConnectors'
+import { ConnectorsSection } from '@/components/settings/ConnectorsSection'
+import { ConnectionRouteBoundary } from '@/components/connections/ConnectionRouteBoundary'
+import { PhoneConnectorDetail,PhoneConnectorsPage } from './PhoneConnectors'
 import { PhoneConnectorSetupPage } from './PhoneConnectorSetup'
+import { parseConnectorSub } from './phoneConnectorFlow'
 import { PhoneCustomize } from './PhoneCustomize'
 import { PhoneLibraryVolume } from './PhoneLibraryVolume'
 import { PhoneFiles } from './PhoneFiles'
 import { filesTrail } from './phoneMemoryData'
-import { parseConnectorSub } from './phoneConnectorFlow'
 import { personaChipKey } from './phoneProfileModel'
 import { usePhoneIntegrations, usePhonePersona, type PhonePersona } from './usePhoneProfileData'
 import { usePhoneToday } from './usePhoneToday'
@@ -57,12 +59,14 @@ export function PhoneProfile(input: PhonePageProps) {
 
   if (sub === 'files' || sub?.startsWith('files:')) return <PhoneFiles key={sub} {...props} trail={filesTrail(sub)} />
   if (sub === 'customize') return <PhoneCustomize {...props} persona={persona} />
-  if (sub === 'connectors') return <PhoneConnectorsPage {...props} integrations={integrations} />
+  if (sub === 'connectors' || sub === 'channels') return <ConnectionRouteBoundary owner={() => <ConnectorsSection panelNavigation />}
+    legacy={<PhoneConnectorsPage {...props} integrations={integrations} />} />
   if (sub?.startsWith('connector:')) {
     // `connector:<id>` 详情,`connector:<id>:connect` 连接页(返回箭头回详情,见 assistant-context.parentRoute)。
-    const route = parseConnectorSub(sub)
-    if (route?.view === 'connect') return <PhoneConnectorSetupPage {...props} integrations={integrations} id={route.id} />
-    return <PhoneConnectorDetail {...props} integrations={integrations} id={route?.id ?? sub.slice('connector:'.length)} />
+    const route = parseConnectorSub(sub),id = route?.id ?? sub.slice('connector:'.length)
+    return <ConnectionRouteBoundary owner={() => <ConnectorsSection panelNavigation initialConnectorId={id} />}
+      legacy={route?.view === 'connect' ? <PhoneConnectorSetupPage {...props} integrations={integrations} id={id} />
+        : <PhoneConnectorDetail {...props} integrations={integrations} id={id} />} />
   }
   if (sub === 'devices' || sub?.startsWith('devices:')) {
     const openedDeviceId = sub.startsWith('devices:') ? sub.slice('devices:'.length) : null
@@ -91,7 +95,6 @@ export function PhoneProfile(input: PhonePageProps) {
       </div>
     )
   }
-  if (sub === 'channels') return <PhoneConnectorsPage {...props} integrations={integrations} />
   if (sub === 'diaries') return <AssistantDiaryList view={diaries} name={name} askInChat={askInChat} open={(id) => go(`diary:${id}`)} />
   if (sub?.startsWith('diary:'))
     return (

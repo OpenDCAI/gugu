@@ -28,6 +28,7 @@
  */
 import { CloudComputerError, cloudComputerErrorFromResponse, isCloudComputerNotOpen } from './cloudComputer'
 import { anySignal } from '../shared/anySignal'
+import { parsePlatformConnectionReceipt, type PlatformConnectionReceipt } from './connections'
 
 export type PlatformIntegrationAccount = {
   accountId: string
@@ -157,6 +158,8 @@ export type PlatformIntegrationsClient = {
     signal?: AbortSignal,
   ): Promise<PlatformCredentialSaved>
   deleteCredential(provider: string, signal?: AbortSignal): Promise<void>
+  /** Owner operation UUID is the only deletion identity accepted by this path. */
+  disconnectOperation?(provider: string, operationId: string, expectedHeadRevision: string, signal?: AbortSignal): Promise<PlatformConnectionReceipt>
   mcpEndpoint(
     provider: string,
     hooks?: { onNotConnected?: () => void; onCredentialRejected?: () => void },
@@ -290,6 +293,9 @@ export function createPlatformIntegrationsClient(options: {
     deleteCredential: async (provider, signal) => {
       await request('DELETE', `${providerPath(provider)}/credential`, undefined, signal)
     },
+    disconnectOperation: async (provider, operationId, expectedHeadRevision, signal) =>
+      parsePlatformConnectionReceipt(json((await request('POST', `${providerPath(provider)}/disconnect-operation`,
+        { operationId, expectedHeadRevision }, signal)).raw, 'POST disconnect-operation'), operationId),
     mcpEndpoint: async (provider, hooks) => ({
       url: `${providerPath(provider)}/mcp`,
       headers: await headers(),

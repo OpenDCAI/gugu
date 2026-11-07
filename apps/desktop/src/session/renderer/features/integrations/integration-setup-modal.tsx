@@ -4,6 +4,7 @@ import { assistantPanelFailure } from '@/components/assistant/assistant-panel-er
 import { useTranslation } from 'react-i18next';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
+import { connectionActionNoticeScope,isQuietConnectionActionFailure,reportConnectionActionFailure } from '@/components/connections/connection-action-notice';
 import { requestCloudVersionMatch, useCloudVersionMatch } from '@/lib/cloudVersionMatch';
 import { CheckCircle, Copy, ExternalLink, Eye, EyeOff } from '@/lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -63,7 +64,8 @@ function IntegrationSetupModalBody({ integration, editAccount, onSuccess, onClos
   const { integrationById } = useIntegrationsContext();
   const { translate } = useSessionMessages();
   const { t } = useTranslation('assistant');
-  const detail = useAssistantPanelIntegration(useLibraryHost().assistantPanel,integrationById[integration]);
+  const host = useLibraryHost();
+  const detail = useAssistantPanelIntegration(host.assistantPanel,integrationById[integration]);
   const metadata = detail.data;
 
   return (
@@ -77,7 +79,7 @@ function IntegrationSetupModalBody({ integration, editAccount, onSuccess, onClos
             : translate('integrations.setupTitle')}
         </DialogTitle>
       </DialogHeader>
-      {detail.error ? <p role="alert">{assistantPanelFailure(detail.error,t)}</p> : detail.loading ? <LoadingIndicator size="inline" /> : null}
+      {detail.error && !host.connectionMetadataExpected ? <p role="alert">{assistantPanelFailure(detail.error,t)}</p> : detail.loading ? <LoadingIndicator size="inline" /> : null}
       {metadata ? (
         cliMethod(metadata) ? (
           <IntegrationCliLogin
@@ -121,7 +123,7 @@ function IntegrationBrowserAuthorization({
   onClose: () => void;
 }) {
   const { authorizeIntegration, cancelIntegrationAuthorization } = useIntegrationsContext();
-  const remote = useLibraryHost().remote;
+  const host = useLibraryHost(),remote = host.remote;
   const cloudVersion = useCloudVersionMatch(remote?.deviceId ?? null);
   const { toast } = useToast();
   const { translate } = useSessionMessages();
@@ -180,7 +182,7 @@ function IntegrationBrowserAuthorization({
                 translate('deviceScope.browserAuthOnDevice', { name: metadata.name, device: remote.deviceLabel })
               : translate('integrations.browserAuthDescription', { name: metadata.name })}
         </p>
-        {error ? (
+        {error && !host.connectionMetadataExpected ? (
           <p className="text-xs text-foreground-destructive" role="alert">
             {cloudVersion?.status === 'updating' ? translate('integrations.cloudUpdating', { version: cloudVersion.version })
               : cloudVersion?.status === 'failed' ? cloudVersion.error
@@ -229,10 +231,11 @@ function IntegrationCliLogin({
   const method = cliMethod(metadata);
   const { startCliLogin, waitCliLogin, readCliProgress, cancelIntegrationAuthorization } = useIntegrationsContext();
   const readProgress = useCallback(() => readCliProgress?.(integration) ?? Promise.resolve(null), [readCliProgress, integration]);
-  const remote = useLibraryHost().remote;
+  const host = useLibraryHost(),remote = host.remote;
   const cloudVersion = useCloudVersionMatch(remote?.deviceId ?? null);
   const { toast } = useToast();
   const { translate } = useSessionMessages();
+  const connectionCopy = useTranslation('connections').t;
   const [phase, setPhase] = useState<'idle' | 'starting' | 'waiting'>('idle');
   const [prompt, setPrompt] = useState<CliPrompt | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -251,22 +254,33 @@ function IntegrationCliLogin({
 
   if (!method) return null;
 
+  const failed = (value: unknown,detail: string,key = 'cliPrepareFailed',after = connectionActionNoticeScope()) => {
+    if (host.connectionMetadataExpected && isQuietConnectionActionFailure(value)) { onClose(); return; }
+    setError(detail);
+    if (host.connectionMetadataExpected) reportConnectionActionFailure(value,{
+      ownerId: host.connectionMetadata?.ownerId,provider: integration,title: connectionCopy(key,{ name: metadata.name }),after,
+    });
+  };
+
   const start = async () => {
+    const after = connectionActionNoticeScope();
     setError(null);
     setPrompt(null);
-    if (cloudVersion?.status === 'failed' && remote) await requestCloudVersionMatch(remote.deviceId, true);
     setPhase('starting');
     activeRef.current = true;
+    let preparing = true;
     try {
+      if (cloudVersion?.status === 'failed' && remote) await requestCloudVersionMatch(remote.deviceId, true);
       const started = await startCliLogin(integration);
       // 装到一半关了弹窗:关的那一刻已经撤了这一次(主进程见号作废,不再起登录),这里不必、也❌ 再撤一次 ——
       // 那会撤掉人重新打开弹窗后起的新登录。
       if (!mountedRef.current) return;
       if (!started.success) {
         // @@@raw detail — 安装 / 工具自己说的失败原因原样给出。
-        setError(started.error);
+        failed(started,started.error,'cliPrepareFailed',after);
         return;
       }
+      preparing = false;
       if ('connected' in started) {
         activeRef.current = false;
         toast({ title: translate('integrations.cliConnectedToast', { name: metadata.name }) });
@@ -283,7 +297,7 @@ function IntegrationCliLogin({
           continue;
         }
         if (result.status === 'failed') {
-          setError(result.error);
+          failed(result,result.error,'connectFailed',after);
           return;
         }
         activeRef.current = false;
@@ -292,7 +306,7 @@ function IntegrationCliLogin({
         return;
       }
     } catch (failure) {
-      if (mountedRef.current) setError(failure instanceof Error ? failure.message : String(failure));
+      if (mountedRef.current) failed(failure,failure instanceof Error ? failure.message : String(failure),preparing ? 'cliPrepareFailed' : 'connectFailed',after);
     } finally {
       if (mountedRef.current) {
         activeRef.current = false;
@@ -302,10 +316,10 @@ function IntegrationCliLogin({
   };
 
   const openUrl = (url: string) => void openAuthorizationLink(url).catch((failure: unknown) => {
-    if (mountedRef.current) setError(failure instanceof Error ? failure.message : String(failure));
+    if (mountedRef.current) failed(failure,failure instanceof Error ? failure.message : String(failure),'authorizationPageFailed');
   });
   const copyUrl = async (url: string) => {
-    try { await platform.writeClipboardText(url); } catch (failure) { rendererLogger('actions/integration-setup-modal').error({ error: failure }, 'action failed'); setError(messageForUser(failure)); return; }
+    try { await platform.writeClipboardText(url); } catch (failure) { rendererLogger('actions/integration-setup-modal').error({ error: failure }, 'action failed'); failed(failure,messageForUser(failure),'copyAuthorizationFailed'); return; }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
@@ -370,7 +384,7 @@ function IntegrationCliLogin({
             {translate('integrations.cliWaiting')}
           </div>
         ) : null}
-        {error ? (
+        {error && !host.connectionMetadataExpected ? (
           <p className="whitespace-pre-wrap text-xs text-foreground-destructive" role="alert">
             {cloudVersion?.status === 'updating' ? translate('integrations.cloudUpdating', { version: cloudVersion.version })
               : cloudVersion?.status === 'failed' ? cloudVersion.error
