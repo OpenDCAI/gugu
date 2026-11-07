@@ -32,14 +32,13 @@ describe('gugu MCP tool descriptions stay within the Claude Code budget', () => 
     // #7299 adds message_send_as_owner and message_send_file_as_owner.
     // #7471 adds catalog-only group_create.
     // 10-19 app_list moved into app_search; #7520 adds the catalog-only session_ask_user.
-    // 论坛 (10-20) adds the catalog-only forum_reply and forum_read.
     // Group administration adds eleven catalog-only tools.
     // Tab management adds catalog-only session_list_tabs / session_close_tab.
     // Assistant activity adds three catalog-only tools; metadata and context reads stay separate.
     // Topic deletion adds one catalog-only command.
     // App resource management adds one catalog-only tool.
     // group_flood_undo is retired: an Agent never has the adjustment id it needs.
-    expect(readings).toHaveLength(63)
+    expect(readings).toHaveLength(61)
     const over = readings.filter(({ chars }) => chars > CLAUDE_CODE_MCP_TOOL_DESCRIPTION_BUDGET)
     expect(over, `${readings.length - over.length} of ${readings.length} tools fit ${CLAUDE_CODE_MCP_TOOL_DESCRIPTION_BUDGET} chars`).toEqual([])
   })

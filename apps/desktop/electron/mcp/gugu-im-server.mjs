@@ -25,7 +25,6 @@ import { AttachmentsError, commitAttachment, sendFileAsOwner, shareAttachment, u
 import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
 import { createGroupAdmin, setGroupAvatar } from '../../../../packages/core/src/cloud/groupAdmin'
 import { registerGuguTool } from './register-gugu-tool.mjs'
-import { FORUM_TOOL_DEFS } from './gugu-forum-tools.mjs'
 import {
   agentStatusFilterSchema,
   listWindowShape,
@@ -2872,7 +2871,6 @@ export const TOOL_DEFS = [
       return result.map((row) => ({ ...row, is_self: row?.identity?.users?.id === deps.context.agentId }))
     },
   },
-  ...FORUM_TOOL_DEFS,
 ]
 
 MESSAGE_ROW_TOOLS = new Set(TOOL_DEFS.filter((d) => d.messageRows).map((d) => d.name))

@@ -10,6 +10,7 @@ import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assist
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { registerContentContextMenus } from './content-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import type { AppInboxPort } from '@gugu/core/local/agent/appInbox'
 import { renderFirstTurn, type FirstTurnRender } from '@gugu/core/local/agent/firstTurnRender'
 import { createDesktopFileAccess, signedInFileRpc } from './desktopFileAccess'
 import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
@@ -1037,9 +1038,20 @@ function createDeviceSessionpageBridge() {
       })
     },
   })
+  const appInboxPort = () => {
+    const emdash = loadEmdashBridge()
+    if (!emdash) throw new Error('session-page session runtime is unavailable')
+    return emdash.appInbox
+  }
   return {
     ...bridge,
     downloadAttachment: desktopFiles.download,
+    appInbox: {
+      refusal: (source: string) => appInboxPort().refusal(source),
+      pull: (agentUserId: string, required?: string) => appInboxPort().pull(agentUserId, required),
+      ack: (input: Parameters<AppInboxPort['ack']>[0]) => appInboxPort().ack(input),
+      recordFailure: (input: Parameters<AppInboxPort['recordFailure']>[0]) => appInboxPort().recordFailure(input),
+    },
     rejectAgentInbox: async (input: import('@gugu/core/local/agent/agentInboxReader').AgentInboxInjectionInput, cause: unknown) => {
       const local = (input.sources ?? []).filter(source => source.row.localSessionDirect);
       if (local.length) {
