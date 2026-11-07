@@ -13,7 +13,7 @@ export function useTimelineFailureNotice(key: string, readError: string | null, 
   const active = useRef<string | null>(key)
   const latest = useRef(startup.retry)
   latest.current = startup.retry
-  const notice = useRef<string | number | null>(null)
+  const notice = useRef<string | null>(null)
   useEffect(() => {
     active.current = key
     return () => {
@@ -37,7 +37,9 @@ export function useTimelineFailureNotice(key: string, readError: string | null, 
     if (notice.current !== null) dismissNotice(notice.current)
     notice.current = null
     if (kind === 'startup') {
-      notice.current = notify({ title: messageForUser(error), tier: 'error', action: {
+      const noticeKey = `timeline-startup:${crypto.randomUUID()}`
+      notice.current = noticeKey
+      notify({ key: noticeKey, title: messageForUser(error), tier: 'error', action: {
         label: translateSessionMessage('transcript.condition.restartAgent'),
         onClick: () => { if (active.current === key) void latest.current?.() },
       } })
