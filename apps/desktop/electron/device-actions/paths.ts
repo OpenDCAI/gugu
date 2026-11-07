@@ -6,6 +6,7 @@
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary'
 
 export const FILE_ROOTS = ['files.desktop', 'files.documents', 'files.downloads', 'files.other'] as const
 export type FileRoot = (typeof FILE_ROOTS)[number]
@@ -27,6 +28,8 @@ export function expandHome(raw: string, home = os.homedir()): string {
 type Resolved = { ok: true; path: string } | { ok: false; message: string }
 
 async function judge(real: string, raw: string, granted: ReadonlySet<string>): Promise<Resolved> {
+  try { await requireAgentFileAccess(real) }
+  catch { return { ok: false, message: 'Agent file access to protected private storage is forbidden or could not be verified' } }
   const home = os.homedir()
   const realHome = await fsp.realpath(home).catch(() => home)
   const inside = (dir: string) => real === dir || real.startsWith(dir + path.sep)

@@ -15,6 +15,9 @@ import { openInApps, saveToDevice, shareToApps, subscribeIncomingShares } from '
 import { PlatformError } from './errors'
 import { nativeAudioPermissions } from './capacitorMicrophone'
 import { nativeOpenedLinksReady, subscribeNativeOpenedLinks } from './capacitorOpenedLinks'
+import { openBrowser, subscribeBrowserFinished } from './capacitorOAuthBrowser'
+import { googleIdentityLinkUrl } from '../../shared/google-authorization-url'
+import { getSupabaseUrl } from '@gugu/core/cloud/config'
 
 const base = createUnsupportedPlatform('capacitor', 'Capacitor')
 declare const __GUGU_TIER__: string
@@ -185,6 +188,11 @@ let notificationSeq = Math.floor(Date.now() / 1000) % 1_000_000_000
 
 export const capacitorPlatform: AppPlatform = {
   ...base,
+  accountOAuthBrowser: {
+    openBrowser,
+    openLinkBrowser: async (url) => openBrowser(googleIdentityLinkUrl(url, getSupabaseUrl())),
+    subscribeBrowserFinished,
+  },
   authCallbacks: {
     redirectTo: async () => `${guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })}://auth/callback`,
     ready: nativeOpenedLinksReady,

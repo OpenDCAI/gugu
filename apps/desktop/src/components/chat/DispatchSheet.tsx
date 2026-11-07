@@ -21,7 +21,7 @@ const NEW_AGENT = 'new:agent'
  * (ExtensionConsentSheet), so the view does not change for it. Above the rows: what will go — the text, which the person may
  * change (it goes as theirs), and each pill — and, for a member of a chat, whether the chat sees it. The rows are the
  * host's own: the page's chat's agents and people, the person's own agents (the page's own first; for a draft only those
- * with a session here), a new agent, chats (a draft). A forum assignment (`ask.assign`) is the same sheet: the post's title
+ * with a session here), a new agent, chats (a draft). A pick (`ask.pick`, `gugu.pickAgent`) is the same sheet in the App's words: what it is about
  * read only, the person's own agents. Nothing goes before the press; the App hears only what was picked.
  */
 export const DispatchSheet = observer(function DispatchSheet() {
@@ -105,13 +105,13 @@ export const DispatchSheet = observer(function DispatchSheet() {
     if (kind === 'member' && asked.chat) return { chat: asked.chat.id, member: id }
     return { chat: id }
   }
-  // A forum assignment: what is assigned (the post), read only — nothing is written to anyone.
-  const assign = asked.assign
+  // A pick: what it is about, read only, in the App's words — nothing is written to anyone.
+  const pick = asked.pick
   // What will go, as it will read: the text (theirs to change) and each pill under it.
-  const preview = assign ? (
-    <div className="text-[length:var(--font-body)] text-[var(--text-primary)]" data-testid="dispatch-assign">
-      {assign.title}
-      <p className="m-0 mt-1 text-[var(--text-secondary)]">{t('forum.consent.assignBody')}</p>
+  const preview = pick ? (
+    <div className="text-[length:var(--font-body)] text-[var(--text-primary)]" data-testid="dispatch-pick">
+      {pick.subject}
+      <p className="m-0 mt-1 text-[var(--text-secondary)]">{pick.body}</p>
     </div>
   ) : (
     <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid="dispatch-preview">
@@ -142,7 +142,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
   )
   return (
     <ChatPickSheet
-      title={assign ? t('forum.consent.assignTitle') : asked.draft ? t('composePick.title') : t('dispatchPick.title')}
+      title={pick ? pick.title : asked.draft ? t('composePick.title') : t('dispatchPick.title')}
       onClose={() => finish(null)}
       testId="dispatch-sheet"
       rows={[]}
@@ -152,10 +152,10 @@ export const DispatchSheet = observer(function DispatchSheet() {
       onToggle={(id) => setSelected(new Set([id]))}
       query={query}
       onQuery={setQuery}
-      placeholder={assign ? t('forum.consent.searchAgents') : t('dispatchPick.search')}
-      empty={assign ? t('forum.consent.noAgents') : t('dispatchPick.empty')}
-      actionLabel={assign ? t('forum.consent.assignConfirm') : asked.draft ? t('composePick.action') : t('dispatchPick.send')}
-      actionDisabled={!picked || (picked === NEW_AGENT && asked.spawnOn !== undefined && !spawnDevice) || (!assign && !said && asked.pills.length === 0)}
+      placeholder={pick ? pick.search : t('dispatchPick.search')}
+      empty={pick ? pick.empty : t('dispatchPick.empty')}
+      actionLabel={pick ? pick.action : asked.draft ? t('composePick.action') : t('dispatchPick.send')}
+      actionDisabled={!picked || (picked === NEW_AGENT && asked.spawnOn !== undefined && !spawnDevice) || (!pick && !said && asked.pills.length === 0)}
       onAction={() => {
         const to = pickedTarget()
         if (to) finish({ to, visible: toMember && visible, text: said })

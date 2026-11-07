@@ -26,8 +26,10 @@ const { queryClient } = await import('@/session/renderer/lib/query-client')
 const { unsubscribePrivateUserEventBus } = await import('@/lib/realtimeChannel')
 const { drainTopicSplitRequest } = await import('@/lib/topicSplitRequest')
 let harness: ReturnType<typeof createReactHarness>
+const locator = (unread: number, addressed: number) => ({ stream_id: 'main', stream_kind: 'main' as const, thread_root_id: null, message_id: 'first', message_seq: 1,
+  unread_count: unread, addressed_count: addressed, cursor_seq: 0, version: 1, is_marked_unread: false })
 const topics = [
-  chat({ id: 'new', kind: 'topic', source_chat_id: 'g', name: 'Recent topic', last_message_at: '2026-10-29T00:00:00Z', last_message_preview: 'Alex: Latest update', unread_count: 4 }),
+  chat({ id: 'new', kind: 'topic', source_chat_id: 'g', name: 'Recent topic', last_message_at: '2026-10-29T00:00:00Z', last_message_preview: 'Alex: Latest update', unread_count: 4, unread_locator: locator(4, 0) }),
   chat({ id: 'old', kind: 'topic', source_chat_id: 'g', name: 'Older topic', last_message_at: '2026-10-20T00:00:00Z', last_message_preview: 'Muted preview', unread_count: 120, is_muted: true }),
 ]
 const summaries = topics.map((topic) => ({ chat_id: topic.id, name: topic.name, source_message_id: topic.id, creator_user_id: 'u', last_message_at: topic.last_message_at, message_count: 2, participant_count: 2, is_participant: true }))
@@ -50,6 +52,25 @@ beforeEach(() => {
 afterEach(() => { harness.cleanup(); queryClient.clear() })
 
 describe('rich Topics menu', () => {
+  it('shows who is calling you in red, lists that topic first, and opens it', async () => {
+    const calling = chat({ id: 'calling', kind: 'topic', source_chat_id: 'g', name: 'Quiet but calling', last_message_at: '2026-10-01T00:00:00Z', last_message_preview: 'Not this', unread_count: 27, unread_locator: locator(27, 1) })
+    save(['old'])
+    await renderWithAppProviders(harness, topicMenu(), { auth: { id: 'u' }, chat: { activeChatId: 'g', chats: [...topics, calling] } })
+    const button = document.querySelector<HTMLElement>('[data-testid="group-menu-topics"]')!
+    const chip = button.querySelector<HTMLElement>('.gg-chip')!
+    expect(chip.textContent, 'the addressed count, not the raw 31').toBe('@1')
+    expect(chip.dataset.tone).toBe('danger')
+    await clickElement(button)
+    await vi.waitFor(() => expect(document.querySelectorAll('[data-testid="group-menu-topic"]')).toHaveLength(3))
+    expect([...document.querySelectorAll<HTMLElement>('[data-topic-id]')].map(row => row.dataset.topicId), 'older than the rest and not pinned, still first').toEqual(['calling', 'old', 'new'])
+    const row = document.querySelector<HTMLElement>('[data-topic-id="calling"]')!
+    expect(row.querySelector('.gg-topic-preview')?.textContent).not.toContain('Not this')
+    expect(row.querySelector('.gg-topic-preview')).toHaveProperty('dataset.calling', 'true')
+    expect(row.querySelector('.gg-topic-menu-unread .gg-chip')?.textContent, 'one call, not 27 unread').toBe('1')
+    await clickElement(row.querySelector<HTMLElement>('[data-testid="group-menu-topic"]')!)
+    expect(drainTopicSplitRequest('g')?.chatId).toBe('calling')
+  })
+
   it('leaves no permanent pin-width padding on a topic with no unread messages', async () => {
     save(['old'])
     await renderWithAppProviders(harness, topicMenu(), { ...options(), chat: { activeChatId: 'g', chats: topics.map(topic => ({ ...topic, unread_count: 0 })) } })

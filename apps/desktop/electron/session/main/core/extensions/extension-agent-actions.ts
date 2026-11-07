@@ -1,3 +1,4 @@
+import { requireAgentFileAccess, requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary';
 import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -485,12 +486,15 @@ async function agentFolder(
   folder: string,
   callerWorkspaceRoot: (() => Promise<string | null>) | undefined
 ): Promise<string> {
-  if (path.isAbsolute(folder)) return folder;
-  const root = callerWorkspaceRoot ? await callerWorkspaceRoot() : null;
-  if (!root) {
-    throw new Error(`${field} "${folder}" is relative, and this session has no working copy to take it from; pass an absolute folder`);
+  let target = folder;
+  if (!path.isAbsolute(folder)) {
+    const root = callerWorkspaceRoot ? await callerWorkspaceRoot() : null;
+    if (!root) throw new Error(`${field} "${folder}" is relative, and this session has no working copy to take it from; pass an absolute folder`);
+    target = path.resolve(root, folder);
   }
-  return path.resolve(root, folder);
+  if (field === 'output_path') await requireAgentFileAccess(target);
+  else await requireAgentFileTreeAccess(target);
+  return target;
 }
 
 /**
@@ -512,6 +516,7 @@ async function sessionFileOf(
   // An agent's path is often absolute: said from the working copy first (L11 R19).
   const full = resolvesInside(root, path.isAbsolute(filePath) ? path.relative(root, filePath) : filePath);
   if (!full) throw new Error(`app_check: ${filePath} is not a file of your working copy (${root})`);
+  if (full) await requireAgentFileAccess(full);
   if (!fs.existsSync(full) || !fs.statSync(full).isFile()) throw new Error(`app_check: no file ${filePath} in your working copy`);
   return { sessionId: callerSessionId, filePath: path.relative(root, full).split(path.sep).join('/') };
 }
@@ -755,12 +760,16 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       const targetDir = ownFolder
         ? path.join(dependencies.appSourcesRoot!(), action.id)
         : path.resolve(await agentFolder('target_dir', action.target_dir!, dependencies.callerWorkspaceRoot));
+      await requireAgentFileTreeAccess(targetDir);
+      await requireAgentFileAccess(path.join(targetDir, 'manifest.json'));
       const existing = bundleThere(targetDir, action.id);
       const bundle = bundleOf(action, existing);
       // Updating in place: a template's files fill only what the folder lacks — the agent's edits of them stay.
       const templateFiles = Object.fromEntries(
         Object.entries(bundle.templateFiles).filter(([name]) => !existing || !fs.existsSync(path.join(targetDir, name)))
       );
+      // Retained template files can also be read back below, so check them even when not rewritten.
+      for (const name of Object.keys({ ...bundle.templateFiles, ...bundle.files })) await requireAgentFileAccess(path.resolve(targetDir, name));
       const { sourceDir, manifest } = scaffoldExtension({
         targetDir,
         manifest: bundle.manifest,
@@ -785,7 +794,7 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
         ...(existing ? { updated: true } : {}),
         tabs: manifest.contributes.tabs.map((tab) => tab.name),
         // The skeleton comes back only when the agent has not written its own app.js yet.
-        ...(action.template && !ownAppJs ? { app_js: fs.readFileSync(path.join(sourceDir, 'app.js'), 'utf8') } : {}),
+        ...(action.template && !ownAppJs ? { app_js: fs.readFileSync(await requireAgentFileAccess(path.join(sourceDir, 'app.js')), 'utf8') } : {}),
         // Said here rather than discovered at install: the agent is holding the pen
         // right now, and the person should know whether the next install call will
         // ask for consent rather than silently granting anything.
@@ -805,6 +814,7 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       const filePath = out === null
         ? path.join(path.dirname(sourceDir), fileName)
         : out.endsWith(EXTENSION_ARCHIVE_SUFFIX) ? out : path.join(out, fileName);
+      await requireAgentFileAccess(filePath);
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, bytes);
       return {
@@ -822,7 +832,7 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       // 摩擦单 F107: the version goes up one patch, written back into the bundle's manifest.json, so the card the group
       // gets is a version of its own — people who installed the earlier one are offered it.
       const sourceDir = await agentFolder('source_dir', action.source_dir, dependencies.callerWorkspaceRoot);
-      const file = path.join(sourceDir, 'manifest.json');
+      const file = await requireAgentFileAccess(path.join(sourceDir, 'manifest.json'));
       const manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as { version: string };
       const [major, minor, patch] = manifest.version.split('.').map(Number);
       const version = `${major}.${minor}.${patch! + 1}`;
@@ -910,7 +920,7 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
       // overwrites it.
       const dir = path.join(os.tmpdir(), 'gugu-app-cards');
       fs.mkdirSync(dir, { recursive: true });
-      const filePath = path.join(dir, fileName);
+      const filePath = await requireAgentFileAccess(path.join(dir, fileName));
       fs.writeFileSync(filePath, bytes);
       return {
         file_path: filePath,

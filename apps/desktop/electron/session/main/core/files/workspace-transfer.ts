@@ -1,3 +1,4 @@
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary';
 /**
  * #6264 一套工作台:别的电脑打开这台机器上的会话时,工作区里那几件「字节要过线」的事 ——
  * 预览 / 下载按块读、上传按块写(带版本号防覆盖)。文件树、编辑器、git 走的是与本机同一套 `workspace.*` 动词;
@@ -67,7 +68,7 @@ export function etagOf(info: { mtimeNs: bigint; size: bigint }): string {
 }
 
 /** 相对路径按工作区解析;字面在里面还不够,指向外面的符号链接也要挡住(目标还不存在就核它的父目录)。 */
-export async function inWorkspace(root: string, target: string): Promise<string> {
+export async function inWorkspace(root: string, target: string, canonical = false): Promise<string> {
   const resolved = path.resolve(root, target);
   if (!isInside(root, resolved)) {
     throw new WorkspaceTransferError('outside_workspace', `path is outside this workspace: ${target}`);
@@ -80,7 +81,8 @@ export async function inWorkspace(root: string, target: string): Promise<string>
   if (!isInside(realRoot, real)) {
     throw new WorkspaceTransferError('outside_workspace', `path leads outside this workspace: ${target}`);
   }
-  return resolved;
+  const checked = await requireAgentFileAccess(resolved);
+  return canonical ? checked : resolved;
 }
 
 async function currentEtag(file: string): Promise<string | null> {
@@ -97,7 +99,7 @@ export async function readWorkspaceChunk(
   root: string,
   request: { path: string; offset: number; length: number }
 ): Promise<WorkspaceChunk> {
-  const file = await inWorkspace(root, request.path);
+  const file = await inWorkspace(root, request.path, true);
   const offset = Math.max(0, Math.floor(request.offset));
   const length = Math.max(0, Math.min(Math.floor(request.length), REMOTE_WORKSPACE_CHUNK_BYTES));
   let handle;
@@ -151,7 +153,7 @@ export function createWorkspaceUploads(options: { idleMs?: number; maxBytes?: nu
   };
   return {
     async write(root: string, request: WorkspaceWriteChunk): Promise<WorkspaceWriteResult> {
-      const file = await inWorkspace(root, request.path);
+      const file = await inWorkspace(root, request.path, true);
       if (!Number.isInteger(request.total) || request.total < 0 || request.total > maxBytes) {
         throw new WorkspaceTransferError('too_large', `file too large to save: ${request.total} bytes`);
       }

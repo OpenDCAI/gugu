@@ -29,7 +29,7 @@ function expectedFacts(facts: DeliveryEnvelopeFacts): DeliveryReadFacts {
     whisperTo: facts.whisperTo ?? null,
     viaApp: facts.viaApp ?? null,
     schedule: facts.schedule ?? null,
-    post: facts.post ?? null,
+    ref: facts.ref ?? null,
     thread: facts.thread ?? null,
     messageId: facts.messageId,
     at: facts.at,
