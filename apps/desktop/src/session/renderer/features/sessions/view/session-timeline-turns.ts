@@ -1,4 +1,4 @@
-import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
+import { isAppRoute, readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
 import { timelineRailMessages, timelineRailPreviewText, type TimelineRailOptions } from '@gugu/core/shared/timelineRail';
 import { shownSender, type SelfIdentity, type TranscriptTurn } from '@gugu/session-chat-ui';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
@@ -16,8 +16,6 @@ export type TimelineSender =
   | { kind: 'session'; name: string }
   /** #6387 An installed extension, relaying what the person did in it. */
   | { kind: 'extension'; name: string }
-  /** Someone in a forum post this agent was assigned to. */
-  | { kind: 'forum'; name: string }
   /** 咕咕 itself (a `system` notice), or a legacy / batched envelope that names nobody. */
   | { kind: 'gugu' };
 
@@ -41,8 +39,7 @@ function senderOf(facts: DeliveryReadFacts, self: SelfIdentity | null): Timeline
   const name = shownSender(facts.from, facts.fromId, self);
   if (!name) return { kind: 'gugu' };
   if (facts.route === 'session-direct') return { kind: 'session', name };
-  if (facts.route === 'extension') return { kind: 'extension', name };
-  if (facts.route === 'forum') return { kind: 'forum', name };
+  if (isAppRoute(facts.route)) return { kind: 'extension', name };
   if (facts.chatKind === 'group') return { kind: 'group', name, chatId: (facts.sourceLink && parseConversationLink(facts.sourceLink)?.chatId) || null };
   return { kind: 'chat', name };
 }

@@ -14,6 +14,7 @@ const host = (key: string, embedded = false) => createElement(NoticeHost, { key,
 const render = (...hosts: Array<ReturnType<typeof host>>) => harness.render(createElement(Fragment, null, ...hosts))
 
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal('matchMedia', vi.fn((query: string): MediaQueryList => ({
     matches: false, media: query, onchange: null,
     addEventListener: vi.fn(), removeEventListener: vi.fn(),

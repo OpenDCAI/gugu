@@ -20,7 +20,7 @@ export function useLinkNavigation(input: {
   contacts: readonly ContactUser[]
   openChat: (chatId: string) => string | void
   openSender?: (sender: ContactUser, sourceChatId?: string) => Promise<void> | void
-  openFile: (chatId: string, target: Extract<GuguLinkTarget, { kind: 'file' }>, source: Pick<LinkNavigation, 'message' | 'restore'>) => void
+  openFile: (chatId: string, target: Extract<GuguLinkTarget, { kind: 'file' }>, source: Pick<LinkNavigation, 'message' | 'restore'>) => void | Promise<void>
   openApp: (chatId: string, extensionId: string, tab: string) => void
   openProject: (projectId: string) => void
   openAppDetail?: (target: AppDetailLink) => void | Promise<void>
@@ -61,11 +61,11 @@ export function useLinkNavigation(input: {
           if (error) throw new Error(error.message)
           groupId = data?.chat_id
         }
-        if (asked !== generation || current.current.ownerId !== state.ownerId) return
+        if (asked !== generation || current.current.ownerId !== state.ownerId) throw new Error('The file opening was superseded')
         const fileChat = state.chats.find((row) => row.id === groupId)
         if (!fileChat) throw new Error('File reference is unavailable')
         const chatId = fileChat.kind === 'topic' ? fileChat.source_chat_id! : fileChat.id
-        state.openFile(chatId, target, request)
+        await state.openFile(chatId, target, request)
         window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId } }))
         return
       }
@@ -155,7 +155,7 @@ export function useLinkNavigation(input: {
       const asked = generation
       const owner = current.current.ownerId
       void open(request).then(request.resolve, (error: unknown) => {
-        if (asked !== generation || owner !== current.current.ownerId) { request.resolve(); return }
+        if ((asked !== generation || owner !== current.current.ownerId) && request.target.kind !== 'file') { request.resolve(); return }
         request.reject(targetError(request.target, error, messages.current.t('links.unavailable')))
       })
     }

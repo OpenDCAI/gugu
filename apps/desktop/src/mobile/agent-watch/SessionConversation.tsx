@@ -163,7 +163,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       return { chatId: await chatService.getOrCreateDM(owner, agentUserId), owner, deviceId: local ? null : deviceId, sessionId }
     } })
   const addFiles = (files: File[]) => {
-    for (const { id, file } of fileSelection.select(files)) {
+    for (const { id, file } of fileSelection.choose(files)) {
       void uploads.add({ id, name: file.name, kind: file.type.startsWith('image/') ? 'image' : 'file', mimeType: file.type }, file)
     }
   }
@@ -216,11 +216,12 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       const text = value.trim()
       if ((!text && !files.length) || !checkBeforeSend()) return
       try {
+        // A later reader gesture supersedes this local send, including while its commit waits.
+        view.current?.setScrollMode({ kind: 'tail' })
         await currentSendTarget().onSend(text, files)
         if (getRendererSession()?.user.id !== ownerId) return
         composerDraft.committed(value)
         setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
-        view.current?.setScrollMode({ kind: 'tail' })
         for (const file of sentAttachments) uploads.forget(file.id)
       } catch (error) {
         if (getRendererSession()?.user.id !== ownerId) return

@@ -83,7 +83,8 @@ export function useStoredAgentTurnFailure(scope: StoredFailureScope | null, agen
     window.addEventListener('focus', refresh)
     window.addEventListener('online', refresh)
     document.addEventListener('visibilitychange', visible)
-    refresh()
+    // The first read is the bus's onSubscribed: it fires on mount when the channel is already live, otherwise once it
+    // subscribes — reading here as well sent every open twice.
     return () => {
       live = false
       unsubscribePrivateUserEventBus(handle)

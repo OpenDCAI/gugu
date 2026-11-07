@@ -48,8 +48,7 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 8 (10-20): a manifest may carry `subtitle` (the market's line under the name, manifest.ts). A schema before it refuses
  * the field, and 0.2.57-beta.113.1 / 115.1 (built from #7541) know 7 but not `subtitle` — so an App that writes one says
  * 8, and a client that knows only 7 is handed the App's last version for 7.
- * 9 (10-20, 论坛): `gugu.forum.*` (app-forum-core.ts). An App that calls it says 9, so a client without it is handed the
- * App's last version for 8 instead of a page whose calls are missing.
+ * 9 (10-20): an App-specific page API, retired by 31.
  * 10 (10-23): `gugu.compose(text)` may name no place — the host asks the person where (`ComposeTargetPicker`). An App that
  * leaves it to the host says 10: a client before it refuses the call (`Say where`), and is handed the App's last version for 9.
  * 11: gugu.modal opens a sandboxed App page in the host's window-level dialog shell, on desktop and phone.
@@ -86,7 +85,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 /** Tools modules opt into host confinement from this API. Final numbering follows dev at merge. */
 export const EXTENSION_TOOL_CONFINEMENT_API_VERSION = 29;
 // 30: source-aware page history; navigation.go(-1|1) and context navigation availability.
-export const EXTENSION_API_VERSION = 30;
+// 31: `gugu.cloud` (app-cloud-core.ts), an App's own part of the cloud, and `gugu.pickAgent`, the person's pick of one of their agents.
+export const EXTENSION_API_VERSION = 31;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -577,12 +577,8 @@ export type ExtensionHostEvent =
    * another session.
    */
   | { type: 'agentsChanged'; agentIds: readonly string[] }
-  /**
-   * Something changed in a forum post (`target`: its id) or in the forum's list (`'feed'`) this page subscribed to
-   * (`gugu.forum.onChanged`). It says what kind of thing moved, never the thing: the page reads it again. The first one after
-   * subscribing is `{ kind: 'subscribed' }` — read now, whatever happened before it.
-   */
-  | { type: 'forumChanged'; target: string; change: { kind: string; seq?: number; entityId?: string } }
+  /** What this page hears of its own topic (`gugu.cloud.on`): a broadcast's payload, or that it is (re)subscribed: read again then. */
+  | { type: 'cloudHeard'; topic: string; event: string; heard: { subscribed: true } | { payload: Record<string, unknown> } }
   /**
    * The person clicked a banner this extension posted. Delivered to the background
    * page and to this extension's tabs in the session the banner opened; `tag` and
@@ -751,23 +747,20 @@ export const BRIDGE_VERBS = {
    */
   projectsList: { needs: 'files:read' },
   /**
-   * 论坛 (9): a page's, public to every signed-in person, read and written as the person (app-forum-core.ts); the database judges who may
-   * see and do what. Writing is a page's, in the person's gesture. A bounty's points move only behind a sheet the host draws:
-   * `forumPost` with a bounty and `forumAward` answer `{ confirming: true }` once it is up, and the page hears the outcome from
-   * `forumSubscribe`. `forumAssign` opens the host's 「交给谁」 sheet on the person's own agents (no capability: the App never
-   * lists them; an `agentId` only preselects one) and answers `{ assigned: { agent } }` once the forum took it, or `{ cancelled: true }`.
+   * `gugu.cloud` (31, app-cloud-core.ts): the App's own part of the cloud, as the person; the database judges who may see and
+   * do what. A read is anyone's. A write is the person's press on a page, and on a page an agent works it is not done; a
+   * program writes for the agent whose call it runs, the agent named by what gugu stamped on that call.
    */
-  forumList: { needs: null, only: 'page' },
-  forumRead: { needs: null, only: 'page' },
-  forumPost: { needs: null, gesture: true, only: 'page' },
-  forumReply: { needs: null, gesture: true, only: 'page' },
-  forumReact: { needs: null, gesture: true, only: 'page' },
-  forumRemove: { needs: null, gesture: true, only: 'page' },
-  forumBlock: { needs: null, gesture: true, only: 'page' },
-  forumAssign: { needs: null, gesture: true, only: 'page' },
-  forumAward: { needs: null, gesture: true, only: 'page' },
-  forumSubscribe: { needs: null, only: 'page' },
-  forumUnsubscribe: { needs: null, only: 'page' },
+  cloudRead: { needs: null },
+  cloudWrite: { needs: null, gesture: true, only: 'page', toAgent: { answer: null } },
+  cloudProgramWrite: { needs: null, only: 'program' },
+  cloudSubscribe: { needs: null, only: 'page' },
+  cloudUnsubscribe: { needs: null, only: 'page' },
+  /**
+   * The person picks one of their own agents in the host's 「交给谁」 sheet, in the App's words: an App never lists them.
+   * The answer is whom, or that they cancelled.
+   */
+  pickAgent: { needs: null, gesture: true, only: 'page', toAgent: { answer: { cancelled: true } } },
   /**
    * The agents at work, and how each one is doing.
    *

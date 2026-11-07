@@ -17,9 +17,9 @@ import { GroupAppsPicker } from './GroupAppsPicker'
 import { AddGroupMembers } from './AddGroupMembers'
 import { ChatDetailsMenuItems } from './ChatDetailsMenuItems'
 import { ChatHeaderSwitches } from './ChatHeaderSwitches'
-import { GroupTopicsRows, TopicUnreadChip } from './GroupTopicsRows'
+import { GroupTopicsRows, TopicCallChip, TopicUnreadChip } from './GroupTopicsRows'
 import { useChatTopicPins } from './useChatTopicPins'
-import { topicUnreadTotal } from './topicPinsModel'
+import { topicCallTotal, topicUnreadTotal } from './topicPinsModel'
 import { useStripNarrow } from '../../session/renderer/features/tabs/tab-strip-narrow'
 
 interface ChatHeaderActionsProps {
@@ -72,7 +72,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
     {groupId && <>
       {!mobile && <DropdownMenu.Root key={groupId} modal={false} onOpenChange={(open) => { if (open) { onCloseHeaderMenu(); closePopup() } }}>
         <DropdownMenu.Trigger data-testid={AUTOMATION_TEST_IDS.groupMenuTopics} aria-label={t('history.tabs.topics')}
-          render={<Button variant="ghost" size="md" title={narrow ? t('history.tabs.topics') : undefined}><MessageSquare />{!narrow && t('history.tabs.topics')}<TopicUnreadChip count={topicUnreadTotal(topics.topics)} /></Button>} />
+          render={<Button variant="ghost" size="md" title={narrow ? t('history.tabs.topics') : undefined}><MessageSquare />{!narrow && t('history.tabs.topics')}{topicCallTotal(topics.topics) > 0 ? <TopicCallChip count={topicCallTotal(topics.topics)} at /> : <TopicUnreadChip count={topicUnreadTotal(topics.topics)} />}</Button>} />
         <DropdownMenu.Content data-testid={AUTOMATION_TEST_IDS.groupTopicsPopup} style={{ width: 320, maxWidth: 'min(320px, var(--available-width))', maxHeight: 'min(360px, var(--available-height))', overflowY: 'auto', overscrollBehavior: 'contain' }} align="end">
           <GroupTopicsRows chatId={groupId} />
         </DropdownMenu.Content>

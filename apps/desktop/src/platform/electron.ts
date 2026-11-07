@@ -53,6 +53,11 @@ export const electronPlatform: AppPlatform = {
   documentTitle: '咕咕 Desktop',
   authCallbacks: electronAuthCallbacks,
   oauthBrowser: {
+    async openLinkBrowser(url, redirectTo) {
+      const api = electronApi()
+      if (!api) throw unavailable('OAuth browser')
+      await api.invoke('auth:open-link-browser', { url, redirectTo })
+    },
     async openBrowser(url) {
       const api = electronApi()
       if (!api) throw unavailable('OAuth browser')

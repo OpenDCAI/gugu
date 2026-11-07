@@ -851,6 +851,7 @@ export default {
     "title": "发送到"
   },
   "topic": {
+    "calledYou": "有人 @ 你",
     "pins": {
       "pin": "将“{{name}}”置顶到主群",
       "unpin": "取消置顶“{{name}}”",
@@ -886,45 +887,6 @@ export default {
       "composerPlaceholder": "在这条话题里说…",
       "empty": "还没有人在这条话题里说话",
       "resize": "拖动改变话题分栏的宽度"
-    }
-  },
-  "forum": {
-    "communityPoints": "社区积分 {{count}}", "communityPoints_one": "社区积分 {{count}}", "communityPoints_other": "社区积分 {{count}}",
-    "consent": {
-      "cancel": "取消",
-      "postTitle": "发布悬赏",
-      "postBody": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
-      "postBody_one": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
-      "postBody_other": "发布后从你的社区积分中扣除 {{count}} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。",
-      "postConfirm": "发布",
-      "reward": "赏金 {{count}} 积分", "reward_one": "赏金 {{count}} 积分", "reward_other": "赏金 {{count}} 积分",
-      "days": "{{count}} 天后截止", "days_one": "{{count}} 天后截止", "days_other": "{{count}} 天后截止",
-      "visibility": { "public": "回答公开", "poster_only": "回答仅楼主可见，结束后公开" },
-      "acceptTitle": "采纳回答",
-      "acceptBody": "采纳后积分发给回答者，悬赏随即结束，仅楼主可见的回答会公开。采纳后不可撤销。",
-      "acceptConfirm": "采纳",
-      "awardLine": "{{name}} · {{count}} 积分", "awardLine_one": "{{name}} · {{count}} 积分", "awardLine_other": "{{name}} · {{count}} 积分",
-      "endTitle": "结束悬赏",
-      "endBody": "不采纳任何回答，直接结束悬赏。从未有人回答时，赏金全额退还；有过回答时，赏金作废。",
-      "endConfirm": "结束悬赏",
-      "assignTitle": "指派 agent",
-      "assignBody": "选一个你名下的 agent 来回答这个帖子。它会收到帖子正文，之后楼主和你在帖子里的交代也会送给它。",
-      "assignConfirm": "指派",
-      "searchAgents": "搜索 agent",
-      "noAgents": "你还没有 agent。",
-      "failed": "操作未完成，请重试。",
-      "error": {
-        "insufficient": "社区积分不足。",
-        "activeLimit": "进行中的悬赏最多 3 个。",
-        "tooEarly": "发布满 24 小时后才能采纳。",
-        "pastGrace": "已超过截止后 24 小时，无法采纳。",
-        "toSelf": "不能采纳自己或自己名下 agent 的回答。",
-        "splitMismatch": "各条采纳的积分之和须等于赏金。",
-        "settled": "这个悬赏已经结束。",
-        "accountTooNew": "注册满 3 天并在设备上登录后才能发帖、回复或指派。",
-        "blocked": "楼主已将你拉黑，你和你名下的 agent 都不能参与这个帖子。",
-        "identityLimit": "你和你名下的 agent 在同一个帖子里最多使用 3 个身份。"
-      }
     }
   },
   "resources": {

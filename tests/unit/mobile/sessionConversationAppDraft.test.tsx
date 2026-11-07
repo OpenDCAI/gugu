@@ -6,15 +6,17 @@ import { readComposer, writeComposer } from '../../support/composerEditor'
 import { stubVisibleIntersection } from '../../support/visibleIntersection'
 const lifeRead = vi.hoisted(() => vi.fn())
 const transcriptCommands = vi.hoisted(() => vi.fn())
+const transcriptView = vi.hoisted(() => ({ setScrollMode: vi.fn(), openItem: vi.fn(() => false) }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class extends Error {}, fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   setSessionOption: vi.fn(), onMachineEvent: vi.fn(() => () => {}), onLinkChange: vi.fn(() => () => {}),
   machineRpc: () => ({ sessions: { lifeView: lifeRead } }),
 }))
-vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode; commands?: unknown; pendingMessages?: unknown }) => {
+vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode; commands?: unknown; pendingMessages?: unknown; onReady?: (view: unknown) => void }) => {
   transcriptCommands(props.commands, props.pendingMessages)
   const [ready, setReady] = useState(false)
-  useEffect(() => { const timer = setTimeout(() => setReady(true), 20); return () => clearTimeout(timer) }, [])
+  const onReady = props.onReady
+  useEffect(() => { const timer = setTimeout(() => { onReady?.(transcriptView); setReady(true) }, 20); return () => clearTimeout(timer) }, [onReady])
   return ready ? createElement('div', {}, props.composerContent) : null
 } }))
 
@@ -29,7 +31,7 @@ const oldScroll = Element.prototype.scrollTo
 const oldWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
 beforeEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }); harness = createReactHarness(); stubVisibleIntersection(); Element.prototype.scrollTo = () => undefined })
 afterEach(() => { Object.defineProperty(window, 'innerWidth', oldWidth); harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals();
-  Object.assign(state(), { accountId: null, queue: null, rows: EMPTY, valid: () => false }); changed(); lifeRead.mockReset()
+  Object.assign(state(), { accountId: null, queue: null, rows: EMPTY, valid: () => false }); changed(); lifeRead.mockReset(); transcriptView.setScrollMode.mockClear()
 })
 it('puts each App draft in the real task composer once, preserving human edits and sending nothing', async () => {
   const onSend = vi.fn(), applied = vi.fn()
@@ -73,6 +75,9 @@ it('keeps the running task Send action until its local outbox commit resolves', 
   expect(send()?.disabled).toBe(false)
   await act(async () => { send()!.click(); send()!.click(); send()!.click() })
   await waitForCondition(() => onSend.mock.calls.length === 1, 'task reaches local outbox')
+  expect(transcriptView.setScrollMode).toHaveBeenCalledExactlyOnceWith({ kind: 'tail' })
+  // The reader can leave while this commit is pending; success cannot restore following.
+  transcriptView.setScrollMode.mockClear()
   // The draft retains custody until onSend confirms the durable outbox commit.
   expect(readComposer(field())).toBe('one queued intent')
   expect(send()?.disabled).toBe(true)
@@ -80,6 +85,7 @@ it('keeps the running task Send action until its local outbox commit resolves', 
   expect(onStop).not.toHaveBeenCalled()
   await act(async () => commit())
   expect(readComposer(field())).toBe('')
+  expect(transcriptView.setScrollMode).not.toHaveBeenCalled()
   expect(stop()).not.toBeNull()
   expect(onStop).not.toHaveBeenCalled()
 })

@@ -23,7 +23,7 @@ function parseCodebuddyHookEvent(eventType: string, body: Record<string, unknown
         typeof body.message === 'string'
           ? body.message
           : typeof body.tool_name === 'string'
-            ? `CodeBuddy Code is requesting permission to use ${body.tool_name}.`
+            ? `CodeBuddy is requesting permission to use ${body.tool_name}.`
             : undefined,
     };
   }

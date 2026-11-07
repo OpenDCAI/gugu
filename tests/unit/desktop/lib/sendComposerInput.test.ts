@@ -55,3 +55,26 @@ it.each(['submitted words', 'the next draft'])('only successful persistence comm
   expect(f.port.committed).toHaveBeenCalledOnce();
   expect(f.draft()).toBe(next === f.value ? '' : next);
 });
+
+it('chooses local-send following before waiting and never reselects it over a later reading gesture', async () => {
+  const f = fixture(), upload = deferred(), events: string[] = [];
+  const started = vi.fn(() => { events.push('follow'); });
+  f.port.unsettled.mockReturnValueOnce(true).mockReturnValue(false);
+  f.port.waitForUploads.mockReturnValue(upload.promise);
+  const sending = sendComposerInput(f.value, { ...f.port, started });
+  expect(events).toEqual(['follow']);
+  events.push('reader-up');
+  upload.resolve();
+  await Promise.resolve();
+  f.commit.resolve();
+  await sending;
+  expect(started).toHaveBeenCalledOnce();
+  expect(events).toEqual(['follow', 'reader-up']);
+});
+
+it('an empty composer cannot authorize following', async () => {
+  const f = fixture(''), started = vi.fn();
+  await sendComposerInput('', { ...f.port, started });
+  expect(started).not.toHaveBeenCalled();
+  expect(f.port.deliver).not.toHaveBeenCalled();
+});
