@@ -113,7 +113,7 @@ describe('a group file, as a file manager opens it (摩擦单 F2, 真源 §2.6)'
 });
 
 describe('「用哪个打开」 names Apps (摩擦单 F26)', () => {
-  it('each candidate carries its App’s name, and whether that App has just this tab', () => {
+  it('each candidate carries its App’s name, and whether just this tab of it opens files here', () => {
     const md = parseExtensionManifest(app('wysiwyg', { chat: ['.md'] }));
     const two = parseExtensionManifest({
       ...app('notes', { chat: ['.md'] }),
@@ -121,9 +121,15 @@ describe('「用哪个打开」 names Apps (摩擦单 F26)', () => {
       contributes: { tabs: [{ name: 'main', title: 'Markdown', opensFiles: { chat: ['.md'] } }, { name: 'raw', title: 'Source' }] },
     });
     expect(fileOpenersFor('a.md', [md, two], 'chat')).toMatchObject([
-      { tabKind: 'notes.main', app: { name: 'Notes' }, tabTitle: 'Markdown', onlyTab: false },
+      { tabKind: 'notes.main', app: { name: 'Notes' }, tabTitle: 'Markdown', onlyTab: true },
       { tabKind: 'wysiwyg.main', app: { name: 'wysiwyg' }, onlyTab: true },
     ]);
+    const both = parseExtensionManifest({
+      ...app('notes', { chat: ['.md'] }),
+      name: 'Notes',
+      contributes: { tabs: [{ name: 'main', title: 'Markdown', opensFiles: { chat: ['.md'] } }, { name: 'raw', title: 'Source', opensFiles: { chat: ['.md'] } }] },
+    });
+    expect(fileOpenersFor('a.md', [both], 'chat')).toMatchObject([{ tabKind: 'notes.main', onlyTab: false }, { tabKind: 'notes.raw', onlyTab: false }]);
   });
 });
 
@@ -175,7 +181,8 @@ describe('claiming a file by its name (摩擦单 F82, S23: a board App took ever
     };
     expect(refused('*.md')).toContain('is the suffix \\".md\\"');
     expect(refused('docs/todo.md')).toContain('no slashes');
-    expect(refused('*')).toContain('more than');
+    expect(refused('**')).toContain('more than');
+    expect(refused('*')).toBeNull(); // any file, behind every other claim
     expect(refused('md')).toContain('needs its dot'); // a suffix missing its dot, not a file named "md"
     expect(refused('.MD')).toBeNull(); // lowercased, still a suffix
     // Control: before F82 a claim had to be a dot-led suffix — "TODO.md" was refused.

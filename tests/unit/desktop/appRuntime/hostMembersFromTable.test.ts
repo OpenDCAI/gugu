@@ -12,7 +12,7 @@ const names = (host: Record<string, unknown>) =>
   Object.entries(host).flatMap(([key, value]) =>
     value && typeof value === 'object' ? Object.keys(value).map((inner) => `${key}.${inner}`) : typeof value === 'function' ? [key] : []).sort()
 
-const FILES = ['open', 'reopen', 'close', 'list', 'read', 'search', 'recent', 'create', 'remove', 'rename', 'mkdir', 'move', 'watch', 'replace', 'versions', 'readVersion', 'upload'].map((verb) => `appFiles.${verb}`)
+const FILES = ['open', 'reopen', 'close', 'list', 'read', 'readText', 'exists', 'draft', 'writeText', 'search', 'recent', 'create', 'remove', 'rename', 'mkdir', 'move', 'writeChunk', 'watch', 'replace', 'versions', 'readVersion', 'upload'].map((verb) => `appFiles.${verb}`)
 const MESSAGES = ['messages.history', 'messages.search', 'chats.list', 'chats.members']
 // L1 This computer's projects: the desktop's and an App's program's; a phone has none (no member).
 const PROJECTS = ['projects.list']
@@ -23,8 +23,8 @@ const EVERYONE = ['cloud.read', 'getContext', 'onContextChanged', 'onFilesChange
 const MODAL = ['modal.open', 'modal.close', 'modal.key', 'onModalFocus']
 const PROJECTION_VIEWER = ['projection.watch', 'projection.unwatch', 'projection.send', 'onProjection']
 const PROJECTION_SOURCE = ['projection.create', 'projection.publish', 'projection.close', 'projection.closed', 'projection.inputResult', 'onProjectionSource']
-const PAGE_ONLY = ['navigationGo', 'showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', ...MODAL, ...CLOUD_PAGE, ...PROJECTION_VIEWER, 'openLink', 'onCommand', 'setTabTitle', 'setTabBadge', 'sendToBackground', 'onBackgroundMessage', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download', 'appFiles.forward']
-const PHONE = ['cloud.read', 'navigationGo', 'showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', 'appFiles.canDelete', ...MODAL, 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'listAgents', 'linkTo', 'openLink', 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', ...MESSAGES, ...SESSIONS, ...CLOUD_PAGE, 'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText', 'readData', 'writeData', 'listData', 'callProgram', ...FILES, 'appFiles.openWith', 'appFiles.download', 'appFiles.forward']
+const PAGE_ONLY = ['navigationGo', 'showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', 'appFiles.reveal', 'appFiles.openInApps', 'appFiles.openIn', 'appFiles.downloadStop', 'onDownloadProgress', ...MODAL, ...CLOUD_PAGE, ...PROJECTION_VIEWER, 'openLink', 'onCommand', 'setTabTitle', 'setTabBadge', 'setTabDirty', 'sendToBackground', 'onBackgroundMessage', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download', 'appFiles.forward']
+const PHONE = ['cloud.read', 'navigationGo', 'showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', 'appFiles.canDelete', ...MODAL, 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'listAgents', 'linkTo', 'openLink', 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', ...MESSAGES, ...SESSIONS, ...CLOUD_PAGE, 'setTabTitle', 'setTabBadge', 'setTabDirty', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText', 'readData', 'writeData', 'listData', 'callProgram', ...FILES, 'appFiles.openWith', 'appFiles.download', 'appFiles.forward']
 
 const desktop = (caller: 'page' | 'background') => hostMembers(caller, () => true, vi.fn(), hostEventHub().on)
 const overMessages = (flags: { framed?: true; program?: true; session?: true }) => messageHost({ post: vi.fn(), listen: () => undefined }, flags) as Record<string, unknown>

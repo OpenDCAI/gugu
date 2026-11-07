@@ -107,6 +107,20 @@ describe('every side-by-side entry ends in one strip with one pair', () => {
     expectOneStrip(layout);
   });
 
+  it("back and forth between a tab's own pages stays in that tab, though one is remembered beside", () => {
+    const memory = new Map<string, 'separate' | 'beside'>();
+    const { layout, open } = setup({ read: (id) => memory.get(id), write: (id, placement) => void memory.set(id, placement) });
+    const side = open('a.csv');
+    expect(open('a.csv', side, 'navigate', 'folder')).toBe(side);
+    // Control: the page going back is one the memory would otherwise move.
+    expect([...memory.values()]).toContain('beside');
+    expect(open('a.csv', side, 'navigate', 'file')).toBe(side);
+    expect(layout.pair?.side).toBe(side);
+    expect(paths(layout)).toEqual(['conversation', 'a.csv']);
+    expect(layout.mainGroup.pane.entries.get(side)?.kind ?? layout.groups[1]?.pane.entries.get(side)?.kind).toBe('file');
+    expectOneStrip(layout);
+  });
+
   it('narrow: the pair stays (only what is shown changes), widening shows it again', () => {
     const { layout, open } = setup();
     open('A.md');

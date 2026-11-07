@@ -1,7 +1,7 @@
 import { exec } from '@gugu/core/local/childProcess';
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { extname, isAbsolute, join, sep } from 'node:path';
+import { dirname, extname, isAbsolute, join, sep } from 'node:path';
 import type { IDisposable, IInitializable } from '@gugu/session-shared';
 import { app, clipboard, dialog, shell } from 'electron';
 import { getMainWindow } from '@main/app/window';
@@ -17,10 +17,13 @@ import {
   terminalContextMenuActionChannel,
   type TerminalContextMenuAction,
 } from '@shared/events/appEvents';
+import { appSettingsService } from '@main/core/settings/settings-service';
 import {
   getAppById,
   getResolvedLabel,
   OPEN_IN_APPS,
+  openInMenuApps,
+  TERMINAL_OPEN_IN_APP_IDS,
   type OpenInAppId,
   type PlatformConfig,
   type PlatformKey,
@@ -40,6 +43,7 @@ import {
 import { systemSettingsUrl } from '../../../../../shared/system-settings-urls';
 
 const FONT_CACHE_TTL_MS = 5 * 60 * 1_000;
+const INSTALLED_APPS_FRESH_MS = 5 * 60 * 1_000;
 /**
  * @@@electron44-clipboard (#4394) — electron 44 起 clipboard.writeText 返回 Promise。
  * 原生菜单的 click 回调是同步的、返回值没人看,所以这里确实是 fire-and-forget;
@@ -167,7 +171,25 @@ class AppService implements IInitializable, IDisposable {
     }
   }
 
-  async checkInstalledApps(): Promise<Record<string, boolean>> {
+  /** What 「Open in」 lists for a file, in the order of the project tab's menu: installed, not hidden in settings, the default first. */
+  async openInMenu(): Promise<Array<{ id: OpenInAppId; label: string }>> {
+    const [installed, openIn, terminal] = await Promise.all([this.checkInstalledApps(), appSettingsService.get('openIn'), appSettingsService.get('terminal')]);
+    const platform = process.platform as PlatformKey;
+    return openInMenuApps({ installed, hidden: openIn.hidden, terminalEnabled: terminal.enabled === true, defaultApp: openIn.default }).map((app) => ({ id: app.id, label: getResolvedLabel(app, platform) }));
+  }
+
+  /** Each check starts a process per program: pages ask often, what is installed rarely changes. */
+  private installedApps: { at: number; scan: Promise<Record<string, boolean>> } | null = null;
+
+  checkInstalledApps(): Promise<Record<string, boolean>> {
+    if (this.installedApps && Date.now() - this.installedApps.at < INSTALLED_APPS_FRESH_MS) return this.installedApps.scan;
+    const scan = this.scanInstalledApps();
+    this.installedApps = { at: Date.now(), scan };
+    scan.catch(() => { this.installedApps = null; });
+    return scan;
+  }
+
+  private async scanInstalledApps(): Promise<Record<string, boolean>> {
     const platform = process.platform as PlatformKey;
     const availability: Record<string, boolean> = {};
 
@@ -457,18 +479,22 @@ class AppService implements IInitializable, IDisposable {
       );
     }
 
+    // A file's program runs in its folder and takes the file; a terminal is given the folder: `open -a Terminal <file>` runs the file.
+    const isDirectory = (await stat(target)).isDirectory();
+    const cwd = isDirectory ? target : dirname(target);
+    const opened = TERMINAL_OPEN_IN_APP_IDS.has(appId) ? cwd : target;
     const quoted = (p: string) =>
       process.platform !== 'win32' ? `'${p.replace(/'/g, "'\\''")}'` : `"${p.replace(/"/g, '""')}"`;
     const commands: string[] = platformConfig?.openCommands ?? [];
     const command = commands
-      .map((cmd) => cmd.replace('{{path}}', quoted(target)).replace('{{path_raw}}', target))
+      .map((cmd) => cmd.replace('{{path}}', quoted(opened)).replace('{{path_raw}}', opened))
       .join(' || ');
 
     if (!command) throw new Error('Unsupported platform or app');
 
     await new Promise<void>((resolve, reject) => {
       // 「用 X 打开」:起的是要人看见的那个程序。
-      exec(command, { cwd: target, env: buildExternalToolEnv(), windowsHide: false }, (err) => {
+      exec(command, { cwd, env: buildExternalToolEnv(), windowsHide: false }, (err) => {
         if (err) return reject(err);
         resolve();
       });
@@ -512,24 +538,10 @@ class AppService implements IInitializable, IDisposable {
     return result.filePath;
   }
 
-  /** 下载别的机器上的文件 / 文件夹时的两个对话框(见 remote-downloads.ts)。 */
   async showDownloadSaveDialog(defaultPath: string): Promise<string | undefined> {
     const result = await dialog.showSaveDialog(getMainWindow()!, { defaultPath });
     return result.canceled || !result.filePath ? undefined : result.filePath;
   }
-
-  async showDownloadDirectoryDialog(defaultPath: string): Promise<string | undefined> {
-    const result = await dialog.showOpenDialog(getMainWindow()!, {
-      defaultPath,
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    return result.canceled ? undefined : result.filePaths[0];
-  }
-
-  downloadsDir(): string {
-    return app.getPath('downloads');
-  }
-
 
 }
 

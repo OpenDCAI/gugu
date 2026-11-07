@@ -1,6 +1,5 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
-import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import { ImageDiffView } from '@renderer/features/sessions/diff-view/main-panel/image-diff-view';
 import { isMissingFileError } from '@renderer/features/sessions/diff-view/main-panel/missing-file-error';
 import type { DiffTabResource } from '@renderer/features/sessions/diff-view/stores/diff-tab-resource';
@@ -220,7 +219,7 @@ const DiffContentPreview = observer(function DiffContentPreview({
   const { projectId } = useSessionViewContext();
   const workspaceId = useWorkspaceId();
   const workspacePath = useWorkspace().path;
-  const { pane } = usePaneContext();
+  const surface = useWorkspaceSurface();
   const status = useModelStatus(contentUri);
   void modelRegistry.bufferVersions.get(contentUri);
 
@@ -264,7 +263,7 @@ const DiffContentPreview = observer(function DiffContentPreview({
       resourcePath: href,
     });
     if (!target) return false;
-    pane.open('file', { path: target }, { intent: 'navigate' });
+    surface.openFile(target);
     return true;
   };
 

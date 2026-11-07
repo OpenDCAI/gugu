@@ -56,10 +56,11 @@ function projectConsumerKeys(): string[] {
  * 个域最容易复发的那种改动。
  */
 function tabsConsumerKeys(): string[] {
-  const tabsRoot = fileURLToPath(new URL('../features/', import.meta.url));
+  // The file preview's toolbar lives with the chat's preview panel.
+  const roots = ['../features/', '../../../components/chat/'].map((root) => fileURLToPath(new URL(root, import.meta.url)));
   const keys = new Set<string>();
 
-  for (const path of projectSourceFiles(tabsRoot)) {
+  for (const path of roots.flatMap(projectSourceFiles)) {
     const source = ts.createSourceFile(
       path,
       readFileSync(path, 'utf8'),

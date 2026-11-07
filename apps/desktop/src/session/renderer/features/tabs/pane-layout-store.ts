@@ -593,7 +593,9 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
     const open = intent === 'newTab' ? undefined : this.groups.flatMap(({ pane }) => [...pane.entries.values()])
       .find((entry) => entry.kind === kind && this._registry.get(kind).resourceKey(entry.state as never) === key);
 
-    if (intent === 'navigate' && from && !conversation && !remembered && (!open || open === from)) {
+    // A page this tab already went through is the tab's own (a file's 阅读 and 编辑): where it was last shown does not move it.
+    const own = from && source!.pane.navigationOf(from.tabId)!.pages.some((page) => page.kind === kind && this._registry.get(kind).resourceKey(page.state as never) === key);
+    if (intent === 'navigate' && from && !conversation && (own || !remembered) && (!open || open === from)) {
       source!.pane.navigate(from.tabId, kind, state);
       if (activate) {
         if (this.groups.includes(source as Pane<R>)) this.activePaneId = source!.paneId;
@@ -822,6 +824,7 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
         split: (tabId) => { this.splitPane(paneId, 'right', tabId); },
         splitBlocked: (tabId) => this.splitBlocked(paneId, tabId, 'right'),
         entryForTab: (tabId) => this.groups.map(({ pane }) => pane.entries.get(tabId)).find(Boolean),
+        isOnScreen: (tabId) => !this.narrow && (this.pair?.pinned === tabId || this.pair?.side === tabId),
         revealTab: (tabId) => {
           const group = this._groupOf(tabId);
           if (!group) return false;

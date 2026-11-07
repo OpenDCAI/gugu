@@ -3,7 +3,6 @@ import { sessionRegistry } from '@renderer/features/sessions/stores/session-regi
 import { isUnmountedProject } from '@renderer/features/projects/stores/project';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import type { DiffViewStore } from '@renderer/features/sessions/diff-view/stores/diff-view-store';
-import type { EditorViewStore } from '@renderer/features/sessions/editor/stores/editor-view-store';
 import type { AgentStatus, AgentStatusDetail } from '@shared/core/agents/agentEvents';
 import type { Session } from '@shared/core/sessions/sessions';
 import type { ProjectSessionsStore } from './project-sessions-store';
@@ -43,10 +42,6 @@ export function getSessionView(projectId: string, sessionId: string): WorkspaceV
 }
 
 /** Call only inside `observer` components (or other MobX reactions). */
-export function getEditorView(projectId: string, sessionId: string): EditorViewStore | undefined {
-  return getSessionView(projectId, sessionId)?.editorView;
-}
-
 /** Call only inside `observer` components (or other MobX reactions). */
 export function getDiffView(projectId: string, sessionId: string): DiffViewStore | undefined {
   return getSessionView(projectId, sessionId)?.diffView ?? undefined;
@@ -203,4 +198,13 @@ export function projectMountErrorMessage(projectId: string, translate: SessionTr
     return store.error ?? translate('task.openProjectFailed');
   }
   return translate('task.openProjectFailed');
+}
+
+/** The session this window shows, on this computer or another, by its id alone: its project here and its view. */
+export function findSessionAnywhere(sessionId: string): { projectId: string; viewModel: WorkspaceViewModel } | undefined {
+  for (const [projectId, project] of getProjectManagerStore().projects) {
+    const store = project.mountedProject?.sessionManager.sessions.get(sessionId);
+    if (store?.viewModel) return { projectId, viewModel: store.viewModel };
+  }
+  return undefined;
 }

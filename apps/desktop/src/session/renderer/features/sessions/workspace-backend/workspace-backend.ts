@@ -16,7 +16,6 @@ import { events, rpc } from '@renderer/lib/ipc';
 import { localWorkspaceBackend } from './local-workspace-backend';
 import type { WorkspaceBrowserBackend } from './workspace-browser-backend';
 import type { WorkspaceTerminalBackend } from './workspace-terminal-backend';
-import type { WorkspaceTreeBackend } from './workspace-tree-backend';
 
 /** 会话工作区的那组动词 —— 与本机 `rpc.workspace` 同名同形(文件、文件树投影、编辑器草稿、git)。 */
 export type WorkspaceRpc = typeof rpc.workspace;
@@ -27,8 +26,8 @@ export interface WorkspaceBackend {
   readonly rpc: WorkspaceRpc;
   /** 列一个目录(路径条的下拉)。 */
   browseDirectory(workspaceId: string, path: string): Promise<BrowseDirectoryResult>;
-  /** 文件树里超出 `rpc.workspace` 的那几个动作(新建 / 改名 / 删除 / 导入 / 下载)。 */
-  readonly tree: WorkspaceTreeBackend;
+  /** 工作区在另一台机器上:这台电脑的程序够不着它的文件。 */
+  readonly elsewhere: boolean;
   /** 浏览器页签在这台机器上怎么加载地址(localhost 转到那台机器、`file:` 从那台机器取)。 */
   readonly browser: WorkspaceBrowserBackend;
   /** 终端页签的来源(本机 pty / 那台机器上经 SSH 开的 shell)。 */

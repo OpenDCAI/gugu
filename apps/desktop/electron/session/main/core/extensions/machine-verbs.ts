@@ -17,6 +17,9 @@ export type MachineCallFrom = { sessionId?: string } | { agent: string; agentSes
 const text = (value: unknown) => (typeof value === 'string' ? value : '');
 const invalid = (message: string) => Object.assign(new Error(message), { code: 'invalid' });
 
+/** A page on another machine has no page here: only the App it is of counts (no file was handed to it here). */
+const pageOf = (extensionId: string) => ({ pageId: -1, extensionId, handed: null });
+
 export const machineVerbs = {
   sessionsIndex: async (_extensionId, args) => (await import('./app-sessions')).indexSessionsForApp(args),
   sessionsRead: async (_extensionId, args) => (await import('./app-sessions')).readSessionForApp(args),
@@ -59,5 +62,22 @@ export const machineVerbs = {
     if (!isWorkspace(ref)) throw invalid('A chat\'s file is opened whole: files.open');
     const { readWorkingCopy } = await import('./working-copy-files');
     return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, Number(args.offset) || 0, Number(args.length) || 0);
+  },
+  // A working copy's writes: what this machine's own pages call, for the page elsewhere that named it.
+  filesCreate: async (extensionId, args) => (await import('./app-files')).createAppFile(pageOf(extensionId), args as never),
+  filesRename: async (extensionId, args) => (await import('./app-files')).renameAppFile(pageOf(extensionId), args as never),
+  filesMkdir: async (extensionId, args) => (await import('./app-files')).makeAppFolder(pageOf(extensionId), args),
+  filesMove: async (extensionId, args) => (await import('./app-files')).moveAppFile(pageOf(extensionId), args),
+  filesRemove: async (extensionId, args) => (await import('./app-files')).removeAppFile(pageOf(extensionId), args),
+  filesDraft: async (_extensionId, args) => {
+    const ref = fileRefOf(args.ref);
+    if (!isWorkspace(ref) || !('id' in ref)) throw invalid('A draft is of a working copy\'s file, by its path');
+    return (await import('./app-files')).draftHere(ref as never, args.text);
+  },
+  // Who may name what was decided where the page is (`writeAppFileChunk`): a file handed to it there has no page here.
+  filesWriteChunk: async (_extensionId, args) => {
+    const place = placeOf(args.place);
+    if (!isWorkspace(place)) throw invalid('A chat\'s file is uploaded whole: files.upload');
+    return (await import('./working-copy-files')).writeWorkingCopyChunk(place, args as never);
   },
 } satisfies Record<MachineVerb | PlaceVerb, (extensionId: string, args: Record<string, unknown>, from: MachineCallFrom) => Promise<unknown>>;

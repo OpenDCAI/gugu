@@ -1,13 +1,11 @@
-// #6264 别的机器上的文件树:上传(含从访达拖进来)与下载(文件 / 整个文件夹)。
+// #6264 别的机器上的文件树:上传(含从访达拖进来)。下载走 App 文件那一条(app-files.ts 的 downloadAppFile)。
 //
 // 照 VS Code 远程资源管理器(1.36 起:拖进来即上传、右键「下载...」,https://code.visualstudio.com/updates/v1_36#_remote-development):
 //  · 上传:字节分段走「写文件」那个既有动词(与编辑器存回同一条,SSH 直连优先、云端中转兜底);
 //    文件夹按层先建目录再传文件;同名已有先问一次「替换」(与本机文件树拖进来同一个对话框),❌ 静默覆盖;
-//  · 下载:字节分段走「读文件」那个既有动词,一段段交给主进程落盘(remote-downloads.ts);文件夹先列一遍算总量再传。
 // 每一件都有真实进度(已完成 / 总共 · 速度),能取消;失败说人话,写了一半的由落盘那一侧删掉。
 //
-// 上限如实:单个文件不超过 `REMOTE_WORKSPACE_MAX_FILE_BYTES`(那台机器收一次保存要整份攒在内存里再落盘,
-// 与编辑器能打开的上限同一个数);只经云端连着的机器,每一段都走云端中转,大文件会慢 —— 进度里看得见速度。
+// 上限如实:单个文件不超过 `REMOTE_WORKSPACE_MAX_FILE_BYTES`(与编辑器能打开的上限同一个数);只经云端连着的机器,每一段都走云端中转,大文件会慢 —— 进度里看得见速度。
 //
 // 纯逻辑(rpc、读本机文件、落盘都注入),单测钉每条分支;画在 remote-files-tab.tsx。
 import { makeAutoObservable, runInAction } from 'mobx';
@@ -20,10 +18,7 @@ import {
   type SessionpageWorkspaceReadRequest,
   type SessionpageWorkspaceWriteRequest,
 } from '@gugu/session-core/session-record/contract';
-import { base64ToBytes, bytesToBase64 } from '@renderer/lib/base64';
-
-/** 文件夹下载最多这么多个文件(再多先停下说一句,❌ 无声地一直列下去)。 */
-export const REMOTE_DOWNLOAD_MAX_FILES = 10_000;
+import { bytesToBase64 } from '@shared/lib/base64';
 
 /** 要上传的一件(拖进来的文件、文件夹里的文件):相对落点的逐层名字 + 按段取字节。 */
 export type UploadItem = {
@@ -33,14 +28,7 @@ export type UploadItem = {
   slice(start: number, end: number): Promise<Uint8Array>;
 };
 
-/** 主进程那一侧的落盘(见 electron/session/main/core/app/remote-downloads.ts)。 */
-export type DownloadSink = {
-  begin(name: string, kind: 'file' | 'folder'): Promise<{ token: string; target: string } | null>;
-  write(token: string, segments: string[], offset: number, data: string, final: boolean): Promise<void>;
-  finish(token: string, ok: boolean): Promise<string | null>;
-};
-
-export type TransferKind = 'upload' | 'download';
+export type TransferKind = 'upload';
 export type TransferStatus = 'running' | 'done' | 'failed' | 'cancelled';
 
 export class RemoteTransfer {
@@ -50,8 +38,6 @@ export class RemoteTransfer {
   /** 最近一段时间的速度(字节 / 秒)。 */
   bytesPerSecond = 0;
   error: unknown = null;
-  /** 下载好的落点(本机路径)。 */
-  target: string | null = null;
   /** 超过单件上限没传的那几个名字。 */
   skipped: string[] = [];
   private startedAt: number;
@@ -99,7 +85,6 @@ export type RemoteTransfersDeps = {
   rpc: () => TransferRpc;
   sessionId: string;
   deviceId: string;
-  sink: DownloadSink;
   /** 同名已有:问一次「替换」。返回 false = 人不替换(整次上传作罢)。 */
   confirmReplace: (names: string[]) => Promise<boolean>;
   now?: () => number;
@@ -223,79 +208,6 @@ export class RemoteTransfers {
     return transfer;
   }
 
-  /** 下载一个文件或整个文件夹到这台电脑。人在「放哪」那一步取消 = null。 */
-  async download(entry: Pick<SessionpageWorkspaceEntry, 'name' | 'path' | 'isDirectory' | 'size'>): Promise<RemoteTransfer | null> {
-    const kind = entry.isDirectory ? 'folder' : 'file';
-    const started = await this.deps.sink.begin(entry.name, kind);
-    if (!started) return null;
-    const transfer = this.begin('download', entry.name);
-    let ok = false;
-    try {
-      const files: Array<{ path: string; segments: string[]; size: number }> = [];
-      if (entry.isDirectory) {
-        await this.walk(transfer, entry.path, [], files);
-      } else {
-        files.push({ path: entry.path, segments: [], size: entry.size });
-      }
-      runInAction(() => {
-        transfer.total = files.reduce((sum, file) => sum + file.size, 0);
-      });
-      for (const file of files) await this.pull(transfer, started.token, file);
-      ok = true;
-      this.end(transfer, null);
-    } catch (error) {
-      this.end(transfer, error);
-    } finally {
-      const target = await this.deps.sink.finish(started.token, ok).catch(() => null);
-      runInAction(() => {
-        transfer.target = ok ? target : null;
-      });
-    }
-    return transfer;
-  }
-
-  /** 列一遍文件夹(一层一问);符号链接不跟(❌ 绕圈、❌ 跑到会话目录外面去)。 */
-  private async walk(
-    transfer: RemoteTransfer,
-    dir: string,
-    segments: string[],
-    out: Array<{ path: string; segments: string[]; size: number }>
-  ): Promise<void> {
-    this.check(transfer);
-    const listing = await this.deps.rpc().listWorkspace(this.deps.deviceId, { sessionId: this.deps.sessionId, path: dir });
-    for (const entry of listing.entries) {
-      if (entry.kind === 'symlink') continue;
-      if (entry.kind === 'dir') {
-        await this.walk(transfer, entry.path, [...segments, entry.name], out);
-        continue;
-      }
-      if (out.length >= REMOTE_DOWNLOAD_MAX_FILES) throw Object.assign(new Error('too many files'), { code: 'too_many_files' });
-      out.push({ path: entry.path, segments: [...segments, entry.name], size: entry.size });
-    }
-  }
-
-  private async pull(transfer: RemoteTransfer, token: string, file: { path: string; segments: string[]; size: number }): Promise<void> {
-    let offset = 0;
-    let etag: string | null = null;
-    for (;;) {
-      this.check(transfer);
-      const chunk = await this.deps.rpc().readWorkspaceFile(this.deps.deviceId, {
-        sessionId: this.deps.sessionId,
-        path: file.path,
-        offset,
-        length: REMOTE_WORKSPACE_CHUNK_BYTES,
-      });
-      // 下到一半那台机器上的文件变了(agent 还在写):停下说一句,❌ 拼出两个版本各一半的文件。
-      if (etag !== null && chunk.etag !== etag) throw Object.assign(new Error('changed while downloading'), { code: 'changing' });
-      etag = chunk.etag;
-      const bytes = base64ToBytes(chunk.data);
-      const final = offset + bytes.length >= chunk.size || bytes.length === 0;
-      await this.deps.sink.write(token, file.segments, offset, chunk.data, final);
-      offset += bytes.length;
-      transfer.progress(bytes.length);
-      if (final) return;
-    }
-  }
 }
 
 /** 上传没成的原因里,「同名已有」单独说;其余交给通用那一句。 */

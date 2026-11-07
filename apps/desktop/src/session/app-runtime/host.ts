@@ -1,5 +1,7 @@
+import type { WorkingCopyPart } from '@shared/extensions/working-copy-upload';
 import type { TabOpenIntent } from '@shared/view-state';
-import { fileRefOf, type AppFileChunk, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, type AppFileChunk, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef,
+  type AppFileText, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts } from '@shared/extensions/bridge-protocol';
 import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, AppSessionRead } from '@shared/extensions/app-sessions';
 import type { ProjectionHost } from './projection-source';
@@ -58,10 +60,20 @@ export interface GuguHost extends ProjectionHost {
     move(args: { ref: AppFileRef; folder?: string; name?: string }): Promise<AppFileEntry>;
     remove(args: { ref: AppFileRef }): Promise<void>;
     rename(args: { ref: AppFileRef; name: string }): Promise<AppFileEntry>;
+    /** One part of a file going into a working copy: `files.upload` with bytes. */
+    writeChunk(args: WorkingCopyPart): Promise<{ received: number; entry?: AppFileEntry }>;
+    /** A working copy's file or folder in this computer's file manager: a page's. */
+    reveal?(args: { ref: AppFileRef }): Promise<void>;
+    openInApps?(args: Record<string, never>): Promise<Array<{ id: string; label: string }>>;
+    openIn?(args: { ref: AppFileRef; app: string }): Promise<void>;
     /** 「设为临时 / 一直保留」: the cloud copy of a chat file this person uploaded, cleared after their temporary period or kept. */
     keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
-    watch(args: { watchId: string; place: AppPlace & { folder?: string }; on: boolean }): Promise<void>;
+    watch(args: { watchId: string; place: AppPlace & { folder?: string; id?: string }; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
+    readText(args: { ref: AppFileRef; maxBytes?: number; transferId?: string }): Promise<AppFileText>;
+    exists(args: { ref: AppFileRef }): Promise<boolean>;
+    draft(args: { ref: AppFileRef; text?: string | null }): Promise<string | null>;
+    writeText(args: { ref: AppFileRef; text: string }): Promise<{ entry: AppFileEntry }>;
     /** Whether whoever reads may delete each file, in order: asked as a file's menu opens, never carried by a list. */
     canDelete(args: { refs: AppFileRef[] }): Promise<boolean[]>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
@@ -71,7 +83,8 @@ export interface GuguHost extends ProjectionHost {
     /** The gesture halves: a page's only (`VerbFacts.only`) — a background page and a program have none. */
     openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> }): Promise<void>;
     /** One file (`true` saved), or several (API 20: how many were saved; `0` when the person cancelled). */
-    download?(args: { ref: AppFileRef } | { refs: AppFileRef[] }): Promise<boolean | number>;
+    download?(args: { ref: AppFileRef; folder?: boolean; transferId?: string } | { refs: AppFileRef[] }): Promise<boolean | number>;
+    downloadStop?(args: { transferId: string }): Promise<void>;
     forward?(args: { refs: AppFileRef[] }): Promise<void>;
   };
   readonly clipboard?: {

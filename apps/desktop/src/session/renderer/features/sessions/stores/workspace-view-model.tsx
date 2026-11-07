@@ -14,7 +14,6 @@ import type { BrowserTabResource } from '@renderer/features/browser/browser-tab-
 import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
 import { getDiffTabManager } from '@renderer/features/sessions/diff-view/stores/diff-tab-manager';
 import { DiffViewStore } from '@renderer/features/sessions/diff-view/stores/diff-view-store';
-import { EditorViewStore } from '@renderer/features/sessions/editor/stores/editor-view-store';
 import { PreviewServerStore } from '@renderer/features/sessions/stores/preview-server-store';
 import { TerminalTabViewStore } from '@renderer/features/sessions/terminals/terminal-tab-view-store';
 import { type SidebarTab } from '@renderer/features/sessions/types';
@@ -56,7 +55,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   /** Stable sub-stores — live for the full WorkspaceViewModel lifetime. */
   readonly paneLayout: ReturnType<typeof sessionTabView.createPaneLayoutStore>;
   readonly terminalTabs: TerminalTabViewStore;
-  readonly editorView: EditorViewStore;
 
   /**
    * Returns the focused pane's PaneStore.
@@ -129,12 +127,10 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     // agent 打开的、从对话里点开的开在这条会话自己的对话右边(spec session-page「并排」)。
     this._seeder = new DefaultSessionSeeder(this.sessionId, this.paneLayout);
     this.terminalTabs = new TerminalTabViewStore(() => terminalRegistry.get(this.sessionId) ?? null);
-    this.editorView = new EditorViewStore(this.paneLayout, sessionData.projectId, workspaceId);
 
     makeAutoObservable(this, {
       paneLayout: false,
       terminalTabs: false,
-      editorView: false,
       diffView: observable.ref,
     });
 
@@ -322,7 +318,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       isTerminalDrawerOpen: this.isTerminalDrawerOpen,
       terminalDrawerActiveItem: this.terminalDrawerActiveItem,
       terminals: this.terminalTabs.snapshot,
-      editor: this.editorView.snapshot,
       diffView: this.diffView?.snapshot ?? this._savedDiffViewSnapshot,
     };
   }
@@ -351,9 +346,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
 
     if (savedSnapshot.terminals) {
       this.terminalTabs.restoreSnapshot(savedSnapshot.terminals);
-    }
-    if (savedSnapshot.editor) {
-      this.editorView.restoreSnapshot(savedSnapshot.editor);
     }
     if (savedSnapshot.diffView) {
       this._savedDiffViewSnapshot = savedSnapshot.diffView;
@@ -449,7 +441,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
 
     // Open this view's file-tree projection now that the workspace is provisioned
     // (it keeps its registered scopes in step with the expanded folders itself).
-    this.editorView.startFiles(workspace.path);
   }
 
   /**
@@ -482,7 +473,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     this._sessionDisposers = [];
 
     // Close this view's file-tree projection subscription.
-    this.editorView.disposeFiles();
   }
 
   /**
@@ -496,7 +486,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     this._seeder.dispose();
     this.paneLayout.dispose();
     this.terminalTabs.dispose();
-    this.editorView.dispose();
   }
 
   // -------------------------------------------------------------------------

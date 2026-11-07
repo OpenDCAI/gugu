@@ -1,16 +1,18 @@
 import { createContext, useContext, useState, type ComponentProps } from 'react';
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 
-/** The visible tabs, plus at most three recently viewed tabs. Never mount an unvisited restored tab. */
+/** The visible tabs, those holding what would be lost (`held`), plus at most three recently viewed tabs. Never mount an unvisited restored tab. */
 export const KEPT_HIDDEN_TABS = 3;
 
-export function useRetainedTabs(available: readonly string[], shown: readonly string[]): ReadonlySet<string> {
+export function useRetainedTabs(available: readonly string[], shown: readonly string[], held: readonly string[] = []): ReadonlySet<string> {
   const [recent, setRecent] = useState<readonly string[]>([]);
   const open = new Set(available);
   const visible = new Set(shown.filter((id) => open.has(id)));
+  const keep = new Set(held.filter((id) => open.has(id) && !visible.has(id)));
   const next = [
     ...visible,
-    ...recent.filter((id) => open.has(id) && !visible.has(id)).slice(0, KEPT_HIDDEN_TABS),
+    ...keep,
+    ...recent.filter((id) => open.has(id) && !visible.has(id) && !keep.has(id)).slice(0, KEPT_HIDDEN_TABS),
   ];
   if (next.length !== recent.length || next.some((id, index) => id !== recent[index])) setRecent(next);
   return new Set(next);

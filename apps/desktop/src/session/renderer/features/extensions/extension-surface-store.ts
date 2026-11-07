@@ -27,6 +27,12 @@ export interface ExtensionSurfaceState {
    * to reach *this* surface. Null means nothing is running to tell.
    */
   webContentsId: number | null;
+  /**
+   * The page holding this tab's unsaved edits: one page serves a pane's file tabs, so it need not be the one bound to the
+   * tab now. Null: nothing unsaved. `dirtyReports` counts what it has said, so a question put to it is known to be answered.
+   */
+  dirtyIn: number | null;
+  dirtyReports: number;
 }
 
 const EMPTY: ExtensionSurfaceState = {
@@ -34,6 +40,8 @@ const EMPTY: ExtensionSurfaceState = {
   badge: null,
   error: null,
   webContentsId: null,
+  dirtyIn: null,
+  dirtyReports: 0,
 };
 
 /**
@@ -77,6 +85,8 @@ class ExtensionSurfaceStore {
     makeObservable(this, {
       say: action,
       setWebContentsId: action,
+      reportDirty: action,
+      clearDirtyOfPage: action,
       forgetShared: action,
       forget: action,
       trackedCount: computed,
@@ -108,6 +118,19 @@ class ExtensionSurfaceStore {
   /** Recorded when the surface binds, cleared when it goes away. */
   setWebContentsId(sessionId: string | null, tabId: string, webContentsId: number | null): void {
     this.patch(sessionId, tabId, { webContentsId });
+  }
+
+  reportDirty(sessionId: string | null, tabId: string, dirty: boolean, webContentsId: number): void {
+    const dirtyReports = this.state(sessionId, tabId).dirtyReports + 1;
+    this.patch(sessionId, tabId, { dirtyIn: dirty ? webContentsId : null, dirtyReports });
+  }
+
+  /** A reload: what a session's pages held unsaved is in their drafts now, and each says again as it opens the file. */
+  clearDirtyOfPage(sessionId: string | null): void {
+    const prefix = key(sessionId, '');
+    for (const [surface, state] of this.surfaces) {
+      if (surface.startsWith(prefix) && state.dirtyIn !== null) this.surfaces.set(surface, { ...state, dirtyIn: null });
+    }
   }
 
   sharedState(page: string): ExtensionSharedPresentation {

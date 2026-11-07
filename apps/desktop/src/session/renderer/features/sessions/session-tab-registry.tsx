@@ -8,7 +8,7 @@
  * store-creator, hook, and derived types:
  *
  *   const paneLayout = sessionTabView.createPaneLayoutStore(ctx);
- *   paneLayout.open('file', { path: '/foo.ts' });   // typed ✓
+ *   paneLayout.open('file-view', { path: '/foo.png' });   // typed ✓
  *
  * `SessionTabKind`, `SessionOpenArgsOf`, etc. are derived from the provider set,
  * so they stay in sync automatically.
@@ -24,7 +24,7 @@ import { sessionTabProvider } from './session-tab-provider';
 import type { SessionTabContext } from '../tabs/core/session-tab-context';
 import { diffTabProvider } from './diff-view/diff-tab-provider';
 import { reviewTabProvider } from './diff-view/review-tab-provider';
-import { fileTabProvider } from './editor/file-tab-provider';
+import { fileViewTabProvider } from './file-view/file-view-tab-provider';
 import { createSessionTabPersistor } from './stores/session-tab-view-persistor';
 import { terminalTabProvider } from './terminals/terminal-tab-provider';
 import { remotePortsTabProvider } from '../remote-hosts/workspace/remote-ports-tab';
@@ -34,7 +34,7 @@ export const sessionTabView = createTabView(
     sessionTabProvider,
     acpChatTabProvider,
     sideChatTabProvider,
-    fileTabProvider,
+    fileViewTabProvider,
     chatResourceTabProvider,
     reviewTabProvider,
     diffTabProvider,

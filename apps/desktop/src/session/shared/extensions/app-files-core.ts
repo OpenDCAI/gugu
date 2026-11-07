@@ -68,6 +68,12 @@ export class AppFileError extends Error {
   }
 }
 
+/** The one answer to what a page may do to a working copy's file: the one handed to it needs nothing, any other one of `capabilities`. */
+export function requireHandedOr(handed: boolean, has: (capability: 'files:read' | 'files:write') => boolean, capabilities: readonly ('files:read' | 'files:write')[], what: string): void {
+  if (handed || capabilities.some(has)) return;
+  throw new AppFileError('denied', `Not permitted: ${what} a file other than the one this page was opened for needs ${capabilities.map((capability) => `"${capability}"`).join(' or ')}`);
+}
+
 /** Who is asking about files: the page, and the one chat file it may open without a capability. */
 export interface FileSurface {
   /** The page's id with the relay: its webContents on the desktop, its frame on the phone. */

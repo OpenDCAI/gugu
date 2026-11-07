@@ -1,4 +1,4 @@
-import { fileBaseName } from '../stores/workspace-path';
+import { fileBaseName } from '@renderer/features/sessions/stores/workspace-path';
 
 /**
  * 页签叫什么。owner 10-06:agent 开了好几个本地页面,右栏一排全叫 `index.html`,分不出哪个是哪个。

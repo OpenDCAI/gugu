@@ -549,6 +549,8 @@ export type ExtensionHostEvent =
    * on purpose — a guessed set would be worse.
    */
   | { type: 'filesChanged'; watchId: string; place: AppPlace; change: ExtensionFileChangeBatch }
+  /** How far a `files.download` of a working copy's file or folder is. */
+  | { type: 'downloadProgress'; transferId: string; done: number; total: number }
   /**
    * What the app is showing moved — a pane switched tabs, the view split, the
    * user changed session, or the window gained or lost the foreground.
@@ -705,6 +707,8 @@ export const BRIDGE_VERBS = {
   setTabTitle: { needs: null, only: 'page' },
   /** Mark this tab as having something new (its own tab only). */
   setTabBadge: { needs: null, only: 'page' },
+  /** Say whether a tab this page drew has edits not yet saved: the host's dot, and its question before closing. */
+  setTabDirty: { needs: null, only: 'page' },
   /** Ask the host to open a URL: a browser tab in the page's session, else the person's browser. */
   openBrowserTab: { needs: null, toAgent: { answer: undefined } },
   /** Say something went wrong, loudly, where the user can see it. */
@@ -826,21 +830,36 @@ export const BRIDGE_VERBS = {
   filesList: { needs: 'files:read', machine: 'place' },
   /** Up to 512 KB of a working copy's file at an offset (`f.read`): how a file of any size is read, on its own machine. */
   filesRead: { needs: ({ ref }) => ref !== null && typeof ref === 'object' && 'workspace' in ref ? 'files:read' : null, machine: 'place' },
+  /** A working copy's text whole, and whether it is there, in those pieces: gated as filesOpen, in `app-files.ts`. */
+  filesReadText: { needs: null },
+  filesExists: { needs: null },
+  /** What survives a crash of a file's unsaved edits, on the file's machine: read, kept (`text`), dropped (`text: null`). */
+  filesDraft: { needs: null, machine: 'place' },
+  filesWriteText: { needs: null },
   /**
    * Files across every chat the reader is in (gugu-supabase 20261017002319): found by a piece of their path, and the ones
    * this person opened last. `files:read` already reads any chat they are in, so it is the same consent.
    */
   filesSearch: { needs: 'files:read' },
   filesRecent: { needs: 'files:read' },
-  filesCreate: { needs: 'files:write' },
+  filesCreate: { needs: 'files:write', machine: 'place' },
   filesViewPreferences: { needs: 'files:read', only: 'page' },
-  filesRemove: { needs: 'files:write' },
-  filesRename: { needs: 'files:write' },
+  filesRemove: { needs: 'files:write', machine: 'place' },
+  filesRename: { needs: 'files:write', machine: 'place' },
   /** 「设为临时 / 一直保留」: the person's own upload, from the page they act in (an App's program has no say in it). */
   filesKeep: { needs: 'files:write', only: 'page' },
   /** 子文件夹: a folder made (all the way down; one already there is answered), and a file or folder moved into another. */
-  filesMkdir: { needs: 'files:write' },
-  filesMove: { needs: 'files:write' },
+  filesMkdir: { needs: 'files:write', machine: 'place' },
+  filesMove: { needs: 'files:write', machine: 'place' },
+  /** One part of a file going into a working copy (`files.upload` with bytes): where the working copy is, however large the file. */
+  filesWriteChunk: { needs: 'files:write', machine: 'place' },
+  /** A working copy's file or folder shown in this computer's file manager. */
+  filesReveal: { needs: 'files:read', only: 'page' },
+  /** 「用 VS Code 打开」: the programs of this computer a file can be opened in, and opening it in one. */
+  filesOpenInApps: { needs: 'files:read', only: 'page' },
+  filesOpenIn: { needs: 'files:read', gesture: true, only: 'page' },
+  /** A `files.download` under way stopped: what it had saved goes. */
+  filesDownloadStop: { needs: null, only: 'page' },
   /**
    * A stored file's content replaced: the same file, its next version (G1), the one it had kept as history. Gated like
    * open read-write: the file the host handed this page needs nothing, any other `files:write` (checked in `app-files.ts`).
@@ -987,11 +1006,12 @@ export function callRefusal(
  *   or `files.replace` when the machine keeping the chat's files is offline or did not take the new version in time.
  * - `not-installed` / `version-mismatch`: a `machine` verb for a session on another machine, where this App is not
  *   installed, or another version of it is.
+ * - `machine-outdated`: a working copy's file call its machine is too old to do. `detail.machine` names it; the host says how to update it.
  * - `name-taken` (子文件夹): a rename or a move to a name another file of that folder already has (case not counted).
  */
 export const BRIDGE_ERROR_CODES = [
   'denied', 'invalid', 'failed', 'not-found', 'ambiguous', 'too-large', 'rate-limited', 'content-changed', 'unavailable',
-  'name-taken', 'not-installed', 'version-mismatch', 'stale-version',
+  'name-taken', 'not-installed', 'version-mismatch', 'stale-version', 'machine-outdated',
 ] as const;
 export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
 

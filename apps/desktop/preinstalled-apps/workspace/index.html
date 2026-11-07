@@ -33,8 +33,8 @@
     <header class="doc-head">
       <nav class="page-navigation">
         <button id="page-back" type="button"><gugu-icon name="arrow-left"></gugu-icon><span id="page-back-label"></span></button>
-        <button id="page-forward" type="button"><gugu-icon name="arrow-right"></gugu-icon></button>
       </nav>
+      <nav id="doc-path" class="doc-path" hidden></nav>
       <h1 id="doc-title" class="doc-title"></h1>
       <div class="doc-actions">
         <!-- One toggle (owner 11-06): it shows the mode a press goes to — ✎ while reading, 👁 while editing; 对照 is in ⋯. -->
@@ -66,6 +66,8 @@
       <gugu-empty id="doc-empty" class="doc-empty" icon="file-text" hidden><strong id="doc-empty-title"></strong><small id="doc-empty-hint"></small><span class="row"><button id="empty-write" class="primary" type="button"><gugu-icon name="pencil"></gugu-icon><span id="empty-write-label"></span></button><button id="empty-draft" type="button"><gugu-icon name="sparkles"></gugu-icon><span id="empty-draft-label"></span></button></span></gugu-empty>
     </div>
   </main>
+  <!-- Transfers under way: under the list or the open file, whichever is showing. -->
+  <div id="transfer" class="transfer" role="status" hidden></div>
   <!-- A file's details: beside the list when the pane is wide, over it when narrow. -->
   <aside id="details" class="details card" aria-label="details" hidden></aside>
   <div id="menu" class="menu card list" role="menu" hidden></div>

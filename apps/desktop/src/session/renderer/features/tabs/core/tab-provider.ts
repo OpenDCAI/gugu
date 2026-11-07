@@ -27,6 +27,8 @@ export interface TabEntry<S = unknown> {
  * Domain managers ref-count their internal state inside initialize/dispose.
  */
 export interface TabResource {
+  /** Its content holds what would be lost if unmounted (unsaved edits): the pane keeps it mounted. */
+  readonly holdsUnsaved?: boolean;
   /** Called when the engine permanently removes the tab. Must be idempotent. */
   dispose(): void;
   /**

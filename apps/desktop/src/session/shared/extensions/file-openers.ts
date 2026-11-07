@@ -67,10 +67,11 @@ export function placeFor(choice: OpenerChoice, at: unknown): { candidate: FileOp
 }
 
 /**
- * How specific a claim is (摩擦单 F82): a file name beats any pattern, a pattern (`todo-*.md`) beats any suffix;
- * within each, the more of it is spelled out the better (`.tar.gz` before `.gz`, `todo-2026-*.md` before `todo-*.md`).
+ * How specific a claim is (摩擦单 F82): a file name beats any pattern, a pattern (`todo-*.md`) beats any suffix, a suffix
+ * beats `*`; within each, the more of it is spelled out the better (`.tar.gz` before `.gz`, `todo-2026-*.md` before `todo-*.md`).
  */
 function specificity(claim: string): [kind: number, length: number] {
+  if (claim === '*') return [-1, 0];
   if (claim.startsWith('.')) return [0, claim.length];
   if (claim.includes('*')) return [1, claim.replace(/\*/g, '').length];
   return [2, claim.length];
@@ -133,7 +134,8 @@ export function fileOpenersFor(
           tabKind: `${manifest.id}.${tab.name}`,
           tabTitle: tab.title,
           app: { name: manifest.name, defaultLocale: manifest.defaultLocale, ...(manifest.localized ? { localized: manifest.localized } : {}) },
-          onlyTab: manifest.contributes.tabs.length === 1,
+          // The App's name says enough when only this tab of it opens files here.
+          onlyTab: manifest.contributes.tabs.filter((other) => claimedSuffixes(other, context).length > 0).length === 1,
           suffix: claimed,
           state: context === 'chat' && tab.chatFile?.toLowerCase() === name,
         });

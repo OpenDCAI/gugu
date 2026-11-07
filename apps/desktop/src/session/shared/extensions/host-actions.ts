@@ -42,6 +42,7 @@ export type ExtensionHostAction =
   | { kind: 'focusAppModalClose'; id: string }
   | { kind: 'setTabTitle'; title: string }
   | { kind: 'setTabBadge'; badge: number | string | null }
+  | { kind: 'setTabDirty'; tabId: string; dirty: boolean; webContentsId: number }
   | { kind: 'openBrowserTab'; url: string }
   | { kind: 'reportError'; message: string }
   /** The page loaded another document (a reload, another of the App's pages): what the old one said about itself goes. */
@@ -53,6 +54,7 @@ export type ExtensionHostAction =
   | { kind: 'showMessage'; detail: AppShowMessageDetail }
   | { kind: 'openWith'; detail: AppOpenWithDetail }
   /** A session's working-copy file (`files.openWith`): opened in that session's pane as a click there opens it. */
+  | { kind: 'openSessionFolder'; folder: string }
   | { kind: 'openSessionFile'; sessionId: string; projectId: string | null; deviceId: string | null; path: string; ask: boolean; intent?: TabOpenIntent; viewState?: Record<string, unknown> }
   /** `files.forward`: the window's forward page for chat files (ChatFileForwardHost). */
   | { kind: 'forwardFiles'; detail: AppForwardFilesDetail }

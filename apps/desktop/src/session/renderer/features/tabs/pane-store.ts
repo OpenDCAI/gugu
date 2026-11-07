@@ -94,6 +94,8 @@ export interface PaneSplitter {
   /** 为什么分不出来;null = 分得出来。 */
   splitBlocked(tabId: string): 'only-tab' | 'too-small' | null;
   revealTab?(tabId: string): boolean;
+  /** Whether a tab is showing now, beside this one or in front. */
+  isOnScreen?(tabId: string): boolean;
   entryForTab?(tabId: string): TabEntry | undefined;
   hasSibling?(): boolean;
   isFocusedPane?(): boolean;
@@ -549,7 +551,10 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
   canGo(tabId: string, delta: -1 | 1): boolean {
     const history = this.navigationOf(tabId);
-    return Boolean(history?.pages[history.index + delta] || (delta === -1 && this.openerOf(tabId)));
+    if (history?.pages[history.index + delta]) return true;
+    // The tab it was opened from, unless that is on screen already (beside it): going there would change nothing.
+    const opener = delta === -1 ? this.openerOf(tabId) : undefined;
+    return !!opener && !this._layoutSplitter?.isOnScreen?.(opener.tabId);
   }
 
   private _beforeNavigate(entry: TabEntryImpl, apply: () => void): Promise<boolean> {

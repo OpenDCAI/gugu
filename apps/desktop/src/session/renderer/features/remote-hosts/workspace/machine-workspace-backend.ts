@@ -21,7 +21,6 @@ import {
   type WorkspaceRpc,
 } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { setWorkspaceReachResolver } from '@renderer/features/sessions/workspace-backend/workspace-surface';
-import type { WorkspaceTreeBackend, WorkspaceTreeScope } from '@renderer/features/sessions/workspace-backend/workspace-tree-backend';
 import { events, onMachineEvent, rpc, rpcOn } from '@renderer/lib/ipc';
 import type { EventDefinition } from '@shared/lib/ipc/events';
 import { fileChangesChannel, fileTreeProjectionChannel } from '@shared/core/fs/fsEvents';
@@ -34,18 +33,14 @@ import type { SshPrompt } from '@shared/ssh-prompt';
 import { remoteErrorCode } from '../remote-failure-copy';
 import { hostStatusLabel, machineNoticeLabel } from '../connection-status';
 import { remoteHostsStore } from '../remote-hosts-store';
-import { downloadEntry, uploadItems } from './remote-file-actions';
-import { dropUploadItems, fileUploadItem } from './remote-drop-items';
 import { remoteForLocalPort, watchRemoteForwards } from './remote-forward-cache';
 import { remotePageFailureCopy, remotePortFailureText } from './remote-page-copy';
 import { RemotePageSession } from './remote-page-session';
-import { transfersFor } from './remote-transfer-wiring';
 import {
   forwardedUrl,
   presentForwardedUrl,
   remoteLoopbackPort,
   remoteToolReach,
-  remoteWorkspaceFailure,
   remoteWorkspaceTools,
 } from './remote-workspace-routing';
 
@@ -106,38 +101,6 @@ function machineRpc(deviceId: string): WorkspaceRpc {
   return new Proxy(rpc.workspace, {
     get: (target, ns, receiver) => (ns === 'files' ? files : Reflect.get(target, ns, receiver)),
   }) as WorkspaceRpc;
-}
-
-// ── 文件树:增删改名与本机同一套;拖进来 / 上传 / 下载要把字节搬过线 ──────────────────
-
-function machineTree(deviceId: string): WorkspaceTreeBackend {
-  const describe = (error: unknown) => remoteWorkspaceFailure(error, deviceLabel(deviceId), translateSessionMessage);
-  const transfers = (scope: WorkspaceTreeScope) => transfersFor(deviceId, scope.projectId, scope.workspaceId);
-  const upload = async (scope: WorkspaceTreeScope, dir: string, items: Parameters<typeof uploadItems>[2]) => {
-    const done = await uploadItems(transfers(scope), dir, items, deviceLabel(deviceId), describe);
-    // 树里马上看得见(文件监视也会推,但这里不等它)。
-    if (done) await scope.files?.registerDir(dir, true);
-  };
-  return {
-    ...localWorkspaceBackend.tree,
-    // 「在访达中显示」对别的机器上的文件没有意义 —— 换成「下载…」。
-    canReveal: false,
-    importDropped(scope, dir, dataTransfer) {
-      // 必须在这一拍里把拖进来的东西取出来(浏览器在事件结束后就收回 dataTransfer)。
-      const pending = dropUploadItems(dataTransfer);
-      return pending.then((items) => upload(scope, dir, items));
-    },
-    uploadFiles(scope, dir, files) {
-      return upload(scope, dir, files.map((file) => fileUploadItem(file)));
-    },
-    download(scope, entry) {
-      return downloadEntry(
-        transfers(scope),
-        { name: entry.name, path: entry.path, isDirectory: entry.kind === 'directory', size: entry.size ?? 0 }
-      );
-    },
-    transfers: (scope) => transfers(scope).active,
-  };
 }
 
 // ── 浏览器:localhost 转到那台机器,`file:` 从那台机器取 ─────────────────────────────
@@ -299,7 +262,7 @@ function backendFor(deviceId: string): WorkspaceBackend {
       machine: { kind: 'remote', deviceId, label: () => deviceLabel(deviceId) },
       rpc: machineRpc(deviceId),
       browseDirectory: (_workspaceId, path) => rpcOn(deviceId).files.browseDirectory({ type: 'local', path }),
-      tree: machineTree(deviceId),
+      elsewhere: true,
       browser: machineBrowser(deviceId),
       // 终端与本机同一套(那台机器上的 pty,经 rpc 路由过去);只经咕咕云连着的机器不给(❌ 走消息额度)。
       terminal: {

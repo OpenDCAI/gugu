@@ -58,9 +58,7 @@ it('carries the actual openChatResource task pane through its native portal with
   try {
     const toolbar = native.querySelector('[data-file-toolbar]')
     expect(toolbar).not.toBeNull()
-    const back = toolbar!.querySelector<HTMLButtonElement>('[aria-label="tabs.back"]')!
-    expect(back).not.toBeNull()
-    expect(back.disabled).toBe(true)
+    expect(toolbar!.querySelector('[aria-label="tabs.back"]')).toBeNull()
     expect(toolbar!.querySelector('[aria-label="tabs.backToConversation"]')).toBeNull()
     expect(layout.focusedPane.resolvedActiveTabId).toBe(resource)
     // Beside the task's conversation: the pair in its one strip (kept when narrow, owner 11-05).

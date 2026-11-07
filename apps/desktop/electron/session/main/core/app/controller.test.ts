@@ -7,7 +7,6 @@ vi.mock('@main/core/app/session-home-dir', () => ({ legacySessionHomeDir: vi.fn(
 vi.mock('@main/lib/file-logger', () => ({ getDiagnosticLogAttachment: vi.fn() }));
 vi.mock('@main/lib/logger', () => ({ log: {} }));
 vi.mock('../projects/utils', () => ({ resolveWorkspace: vi.fn() }));
-vi.mock('./remote-downloads', () => ({ createRemoteDownloads: vi.fn() }));
 vi.mock('./user-library', () => ({ readUserLibrary: vi.fn(), readUserLibraryEntry: vi.fn(), readUserLibraryVolume: vi.fn(), writeUserLibraryEntry: vi.fn() }));
 vi.mock('./assistant-app', () => ({ callAssistantApp: vi.fn() }));
 

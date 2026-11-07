@@ -1,4 +1,4 @@
-import { File, FileImage } from '@/lib/icons'
+import { File, FileArchive, FileAudio, FileCode, FileImage, FilePdf, FileSheet, FileSlides, FileText, FileVideo } from '@/lib/icons'
 import { resolveFileIconClass } from '@gugu/session-chat-ui/file-icons'
 
 /**
@@ -29,6 +29,18 @@ const IMAGE_ICON_LABELS: Record<string, string> = {
   bmp: 'BMP',
   ico: 'ICO',
 };
+
+/** The families the folder's list tells files apart by (its `markOf`), for what has no devicon of its own. */
+const FAMILY_ICONS: ReadonlyArray<readonly [RegExp, typeof File]> = [
+  [/^pdf$/, FilePdf],
+  [/^(docx?|odt|rtf|pages|txt|log|md)$/, FileText],
+  [/^(xlsx?|csv|tsv|ods|numbers)$/, FileSheet],
+  [/^(pptx?|odp|key)$/, FileSlides],
+  [/^(zip|rar|7z|tar|gz|tgz|bz2|xz)$/, FileArchive],
+  [/^(mp4|mov|webm|mkv|avi|m4v)$/, FileVideo],
+  [/^(mp3|wav|m4a|aac|flac|ogg|opus)$/, FileAudio],
+  [/^(js|ts|tsx|jsx|py|go|rs|java|c|cpp|h|sh|rb|php|swift|kt|sql|json|ya?ml|xml|html?)$/, FileCode],
+];
 
 function getExtension(filename: string): string {
   const dot = filename.lastIndexOf('.');
@@ -70,8 +82,9 @@ export function FileIcon({ filename, className, size = 12 }: FileIconProps) {
     );
   }
 
+  const Family = FAMILY_ICONS.find(([suffixes]) => suffixes.test(extension))?.[1] ?? File;
   return (
-    <File
+    <Family
       className={className ?? 'shrink-0 text-foreground-passive'}
       style={{ width: size, height: size }}
       aria-hidden="true"

@@ -2,6 +2,7 @@ import type { TabOpenIntent } from '@shared/view-state';
 import { folderOf, placeKey, placeOf, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import { DISPATCH_GONE } from '@shared/extensions/app-dispatch-core';
 import { BRIDGE_VERBS, type ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
+import { uploadInParts } from '@shared/extensions/working-copy-upload';
 import { coded, guguError, refOf, type GuguHost } from './host';
 import { createModalApi } from './modal';
 import { countsOf } from './check-counts';
@@ -47,14 +48,14 @@ export function createGugu(
   const watchers = new Map<string, (change: ExtensionFileChangeBatch) => void>();
   let nextWatch = 0;
   let hearing: (() => void) | null = null;
-  const watch = (watchId: string, place: AppPlace & { folder?: string }, on: boolean) =>
+  const watch = (watchId: string, place: AppPlace & { folder?: string; id?: string }, on: boolean) =>
     host.appFiles.watch({ watchId, place, on }).catch((error: unknown) => {
       if (on) void host.reportError(`gugu.files.onChanged(${placeKey(place)}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
     });
   function onChanged(place: unknown, handler: (change: ExtensionFileChangeBatch) => void): () => void {
-    // A working copy may name a folder (`'.spec'`): what changes anywhere below it.
-    const folder = (place as { folder?: unknown } | null)?.folder;
-    const where = { ...placeOf(place), ...(typeof folder === 'string' && folder ? { folder } : {}) };
+    // A working copy may name a folder (`'.spec'`): what changes anywhere below it. Or one file (`id`, an entry or `ctx.file`).
+    const { folder, id } = (place ?? {}) as { folder?: unknown; id?: unknown };
+    const where = { ...placeOf(place), ...(typeof folder === 'string' && folder ? { folder } : {}), ...('workspace' in (place as object) && typeof id === 'string' && id ? { id } : {}) };
     const watchId = String(++nextWatch);
     if (typeof handler !== 'function') throw guguError('invalid', 'files.onChanged(place, fn) takes a function');
     hearing ??= host.onFilesChanged((id, change) => watchers.get(id)?.(change));
@@ -107,6 +108,20 @@ export function createGugu(
     onChanged,
     viewPreferences: (place: unknown, options?: { showAppData?: boolean }) => withPlace(place, (where) => host.appFiles.viewPreferences({ place: where, ...options })),
     replace,
+    /** A working copy's text whole, where the page holds it and no live document does; and whether it is there. */
+    readText: (file: unknown, options?: { maxBytes?: number; onProgress?: (done: number, total: number) => void }) => withRef(file, (ref) => {
+      const read = { ref, ...(options?.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }) };
+      const hearing = options?.onProgress && (raw.onDownloadProgress as ((hear: (id: string, done: number, total: number) => void) => () => void) | undefined);
+      if (!hearing) return host.appFiles.readText(read);
+      const transferId = crypto.randomUUID();
+      const off = hearing((id, done, total) => { if (id === transferId) options!.onProgress!(done, total); });
+      return host.appFiles.readText({ ...read, transferId }).finally(off);
+    }),
+    exists: (file: unknown) => withRef(file, (ref) => host.appFiles.exists({ ref })),
+    /** A file's unsaved edits, kept on its machine for after a crash: read (no `text`), kept, dropped (`null`). */
+    draft: (file: unknown, text?: string | null) => withRef(file, (ref) => host.appFiles.draft({ ref, ...(text === undefined ? {} : { text }) })),
+    /** Saves over the version `readText` read: `content-changed` when the disk moved on since. */
+    writeText: (file: unknown, text: string) => withRef(file, (ref) => host.appFiles.writeText({ ref, text })),
     /** Whether whoever reads may delete each file (an entry, or a list of them), in order — ask as its menu opens. */
     canDelete: (files: unknown) => withRefs(files, (refs) => host.appFiles.canDelete({ refs })),
     /** G2 A chat file's kept versions, newest first; one's content: a text file's as text, a stored file's as a Blob. */
@@ -121,7 +136,9 @@ export function createGugu(
     // A4 `{ sourceMessageIds }`: the messages the files came from, as an entry gives them back.
     // 子文件夹 `{ chat, folder }`: the folder they go in (its path or id, made all the way down); not given, the top.
     // `{ keep }` 临时 / 保留: how long a stored copy stays ('temporary' | 'permanent'); not given, the chat's rule.
-    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[]; keep?: string }) =>
+    // Into a working copy, `{ replace, onProgress, signal }`: bytes go in parts, a file of any size; one already there is
+    // `name-taken` until `replace` says so; progress is the bytes sent of them all; `signal` stops it, nothing arrives.
+    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[]; keep?: string; replace?: boolean; onProgress?: (sent: number, total: number) => void; signal?: AbortSignal }) =>
       withPlace(place, (where) => {
         // Checked as list and create check it (folderOf): what is not a folder's path, id or entry is `invalid`.
         let folder: string | undefined;
@@ -129,6 +146,11 @@ export function createGugu(
           folder = folderOf((place as { folder?: unknown } | null)?.folder);
         } catch (error) {
           return Promise.reject(guguError('invalid', error instanceof Error ? error.message : String(error)));
+        }
+        if (file !== undefined && 'workspace' in where) {
+          const blobs = (Array.isArray(file) ? file : [file]) as (Blob & { name?: unknown })[];
+          if (blobs.length === 0 || blobs.some((blob) => !(blob instanceof Blob) || typeof blob.name !== 'string' || !blob.name)) return Promise.reject(guguError('invalid', 'gugu.files.upload takes a File, or a Blob with a name'));
+          return uploadInParts((part) => host.appFiles.writeChunk(part), where, blobs.map((blob) => ({ name: blob.name as string, blob })), folder, options);
         }
         const into = { ...(folder === undefined ? {} : { folder }), ...(options?.keep === undefined ? {} : { keep: options.keep }) };
         return file === undefined
@@ -138,23 +160,54 @@ export function createGugu(
     ...(download && openWith
       ? {
           // API 20: several files at once — one 「save to」 for them all (a folder on the desktop, the share sheet on the phone).
-          download: (files: unknown) => (Array.isArray(files) ? withRefs(files, (refs) => download({ refs })) : withRef(files, (ref) => download({ ref }))),
+          // A working copy's folder (`entry.type: 'folder'`): saved whole. `{ onProgress, signal }`, one file or folder of a
+          // working copy: the bytes saved of them all, and stopping it: nothing is left where it was going.
+          download: (files: unknown, options?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal }) => (Array.isArray(files)
+            ? withRefs(files, (refs) => download({ refs }))
+            : withRef(files, (ref) => {
+              const folder = (files as { type?: unknown } | null)?.type === 'folder' ? { folder: true } : {};
+              if (!options?.onProgress && !options?.signal) return download({ ref, ...folder });
+              const transferId = crypto.randomUUID();
+              const off = (raw.onDownloadProgress as ((hear: (id: string, done: number, total: number) => void) => () => void) | undefined)?.((id, done, total) => { if (id === transferId) options.onProgress?.(done, total); });
+              const stop = () => void host.appFiles.downloadStop?.({ transferId });
+              options.signal?.addEventListener('abort', stop);
+              return download({ ref, ...folder, transferId }).finally(() => {
+                off?.();
+                options.signal?.removeEventListener('abort', stop);
+              });
+            })),
           // `{ ask: true }`: 「用别的 App 打开」 — every App that opens it, the person picks. `{ at }`: the place in it (a pill's).
           // `{ peek: true }`: beside this page, which stays as it is (G1).
           openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> }) =>
-            withRef(file, (ref) =>
+            // A folder of the working copy, not a file: `{ workspace, folder }`, its list in this tab.
+            typeof (file as { folder?: unknown } | null)?.folder === 'string'
+              ? openWith({ ref: file as never })
+              : withRef(file, (ref) =>
               openWith({ ref, ...(options?.viewState ? { viewState: options.viewState } : {}), ...(options?.ask === true ? { ask: true } : {}), ...(options?.at ? { at: options.at } : {}), ...(options?.peek === true ? { peek: true } : {}), ...(Object.hasOwn(options ?? {}, 'tab') ? { tab: options?.tab } : {}), ...(Object.hasOwn(options ?? {}, 'intent') ? { intent: options?.intent } : {}) })),
         }
       : {}),
     // API 23: 「转发」 — one file or several, the host's forward page; resolves once it is up (what is sent is the person's).
-    ...(forward ? { forward: (files: unknown) => withRefs(files, (refs) => forward({ refs })) } : {}),
+    // `{ onProgress, signal }`: a working copy's file is read first, and that can be followed and stopped as a download can.
+    ...(forward ? { forward: (files: unknown, options?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal }) => withRefs(files, (refs) => {
+      if (!options?.onProgress && !options?.signal) return forward({ refs });
+      const transferId = crypto.randomUUID();
+      const off = (raw.onDownloadProgress as ((hear: (id: string, done: number, total: number) => void) => () => void) | undefined)?.((id, done, total) => { if (id === transferId) options.onProgress?.(done, total); });
+      const stop = () => void host.appFiles.downloadStop?.({ transferId });
+      options.signal?.addEventListener('abort', stop);
+      return forward({ refs, transferId } as never).finally(() => {
+        off?.();
+        options.signal?.removeEventListener('abort', stop);
+      });
+    }) } : {}),
+    ...(host.appFiles.reveal ? { reveal: (file: unknown) => withRef(file, (ref) => host.appFiles.reveal!({ ref })) } : {}),
+    ...(host.appFiles.openIn ? { openInApps: () => host.appFiles.openInApps!({}), openIn: (file: unknown, app: string) => withRef(file, (ref) => host.appFiles.openIn!({ ref, app })) } : {}),
   });
 
   // Every v1 member; `appFiles`, `chats`, `checkPage`, `clipboard`, `messages`, `projects`, `theme` and `onFilesChanged` (it is
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['navigationGo', 'appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'cloud', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onCloudHeard', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
+    if (['navigationGo', 'appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'cloud', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onDownloadProgress', 'onCloudHeard', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;

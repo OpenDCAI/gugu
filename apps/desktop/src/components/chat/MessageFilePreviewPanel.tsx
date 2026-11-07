@@ -7,18 +7,19 @@ import { useTranslation } from 'react-i18next'
 import { Markdown } from '../markdown/Markdown'
 import type { DocumentPreviewKind } from './documentPreview'
 import type { MessageActionItem } from './messageActionItems'
-import { lazy, Suspense, useContext, useRef, useState, type Ref } from 'react'
+import { lazy, Suspense, useContext, useRef, useState, type ReactNode, type Ref } from 'react'
 import { PaneContext } from '@renderer/features/tabs/pane-context'
-import { FileToolbar } from '@renderer/features/sessions/editor/file-toolbar'
+import { FileToolbar } from '@renderer/features/tabs/file-toolbar'
 import { Button as ToolbarButton } from '@renderer/lib/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@renderer/lib/ui/dropdown-menu'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
+import { CsvTable } from '@renderer/lib/editor/csv-renderer'
+import { ImageRenderer } from '@renderer/lib/editor/image-renderer'
 import { useFileZoom, type FileZoomKind } from '../preview/file-content-zoom'
 import { ZoomMenuRow } from '../preview/ZoomMenuRow'
 import { usePinchZoom } from '@/hooks/usePinchZoom'
 import { pinchZoom, DOCUMENT_MIN_ZOOM, DOCUMENT_MAX_ZOOM } from '@/session/shared/preview/pinch-zoom'
 import type { HtmlPreviewRegistration } from '../preview/HtmlPreviewFrame'
-import { ImageRenderer } from '@renderer/lib/editor/image-renderer'
 
 // pdf.js, docx-preview and the sheet parser load with the first document opened, not with the chat.
 const DocumentPreviewContent = lazy(() => import('./DocumentPreviewContent').then((m) => ({ default: m.DocumentPreviewContent })))
@@ -50,6 +51,12 @@ export interface MessageFilePreviewPanelProps {
   tabbed?: boolean
   /** An HTML document's preview with the files beside it (a chat folder's document). */
   registerHtml?: (documentHtml: string) => Promise<HtmlPreviewRegistration>
+  /** The folders above this file, outermost first; one with `open` goes to its list. */
+  folders?: readonly { name: string; open?: () => void }[]
+  /** This file's source can be edited: the toolbar offers Edit. */
+  onEdit?: () => void
+  /** The next step under a file it cannot draw, or could not read. */
+  unreadableAction?: ReactNode
   /** A line above the document: what it could not show and why (files on a machine that is off). */
   notice?: string
 }
@@ -57,13 +64,18 @@ export interface MessageFilePreviewPanelProps {
 /** The reading zoom each kind of preview keeps (a video or an unsupported file has none). */
 const READING_ZOOM: Partial<Record<DocumentPreviewKind, FileZoomKind>> = { image: 'image', markdown: 'markdown', text: 'text-code', html: 'html', pdf: 'pdf', docx: 'docx' }
 
-export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, onClose, mobile = false, fill = false, tabbed = false, registerHtml, notice }: MessageFilePreviewPanelProps) {
+export function MessageFilePreviewPanel({ folders, viewerRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, onClose, mobile = false, fill = false, tabbed = false, registerHtml, unreadableAction, onEdit, notice }: MessageFilePreviewPanelProps) {
   const { t } = useTranslation('messaging')
   const { translate } = useSessionMessages()
   const pane = useContext(PaneContext)?.pane
   const tabId = pane?.resolvedActiveTabId
   const fileToolbar = tabbed && !mobile && pane && tabId
-    ? <FileToolbar host={pane} tabId={tabId} path={<span className="min-w-0 flex-1 truncate" title={file.fileName}>{file.fileName}</span>} mode={kind === 'text' || kind === 'markdown' ? 'preview' : undefined} menu={<DropdownMenu>
+    ? <FileToolbar host={pane} tabId={tabId} path={<span className="flex min-w-0 flex-1 items-center justify-end overflow-hidden whitespace-nowrap">
+      <span className="flex min-w-0 flex-[0_2_auto] items-center justify-end overflow-hidden text-xs text-[var(--text-secondary)]">
+        {folders?.map(({ name, open }, index) => <span key={index} className="flex shrink-0 items-center">{open ? <ToolbarButton size="xs" variant="ghost" className="h-auto px-0 font-normal" onClick={open}>{name}</ToolbarButton> : name}<span className="px-1">/</span></span>)}
+      </span>
+      <span className="min-w-0 flex-1 truncate" title={file.fileName}>{file.fileName}</span>
+    </span>} mode={onEdit || kind === 'text' || kind === 'markdown' ? 'preview' : undefined} canEdit={!!onEdit} onModeChange={(next) => { if (next === 'source') onEdit?.() }} menu={<DropdownMenu>
       <DropdownMenuTrigger render={<ToolbarButton size="icon-sm" variant="ghost" aria-label={translate('tabs.more')} title={translate('tabs.more')} />}><MoreHorizontal className="size-3.5" /></DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {actions.map((item) => <DropdownMenuItem key={item.key} disabled={item.disabled} onClick={item.onSelect}><item.icon />{item.label}</DropdownMenuItem>)}
@@ -112,7 +124,7 @@ export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoErro
       {fileToolbar || mobile || ((loading || error) && file.sizeBytes === 0) ? null : <div style={{ padding: '0 18px 10px', color: 'var(--text-tertiary)', fontSize: 'var(--font-caption)', flexShrink: 0 }}>{formatAttachmentSize(file.sizeBytes)}{file.mimeType ? ` · ${file.mimeType}` : ''}</div>}
       {notice ? <div role="status" data-testid="message-file-preview-notice" className="gg-file-preview-notice">{notice}</div> : null}
       <div ref={kind === 'text' || kind === 'markdown' ? textRef : undefined} data-file-selection style={{ flex: 1, minHeight: 0, overflow: 'auto', color: 'var(--text-primary)' }}>
-        {loading ? <div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}{loadingFraction !== undefined ? <progress className="gg-progress" value={loadingFraction} max={1} /> : null}</div> : failure ? <div style={{ ...statusStyle, color: 'var(--danger-fg)' }}>{failure}</div> : kind === 'video' ? <video data-testid="message-file-preview-video" src={videoUrl} onError={event => onVideoError?.(event.currentTarget)} controls autoPlay playsInline className="block max-h-full w-full" /> : kind === 'unsupported' ? <div style={statusStyle}>{t('chatArea.filePreview.unsupported')}</div> : kind === 'image' && typeof content === 'string' ? <ImageRenderer file={{ path: file.fileName, content }} onError={() => setUndrawable(content)} /> : typeof content === 'string' && (kind === 'text' || kind === 'markdown') ? <div style={{ padding: fileToolbar ? '4px 18px 16px' : '16px 18px', zoom }}>{kind === 'markdown' ? <Markdown trust="chat" density="comfortable" content={content} hardBreaks /> : <pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', fontSize: 'var(--font-body)', lineHeight: 1.65 }}>{content}</pre>}</div> : <Suspense fallback={<div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}</div>}><DocumentPreviewContent kind={kind} content={content} title={file.fileName} onOpenExternally={onOpenExternal} registerHtml={registerHtml} /></Suspense>}
+        {loading ? <div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}{loadingFraction !== undefined ? <progress className="gg-progress" value={loadingFraction} max={1} /> : null}</div> : failure ? <div style={{ ...statusStyle, color: 'var(--danger-fg)' }}>{failure}{unreadableAction ? <div>{unreadableAction}</div> : null}</div> : kind === 'video' ? <video data-testid="message-file-preview-video" src={videoUrl} onError={event => onVideoError?.(event.currentTarget)} controls autoPlay playsInline className="block max-h-full w-full" /> : kind === 'unsupported' ? <div style={statusStyle}>{t('chatArea.filePreview.unsupported')}{unreadableAction ? <div>{unreadableAction}</div> : null}</div> : kind === 'image' && typeof content === 'string' ? <ImageRenderer file={{ path: file.fileName, content }} onError={() => setUndrawable(content)} /> : typeof content === 'string' && kind === 'text' && /\.csv$/i.test(file.fileName) ? <CsvTable content={content} /> : typeof content === 'string' && (kind === 'text' || kind === 'markdown') ? <div style={{ padding: fileToolbar ? '4px 18px 16px' : '16px 18px', zoom }}>{kind === 'markdown' ? <Markdown trust="chat" density="comfortable" content={content} hardBreaks /> : <pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit', fontSize: 'var(--font-body)', lineHeight: 1.65 }}>{content}</pre>}</div> : <Suspense fallback={<div style={statusStyle} data-testid="message-file-preview-loading">{loadingLabel ?? t('chatArea.filePreview.loading')}</div>}><DocumentPreviewContent kind={kind} content={content} title={file.fileName} onOpenExternally={onOpenExternal} registerHtml={registerHtml} /></Suspense>}
       </div>
     </aside>
   )

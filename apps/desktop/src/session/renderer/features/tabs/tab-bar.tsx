@@ -41,7 +41,7 @@ export const TabBar = observer(function TabBar({
   const { translate } = useSessionMessages();
   const active = pane.activeEntry;
   const opener = active?.openerTabId ? pane.entries.get(active.openerTabId) : undefined;
-  const ownsFileToolbar = active?.kind === 'file' || active?.kind === 'chat-panel' && !!(active.state as { file?: unknown }).file;
+  const ownsFileToolbar = active?.kind === 'file-view' || active?.kind === 'chat-panel' && !!(active.state as { file?: unknown }).file;
   // File pages own this action in their content toolbar. Other pages keep it in the
   // pane's ordinary action group, never in the absolute, fixed-width grip slot.
   const returnConversation = !ownsFileToolbar && active && opener && pane.registry.has(opener.kind) && pane.registry.get(opener.kind).conversation && (pane.navigationOf(active.tabId)?.index ?? 0) === 0

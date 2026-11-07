@@ -168,6 +168,12 @@ describe('to a member of a chat: a whisper in the person\'s name, from this App 
     expect(toldSessions).toEqual([]);
   });
 
+  it('a draft citing a working copy goes into that session as @file mentions: no chat pill points at such a file', async () => {
+    const workspace = 'session:conv-agent';
+    await draft({ text: '', refs: [{ file: { workspace, id: 'src/a.py' } }, { file: { workspace, id: 'b.md' }, label: 'L3' }] });
+    expect(sessionDrafts.at(-1)).toEqual({ session: { id: 'conv-agent', projectId: 'p-1' }, text: '@[a.py](src/a.py) @[b.md · L3](b.md)\n' });
+  });
+
   it('refs: each goes under the text as a pill the agent can open (App 引用 pill)', async () => {
     await send('dinner-vote', { to: `user:${AGENT}`, text: 'marked doubtful', refs: [{ file: entry }] });
     // The file as it is now: its name (brackets escaped, the label stays one pill) and its version.

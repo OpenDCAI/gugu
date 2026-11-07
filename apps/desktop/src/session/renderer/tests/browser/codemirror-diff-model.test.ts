@@ -1,9 +1,8 @@
 import { EditorState } from '@codemirror/state';
 import { getChunks } from '@codemirror/merge';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createDiffController } from '@renderer/lib/codemirror/diff-controller';
-import { createFileEditor } from '@renderer/lib/codemirror/file-editor';
 import { bindModel } from '@renderer/lib/codemirror/model-binding';
 import { TextModel } from '@renderer/lib/text-model/text-model';
 import { isMacHost } from '@shared/host-os';
@@ -123,48 +122,4 @@ describe('CM diff controller', () => {
       expect(controller.snapshot().modified.ranges).toHaveLength(1);
     });
   }
-});
-
-describe('file editor', () => {
-  it('swaps files in one view, keeping each file\'s cursor, and edits the file\'s model', () => {
-    const editor = createFileEditor({ dark: false });
-    document.body.appendChild(editor.container).style.height = '300px';
-    cleanups.push(() => editor.destroy());
-    const states = new Map<string, Parameters<Parameters<typeof editor.attach>[2]>[1]>();
-    const save = (uri: string, state: Parameters<Parameters<typeof editor.attach>[2]>[1]) => { states.set(uri, state); };
-    const a = new TextModel('file:///a.ts', 'typescript', 'const a = 1;\n');
-    const b = new TextModel('disk:///b.ts', 'typescript', 'const b = 2;\n');
-
-    editor.attach(a, null, save);
-    editor.view.dispatch({ changes: { from: 13, insert: 'x' }, selection: { anchor: 14 }, userEvent: 'input.type' });
-    expect(a.getValue()).toBe('const a = 1;\nx');
-    editor.attach(b, null, save);
-    expect(editor.view.state.doc.toString()).toBe('const b = 2;\n');
-    // A disk:// snapshot is read-only in the editor.
-    editor.view.dispatch({ changes: { from: 0, insert: 'no' } });
-    expect(b.getValue()).toBe('const b = 2;\n');
-    editor.attach(a, states.get(a.uri) ?? null, save);
-    expect(editor.view.state.selection.main.head).toBe(14);
-    // The file switched away from no longer reaches the view.
-    b.setValue('changed');
-    expect(editor.view.state.doc.toString()).toBe('const a = 1;\nx');
-    editor.attach(null, null, save);
-    expect(editor.view.state.doc.length).toBe(0);
-  });
-
-  it('a file swapped out mid-word leaves no completion work for the next state', () => {
-    vi.useFakeTimers();
-    try {
-      const editor = createFileEditor({ dark: false });
-      document.body.appendChild(editor.container).style.height = '300px';
-      cleanups.push(() => editor.destroy());
-      editor.attach(new TextModel('file:///c.ts', 'typescript', 'const word = 1;\n'), null, () => {});
-      editor.view.dispatch({ changes: { from: 16, insert: 'w' }, selection: { anchor: 17 }, userEvent: 'input.type' });
-      // The empty state has no autocompletion; the typing debounce of the file above must not run against it.
-      editor.attach(null, null, () => {});
-      expect(() => vi.runOnlyPendingTimers()).not.toThrow();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });

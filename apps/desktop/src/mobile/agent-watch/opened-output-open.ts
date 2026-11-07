@@ -6,7 +6,7 @@ import {
   type SessionpageOpenedFileReadRequest,
 } from '@gugu/session-core/session-record/contract'
 import { SessionpageRpcError } from './sessionpage-rpc'
-import { base64ToBytes } from '@renderer/lib/base64'
+import { base64ToBytes } from '@shared/lib/base64'
 import { classifyDocumentPreview, type DocumentPreviewKind } from '@/components/chat/documentPreview'
 import { isRenderableImage, mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs'
 import { isTransientNetworkError } from '@gugu/core/shared/networkError'

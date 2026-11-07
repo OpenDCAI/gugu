@@ -9,7 +9,7 @@ import { applyJson, buildDoc, InvalidJson, isJson, parseJsonObject, readText, sa
 import { createOpenFiles } from '@gugu/files-core/open-files';
 import { colorFor } from '@gugu/files-core/presence';
 import { WORKSPACE_TEXT_MAX_BYTES, opensAsStoredText, workspaceStoredText, workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
-import { AppFileError, contentTypeOf, tooLargeError, type FilesPlatform } from '@shared/extensions/app-files-core';
+import { AppFileError, contentTypeOf, requireHandedOr, tooLargeError, type FilesPlatform } from '@shared/extensions/app-files-core';
 import {
   APP_FILE_MAX_BYTES,
   fileSuffixOf,
@@ -194,6 +194,11 @@ const documentKind = (name: string, raw: Uint8Array) => workspaceUploadKind(name
  * A working copy's file (or folder: no `stat` read) as `gugu.files` shows it — the same shape as a chat file's. Its id is
  * its path; it names its folder (`place`).
  */
+/** A folder of a working copy, as a list names it. */
+export function workingCopyFolder(place: WorkspacePlace, rel: string): AppFileEntry {
+  return { ...workingCopyEntry(place, rel, null, 'inode/directory'), type: 'folder', suffix: '' };
+}
+
 export function workingCopyEntry(place: WorkspacePlace, rel: string, stat: fs.Stats | null, contentType = localContentType(rel)): AppFileEntry {
   const name = path.posix.basename(rel);
   const kind = /^text\//.test(contentType) || isJson(contentType) ? 'document' : 'file';
@@ -214,7 +219,8 @@ export function workingCopyEntry(place: WorkspacePlace, rel: string, stat: fs.St
     appState: false,
     size: stat?.size ?? null,
     version: null,
-    createdAt: stat?.birthtime.toISOString() ?? null,
+    // A file system that keeps no creation time says 0: unknown, not 1970.
+    createdAt: stat && stat.birthtimeMs > 0 ? stat.birthtime.toISOString() : null,
     updatedAt: stat?.mtime.toISOString() ?? null,
     createdBy: null,
     updatedBy: null,
@@ -503,18 +509,23 @@ export function createLocalFileService(options: { warn: (message: string, data?:
 
     /** Renamed here: open pages keep their document, now written to the new path. */
     renamed(fromAbs: string, toAbs: string, toRel: string): void {
-      const reg = byPath.get(fromAbs);
-      if (!reg) return;
-      byPath.delete(fromAbs);
-      reg.abs = toAbs;
-      reg.rel = toRel;
-      byPath.set(toAbs, reg);
+      for (const [abs, reg] of [...byPath]) {
+        if (abs !== fromAbs && !abs.startsWith(fromAbs + path.sep)) continue;
+        const below = abs.slice(fromAbs.length);
+        byPath.delete(abs);
+        reg.abs = toAbs + below;
+        reg.rel = toRel + below.split(path.sep).join('/');
+        byPath.set(reg.abs, reg);
+      }
     },
 
     /** Deleted here: its pages are told now, not half a second later. */
-    removed(abs: string): void {
-      const l = loadedAt(abs);
-      if (l) markGone(l);
+    removed(gone: string): void {
+      for (const abs of [...byPath.keys()]) {
+        if (abs !== gone && !abs.startsWith(gone + path.sep)) continue;
+        const l = loadedAt(abs);
+        if (l) markGone(l);
+      }
     },
 
     /**
@@ -615,14 +626,49 @@ export function createLocalAppFiles(platform: {
   }
 
   /** In a working copy a file's id and its name are the same thing: its path. */
-  const pathOf = (ref: WorkspaceFileRef) => ('id' in ref ? ref.id : ref.name);
+  /** A file's path in the working copy. The host hands a page its file by the absolute path: inside the root, that is the same path. */
+  const pathOf = (surface: LocalSurface, ref: WorkspaceFileRef) => {
+    const name = 'id' in ref ? ref.id : ref.name;
+    if (!path.isAbsolute(name)) return name;
+    const rel = path.relative(surface.workspaceRoot, name);
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : name;
+  };
+
+  const nameTaken = (rel: string) => new AppFileError('name-taken', `${rel} already exists`);
+
+  /** What is at `rel` itself: a link stays the link, wherever it points. Its folder must be inside; the top is no entry to move or delete. */
+  function entryAt(root: string, rel: string): { abs: string; rel: string } {
+    const name = path.posix.basename(rel);
+    const folder = path.posix.dirname(rel);
+    const parent = folder === '.' ? { abs: fs.realpathSync(root), rel: '' } : inside(root, folder, 'existing');
+    const abs = path.join(parent.abs, name);
+    if (!name || name === '.' || name === '..' || !fs.lstatSync(abs, { throwIfNoEntry: false })) throw new AppFileError('not-found', `No file ${JSON.stringify(rel)} in this working copy`);
+    return { abs, rel: path.posix.join(parent.rel, name) };
+  }
+
+  function moveEntry(surface: LocalSurface, from: { abs: string; rel: string }, wanted: string): AppFileEntry {
+    makeFolderOf(surface.workspaceRoot, wanted);
+    const to = inside(surface.workspaceRoot, wanted, 'new');
+    if (to.abs === from.abs) throw new AppFileError('invalid', `${to.rel} is already there`);
+    if (to.abs.startsWith(from.abs + path.sep)) throw new AppFileError('invalid', `${from.rel} cannot go inside itself`);
+    // The same file under another case on a disk that does not tell them apart is a rename, not a clash.
+    const at = fs.lstatSync(to.abs, { throwIfNoEntry: false });
+    const was = fs.lstatSync(from.abs);
+    if (at && (at.ino !== was.ino || at.dev !== was.dev)) throw nameTaken(to.rel);
+    try {
+      fs.renameSync(from.abs, to.abs);
+    } catch (error) {
+      throw new AppFileError('failed', `${from.rel} was not moved: ${messageOf(error)}`);
+    }
+    service.renamed(from.abs, to.abs, to.rel);
+    const stat = fs.statSync(to.abs, { throwIfNoEntry: false }) ?? null;
+    return stat?.isDirectory() ? workingCopyFolder(surface.place, to.rel) : workingCopyEntry(surface.place, to.rel, stat);
+  }
 
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
   function readable(surface: LocalSurface, ref: WorkspaceFileRef, what: 'saving' | 'opening'): { abs: string; rel: string } {
-    const found = inside(surface.workspaceRoot, pathOf(ref), 'existing');
-    if (found.rel !== surface.filePath && !has(surface, 'files:read') && !has(surface, 'files:write')) {
-      throw new AppFileError('denied', `Not permitted: ${what} a file other than the one this page was opened for needs "files:read" or "files:write"`);
-    }
+    const found = inside(surface.workspaceRoot, pathOf(surface, ref), 'existing');
+    requireHandedOr(found.rel === surface.filePath, (capability) => has(surface, capability), ['files:read', 'files:write'], what);
     if (!fs.statSync(found.abs).isFile()) throw new AppFileError('invalid', `${found.rel} is not a file`);
     return found;
   }
@@ -693,25 +739,44 @@ export function createLocalAppFiles(platform: {
       try {
         fs.writeFileSync(target.abs, content, { flag: 'wx', mode: FRESH_MODE });
       } catch (error) {
-        if (code(error) === 'EEXIST') throw new AppFileError('invalid', `${target.rel} already exists`);
+        if (code(error) === 'EEXIST') throw nameTaken(target.rel);
         throw error;
       }
       return workingCopyEntry(surface.place, target.rel, fs.statSync(target.abs));
     },
 
+    /** A folder at `path`, made all the way down — refused when something is at that path already. */
+    async mkdir(surface: LocalSurface, args: { path: string }): Promise<AppFileEntry> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
+      const rel = String(args.path ?? '').trim();
+      if (!rel) throw new AppFileError('invalid', 'A folder needs its path');
+      makeFolderOf(surface.workspaceRoot, rel);
+      const target = inside(surface.workspaceRoot, rel, 'new');
+      try {
+        fs.mkdirSync(target.abs);
+      } catch (error) {
+        if (code(error) === 'EEXIST') throw nameTaken(target.rel);
+        throw new AppFileError('failed', `${target.rel} was not made: ${messageOf(error)}`);
+      }
+      return workingCopyFolder(surface.place, target.rel);
+    },
+
+    /** The entry itself moves or goes, never what a link points at: a link is named by its parent's real path and its own name. */
     async rename(surface: LocalSurface, args: { ref: WorkspaceFileRef; name: string }): Promise<AppFileEntry> {
       await requireAgentFileTreeAccess(surface.workspaceRoot);
-      const from = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
       const name = String(args.name ?? '').trim();
       if (!name) throw new AppFileError('invalid', 'A file needs a name');
+      const from = entryAt(surface.workspaceRoot, pathOf(surface, args.ref));
       // A bare name stays in its folder, as renaming a group file does; a path moves it.
-      const wanted = name.includes('/') ? name : path.posix.join(path.posix.dirname(from.rel), name);
-      makeFolderOf(surface.workspaceRoot, wanted);
-      const to = inside(surface.workspaceRoot, wanted, 'new');
-      if (fs.existsSync(to.abs)) throw new AppFileError('invalid', `${to.rel} already exists`);
-      fs.renameSync(from.abs, to.abs);
-      service.renamed(from.abs, to.abs, to.rel);
-      return workingCopyEntry(surface.place, to.rel, fs.statSync(to.abs));
+      return moveEntry(surface, from, name.includes('/') ? name : path.posix.join(path.posix.dirname(from.rel), name));
+    },
+
+    /** Into `folder` ('' the top), under `name` when one is given. */
+    async move(surface: LocalSurface, args: { ref: WorkspaceFileRef; folder?: string; name?: string }): Promise<AppFileEntry> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
+      const from = entryAt(surface.workspaceRoot, pathOf(surface, args.ref));
+      const folder = args.folder ?? path.posix.dirname(from.rel);
+      return moveEntry(surface, from, path.posix.join(folder, args.name ?? path.posix.basename(from.rel)));
     },
 
     /**
@@ -722,7 +787,7 @@ export function createLocalAppFiles(platform: {
       await requireAgentFileTreeAccess(surface.workspaceRoot);
       const file = args.file;
       if (!file || !(file.bytes instanceof ArrayBuffer)) throw new AppFileError('invalid', 'files.replace(file, content) takes the new content: a Blob');
-      const found = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
+      const found = inside(surface.workspaceRoot, pathOf(surface, args.ref), 'existing');
       if (found.rel !== surface.filePath && !has(surface, 'files:write')) {
         throw new AppFileError('denied', 'Not permitted: replacing a file other than the one this page was opened for needs "files:write"');
       }
@@ -743,53 +808,31 @@ export function createLocalAppFiles(platform: {
       return workingCopyEntry(surface.place, found.rel, fs.statSync(found.abs));
     },
 
+    /** A file, a link (not what it points at) or a folder with all in it. */
     async remove(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<void> {
       await requireAgentFileTreeAccess(surface.workspaceRoot);
-      const found = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
-      if (!fs.statSync(found.abs).isFile()) throw new AppFileError('invalid', `${found.rel} is not a file`);
-      fs.rmSync(found.abs);
+      const found = entryAt(surface.workspaceRoot, pathOf(surface, args.ref));
+      try {
+        fs.rmSync(found.abs, { recursive: true });
+      } catch (error) {
+        throw new AppFileError('failed', `${found.rel} was not deleted: ${messageOf(error)}`);
+      }
       service.removed(found.abs);
     },
 
     /**
-     * Write each file into the working copy under its name — a path in it, folders made as needed — as a chat's upload
-     * puts it in the chat. A new file only: one already there is not written over (`invalid`, said). Every size is
-     * checked before the first byte goes; if one fails, the ones before it stay, and the rejection names what did not.
+     * Where a file or folder of the working copy is on this computer, for a program of this computer. A file outside it is
+     * the one handed to the page. `follow`: what opens it reads through a link, so the link must lead somewhere it may read.
      */
-    async upload(surface: LocalSurface, files: readonly AppFileUpload[]): Promise<AppFileEntry[]> {
+    async localPath(surface: LocalSurface, args: { ref: WorkspaceFileRef; follow?: boolean }): Promise<string> {
+      const named = pathOf(surface, args.ref);
+      if (path.isAbsolute(named)) return requireAgentFileAccess(named);
       await requireAgentFileTreeAccess(surface.workspaceRoot);
-      for (const file of files) {
-        if (!file || typeof file.name !== 'string' || !file.name.trim() || !(file.bytes instanceof ArrayBuffer)) {
-          throw new AppFileError('invalid', 'Each upload needs a name and its bytes');
-        }
-      }
-      const tooLarge = files.filter((file) => file.bytes.byteLength > APP_FILE_MAX_BYTES).map((file) => file.name);
-      if (tooLarge.length > 0) throw tooLargeError(tooLarge);
-      const entries: AppFileEntry[] = [];
-      for (const [index, file] of files.entries()) {
-        const name = file.name.trim();
-        try {
-          makeFolderOf(surface.workspaceRoot, name);
-          const target = inside(surface.workspaceRoot, name, 'new');
-          fs.writeFileSync(target.abs, new Uint8Array(file.bytes), { flag: 'wx', mode: FRESH_MODE });
-          entries.push(workingCopyEntry(surface.place, target.rel, fs.statSync(target.abs)));
-        } catch (error) {
-          const notIn = files.slice(index).map((f) => f.name).join(', ');
-          const why = code(error) === 'EEXIST' ? `${name} already exists` : messageOf(error);
-          throw new AppFileError(code(error) === 'EEXIST' ? 'invalid' : 'failed', `Upload stopped at ${name} (${why}); not uploaded: ${notIn}`);
-        }
-      }
-      return entries;
+      if (!args.follow) return entryAt(surface.workspaceRoot, named).abs;
+      return requireAgentFileAccess(inside(surface.workspaceRoot, named, 'existing').abs);
     },
 
-    /** What saving a file of the working copy takes — gated like opening it read-only: its name and its bytes. */
-    async downloadSource(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<{ name: string; bytes: Uint8Array }> {
-      await requireAgentFileTreeAccess(surface.workspaceRoot);
-      const found = readable(surface, args.ref, 'saving');
-      return { name: path.posix.basename(found.rel), bytes: fs.readFileSync(found.abs) };
-    },
-
-    /** 「用 X 打开」: which file of the working copy — gated like saving it. Who opens it is the host's to work out. */
+    /** 「用 X 打开」 and saving: which file of the working copy, gated as opening it read-only. Who opens it is the host's to work out. */
     async openTarget(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<{ place: WorkspacePlace; path: string; name: string }> {
       await requireAgentFileTreeAccess(surface.workspaceRoot);
       const found = readable(surface, args.ref, 'opening');

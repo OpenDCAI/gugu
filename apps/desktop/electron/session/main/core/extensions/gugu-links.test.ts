@@ -25,6 +25,10 @@ const manifest = parseExtensionManifest({
 const appLink = (args: Record<string, unknown>, scheme = 'gugu') => guguLink(linkTargetOf(args, manifest), scheme);
 
 describe('building and reading links (#6387)', () => {
+  it('names no file it could not read back: a working copy\'s goes by its path', () => {
+    expect(() => appLink({ kind: 'file', file: 'src/a.ts' })).toThrow(/working copy/);
+    expect(() => appLink({ kind: 'file', file: { id: 'src/a.ts', workspace: {} } })).toThrow(/working copy/);
+  });
   it('round-trips tab, path and query, with this build\'s scheme', () => {
     const link = appLink({ tab: 'inbox', path: 'papers/ä 1', query: { id: 42, open: true } }, 'gugu-beta');
     expect(link).toBe('gugu-beta://ext/notes/inbox/papers/%C3%A4%201?id=42&open=true');

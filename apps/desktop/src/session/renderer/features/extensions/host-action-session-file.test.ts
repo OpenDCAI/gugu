@@ -32,9 +32,9 @@ describe('an App opens a file in a target session that was not prepared', () => 
     expect(state.open).toHaveBeenCalledWith(project, 'target', 'a.txt', { ask: true, intent: undefined });
     expect(state.prepare.mock.invocationCallOrder[0]).toBeLessThan(state.open.mock.invocationCallOrder[0]!);
   });
-  it('reports a cancelled choice only to the App caller', async () => {
+  it('a cancelled choice is nothing gone wrong: the App hears no error', async () => {
     state.open.mockResolvedValueOnce(undefined);
-    await expect(open()).rejects.toThrow('did not pick');
+    await expect(open()).resolves.toMatchObject({ ok: true });
   });
   it('folder redesign carries intent and the source folder to a file in the same session', async () => {
     await extensionHostActionHandlers[EXTENSION_HOST_ACTION_METHOD]!({

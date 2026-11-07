@@ -3,8 +3,10 @@ import type { AppCallAction, RemoteAppCaller } from '@gugu/session-core/session-
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { appCallAction, notOnSessionMachine, overCallLimit } from '@shared/extensions/machine-call';
 import { machineVerbs } from '@main/core/extensions/machine-verbs';
+import { events } from '@main/lib/events';
+import { appFileMachineOutdatedChannel } from '@shared/events/appEvents';
 import type { MachineVerb, PlaceVerb } from '@shared/extensions/bridge-protocol';
-import { callRefusal } from '@shared/extensions/bridge-protocol';
+import { callRefusal, verbFacts } from '@shared/extensions/bridge-protocol';
 import { log } from '@main/lib/logger';
 
 /**
@@ -82,6 +84,7 @@ export async function callOnSessionMachine(
   if (!machine) return { there: false };
   const invalid = notOnSessionMachine(app.manifest, method, args);
   if (invalid) throw invalid;
+  const fileCall = verbFacts(method)?.machine === 'place';
   if (workedByAgent && method === 'callProgram') {
     throw Object.assign(new Error('A page an agent works calls its program on this computer only; this session is on another machine'), { code: 'invalid' });
   }
@@ -93,7 +96,8 @@ export async function callOnSessionMachine(
   } catch (error) {
     // That machine's offline / too old / unreachable / silent, as the page reads it: `unavailable`; its own refusals keep their code.
     const code = (error as { code?: unknown } | null)?.code;
-    if (typeof code === 'string' && UNAVAILABLE.has(code)) throw Object.assign(new Error(error instanceof Error ? error.message : String(error)), { code: 'unavailable' });
+    if (fileCall && oldFileInterface(method, error)) throw machineOutdated(machine);
+    if (typeof code === 'string' && UNAVAILABLE.has(code)) throw Object.assign(new Error(error instanceof Error ? error.message : String(error)), { code: 'unavailable', ...('deviceLabel' in machine && machine.deviceLabel ? { detail: { reason: 'machine-unavailable', machine: machine.deviceLabel } } : {}) });
     throw error;
   }
 }
@@ -143,8 +147,29 @@ export async function answerAppCall(caller: RemoteAppCaller, action: AppCallActi
 }
 
 /**
- * What a page on another machine may have done here: a verb that follows the session's machine, of this App installed,
- * the same version as its page, switched on (a program also still giving agents tools), for a session on this machine.
+ * A file call its machine does not have, as that machine says it: too old to have the channel or the verb, or from before
+ * file calls stopped asking for the App's version (`admit`). Nothing else is: its own refusals of a call it has stay its own.
+ */
+function oldFileInterface(method: string, error: unknown): boolean {
+  const { code } = (error ?? {}) as { code?: unknown };
+  if (code === 'SESSION_DEVICE_OUTDATED' || code === 'version-mismatch' || code === 'not-installed') return true;
+  return code === 'invalid' && error instanceof Error && error.message.includes(`${method} is done where the page is`);
+}
+
+function machineOutdated(machine: { deviceId: string; deviceLabel?: string | null }): Error {
+  const label = machine.deviceLabel ?? machine.deviceId;
+  events.emit(appFileMachineOutdatedChannel, { deviceId: machine.deviceId, label });
+  return Object.assign(new Error(`咕咕 on ${label} is too old for this file call: update it (Settings, Devices)`), {
+    code: 'machine-outdated',
+    detail: { reason: 'machine-outdated', machine: label, deviceId: machine.deviceId },
+  });
+}
+
+/**
+ * What a page on another machine may have done here: a verb that follows the session's machine, for a session on this
+ * machine. A file call is the host's, on a file: it asks nothing of the App, whose page and rights were judged where the
+ * page is. Any other is the App's own (its program, its data folder): of this App installed, the same version as its
+ * page, switched on (a program also still giving agents tools).
  */
 async function admit(caller: RemoteAppCaller, action: AppCallAction): Promise<void> {
   const [{ agentSessionContext }, { extensionsService }, { extensionPrograms }] = await Promise.all([
@@ -155,6 +180,16 @@ async function admit(caller: RemoteAppCaller, action: AppCallAction): Promise<vo
   const service = extensionsService();
   const tooLarge = overCallLimit('call', action, action);
   if (tooLarge) throw tooLarge;
+  if (verbFacts(action.method)?.machine !== 'place') admitAppCall(caller, action, service, extensionPrograms);
+  if (action.device_id) {
+    const { otherMachines } = await import('@main/core/sessions/session-family');
+    if (!(await otherMachines().isThisDevice(action.device_id))) throw Object.assign(new Error('App call targets another machine'), { code: 'invalid' });
+  } else if (!action.session_id || !(await agentSessionContext(action.session_id))) {
+    throw Object.assign(new Error(`Session ${action.session_id} is not on this machine`), { code: 'not-found' });
+  }
+}
+
+function admitAppCall(caller: RemoteAppCaller, action: AppCallAction, service: ReturnType<typeof import('@main/core/extensions/extensions-root').extensionsService>, programs: typeof import('@main/core/extensions/extension-programs').extensionPrograms): void {
   let manifest: ExtensionManifest;
   try {
     manifest = service.get(caller.extensionId).manifest;
@@ -168,13 +203,7 @@ async function admit(caller: RemoteAppCaller, action: AppCallAction): Promise<vo
   }
   const capability = callRefusal(action.method, action.args, { kind: 'program', has: (word) => service.hasCapability(caller.extensionId, word) });
   if (capability) throw Object.assign(new Error(capability.message), { code: capability.code });
-  const refusal = action.method === 'callProgram' ? extensionPrograms.agentToolsRefusal(caller.extensionId)
+  const refusal = action.method === 'callProgram' ? programs.agentToolsRefusal(caller.extensionId)
     : service.isEnabled(caller.extensionId) ? null : `Extension ${caller.extensionId} is turned off`;
   if (refusal) throw Object.assign(new Error(refusal), { code: 'denied' });
-  if (action.device_id) {
-    const { otherMachines } = await import('@main/core/sessions/session-family');
-    if (!(await otherMachines().isThisDevice(action.device_id))) throw Object.assign(new Error('App call targets another machine'), { code: 'invalid' });
-  } else if (!action.session_id || !(await agentSessionContext(action.session_id))) {
-    throw Object.assign(new Error(`Session ${action.session_id} is not on this machine`), { code: 'not-found' });
-  }
 }

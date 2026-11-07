@@ -1,3 +1,5 @@
+import { openFolderInTab } from '@renderer/features/sessions/file-view/file-view-kinds';
+import { findSessionAnywhere } from '@renderer/features/sessions/stores/session-selectors';
 import { composeChatDraft } from '@/lib/composeDraft';
 import { followLink, openLinkTarget } from '@/lib/guguLinks';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -10,7 +12,6 @@ import type { BrowserWebviewElement } from '@renderer/features/browser/browser-w
 
 import { runInAction } from 'mobx';
 import type { RendererRpcHandlers } from '@/rpc-renderer/rendererRpc';
-import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import type { WorkspaceViewModel } from '@renderer/features/sessions/stores/workspace-view-model';
 import {
   EXTENSION_HOST_ACTION_METHOD,
@@ -67,17 +68,9 @@ import { groupPageSlot } from '@renderer/features/chats/chat-tabs/chat-panel-ite
  * way to tell it one would hand extensions a fact they have no use for.
  */
 function findSessionView(sessionId: string): WorkspaceViewModel | undefined {
-  return findSession(sessionId)?.viewModel;
+  return findSessionAnywhere(sessionId)?.viewModel;
 }
 
-/** The session this window shows, on this computer or another, by its id alone: its project here and its view. */
-function findSession(sessionId: string): { projectId: string; viewModel: WorkspaceViewModel } | undefined {
-  for (const [projectId, project] of getProjectManagerStore().projects) {
-    const store = project.mountedProject?.sessionManager.sessions.get(sessionId);
-    if (store?.viewModel) return { projectId, viewModel: store.viewModel };
-  }
-  return undefined;
-}
 
 function requireSessionView(sessionId: string | null): WorkspaceViewModel {
   const view = sessionId === null ? null : findSessionView(sessionId);
@@ -220,11 +213,15 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     case 'setTabBadge':
       extensionSurfaceStore.say(sessionId, tabId, { badge: action.badge });
       return;
+    case 'setTabDirty':
+      extensionSurfaceStore.reportDirty(sessionId, action.tabId, action.dirty, action.webContentsId);
+      return;
     case 'reportError':
       extensionSurfaceStore.say(sessionId, tabId, { error: action.message });
       return;
     case 'newDocument':
       extensionSurfaceStore.say(sessionId, tabId, { title: null, badge: null, error: null });
+      extensionSurfaceStore.clearDirtyOfPage(sessionId);
       return;
     case 'openBrowserTab': {
       const view = requireSessionView(sessionId);
@@ -265,15 +262,21 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
         const projectId = action.deviceId ? machineCodec(action.deviceId).inbound(action.projectId) : action.projectId;
         const { prepareSessionPane } = await import('@renderer/features/sessions/session-pane-ready');
         await prepareSessionPane(projectId, action.sessionId);
-        if (!findSession(action.sessionId)) throw new Error('This session has no prepared pane');
+        if (!findSessionAnywhere(action.sessionId)) throw new Error('This session has no prepared pane');
         const { openFileInSessionEditor } = await import('@renderer/features/sessions/stores/open-file-in-file-editor');
         if (sessionId === action.sessionId && action.viewState) {
           const pane = findSessionView(sessionId)?.paneLayout.groups.find(({ pane }) => pane.entries.has(tabId))?.pane;
           pane?.setPageViewState(tabId, action.viewState);
         }
-        const opened = await openFileInSessionEditor(projectId, action.sessionId, action.path, { ask: action.ask, intent: action.intent, ...(sessionId === action.sessionId ? { from: tabId } : {}) });
-        if (opened === undefined) throw new Error('The person did not pick an App to open it with');
+        // The person cancelled 「用哪个打开」: nothing opens, and nothing went wrong.
+        await openFileInSessionEditor(projectId, action.sessionId, action.path, { ask: action.ask, intent: action.intent, ...(sessionId === action.sessionId ? { from: tabId } : {}) });
       })();
+    }
+    case 'openSessionFolder': {
+      const view = sessionId ? findSessionView(sessionId) : undefined;
+      if (!view) throw new Error('This session has no prepared pane');
+      openFolderInTab(view.paneLayout, tabId, action.folder);
+      return;
     }
     case 'forwardFiles':
       window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail: action.detail }));

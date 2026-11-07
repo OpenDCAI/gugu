@@ -401,6 +401,12 @@ export interface AppFileEntry {
   type: 'text' | 'json' | 'binary' | 'folder';
   /** The folder it is in (a `folder` entry's id); `null` at the top of the chat's folder, and for a working copy's file. */
   parentId: string | null;
+  /** A working copy's: its absolute path on the machine it is on. */
+  absolutePath?: string;
+  /** A working copy's: the workspace id a host's own drags of it name. */
+  workspaceId?: string;
+  /** A working copy's: what git says of it, when it has changed. */
+  gitStatus?: string;
   /** Where it is from the top of the chat's folder (`合同/2026/甲方.pdf`); a working copy's file: its path there (its id). */
   path: string;
   /**
@@ -432,6 +438,8 @@ export interface AppFileEntry {
    * `null`: no cloud copy (a project file kept on its machine, a document, a folder). Absent where the read does not say.
    */
   keep?: { expiresAt: string | null; mine: boolean } | null;
+  /** A working copy's entry that is a symbolic link (`files.list`'s answer): it may point nowhere, or outside. */
+  symlink?: true;
   /** A chat file's version (G1: `files.replace` makes the next one); `null` for a working copy's file. */
   version: number | null;
   createdAt: string | null;
@@ -631,10 +639,10 @@ export interface AppShowMessageDetail {
  * document as its text is now. Where the files are is the chat the page leaves out of the list, as a message's forward does.
  */
 export const APP_FORWARD_FILES_EVENT = 'gugu:app-forward-files';
-export interface AppForwardFilesDetail {
-  chatId: string;
-  files: Array<{ itemId: string; version: number; name: string; document: boolean }>;
-}
+export type AppForwardFilesDetail =
+  | { chatId: string; files: Array<{ itemId: string; version: number; name: string; document: boolean }> }
+  /** A working copy's files, read from the machine that holds them: each chat picked gets them as attachments. */
+  | { copies: Array<{ name: string; bytes: Uint8Array<ArrayBuffer> }> };
 
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
@@ -646,6 +654,22 @@ export type AppFileChunk = { size: number; offset: number; data: Uint8Array<Arra
 /** The existing cross-machine workspace wire stays JSON/base64; decode only as it reaches the App bridge. */
 export function workspaceAppFileChunk(chunk: { size: number; offset: number; data: string }): AppFileChunk {
   return { size: chunk.size, offset: chunk.offset, data: new Uint8Array(fromBase64(chunk.data)) };
+}
+
+/** `files.readText` reads up to this unless it is told otherwise. */
+export const DEFAULT_TEXT_MAX_BYTES = 20 * 1024 * 1024;
+
+/**
+ * What `files.readText` answers: the text; `binary` when it is not; over the limit, `truncated` with only its size.
+ * `exact: false`: text in another encoding, which writing it back would change: show it read-only.
+ */
+export interface AppFileText {
+  entry: AppFileEntry;
+  content: string;
+  binary?: true;
+  exact?: boolean;
+  truncated: boolean;
+  totalSize: number;
 }
 
 /** What `files.open` / `files.reopen` answer. */

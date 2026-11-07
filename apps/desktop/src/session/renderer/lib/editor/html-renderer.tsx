@@ -1,17 +1,14 @@
 import { observer } from 'mobx-react-lite';
 import { useCallback } from 'react';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
-import type { FileTabResource } from '@renderer/features/sessions/editor/stores/file-tab-resource';
 import {
   useSessionViewContext,
   useWorkspace,
   useWorkspaceId,
+  useWorkspaceSurface,
 } from '@renderer/features/sessions/session-view-context';
 import { HtmlPreviewFrame, type HtmlPreviewRegistration } from '@/components/preview/HtmlPreviewFrame';
 import { registerHtmlPreview } from '@/components/preview/html-preview-registration';
-import { ModelStatusOverlay } from '@renderer/lib/text-model/model-status-overlay';
-import { modelRegistry } from '@renderer/lib/text-model/model-registry';
-import { useModelStatus } from '@renderer/lib/text-model/use-model';
 import { toExternalUrl } from '@shared/preview/preview-link-script';
 import { resolveWorkspaceResourcePath } from './workspace-resource-path';
 import { openBrowserUrlExternally } from '@renderer/features/browser/browser-toolbar-actions';
@@ -21,43 +18,6 @@ import {
   workspaceRpc,
 } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { fileChangesChannel } from '@shared/core/fs/fsEvents';
-
-interface HtmlRendererProps {
-  tab: FileTabResource;
-}
-
-/**
- * 把一份 HTML 渲染在沙箱 iframe 里。源码/预览的切换在上层容器 FileContent 里。
- *
- * 预览由 `gugu-preview://` 供给(#6156),**不再把整页字符串塞进 `srcdoc`**。差别不是实现口味:
- * `srcdoc` 的文档没有自己的地址,于是相对资源得由渲染层逐类手工内联(CSS / JS / img / srcset /
- * CSS 里的 url(...)),而音视频、iframe、`@import` 内联不了只能在预览上方挂一条「没能内联」的
- * 提示;页内锚点更糟 —— `#x` 按宿主页的地址解析,点一下就把 iframe 整个导走,预览变白。
- *
- * 给了它一个真地址之后,上面每一样都回到浏览器自己手里,这个文件因此从 220 行掉到 100 行出头,
- * 连带删掉 300 行内联器与 200 行单测。⇒ 少写的代码不是目标,**不必再把浏览器已经实现好的
- * URL 解析重写一遍**才是。
- */
-export const HtmlRenderer = observer(function HtmlRenderer({ tab }: HtmlRendererProps) {
-  const uri = tab.bufferUri;
-  const status = useModelStatus(uri);
-
-  // Touch bufferVersions so this observer re-renders when the model is first
-  // populated — otherwise the preview can stick on stale content.
-  void modelRegistry.bufferVersions.get(uri);
-  const content = status === 'ready' ? (modelRegistry.getText(uri) ?? '') : '';
-
-  // A file that could not be read is not an empty page — say which one it is,
-  // the way the CSV and SVG previews do.
-  if (status !== 'ready') {
-    return (
-      <div className="relative h-full w-full bg-background-secondary-1">
-        <ModelStatusOverlay status={status} />
-      </div>
-    );
-  }
-  return <HtmlContentRenderer filePath={tab.path} rawContent={content} scrollPosition={tab.htmlPreviewScroll} />;
-});
 
 interface HtmlContentRendererProps {
   filePath: string;
@@ -78,6 +38,7 @@ export const HtmlContentRenderer = observer(function HtmlContentRenderer({
   const workspaceId = useWorkspaceId();
   const workspacePath = useWorkspace().path;
   const { pane } = usePaneContext();
+  const surface = useWorkspaceSurface();
   const subscribeChanges = useCallback(
     (changed: (paths?: readonly string[]) => void) =>
       workspaceEvents.on(fileChangesChannel, ({ workspaceId: changedWorkspace, update }) => {
@@ -110,9 +71,9 @@ export const HtmlContentRenderer = observer(function HtmlContentRenderer({
       });
       if (!target) return;
       // 任何本机文件都开 —— 标签页自己会挑渲染器(图片/PDF/CSV/文本)。
-      pane.open('file', { path: target, preview: false });
+      surface.openFile(target);
     },
-    [filePath, workspacePath, pane, projectId]
+    [filePath, workspacePath, pane, projectId, surface]
   );
 
   return (

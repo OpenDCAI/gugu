@@ -7,7 +7,7 @@ import {
   getResolvedIconPath,
   getResolvedLabel,
   OPEN_IN_APPS,
-  TERMINAL_OPEN_IN_APP_IDS,
+  openInMenuApps,
   type OpenInAppConfig,
   type OpenInAppId,
   type PlatformKey,
@@ -27,13 +27,9 @@ export interface UseOpenInAppsResult {
   icons: Partial<Record<OpenInAppId, string>>;
   labels: Partial<Record<OpenInAppId, string>>;
   availability: Record<string, boolean>;
-  installedApps: OpenInAppConfig[];
+  menuApps: OpenInAppConfig[];
   platform?: PlatformKey;
   loading: boolean;
-}
-
-function supportsPlatform(app: OpenInAppConfig, platform: PlatformKey): boolean {
-  return app.alwaysAvailable === true || Boolean(app.platforms[platform]);
 }
 
 export function useOpenInApps(): UseOpenInAppsResult {
@@ -77,19 +73,10 @@ export function useOpenInApps(): UseOpenInAppsResult {
     return result;
   }, [platform]);
 
-  const installedApps = useMemo(() => {
-    const hiddenApps: OpenInAppId[] = openIn?.hidden ?? [];
-    if (!platform) return [];
-    // 「终端」开关关着:终端类 App 不列(设置里的默认若是它,菜单退到下一个)。
-    const platformApps = Object.values(OPEN_IN_APPS).filter(
-      (app) =>
-        supportsPlatform(app, platform) &&
-        !hiddenApps.includes(app.id) &&
-        (terminalEnabled || !TERMINAL_OPEN_IN_APP_IDS.has(app.id))
-    );
-    if (loading) return platformApps;
-    return platformApps.filter((app) => availability[app.id] && !hiddenApps.includes(app.id));
-  }, [availability, loading, openIn?.hidden, platform, terminalEnabled]);
+  const menuApps = useMemo(
+    () => (loading ? [] : openInMenuApps({ installed: availability, hidden: openIn?.hidden, terminalEnabled, defaultApp: openIn?.default })),
+    [availability, loading, openIn?.default, openIn?.hidden, terminalEnabled]
+  );
 
-  return { icons, labels, availability, installedApps, platform, loading };
+  return { icons, labels, availability, menuApps, platform, loading };
 }

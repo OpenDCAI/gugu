@@ -1,39 +1,16 @@
-// #6264 上传 / 下载的生产装配:字节按块走那台机器的 `workspace.files.readChunk / writeChunk`(rpc 按项目所在的机器路由),
-// 落盘走这台电脑的主进程(remote-downloads.ts),「替换吗」用本机文件树拖进来同一个对话框。
+// #6264 上传的生产装配:字节按块走那台机器的 `workspace.files.readChunk / writeChunk`(rpc 按项目所在的机器路由),
+// 「替换吗」用本机文件树拖进来同一个对话框。
 // 判断都在 remote-transfers.ts;这里只接线。每个工作区一份,切走再切回来进度还在。
 import { WORKSPACE_WRITE_FORCE } from '@gugu/session-core/session-record/contract';
 import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { showModal } from '@renderer/lib/modal/modal-provider';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
-import { RemoteTransfers, type DownloadSink, type TransferRpc } from './remote-transfers';
-
-/** 这台电脑这一侧落盘出的错(磁盘满、没权限)—— 与「那台机器没应答」分开说。 */
-export const LOCAL_WRITE_FAILED = 'local_write_failed';
-
-function localFailure(message: string): Error {
-  return Object.assign(new Error(message), { code: LOCAL_WRITE_FAILED });
-}
+import { RemoteTransfers, type TransferRpc } from './remote-transfers';
 
 /** 那台机器答的失败:带上它的原因码(界面按码说人话)。 */
 function machineFailure(error: { type: string; message?: string }): Error {
   return Object.assign(new Error(error.message ?? error.type), { code: error.type });
 }
-
-const sink: DownloadSink = {
-  async begin(name, kind) {
-    const result = await rpc.app.beginRemoteDownload({ name, kind });
-    if (!result.success) throw localFailure(result.error);
-    return result.token && result.target ? { token: result.token, target: result.target } : null;
-  },
-  async write(token, segments, offset, data, final) {
-    const result = await rpc.app.writeRemoteDownload({ token, segments, offset, data, final });
-    if (!result.success) throw localFailure(result.error);
-  },
-  async finish(token, ok) {
-    const result = await rpc.app.finishRemoteDownload({ token, ok });
-    return result.success ? result.target : null;
-  },
-};
 
 function confirmReplace(names: string[]): Promise<boolean> {
   return new Promise((resolve) =>
@@ -114,7 +91,7 @@ export function transfersFor(deviceId: string, projectId: string, workspaceId: s
   let found = byWorkspace.get(key);
   if (!found) {
     const transferRpc = machineTransferRpc(deviceId, projectId, workspaceId);
-    found = new RemoteTransfers({ rpc: () => transferRpc, sessionId: workspaceId, deviceId, sink, confirmReplace });
+    found = new RemoteTransfers({ rpc: () => transferRpc, sessionId: workspaceId, deviceId, confirmReplace });
     byWorkspace.set(key, found);
   }
   return found;

@@ -19,10 +19,11 @@ let readyFails = false;
 const watchedDirectories: string[] = [];
 let feed: (update: unknown) => void = () => undefined;
 
-vi.mock('./app-files', () => ({ localRootOf: async () => ({ workspaceRoot: root, projectId: 'p', workspaceId: 'ws' }) }));
+vi.mock('./app-files', () => ({ localRootOf: async () => ({ workspaceRoot: root, projectId: 'p', workspaceId: 'ws' }), hearElsewhere: vi.fn() }));
 vi.mock('./app-programs-elsewhere', () => ({ sessionMachine: async () => null }));
 vi.mock('./local-files', () => ({
   workingCopyEntry: (_place: unknown, rel: string) => ({ id: rel, name: rel, type: 'file' }),
+  workingCopyFolder: (_place: unknown, rel: string) => ({ id: rel, name: rel, type: 'folder', suffix: '' }),
 }));
 vi.mock('@main/core/workspaces/workspace-runtime', () => ({
   acquireWorkspaceRuntime: async (_runtime: unknown, workDir: string, gitless: boolean) => {
@@ -71,7 +72,7 @@ vi.mock('@main/core/runtime/runtime-manager', () => ({
   },
 }));
 
-const { listWorkingCopy, releaseWorkingCopies, watchWorkingCopy } = await import('./working-copy-files');
+const { listWorkingCopy, releaseWorkingCopies, watchWorkingCopy, writeWorkingCopyChunk } = await import('./working-copy-files');
 const place = { workspace: { session: 'never-opened' } } as never;
 
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -127,5 +128,39 @@ describe('a working copy nothing has opened', () => {
     readyFails = true;
     await expect(watchWorkingCopy(place, undefined, () => undefined)).rejects.toMatchObject({ code: 'not-found' });
     expect(released).toMatchObject({ unsubscribed: 1, directory: 1, feed: 1 });
+  });
+});
+
+describe('a file going into a working copy, part by part', () => {
+  const part = (over: Record<string, unknown>) => ({ path: 'in/deep/new.bin', uploadId: 'u1', offset: 0, data: Buffer.from('abc').toString('base64'), total: 6, final: false, expectedEtag: null, ...over });
+  const b64 = (text: string) => Buffer.from(text).toString('base64');
+
+  it('makes its folders, holds the bytes beside it until the last part, then answers with the entry', async () => {
+    expect(await writeWorkingCopyChunk(place, part({}))).toEqual({ received: 3 });
+    expect(fs.existsSync(path.join(root, 'in/deep/new.bin'))).toBe(false);
+    const done = await writeWorkingCopyChunk(place, part({ offset: 3, data: b64('def'), final: true }));
+    expect(done.entry?.id).toBe('in/deep/new.bin');
+    expect(fs.readFileSync(path.join(root, 'in/deep/new.bin'), 'utf8')).toBe('abcdef');
+    expect(fs.readdirSync(path.join(root, 'in/deep'))).toEqual(['new.bin']);
+  });
+
+  it('a file of more than the old 100 MiB is taken: only the announced total is over it, nothing is held', async () => {
+    const total = 101 * 1024 * 1024;
+    expect(await writeWorkingCopyChunk(place, part({ path: 'large.bin', uploadId: 'u2', total }))).toEqual({ received: 3 });
+  });
+
+  it('a name already there is said at the first part, and written only when replacing was asked', async () => {
+    fs.writeFileSync(path.join(root, 'taken.txt'), 'old');
+    await expect(writeWorkingCopyChunk(place, part({ path: 'taken.txt', uploadId: 'u3', total: 3, final: true })))
+      .rejects.toMatchObject({ code: 'name-taken' });
+    expect(fs.readFileSync(path.join(root, 'taken.txt'), 'utf8')).toBe('old');
+    await writeWorkingCopyChunk(place, part({ path: 'taken.txt', uploadId: 'u4', total: 3, final: true, expectedEtag: '*' }));
+    expect(fs.readFileSync(path.join(root, 'taken.txt'), 'utf8')).toBe('abc');
+  });
+
+  it('a path out of the working copy makes no folder', async () => {
+    const sibling = `up-${path.basename(root)}`;
+    await expect(writeWorkingCopyChunk(place, part({ path: `../${sibling}/x`, uploadId: 'u5' }))).rejects.toMatchObject({ code: 'invalid' });
+    expect(fs.existsSync(path.join(root, '..', sibling))).toBe(false);
   });
 });

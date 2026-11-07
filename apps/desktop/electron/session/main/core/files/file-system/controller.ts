@@ -7,7 +7,6 @@ import { resolveWorkspace } from '../../projects/utils';
 import { workspaceFileIndexService } from '@main/core/search/workspace-file-index-service';
 import { fileErrorToMessage, isPermissionDenied } from './file-errors';
 import { readInlineBinaryDataUrl, readWorkspaceImage } from './image-support';
-import { copyLocalFilesToWorkspace } from './local-imports';
 import {
   assertWorkspaceRemoveAllowed,
   assertWorkspaceWriteAllowed,
@@ -482,19 +481,5 @@ export const workspaceFileSystemController = createRPCController({
       return err({ type: 'fs_error' as const, message: fileErrorToMessage(moved.error) });
     }
     return ok({ path: target.data.path });
-  },
-
-  copyLocalFiles: async (
-    projectId: string,
-    workspaceId: string,
-    srcPaths: string[],
-    destDirPath: string,
-    options?: { overwrite?: boolean }
-  ) => {
-    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
-    if (!resolved.success) return resolved;
-    const { env, fileSystem } = resolved.data;
-
-    return await copyLocalFilesToWorkspace(fileSystem, env.path, srcPaths, destDirPath, options);
   },
 });

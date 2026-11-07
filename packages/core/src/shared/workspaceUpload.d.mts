@@ -5,6 +5,10 @@ export declare function workspaceStoredText(
   mimeType: string | null | undefined,
   bytes: Uint8Array,
 ): { contentType: string; text: string; exact: boolean } | null
+export declare function workspaceFileText(
+  fileName: string,
+  bytes: Uint8Array,
+): { contentType: string; text: string; exact: boolean } | null
 export declare function opensAsStoredText(
   fileName: string,
   mimeType: string | null | undefined,

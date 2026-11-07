@@ -20,6 +20,7 @@ import { workspaceRegistry } from './workspace-registry';
 import type { WorkspaceViewModel } from '@renderer/features/sessions/stores/workspace-view-model';
 import { pickSessionOpener } from '@renderer/features/extensions/open-with';
 import { attachmentOpenTarget } from './attachment-open-target';
+import { fileTabTarget } from '../file-view/file-view-kinds';
 import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import type { BrowserTabResource } from '@renderer/features/browser/browser-tab-resource';
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
@@ -101,17 +102,12 @@ type FileOpenTarget = 'active' | 'beside';
  * `open_in_tab` 打开同一个 `.csv`,穿过的必须是这一个函数 —— ❌ 别在调用方各写一遍判断:
  * 两份判断今天一致,改一边就分岔,于是同一个产品对同一个文件给出两个答案。
  *
- * An extension that claimed this file type opens it instead of the built-in editor
- * (behavior tab-extensions:「认领某类文件的打开方式」). One claim opens straight away; when
- * several claim it the person picks in 「用哪个打开」 — once, if they tick 「始终用它」
- * (真源 §2.4, 主人 09-29; open-with.ts). The built-in editor is always one of the answers.
+ * The App that claimed this file type opens it (behavior tab-extensions:「认领某类文件的打开方式」). One claim opens
+ * straight away; when several claim it the person picks in 「用哪个打开」 — once, if they tick 「始终用它」 (真源 §2.4,
+ * 主人 09-29; open-with.ts). The folder App claims every text file and the file preview reads anything else, so no
+ * install can make a file unopenable.
  *
- * The built-in editor stays reachable: the claimed tab carries a host-provided
- *「改用内置编辑器打开」 entry (extension-tab-provider.tsx). Without that escape hatch,
- * installing an extension could make a file type unopenable — an ability no install
- * may have.
- *
- * Resolves to the extension tab kind that took the file, null when the built-in editor did,
+ * Resolves to the extension tab kind that took the file, null when the file preview did,
  * or undefined when the person cancelled 「用哪个打开」 — the caller reports that outcome
  * rather than predicting it.
  */
@@ -124,7 +120,7 @@ async function openResolvedFileInPane(
   if ('cancelled' in opener) return undefined;
   const claim = 'tabKind' in opener ? opener : null;
   // A link's place (`path#k=v&…`): the App that opens it is told, as a chat file's pill tells its App — before the tab
-  // opens, so a page still opening finds it waiting. The built-in editor takes no place. Only plain ids cross: the
+  // opens, so a page still opening finds it waiting. The file preview takes no place. Only plain ids cross: the
   // candidate holds the App's manifest.
   if (claim?.candidate && options.place) {
     const { extensionId, tabKind } = claim.candidate;
@@ -142,7 +138,8 @@ async function openResolvedFileInPane(
     return claim.tabKind;
   }
 
-  viewModel.paneLayout.open('file', { path: resolvedPath }, config);
+  const target = fileTabTarget(resolvedPath);
+  viewModel.paneLayout.open(target.kind, target.args, config);
   return null;
 }
 
@@ -193,25 +190,6 @@ async function openSessionFile(
     ...(at ? { place: { sessionId, at } } : {}),
     ...(ask ? { ask } : {}),
   });
-}
-
-/**
- * Opens a file in the BUILT-IN editor, ignoring any extension's claim on its type.
- *
- * The escape hatch behind「认领某类文件的打开方式」. It exists so that honouring a
- * claim can never make a file type unopenable: whatever an install contributes,
- * this route still reaches the editor. ❌ 不要改成走 openFileInSessionEditor —— 那条会
- * 再次问一遍认领,于是「改用内置编辑器打开」又回到扩展 tab,原地打转。
- */
-export function openFileInBuiltInEditor(
-  projectId: string,
-  sessionId: string,
-  resolvedPath: string
-): void {
-  const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
-  const viewModel = provisioned?.viewModel ?? getSessionView(projectId, sessionId);
-  if (!viewModel) return;
-  viewModel.activePane.open('file', { path: resolvedPath }, { intent: 'navigate' });
 }
 
 export async function openFileInSessionEditor(
@@ -273,7 +251,8 @@ export async function openExternalFilePath(
     // 没有可用的面板就退到系统默认程序 —— ❌ 不许在这里静默 return。
     // 「未选择项目」建出来的任务没有工作区面板,而它照样附得了文件(#5269)。
     if (viewModel) {
-      viewModel.paneLayout.open('file', { path: filePath, external: true }, { from, intent });
+      const tab = fileTabTarget(filePath, true);
+      viewModel.paneLayout.open(tab.kind, tab.args, { from, intent });
       return;
     }
   }
@@ -371,9 +350,10 @@ export function openHostRequestedFileInSessionWhenReady({
         // click path draws the line.
         // 宿主替 agent(或 App)打开的:开在对话右边并排,❌ 盖住对话;用户正看着别的也 ❌ 切走(spec gugu-plugin「在工作区打开文件」)。
         if (external) {
+          const tab = fileTabTarget(path, true);
           session.viewModel.paneLayout.open(
-            'file',
-            { path, external: true },
+            tab.kind,
+            tab.args,
             { from: sessionConversationTabId(session.viewModel.paneLayout, sessionId), intent: 'beside', activate: false },
           );
           onResult({ success: true, openedWith: null });

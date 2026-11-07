@@ -179,7 +179,7 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() =>
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-        'file',
+        'file-view',
         { path: '/Volumes/SSD/report.pdf', external: true },
         { from: null, intent: 'navigate' }
       )
@@ -265,8 +265,8 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() =>
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-        'file',
-        { path: '/Users/tester/gugu-linktest/b.md', external: true },
+        'workspace.file',
+        { filePath: '/Users/tester/gugu-linktest/b.md' },
         { from: null, intent: 'navigate' }
       )
     );
@@ -281,8 +281,8 @@ describe('task file preview routing', () => {
     // 不展开的话会拿字面 `~/…` 开外部页签,而 readExternalFile 只收绝对路径,必出坏页签。
     await vi.waitFor(() =>
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-        'file',
-        { path: '/Users/tester/gugu-linktest/b.md', external: true },
+        'workspace.file',
+        { filePath: '/Users/tester/gugu-linktest/b.md' },
         { from: null, intent: 'navigate' }
       )
     );
@@ -306,8 +306,8 @@ describe('task file preview routing', () => {
     // 第二次必须已经展开 —— rejected promise 被 cache 住的话这一步还是 toast。
     await vi.waitFor(() =>
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-        'file',
-        { path: '/Users/tester/gugu-linktest/b.md', external: true },
+        'workspace.file',
+        { filePath: '/Users/tester/gugu-linktest/b.md' },
         { from: null, intent: 'navigate' }
       )
     );
@@ -320,7 +320,7 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() =>
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-        'file',
+        'file-view',
         { path: '/Volumes/SSD/report.pdf', external: true },
         { from: null, intent: 'navigate' }
       )
@@ -348,8 +348,8 @@ describe('task file preview routing', () => {
 
     await vi.waitFor(() =>
       expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-        'file',
-        { path: '/u/task-attachments/session-1/a1-notes.md', external: true },
+        'workspace.file',
+        { filePath: '/u/task-attachments/session-1/a1-notes.md' },
         { from: null, intent: 'navigate' }
       )
     );
@@ -425,14 +425,14 @@ describe('task file preview routing', () => {
     );
     expect(mocks.paneLayoutOpen).toHaveBeenNthCalledWith(
       1,
-      'file',
-      { path: '/repo/docs/readme.md' },
+      'workspace.file',
+      { filePath: '/repo/docs/readme.md' },
       { from: null, intent: 'navigate', activate: undefined }
     );
     expect(mocks.paneLayoutOpen).toHaveBeenNthCalledWith(
       2,
-      'file',
-      { path: '/repo/docs/guide.md' },
+      'workspace.file',
+      { filePath: '/repo/docs/guide.md' },
       { from: null, intent: 'navigate', activate: undefined }
     );
   });
@@ -446,8 +446,8 @@ describe('task file preview routing', () => {
       '/repo/src/index.ts'
     );
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-      'file',
-      { path: '/repo/src/index.ts' },
+      'workspace.file',
+      { filePath: '/repo/src/index.ts' },
       { from: null, intent: 'navigate', activate: undefined }
     );
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
@@ -461,7 +461,7 @@ describe('task file preview routing', () => {
       return { success: true, data: { exists: true, isDirectory: false } };
     });
     await openFileInSessionEditor('project-1', 'session-1', '/tmp/other.md', { from: 'source-tab', intent });
-    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('file', { path: '/tmp/other.md', external: true }, { from: 'source-tab', intent });
+    expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('workspace.file', { filePath: '/tmp/other.md' }, { from: 'source-tab', intent });
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
   });
 
@@ -476,13 +476,13 @@ describe('task file preview routing', () => {
     await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledTimes(2));
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-      'file',
-      { path: '/tmp/Application Support/note.md', external: true },
+      'workspace.file',
+      { filePath: '/tmp/Application Support/note.md' },
       { from: null, intent: 'navigate' }
     );
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-      'file',
-      { path: '/tmp/Application Support/note.md', external: true },
+      'workspace.file',
+      { filePath: '/tmp/Application Support/note.md' },
       { from: null, intent: 'navigate', activate: undefined }
     );
   });
@@ -504,8 +504,8 @@ describe('task file preview routing', () => {
     );
     // 开在对话右边并排,❌ 盖住对话(spec gugu-plugin「在工作区打开文件」)。
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-      'file',
-      { path: '/tmp/Application Support/note.md', external: true },
+      'workspace.file',
+      { filePath: '/tmp/Application Support/note.md' },
       { from: null, intent: 'beside', activate: false }
     );
     dispose();
@@ -527,7 +527,7 @@ describe('task file preview routing', () => {
     // The counter-example that lets the assertion above mean something: routing a page
     // through the file branch would still have opened a tab and still reported success.
     expect(mocks.activePaneOpen).not.toHaveBeenCalledWith(
-      'file',
+      'file-view',
       expect.anything(),
       expect.anything()
     );
@@ -834,15 +834,22 @@ describe('task file preview routing', () => {
       dispose();
     });
 
-    it('a remembered 「始终用它」 opens straight away — the built-in editor included', async () => {
+    it('a remembered 「始终用它」 opens straight away', async () => {
       twoClaims();
       mocks.openWithDefaults = { 'session:.csv': 'tables.main' };
       await openFileInSessionEditor('project-1', 'session-1', 'data/report.csv');
-      await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('tables.main', { filePath: '/repo/data/report.csv' }, { from: null, intent: 'navigate', activate: undefined }));
-      mocks.openWithDefaults = { 'session:.csv': 'builtin' };
-      await openFileInSessionEditor('project-1', 'session-1', 'data/other.csv');
-      await vi.waitFor(() => expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('file', { path: '/repo/data/other.csv' }, { from: null, intent: 'navigate', activate: undefined }));
+      expect(mocks.paneLayoutOpen).toHaveBeenCalledWith('tables.main', { filePath: '/repo/data/report.csv' }, { from: null, intent: 'navigate', activate: undefined });
       expect(mocks.showModal).not.toHaveBeenCalled();
+    });
+
+    it('a remembered choice nobody offers any more (the old built-in editor) asks again', async () => {
+      twoClaims();
+      mocks.openWithDefaults = { 'session:.csv': 'builtin' };
+      const opening = openFileInSessionEditor('project-1', 'session-1', 'data/report.csv');
+      await vi.waitFor(() => expect(mocks.showModal).toHaveBeenCalledTimes(1));
+      mocks.showModal.mock.calls[0]![1].onClose();
+      await opening;
+      expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
     });
   });
 
@@ -861,8 +868,8 @@ describe('task file preview routing', () => {
       expect(onResult).toHaveBeenCalledWith({ success: true, openedWith: null })
     );
     expect(mocks.paneLayoutOpen).toHaveBeenCalledWith(
-      'file',
-      { path: '/repo/session-1/src/index.ts' },
+      'workspace.file',
+      { filePath: '/repo/session-1/src/index.ts' },
       { from: null, intent: 'beside', activate: false }
     );
     dispose();

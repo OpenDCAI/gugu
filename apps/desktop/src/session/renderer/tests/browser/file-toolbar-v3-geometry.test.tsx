@@ -50,10 +50,7 @@ it.each([250, 390].flatMap(width => ['private-card', 'group-folder'].map(origin 
   expect(panel.querySelectorAll('[role="toolbar"]')).toHaveLength(1);
   const toolbar = panel.querySelector<HTMLElement>('[data-file-toolbar]')!;
   const box = host.getBoundingClientRect();
-  // A narrow toolbar gives forward away (viewer-unify); every button it still shows stays inside the pane.
-  const shown = [...toolbar.querySelectorAll('button')].filter(button => button.checkVisibility());
-  expect(toolbar.querySelectorAll('button').length - shown.length).toBe(width <= 320 ? 1 : 0);
-  for (const button of shown) {
+  for (const button of toolbar.querySelectorAll('button')) {
     const rect = button.getBoundingClientRect();
     expect(rect.left).toBeGreaterThanOrEqual(box.left);
     expect(rect.right).toBeLessThanOrEqual(box.right + 1);
@@ -75,9 +72,7 @@ it.each([250, 390])('keeps the real file toolbar and return button inside a %spx
   const toolbar = host.querySelector<HTMLElement>('[data-file-toolbar]')!;
   const box = host.getBoundingClientRect();
   expect(host.querySelectorAll('[role="toolbar"]')).toHaveLength(1);
-  const shown = [...toolbar.querySelectorAll('button')].filter(button => button.checkVisibility());
-  expect(toolbar.querySelectorAll('button').length - shown.length).toBe(width <= 320 ? 1 : 0);
-  for (const button of shown) {
+  for (const button of toolbar.querySelectorAll('button')) {
     const rect = button.getBoundingClientRect();
     expect(rect.left).toBeGreaterThanOrEqual(box.left);
     expect(rect.right).toBeLessThanOrEqual(box.right + 1);

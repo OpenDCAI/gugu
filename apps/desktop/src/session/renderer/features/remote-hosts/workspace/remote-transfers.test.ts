@@ -6,7 +6,7 @@ import {
   type SessionpageWorkspaceEntry,
   type SessionpageWorkspaceWriteRequest,
 } from '@gugu/session-core/session-record/contract';
-import { RemoteTransfers, type DownloadSink, type UploadItem } from './remote-transfers';
+import { RemoteTransfers, type UploadItem } from './remote-transfers';
 
 /** 一台假机器:一棵内存里的目录树,读 / 写 / 建与那台机器上同一个约定。 */
 function fakeMachine(files: Record<string, string> = {}, dirs: string[] = ['/w']) {
@@ -48,38 +48,18 @@ function fakeMachine(files: Record<string, string> = {}, dirs: string[] = ['/w']
   return { rpc, store, folders, writes };
 }
 
-function fakeSink() {
-  const written = new Map<string, Buffer>();
-  const sink: DownloadSink & { finished: boolean[] } = {
-    finished: [],
-    begin: vi.fn(async (name: string) => ({ token: 't', target: `/Users/me/Downloads/${name}` })),
-    write: vi.fn(async (_token: string, segments: string[], offset: number, data: string) => {
-      const key = segments.join('/');
-      const before = written.get(key) ?? Buffer.alloc(0);
-      expect(offset).toBe(before.length);
-      written.set(key, Buffer.concat([before, Buffer.from(data, 'base64')]));
-    }),
-    finish: vi.fn(async (_token: string, ok: boolean) => {
-      sink.finished.push(ok);
-      return ok ? '/Users/me/Downloads/x' : null;
-    }),
-  };
-  return { sink, written };
-}
-
 const item = (segments: string[], text: string): UploadItem => {
   const bytes = Buffer.from(text);
   return { segments, size: bytes.length, slice: async (start, end) => new Uint8Array(bytes.subarray(start, end)) };
 };
 
-function transfers(machine: ReturnType<typeof fakeMachine>, options: { replace?: boolean; sink?: DownloadSink } = {}) {
+function transfers(machine: ReturnType<typeof fakeMachine>, options: { replace?: boolean } = {}) {
   const confirmReplace = vi.fn(async () => options.replace ?? true);
   let n = 0;
   const t = new RemoteTransfers({
     rpc: () => machine.rpc as never,
     sessionId: 'c1',
     deviceId: 'dev',
-    sink: options.sink ?? fakeSink().sink,
     confirmReplace,
     newId: () => `id-${(n += 1)}`,
     now: () => 0,
@@ -136,39 +116,5 @@ describe('上传到那台机器', () => {
     const result = await t.upload('/w', [slow], 'a.bin');
     expect(result?.status).toBe('cancelled');
     expect(machine.writes).toHaveLength(1);
-  });
-});
-
-describe('下载到这台电脑', () => {
-  it('单个文件:一段段读、一段段落盘,完了交回落点', async () => {
-    const machine = fakeMachine({ '/w/report.md': '# hi' });
-    const { sink, written } = fakeSink();
-    const { t } = transfers(machine, { sink });
-    const result = await t.download({ name: 'report.md', path: '/w/report.md', isDirectory: false, size: 4 });
-    expect(result).toMatchObject({ status: 'done', done: 4, total: 4, target: '/Users/me/Downloads/x' });
-    expect(written.get('')?.toString()).toBe('# hi');
-    expect(sink.finished).toEqual([true]);
-  });
-
-  it('文件夹:先列一遍算总量,按层落;符号链接不跟', async () => {
-    const machine = fakeMachine({ '/w/site/index.html': '<h1>', '/w/site/css/a.css': 'b{}' }, ['/w', '/w/site', '/w/site/css']);
-    const { sink, written } = fakeSink();
-    const { t } = transfers(machine, { sink });
-    const result = await t.download({ name: 'site', path: '/w/site', isDirectory: true, size: 0 });
-    expect(result).toMatchObject({ status: 'done', total: 7 });
-    expect(written.get('index.html')?.toString()).toBe('<h1>');
-    expect(written.get('css/a.css')?.toString()).toBe('b{}');
-  });
-
-  it('人在「放哪」取消 = 什么都不做;中途失败 = 落盘那一侧删掉半截', async () => {
-    const machine = fakeMachine({ '/w/a': 'x' });
-    const { sink } = fakeSink();
-    (sink.begin as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    const { t } = transfers(machine, { sink });
-    expect(await t.download({ name: 'a', path: '/w/a', isDirectory: false, size: 1 })).toBeNull();
-    machine.rpc.readWorkspaceFile.mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'permission_denied' }));
-    const failed = await t.download({ name: 'a', path: '/w/a', isDirectory: false, size: 1 });
-    expect(failed?.status).toBe('failed');
-    expect(sink.finished).toEqual([false]);
   });
 });

@@ -60,6 +60,26 @@ export function workspaceStoredText(fileName, mimeType, bytes) {
 }
 
 /**
+ * The same answer for a file on a disk, read whole. Its name may say nothing (`Makefile`, `.env`): then the bytes decide,
+ * and strictly, since any bytes without a NUL read as GB 18030: UTF-8, no NUL. A name that says something else is believed.
+ *
+ * @param {string} fileName
+ * @param {Uint8Array} bytes
+ * @returns {{ contentType: string, text: string, exact: boolean } | null}
+ */
+export function workspaceFileText(fileName, bytes) {
+  const stored = workspaceStoredText(fileName, null, bytes)
+  const type = mimeTypeFromName(fileName)
+  // An SVG's type says image, but on a disk it is text like any other.
+  if (stored || (type && type !== 'image/svg+xml') || bytes.includes(0)) return stored
+  try {
+    return { contentType: 'text/plain', text: new TextDecoder('utf-8', { fatal: true }).decode(bytes), exact: true }
+  } catch {
+    return null
+  }
+}
+
+/**
  * Whether a stored file is worth reading whole to ask `workspaceStoredText`: its name or type says text, and it fits an
  * editor. Over this, it is read in pieces.
  *

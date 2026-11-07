@@ -1,3 +1,4 @@
+import { getMainWindow } from '@main/app/window';
 import type { ChatFileRef } from '@shared/extensions/app-files-core';
 import * as fs from 'node:fs';
 import { app } from 'electron';
@@ -440,6 +441,19 @@ export const extensionsController = createRPCController({
    * a menu item that silently does nothing is the same fake as a placeholder
    * button.
    */
+  /** A session's file on another machine, saved from the host's preview: an App's download, for the file that preview shows. */
+  downloadWorkingCopyFile: async (args: { sessionId: string; path: string }) => {
+    const { downloadAppFile } = await import('@main/core/extensions/app-files');
+    const { sessionWorkspace } = await import('@shared/extensions/app-runtime-protocol');
+    const ref = { workspace: sessionWorkspace(args.sessionId), id: args.path };
+    let target: string | null = null;
+    try {
+      await downloadAppFile({ pageId: 0, extensionId: 'workspace', handed: ref }, { ref }, getMainWindow()?.webContents ?? null, undefined, (filePath) => { target = filePath; });
+      return { success: true as const, target };
+    } catch (error) {
+      return { success: false as const, error: error instanceof Error ? error.message : String(error), code: (error as { code?: string }).code };
+    }
+  },
   /** 摩擦单 F36: the window saw rows of these chats' members change (who, left or not); the pages sitting in them are told when that moved who is there. */
   chatMembersChanged: async (args: { changes: { chatId: string; memberId: string | null; left: boolean }[] }) => {
     const byChat = new Map<string, { memberId: string | null; left: boolean }[]>();

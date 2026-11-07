@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPEN_IN_APPS } from '@shared/openInApps';
-import { OpenInMenu, OpenInMenuItems, useOpenInTargets } from './open-in-menu';
+import { OpenInMenuItems, useOpenInTargets } from './open-in-menu';
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -58,7 +58,7 @@ vi.mock('@renderer/lib/hooks/useOpenInApps', () => ({
       terminal: 'Terminal',
     },
     availability: mocks.openInApps.availability,
-    installedApps: [OPEN_IN_APPS.finder, OPEN_IN_APPS.cursor, OPEN_IN_APPS.terminal],
+    menuApps: [OPEN_IN_APPS.finder, OPEN_IN_APPS.cursor, OPEN_IN_APPS.terminal],
     platform: 'win32',
     loading: mocks.openInApps.loading,
   }),
@@ -156,100 +156,6 @@ vi.mock('@renderer/lib/ui/tooltip', async () => {
       render?: React.ReactElement;
     }) => render ?? React.createElement('div', {}, children),
   };
-});
-
-describe('OpenInMenu', () => {
-  let dom: JSDOM;
-  let root: Root;
-  let container: HTMLDivElement;
-
-  beforeEach(() => {
-    mocks.openIn.mockResolvedValue({ success: true });
-    mocks.openInApps.availability = {
-      finder: true,
-      cursor: true,
-      terminal: true,
-    };
-    mocks.openInApps.loading = false;
-    dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
-    vi.stubGlobal('window', dom.window);
-    vi.stubGlobal('document', dom.window.document);
-    vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
-    vi.stubGlobal('MouseEvent', dom.window.MouseEvent);
-
-    container = dom.window.document.getElementById('root') as HTMLDivElement;
-    root = createRoot(container);
-  });
-
-  afterEach(() => {
-    act(() => root.unmount());
-    vi.unstubAllGlobals();
-    vi.clearAllMocks();
-    dom.window.close();
-  });
-
-  it('launches the selected dropdown app immediately while saving it as preferred', async () => {
-    await act(async () => {
-      root.render(React.createElement(OpenInMenu, { path: 'C:/repo' }));
-    });
-
-    const cursorOption = container.querySelector('[data-testid="open-in-option-cursor"]');
-    expect(cursorOption).not.toBeNull();
-
-    await act(async () => {
-      cursorOption!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
-
-    expect(mocks.updateOpenIn).toHaveBeenCalledWith({ default: 'cursor' });
-    expect(mocks.updateOpenIn).toHaveBeenCalledTimes(1);
-    expect(mocks.openIn).toHaveBeenCalledWith({
-      app: 'cursor',
-      path: 'C:/repo',
-    });
-    expect(mocks.openIn).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the preferred app persisted when a dropdown launch fails', async () => {
-    mocks.openIn.mockResolvedValueOnce({ success: false, error: 'Cursor is unavailable' });
-
-    await act(async () => {
-      root.render(React.createElement(OpenInMenu, { path: 'C:/repo' }));
-    });
-
-    const cursorOption = container.querySelector('[data-testid="open-in-option-cursor"]');
-    expect(cursorOption).not.toBeNull();
-
-    await act(async () => {
-      cursorOption!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(mocks.updateOpenIn).toHaveBeenCalledWith({ default: 'cursor' });
-    // 标题跟着咕咕的汉化走(open-in-menu.tsx 里是 `在 ${label} 中打开失败`);上游这条断言写的是
-    // 汉化之前的英文。description 保持原样 —— 它是 openIn 回传的错误原文,不经翻译。
-    expect(mocks.toast).toHaveBeenCalledWith({
-      title: 'Could not open in Cursor',
-      description: 'Cursor is unavailable',
-      variant: 'destructive',
-    });
-  });
-
-  it('disables unavailable dropdown apps after availability loads', async () => {
-    mocks.openInApps.availability = {
-      finder: true,
-      cursor: false,
-      terminal: true,
-    };
-
-    await act(async () => {
-      root.render(React.createElement(OpenInMenu, { path: 'C:/repo' }));
-    });
-
-    const cursorOption = container.querySelector('[data-testid="open-in-option-cursor"]');
-    expect(cursorOption).not.toBeNull();
-    expect(cursorOption).toHaveProperty('disabled', true);
-  });
 });
 
 // gugu-dev#181 项目页签的右键菜单:菜单打开时还没查完这台机器装了哪些 app,就一行「在 X 中打开」都不画 ——

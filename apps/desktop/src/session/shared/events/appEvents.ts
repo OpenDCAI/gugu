@@ -1,3 +1,4 @@
+import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink';
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
 import type { SessionPaneTab, SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
@@ -5,6 +6,9 @@ import type { AgentInstallationStatus } from '@shared/core/agents/agent-payload'
 import { defineEvent } from '@shared/lib/ipc/events';
 import type { CommandId } from '@shared/commands';
 import type { TabNavigationDirection } from '@shared/shortcuts';
+
+/** A working copy's file or folder moved (`to`: its path there now) or deleted (`to` null): what shows it follows. */
+export const workingCopyMovedChannel = defineEvent<{ workspace: string; from: string; to: string | null }>('app:working-copy-moved');
 
 // App editing actions (renderer → main, no payload)
 export const appUndoChannel = defineEvent<void>('app:undo');
@@ -118,6 +122,15 @@ export const sessionManageTabsChannel = defineEvent<{
 export const sessionManageTabsResultChannel = defineEvent<SessionPaneTabsResult & {
   requestId: string; success: boolean; error?: string;
 }>('session:manage-tabs-result');
+
+/**
+ * A page hears one file or folder of a session on another machine: that machine's file changes reach the window only, so main asks
+ * the window to listen and to tell it (`app-file-watches-elsewhere`).
+ */
+export const appFileWatchElsewhereChannel = defineEvent<{ key: string; sessionId: string; on: boolean } & ({ file: string } | { folder: string })>('session:app-file-watch-elsewhere');
+/** A file call its machine is too old for: the window says so, with the way to update that machine. */
+export const appFileMachineOutdatedChannel = defineEvent<{ deviceId: string; label: string }>('session:app-file-machine-outdated');
+export const appFileHeardElsewhereChannel = defineEvent<{ key: string; change: ExtensionFileChangeBatch }>('session:app-file-heard-elsewhere');
 
 /**
  * #6264 预览要别的机器上的一块字节(`gugu-preview://` 的远端登记,见 preview-protocol.ts):

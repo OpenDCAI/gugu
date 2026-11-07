@@ -1,3 +1,6 @@
+import { followMovedFiles } from '@renderer/features/sessions/file-view/follow-moved-files';
+import { findSessionAnywhere } from '@renderer/features/sessions/stores/session-selectors';
+import { workspaceSession } from '@shared/extensions/app-runtime-protocol';
 import { useEffect } from 'react';
 import { openRequestedGroupParticipant } from '@renderer/features/chats/open-group-participant-session';
 import { readSessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
@@ -7,6 +10,17 @@ import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-
 import { isScreenView, showSessionBeside } from './screen-layout-actions';
 import { appState } from '@renderer/lib/stores/app-state';
 import { answerMachinePreviewReads } from '@renderer/features/sessions/workspace-backend/machine-preview-reads';
+import { answerAppFileWatches } from '@renderer/features/extensions/app-file-watches-elsewhere';
+import { notify } from '@/lib/notices';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { machineOfProject } from '@renderer/features/remote-hosts/workspace/machine-workspace-backend';
+import { onMachineReconnected } from '@renderer/lib/machine-clients';
+import { retryServerVersionMatch } from '@/lib/serverVersionRetry';
+import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
+import { getSessionPageStore, getWorkspaceForSession } from '@renderer/features/sessions/stores/session-selectors';
+import { workspaceEvents, workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
+import { fileChangesChannel } from '@shared/core/fs/fsEvents';
+import { log } from '@renderer/utils/logger';
 import {
   manageSessionTabsWhenReady,
   openHostRequestedBrowserInSessionWhenReady,
@@ -25,11 +39,15 @@ import {
   menuOpenSettingsChannel,
   menuQuitRequestedChannel,
   notificationFocusSessionChannel,
+  appFileHeardElsewhereChannel,
+  appFileWatchElsewhereChannel,
+  appFileMachineOutdatedChannel,
   remotePreviewReadChannel,
   remotePreviewReadResultChannel,
   sessionManageTabsChannel,
   sessionManageTabsResultChannel,
   sessionOpenFileInPaneChannel,
+  workingCopyMovedChannel,
   sessionOpenFileInPaneResultChannel,
   sessionOpenBrowserInPaneChannel,
   sessionCancelBrowserAcquireChannel,
@@ -111,6 +129,17 @@ export function AppMenuEvents() {
     };
   }, [navigate]);
 
+  useEffect(
+    () =>
+      events.on(workingCopyMovedChannel, ({ workspace, from, to }) => {
+        const sessionId = workspaceSession({ workspace });
+        const found = sessionId ? findSessionAnywhere(sessionId) : undefined;
+        if (!found) return;
+        followMovedFiles(found.viewModel.paneLayout, found.viewModel.workspace?.path, from, to);
+      }),
+    []
+  );
+
   useEffect(() => {
     const disposers = new Set<() => void>();
     const unlisten = events.on(sessionOpenFileInPaneChannel, (request) => {
@@ -133,6 +162,61 @@ export function AppMenuEvents() {
       disposers.clear();
     };
   }, []);
+
+  // A file call its machine is too old for: one notice a machine, whose button updates it the way a device row's retry does,
+  // and lands on that row, which says how it goes.
+  useEffect(
+    () =>
+      events.on(appFileMachineOutdatedChannel, ({ deviceId, label }) => {
+        const key = `machine-outdated:${deviceId}`;
+        const failed = () => notify({ key, title: translateSessionMessage('remoteHost.status.updateFailed', { device: label }), tier: 'error' });
+        notify({
+          key,
+          title: translateSessionMessage('remoteHost.notice.serverTooOld', { device: label }),
+          tier: 'error',
+          action: {
+            label: translateSessionMessage('remoteHost.notice.updateMachine'),
+            onClick: () => {
+              openShellSettings('devices');
+              void retryServerVersionMatch(deviceId).then((requested) => {
+                if (!requested) failed();
+              }, failed);
+            },
+          },
+        });
+      }),
+    []
+  );
+
+  // A page hearing one file on another machine: that machine's changes reach this window, not main.
+  useEffect(
+    () =>
+      answerAppFileWatches({
+        onRequest: (handler) => events.on(appFileWatchElsewhereChannel, handler),
+        reply: (heard) => events.emit(appFileHeardElsewhereChannel, heard),
+        locate: (sessionId) => {
+          for (const projectId of getProjectManagerStore().projects.keys()) {
+            const workspaceId = getSessionPageStore(projectId, sessionId)?.workspaceId;
+            const workspace = getWorkspaceForSession(projectId, sessionId);
+            if (workspaceId && workspace) return { projectId, workspaceId, root: workspace.path };
+          }
+          return null;
+        },
+        onFileChanges: (handler) => workspaceEvents.on(fileChangesChannel, handler),
+        watchDirectory: async ({ projectId, workspaceId }, directory) => {
+          const files = workspaceRpc(projectId).files;
+          const watched = await files.watchDirectory(projectId, workspaceId, directory);
+          if (!watched.success) throw new Error(JSON.stringify(watched.error));
+          return () => void files.releaseDirectoryWatch(projectId, workspaceId, watched.data.leaseId);
+        },
+        onMachineBack: ({ projectId }, handler) => {
+          const deviceId = machineOfProject(projectId);
+          return deviceId ? onMachineReconnected(deviceId, handler) : () => {};
+        },
+        warn: (message, data) => log.warn(message, data),
+      }),
+    []
+  );
 
   // #6264 别的机器上的网页 / HTML 预览:主进程的 `gugu-preview://` 要一块字节,按项目所在的机器去取。
   useEffect(

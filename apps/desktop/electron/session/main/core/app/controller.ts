@@ -9,21 +9,8 @@ import { createRPCController } from '@shared/lib/ipc/rpc';
 import type { OpenInAppId } from '@shared/openInApps';
 import { resolveWorkspace } from '../projects/utils';
 import { appService } from './service';
-import { createRemoteDownloads, type RemoteDownloads } from './remote-downloads';
 import { readUserLibrary, readUserLibraryEntry, readUserLibraryVolume, writeUserLibraryEntry } from './user-library';
 import { callAssistantApp } from './assistant-app';
-
-let downloads: RemoteDownloads | null = null;
-const remoteDownloads = (): RemoteDownloads =>
-  (downloads ??= createRemoteDownloads({
-    saveFile: (defaultPath) => appService.showDownloadSaveDialog(defaultPath),
-    pickDirectory: (defaultPath) => appService.showDownloadDirectoryDialog(defaultPath),
-    downloadsDir: () => appService.downloadsDir(),
-  }));
-
-function failure(error: unknown) {
-  return { success: false as const, error: error instanceof Error ? error.message : String(error) };
-}
 
 const execFileAsync = promisify(execFile);
 
@@ -150,6 +137,7 @@ export const appController = createRPCController({
     }
   },
   checkInstalledApps: () => appService.checkInstalledApps(),
+  openInMenu: () => appService.openInMenu(),
   listInstalledFonts: async (args?: { refresh?: boolean }) => {
     const { fonts, cached, error } = await appService.listInstalledFonts(args?.refresh);
     return { success: !error, fonts, cached, ...(error ? { error } : {}) };
@@ -164,33 +152,6 @@ export const appController = createRPCController({
         success: false as const,
         error: error instanceof Error ? error.message : String(error),
       };
-    }
-  },
-  /**
-   * #6264 下载别的机器上的文件 / 文件夹:问放哪 → 一段段写 → 收尾(见 remote-downloads.ts)。
-   * `target: null` = 人取消了。
-   */
-  beginRemoteDownload: async (args: { name: string; kind: 'file' | 'folder' }) => {
-    try {
-      const started = await remoteDownloads().begin(args);
-      return { success: true as const, token: started?.token ?? null, target: started?.target ?? null };
-    } catch (error) {
-      return failure(error);
-    }
-  },
-  writeRemoteDownload: async (args: { token: string; segments: string[]; offset: number; data: string; final: boolean }) => {
-    try {
-      await remoteDownloads().write(args);
-      return { success: true as const };
-    } catch (error) {
-      return failure(error);
-    }
-  },
-  finishRemoteDownload: async (args: { token: string; ok: boolean }) => {
-    try {
-      return { success: true as const, target: await remoteDownloads().finish(args) };
-    } catch (error) {
-      return failure(error);
     }
   },
   minimizeWindow: () => {

@@ -1,7 +1,8 @@
 import { observer } from 'mobx-react-lite';
 import { createContext, useCallback, useContext, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Folder, MessageSquare, Paperclip, Users } from '@/lib/icons';
+import { Folder, MessageSquare, Users } from '@/lib/icons';
+import { FileIcon } from '@renderer/lib/editor/file-icon';
 import { chatTabSlotKey, readShellSlots } from '@/lib/shellSlots';
 import { readChatSummary, subscribeChatSummaries } from '@/lib/chatSummariesBridge';
 import { chatFolderNameKeyOf } from '@/components/chat/chatFolderName';
@@ -119,7 +120,7 @@ const PanelIcon = observer(function PanelIcon({ item }: { item: PanelItem }) {
   if (isFolderItem(item)) return <Folder size={14} />;
   const extensionId = item.kind ? parseExtensionTabKind(item.kind)?.extensionId : undefined;
   const app = extensionId ? installedExtensionsStore.openableApps.find((candidate) => candidate.extensionId === extensionId) : undefined;
-  return app ? <RailAppIcon app={app} className="size-4" /> : <Paperclip size={14} />;
+  return app ? <RailAppIcon app={app} className="size-4" /> : <FileIcon filename={item.fileName ?? item.title} size={14} className="shrink-0 text-foreground-muted" />;
 });
 
 const PanelTabItem = observer(function PanelTabItem({ tab, host, ctx }: TabBarItemProps<TabResource>) {

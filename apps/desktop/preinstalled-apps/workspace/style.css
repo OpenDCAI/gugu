@@ -1,7 +1,7 @@
 /* ui.css supplies the host's typography, controls, lists and palette; only this App's layout lives here. */
 html, body { height: 100%; }
 :root { --em-icon-xl: 36px; }
-body { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+body { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
 body.no-list .files, body.show-doc .files { display: none; }
 body:not(.show-doc):not(.no-list) .doc { display: none; }
 
@@ -209,8 +209,19 @@ img.details-picture { object-fit: contain; }
 .crumb[aria-current='page'] { color: var(--em-foreground); font-weight: 600; cursor: default; }
 .crumb-sep { opacity: .6; }
 .back { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; color: var(--em-foreground-muted); }
+.file[data-dotfile] .file-open { opacity: 0.6; }
+.file-link { color: var(--em-foreground-muted); }
+.file-title:has(.file-link) .file-name { flex: 0 1 auto; }
 .file[data-system] .file-mark { color: var(--em-accent-11); }
 .file.drop-target, .crumb.drop-target { background: var(--em-selected); }
+.file[data-git='added'] .file-name { color: var(--em-foreground-success); }
+.file[data-git='modified'] .file-name { color: var(--em-foreground-warning); }
+.file[data-git='deleted'] .file-name { color: var(--em-foreground-destructive); text-decoration: line-through; }
+.file[data-git='renamed'] .file-name { color: var(--em-foreground-muted); }
+.transfer { padding: var(--em-spacing-xs) var(--em-spacing-sm); border-top: 1px solid var(--em-border); font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
+.transfer[hidden] { display: none; }
+.transfer-row { display: flex; align-items: center; gap: var(--em-spacing-sm); }
+.transfer-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-path { font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
 .dialog { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--em-foreground) 24%, transparent); }
 .dialog-box { width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; gap: var(--em-spacing-sm); box-shadow: var(--em-shadow-dialog); }
@@ -305,7 +316,7 @@ body[data-mode='edit'] .panes, body[data-mode='preview'] .panes, body[data-kind=
 body[data-mode='edit'] .preview, body[data-mode='preview'] .editor { display: none; }
 .preview-cut { flex: none; margin: 0; padding: var(--em-spacing-xs) 18px; color: var(--em-foreground-muted); }
 body[data-mode='edit'] .preview-cut, .preview-cut[hidden] { display: none; }
-body[data-kind='json'] .modes, body[data-kind='json'] .preview { display: none; }
+body[data-kind='json']:not(.read-in-host) .modes, body[data-kind='json'] .preview { display: none; }
 body[data-kind='json'] .editor { display: block; }
 body.json-dirty .json-actions { display: flex; }
 body[data-state='message'] .panes, body[data-state='message'] .modes, body[data-state='message'] .status { display: none; }
@@ -351,9 +362,6 @@ body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 @container doc-head (max-width: 420px) {
   #page-back-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-@container doc-head (max-width: 340px) {
-  #page-forward { display: none; }
-}
 .host-opened .doc-title:not(:has(.rename-input)) { display: block; }
 .page-navigation { display: flex; align-items: center; flex: none; gap: 2px; }
 .page-navigation button { min-height: 28px; padding: 2px 4px; }
@@ -373,3 +381,26 @@ body[data-mode='edit'] .editor .cm-content { padding-top: 4px; }
   /* 只读 (#doc-status) and the save controls stay: a narrow head drops only what it can do without. */
   .doc-actions .doc-info, .doc-actions .peers { display: none; }
 }
+
+/* The source of a file that has no preview: the host's code colours (lib/codemirror/theme.ts), on this page's palette. */
+.editor .code-view {
+  --foreground: var(--em-foreground); --foreground-muted: var(--em-foreground-muted); --border: var(--em-border);
+  --background-2: var(--em-hover); --shadow-popover: var(--em-shadow-lift);
+  --code-bg: var(--em-background); --code-fg: var(--em-foreground); --code-gutter: var(--em-background);
+  --code-line-number: var(--em-foreground-passive); --code-selection-bg: var(--em-selected); --code-line-highlight: var(--em-hover);
+  --blue-11: color(display-p3 0.15 0.44 0.84); --red-11: color(display-p3 0.744 0.234 0.222);
+  --green-11: color(display-p3 0.263 0.488 0.261); --cyan-11: color(display-p3 0.08 0.48 0.63);
+}
+[data-gugu-theme='dark'] .editor .code-view {
+  --blue-11: color(display-p3 0.49 0.72 1); --red-11: color(display-p3 1 0.57 0.55);
+  --green-11: color(display-p3 0.535 0.807 0.542); --cyan-11: color(display-p3 0.446 0.79 0.887);
+}
+body .editor .code-view .cm-content { max-width: none; margin: 0; padding: 16px 0; }
+.editor .code-view .cm-line { padding: 0 16px; }
+
+/* Where the open file is: the end of the path shows, a click on a folder of the working copy goes there. */
+.doc-path { display: flex; flex: 0 2 auto; justify-content: flex-end; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
+.doc-path[hidden] { display: none; }
+.doc-path > * { flex: none; }
+.doc-path button { border: 0; background: none; padding: 0 2px; color: inherit; font: inherit; min-height: 0; cursor: pointer; }
+.doc-path button:hover { color: var(--em-foreground); text-decoration: underline; }

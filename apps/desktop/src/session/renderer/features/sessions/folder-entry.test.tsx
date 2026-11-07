@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@renderer/features/extensions/installed-extensions-store', () => ({
+  WORKSPACE_APP_ID: 'workspace',
   installedExtensionsStore: {
     get enabledTabContributions() { return h.tabs.filter((tab) => h.folderEnabled || tab.extensionId !== 'workspace'); },
     get allTabContributions() { return h.tabs; },
