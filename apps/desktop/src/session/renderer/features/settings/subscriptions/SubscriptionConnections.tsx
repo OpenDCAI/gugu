@@ -231,7 +231,8 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove, onSignIn
     : details.isPending ? translate('subscriptions.checking') : translate('subscriptions.connections.account');
   return (
     <div className="subscription-connection-option" data-testid={`connection-${connection.id}`}>
-      <DropdownMenuRadioItem value={connection.id} data-testid={`connection-use-${connection.id}`}
+      {/* Stay open on the click: a refused switch explains itself here, and a committed one closes the menu itself. */}
+      <DropdownMenuRadioItem value={connection.id} data-testid={`connection-use-${connection.id}`} closeOnClick={false}
         disabled={busy || details.isPending || (connection.kind === 'account' && status?.kind !== 'authenticated')}
         className="subscription-connection-choice">
         <span><span className="subscription-connection-name">{name}{details.data?.plan?.plan && <span className="subscription-plan-badge">{details.data.plan.plan}</span>}</span>
