@@ -176,6 +176,8 @@ describe('consumed first-unread entry', () => {
     surface.scrollTop = surface.scrollHeight - surface.clientHeight - 500
     await scrolled
     await until('the real scroll event withdraws tail following', () => !view.history.isFollowingTail())
+    // Scroll memory records painted frames; close the slot after this position has been painted.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve)))
     const before = visible()
     await view.closeSlot()
     await until('the other root has removed the conversation slot', () => !view.scroller())
