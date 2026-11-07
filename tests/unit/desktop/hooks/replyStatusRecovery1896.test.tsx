@@ -12,6 +12,7 @@ vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => l
 vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
   subscribePrivateUserEventBus: (_user: string, _event: string, _listener: unknown, options: { onSubscribed: () => void }) => {
     bus.subscribed = options.onSubscribed
+    queueMicrotask(options.onSubscribed)
     return {}
   },
   unsubscribePrivateUserEventBus: bus.off,
