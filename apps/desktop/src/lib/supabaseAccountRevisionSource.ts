@@ -9,30 +9,6 @@ import {
 } from './realtimeChannel'
 import { parseWakeHead } from './chatProjection'
 import { dataClient } from './supabase'
-import { watchRevisionReconcile, type RevisionReconcileSignals } from './accountRevisionReconcile'
-import { platform } from '../platform'
-import { rendererLogger } from './log'
-
-const reconcileLog = rendererLogger('chat/account-revision-reconcile')
-
-function rendererReconcileSignals(): RevisionReconcileSignals {
-  return {
-    setInterval: (fn, ms) => window.setInterval(fn, ms),
-    clearInterval: (handle) => window.clearInterval(handle as number),
-    onVisible: (listener) => {
-      const onChange = () => { if (document.visibilityState === 'visible') listener() }
-      document.addEventListener('visibilitychange', onChange)
-      return () => document.removeEventListener('visibilitychange', onChange)
-    },
-    onOnline: (listener) => {
-      window.addEventListener('online', listener)
-      return () => window.removeEventListener('online', listener)
-    },
-    onForeground: (listener) => platform.subscribeAppForeground(listener, (error) => {
-      reconcileLog.error({ error }, 'app foreground subscription failed')
-    }),
-  }
-}
 
 export function createSupabaseAccountRevisionSource(): AccountRevisionSource {
   return {
@@ -53,12 +29,8 @@ export function createSupabaseAccountRevisionSource(): AccountRevisionSource {
         (payload) => onWake(parseWakeHead(payload)),
         { onSubscribed },
       )
-      // R2 广播之外的拉取时机(定时对账 + 前台/可见/联网/唤醒),head 未知 ⇒ 按游标增量拉一次。
-      const stopReconcile = watchRevisionReconcile(() => onWake(null), rendererReconcileSignals())
-      return () => {
-        stopReconcile()
-        unsubscribePrivateUserEventBus(handle)
-      }
+      // R2 广播之外的拉取时机归账号作用域(ChatProvider 的 watchRendererRevisionReconcile),这里只管广播。
+      return () => unsubscribePrivateUserEventBus(handle)
     },
   }
 }

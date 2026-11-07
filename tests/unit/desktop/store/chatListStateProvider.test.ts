@@ -167,7 +167,7 @@ vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
   useNotificationSettings: () => notificationSettings,
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
-  platform: {
+  platform: { subscribeAppForeground: () => () => {},
     capabilities: { notifications: false, badge: true },
     showNotification: vi.fn(),
     setBadge: vi.fn(),

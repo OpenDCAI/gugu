@@ -168,6 +168,8 @@ export type AccountRevisionCoordinator = {
    */
   subscribe(events: AccountRevisionEvent | readonly AccountRevisionEvent[], listener: AccountRevisionListener): () => void
   retryPending(): void
+  /** A head-unknown wake: pull from the committed cursor once (the reconcile beat). */
+  wake(): void
   whenIdle(): Promise<void>
 }
 
@@ -454,6 +456,7 @@ export function createAccountRevisionCoordinator(
       }
     },
     retryPending: scheduleDispatch,
+    wake: () => runtime.wake(),
     async whenIdle() {
       await runtime.whenIdle()
       await dispatchPromise
