@@ -106,6 +106,7 @@ describe('claude 读取器', () => {
       output: 2633,
       cacheRead: 35676,
       cacheWrite: 64478,
+      quality: { complete: false, fields: 4 },
     });
     expect(claudeTokenReader.readLine(JSON.parse(claudeUser('x')), null)).toBeNull();
     const zero = claudeAssistant({
@@ -184,7 +185,7 @@ describe('codex 读取器', () => {
       ].join('\n')
     );
     const { entries } = await parseLogFile(path, codexTokenReader);
-    expect(entries.map(({ key: _key, ts: _ts, ...rest }) => rest)).toEqual([
+    expect(entries.map(({ key: _key, legacyKey: _legacyKey, ts: _ts, ...rest }) => rest)).toEqual([
       { model: 'gpt-5.6-terra', input: 3, output: 266, cacheRead: 0, cacheWrite: 19927 },
       { model: 'gpt-5.5', input: 20706 - 20473 - 230, output: 217, cacheRead: 20473, cacheWrite: 230 },
     ]);

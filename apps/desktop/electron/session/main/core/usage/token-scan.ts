@@ -7,6 +7,8 @@ import {
   type ParsedLogFile,
 } from './token-log-file';
 import type { TokenEntry, TokenLogReader } from './token-readers/types';
+import { recentTokenRefreshFrom, TOKEN_CACHE_VERSION } from './token-cache-version';
+import { canonicalizeCodexForks } from './token-forks';
 import type { NativeHome } from '@gugu/session-core/agents/plugins';
 import { nativeHomeRoots } from '@gugu/session-core/agents/plugins/helpers';
 
@@ -87,10 +89,13 @@ export async function collectTokenEntries(options: {
   memory: ParsedFileMemory;
   onSave: (row: CachedLogFileSave) => void;
   onFileError?: (path: string, error: unknown) => void;
+  /** Upgrade only this recent interval; older cache entries retain their previous counting rule. */
+  refreshSinceMs?: number;
 }): Promise<{ entries: ProviderTokenEntry[]; stats: TokenScanStats }> {
   const stats: TokenScanStats = { files: 0, cacheHits: 0, resumed: 0, fullParses: 0, bytesRead: 0 };
   const { memory } = options;
   const entries: ProviderTokenEntry[] = [];
+  const refreshSinceMs = options.refreshSinceMs ?? recentTokenRefreshFrom();
 
   for (const reader of options.readers) {
     const providerSessionIds = new Set(
@@ -104,6 +109,7 @@ export async function collectTokenEntries(options: {
       for (const path of paths) files.push({ path, providerSessionId });
     }
     stats.files += files.length;
+    const parsedFiles = new Map<string, ParsedLogFile>();
 
     await mapWithConcurrency(files, 4, async ({ path, providerSessionId }) => {
       try {
@@ -111,17 +117,26 @@ export async function collectTokenEntries(options: {
         const size = info.size;
         const mtimeMs = Math.floor(info.mtimeMs);
         const known = memory.files.get(path);
+        const changed = !known || known.size !== size || known.mtimeMs !== mtimeMs;
+        const upgrade = known?.parsed.v !== TOKEN_CACHE_VERSION
+          && !!known && (changed || known.parsed.entries.some((entry) => entry.ts >= refreshSinceMs));
 
         let parsed: ParsedLogFile;
-        if (known && known.size === size && known.mtimeMs === mtimeMs) {
+        if (known && !changed && !upgrade) {
           stats.cacheHits += 1;
           parsed = known.parsed;
         } else {
-          const resume = known && known.parsed.offset <= size ? known.parsed : undefined;
+          const resume = !upgrade && known && known.parsed.offset <= size ? known.parsed : undefined;
           if (resume) stats.resumed += 1;
           else stats.fullParses += 1;
           stats.bytesRead += size - (resume?.offset ?? 0);
-          parsed = await parseLogFile(path, reader, resume);
+          parsed = await parseLogFile(path, reader, resume, { providerSessionId, refreshSinceMs });
+          if (upgrade) {
+            parsed.entries = [
+              ...known.parsed.entries.filter((entry) => entry.ts < refreshSinceMs),
+              ...parsed.entries.filter((entry) => entry.ts >= refreshSinceMs),
+            ];
+          }
           memory.files.set(path, { size, mtimeMs, parsed });
           options.onSave({
             path,
@@ -132,12 +147,21 @@ export async function collectTokenEntries(options: {
             data: packParsedLogFile(parsed),
           });
         }
-        for (const entry of parsed.entries) entries.push({ ...entry, provider: reader.provider, providerSessionId });
+        parsedFiles.set(path, parsed);
       } catch (error) {
         // 一份文件读不了(刚被删 / 没权限)不该让整页用量打不开:这一份的 token 缺席,响亮记一笔。
         options.onFileError?.(path, error);
       }
     });
+    const forkEntries = reader.provider === 'codex'
+      ? canonicalizeCodexForks([...parsedFiles].map(([path, parsed]) => ({ path, parsed }))) : undefined;
+    for (const { path, providerSessionId } of files) {
+      const parsed = parsedFiles.get(path);
+      if (!parsed) continue;
+      for (const entry of forkEntries?.get(path) ?? parsed.entries) {
+        entries.push({ ...entry, provider: reader.provider, providerSessionId });
+      }
+    }
   }
   return { entries, stats };
 }

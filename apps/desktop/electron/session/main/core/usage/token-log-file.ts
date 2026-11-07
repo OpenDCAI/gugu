@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs';
 import type { ReaderState, TokenEntry, TokenLogReader } from './token-readers/types';
+import { TOKEN_CACHE_VERSION } from './token-cache-version';
 
 /**
  * 一份日志文件解析到哪儿了 —— 也是 `usage_token_file_cache.data` 里存的东西。
@@ -9,15 +10,16 @@ import type { ReaderState, TokenEntry, TokenLogReader } from './token-readers/ty
  * 接着读时原样带回去,续读与一口气读完得到同一组条目。
  */
 export type ParsedLogFile = {
-  v: 1;
+  v: 1 | 2;
   offset: number;
   state: ReaderState;
   entries: TokenEntry[];
 };
 
-type PackedEntry = [key: string, ts: number, model: number, input: number, output: number, cacheRead: number, cacheWrite: number];
+type PackedEntry = [key: string, ts: number, model: number, input: number, output: number, cacheRead: number, cacheWrite: number,
+  complete?: boolean | null, fields?: number | null, legacyKey?: string | null];
 
-type PackedLogFile = { v: 1; offset: number; state: ReaderState; models: string[]; entries: PackedEntry[] };
+type PackedLogFile = { v: 1 | 2; offset: number; state: ReaderState; models: string[]; entries: PackedEntry[] };
 
 /** 落库用的紧凑形状:模型名只存一遍,条目存成数组。 */
 export function packParsedLogFile(parsed: ParsedLogFile): string {
@@ -30,9 +32,10 @@ export function packParsedLogFile(parsed: ParsedLogFile): string {
       models.push(entry.model);
       modelIndex.set(entry.model, index);
     }
-    return [entry.key, entry.ts, index, entry.input, entry.output, entry.cacheRead, entry.cacheWrite];
+    return [entry.key, entry.ts, index, entry.input, entry.output, entry.cacheRead, entry.cacheWrite,
+      entry.quality?.complete, entry.quality?.fields, entry.legacyKey];
   });
-  const packed: PackedLogFile = { v: 1, offset: parsed.offset, state: parsed.state, models, entries };
+  const packed: PackedLogFile = { v: parsed.v, offset: parsed.offset, state: parsed.state, models, entries };
   return JSON.stringify(packed);
 }
 
@@ -44,13 +47,13 @@ export function unpackParsedLogFile(text: string): ParsedLogFile | null {
   } catch {
     return null;
   }
-  if (packed?.v !== 1 || typeof packed.offset !== 'number' || !Array.isArray(packed.entries)) return null;
+  if (![1, TOKEN_CACHE_VERSION].includes(packed?.v) || typeof packed.offset !== 'number' || !Array.isArray(packed.entries)) return null;
   const models = Array.isArray(packed.models) ? packed.models : [];
   return {
-    v: 1,
+    v: packed.v,
     offset: packed.offset,
     state: packed.state ?? null,
-    entries: packed.entries.map(([key, ts, model, input, output, cacheRead, cacheWrite]) => ({
+    entries: packed.entries.map(([key, ts, model, input, output, cacheRead, cacheWrite, complete, fields, legacyKey]) => ({
       key,
       ts,
       model: models[model] ?? 'unknown',
@@ -58,6 +61,9 @@ export function unpackParsedLogFile(text: string): ParsedLogFile | null {
       output,
       cacheRead,
       cacheWrite,
+      ...(packed.v === TOKEN_CACHE_VERSION && typeof complete === 'boolean' && typeof fields === 'number'
+        ? { quality: { complete, fields } } : {}),
+      ...(packed.v === TOKEN_CACHE_VERSION && typeof legacyKey === 'string' ? { legacyKey } : {}),
     })),
   };
 }
@@ -73,10 +79,11 @@ const NEWLINE = 0x0a;
 export async function parseLogFile(
   path: string,
   reader: TokenLogReader,
-  resume?: ParsedLogFile
+  resume?: ParsedLogFile,
+  context: { providerSessionId?: string; refreshSinceMs?: number } = {}
 ): Promise<ParsedLogFile> {
   const start = resume?.offset ?? 0;
-  const state: ReaderState = resume ? structuredClone(resume.state) : reader.initialState();
+  const state: ReaderState = resume ? structuredClone(resume.state) : reader.initialState({ path, providerSessionId: context.providerSessionId });
   const entries: TokenEntry[] = resume ? [...resume.entries] : [];
   let consumed = 0;
   // 还没遇到换行的那段(一行可能跨很多块:claude 的单行工具结果能到几十 MB)。按块攒着,
@@ -104,8 +111,14 @@ export async function parseLogFile(
       }
       if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
       const entry = reader.readLine(parsed as Record<string, unknown>, state);
-      if (entry) entries.push(entry);
+      if (entry) {
+        // Do not silently reclassify older history when a new file or cache version is read.
+        if (entry.ts < (context.refreshSinceMs ?? -Infinity)) {
+          const { quality: _quality, legacyKey, ...legacy } = entry;
+          entries.push({ ...legacy, key: legacyKey ?? entry.key });
+        } else entries.push(entry);
+      }
     }
   }
-  return { v: 1, offset: start + consumed, state, entries };
+  return { v: TOKEN_CACHE_VERSION, offset: start + consumed, state, entries };
 }

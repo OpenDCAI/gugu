@@ -29,7 +29,7 @@ const ROLLOUT_PATTERN =
 
 type Totals = { input: number; cached: number; cacheWrite: number; output: number; total: number };
 
-type CodexState = { model: string | null; last: Totals | null };
+type CodexState = { model: string | null; last: Totals | null; scope: string; fixedScope: boolean; forkedFrom?: string };
 
 async function listDir(path: string): Promise<Dirent[]> {
   try {
@@ -108,20 +108,31 @@ export const codexTokenReader: TokenLogReader = {
     return found;
   },
 
-  initialState(): ReaderState {
-    const state: CodexState = { model: null, last: null };
+  initialState(context): ReaderState {
+    const state: CodexState = { model: null, last: null, scope: context?.providerSessionId || context?.path || 'unbound',
+      fixedScope: !!context?.providerSessionId };
     return state;
   },
 
   mayCarryUsage(line) {
     // 未转义的结构标记(同 claude 那边的理由);codex 写的也是紧凑 JSON。
-    return line.includes('"type":"token_count"') || line.includes('"type":"turn_context"');
+    return line.includes('"type":"token_count"') || line.includes('"type":"turn_context"') || line.includes('"type":"session_meta"');
   },
 
   readLine(entry, rawState): TokenEntry | null {
     const state = rawState as CodexState;
     const payload = asRecord(entry.payload);
     if (!payload) return null;
+
+    if (entry.type === 'session_meta') {
+      const id = payload.session_id ?? payload.id;
+      // A copied/stale session_meta must not merge two distinct sessions selected by the caller.
+      if (!state.fixedScope && typeof id === 'string' && id.trim()) state.scope = id.trim();
+      if (typeof payload.forked_from_id === 'string' && payload.forked_from_id.trim()) {
+        state.forkedFrom = payload.forked_from_id.trim();
+      }
+      return null;
+    }
 
     if (entry.type === 'turn_context') {
       if (typeof payload.model === 'string' && payload.model) state.model = payload.model;
@@ -145,8 +156,10 @@ export const codexTokenReader: TokenLogReader = {
     if (dInput + dOutput === 0) return null;
 
     return {
-      // 同一刻、同一累计值 = 同一条事件(codex 偶尔连写两遍;分叉复制的历史也是这个键)。
-      key: `codex:${String(entry.timestamp)}:${current.total}`,
+      // A timestamp/total is not a global request identity. Fork copies are reconciled only
+      // against a located, explicitly named parent and an identical usage prefix.
+      key: `codex:scope:${encodeURIComponent(state.scope)}:${String(entry.timestamp)}:${current.input},${current.cached},${current.cacheWrite},${current.output},${current.total}`,
+      legacyKey: `codex:${String(entry.timestamp)}:${current.total}`,
       ts,
       model: state.model ?? 'unknown',
       input: Math.max(0, dInput - dCached - dCacheWrite),
