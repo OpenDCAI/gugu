@@ -7,7 +7,7 @@ import { openLinkWith } from '../../session/shared/extensions/open-link'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'
 import { readCachedDevices } from '../../store/devicesCache'
-import { directoryRows, listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
+import { directoryRows, listedSession, liveDeviceSessions, rowOpens } from '../../session/shared/remote-sessions/session-directory'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
@@ -982,6 +982,11 @@ export async function openPhoneLink(target: string | OpenTarget) {
     bringUp: async ({ sessionId }) => {
       const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId)
       if (!('row' in listed)) throw new Error('Session is not in your task list')
+      if (!rowOpens(listed.row.session)) {
+        const { translateSessionMessage } = await import('../../session/renderer/localization/locale-store')
+        const device = readCachedDevices().find(row => row.device_id === listed.row.deviceId)
+        throw new Error(translateSessionMessage('deviceScope.unreachable', { device: device?.label ?? '' }))
+      }
       const { APP_SHOW_SESSION_EVENT } = await import('../../session/shared/extensions/app-runtime-protocol')
       window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: listed.row }))
     },
