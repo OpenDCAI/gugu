@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { app, ipcMain } from 'electron'
 import { registerErrorSummaryReporting } from '../../apps/desktop/electron/error-summary-reporting-host'
+import * as normalization from '../../apps/desktop/shared/error-summary'
 
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events')
@@ -34,6 +36,7 @@ afterEach(() => {
   app.removeAllListeners()
   ipcMain.removeAllListeners()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -51,17 +54,18 @@ describe('native summary reporting boundary', () => {
 
   it('requires the independent consent owner and a trusted application window', () => {
     registerErrorSummaryReporting({ eligible: true, owner: () => null })
-    ipcMain.emit('error-summary:report', { sender: { trusted: true } }, candidate)
+    ipcMain.emit('error-summary:report', { sender: { trusted: true } }, { context: 'anonymous', summary: candidate })
     expect(fetch).not.toHaveBeenCalled()
     ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision: 'allowed' }) })
-    ipcMain.emit('error-summary:report', { sender: { trusted: false } }, candidate)
+    ipcMain.emit('error-summary:report', { sender: { trusted: false } }, { context: 'anonymous', summary: candidate })
     expect(fetch).not.toHaveBeenCalled()
   })
 
   it('builds outgoing protocol data from the allowlist and supplies trusted host metadata', async () => {
     ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision: 'allowed' }) })
     registerErrorSummaryReporting({ eligible: true, owner: () => 'test-owner-only-local' })
-    ipcMain.emit('error-summary:report', { sender: { trusted: true } }, { ...candidate, version: 'someone@example.test', system: 'private OS' })
+    const context = createHash('sha256').update('test-owner-only-local').digest('hex')
+    ipcMain.emit('error-summary:report', { sender: { trusted: true } }, { context, summary: { ...candidate, version: 'someone@example.test', system: 'private OS' } })
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     const [url, options] = vi.mocked(fetch).mock.calls[0]
     expect(url).toBe('https://errors.example.test/v1/beta-errors')
@@ -75,5 +79,46 @@ describe('native summary reporting boundary', () => {
     expect(String(options!.body)).not.toMatch(/private|someone|test-owner/)
     expect(options!.redirect).toBe('error')
     expect(options!.credentials).toBe('omit')
+  })
+
+  it.each(['unknown', 'denied'])('does not extract native errors or IPC data before %s consent', decision => {
+    ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision }) })
+    registerErrorSummaryReporting({ eligible: true, owner: () => null })
+    const capture = vi.spyOn(normalization, 'errorSummaryFromError')
+    const sanitize = vi.spyOn(normalization, 'sanitizeErrorSummary')
+    const getter = vi.fn(() => 'private')
+    const error = new Error('private')
+    Object.defineProperty(error, 'stack', { get: getter })
+    process.listeners('uncaughtExceptionMonitor').at(-1)!(error, 'uncaughtException')
+    process.listeners('unhandledRejection').at(-1)!(error, Promise.resolve())
+    ipcMain.emit('error-summary:report', { sender: { trusted: true } }, { context: 'anonymous', summary: candidate })
+    expect(capture).not.toHaveBeenCalled()
+    expect(sanitize).not.toHaveBeenCalled()
+    expect(getter).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('reports an allowed native error category without formatting any error accessors', async () => {
+    ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision: 'allowed' }) })
+    registerErrorSummaryReporting({ eligible: true, owner: () => null })
+    const getter = vi.fn(() => 'private')
+    const error = new TypeError('private')
+    for (const property of ['stack', 'name', 'message']) Object.defineProperty(error, property, { get: getter })
+    process.listeners('uncaughtExceptionMonitor').at(-1)!(error, 'uncaughtException')
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(getter).not.toHaveBeenCalled()
+    const body = String(vi.mocked(fetch).mock.calls[0][1]!.body)
+    expect(JSON.parse(body).summary).toMatchObject({ type: 'TypeError', locations: [] })
+    expect(body).not.toContain('private')
+  })
+
+  it('rejects a renderer report whose allowed account changed before IPC delivery', () => {
+    ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision: 'allowed' }) })
+    registerErrorSummaryReporting({ eligible: true, owner: () => 'account-b' })
+    const sanitize = vi.spyOn(normalization, 'sanitizeErrorSummary')
+    const context = createHash('sha256').update('account-a').digest('hex')
+    ipcMain.emit('error-summary:report', { sender: { trusted: true } }, { context, summary: candidate })
+    expect(sanitize).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

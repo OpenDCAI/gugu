@@ -34,7 +34,7 @@ describe('outgoing error-summary allowlist', () => {
   it('drops third-party URLs, arbitrary files, traversal, query credentials and first-line error messages', () => {
     for (const path of ['https://evil.test/apps/desktop/src/App.tsx:1:2', '/Users/alice/Documents/private.js:1:2', 'apps/desktop/src/../../private.js:1:2', 'apps/desktop/src/App.tsx?token=sk-verySecret123456789:1:2']) expect(sanitizeErrorLocation(path)).toBeNull()
     const error = new TypeError('private message someone@example.test')
-    error.stack = 'TypeError: private message someone@example.test\n    at privateFunction (/Users/alice/work/gugu/apps/desktop/src/App.tsx:12:3)\n    at external (https://evil.test/page.js:1:2)'
+    Object.defineProperty(error, 'stack', { value: 'TypeError: private message someone@example.test\n    at privateFunction (/Users/alice/work/gugu/apps/desktop/src/App.tsx:12:3)\n    at external (https://evil.test/page.js:1:2)' })
     expect(errorSummaryFromError(error, summary)).toEqual(summary)
   })
 
@@ -60,6 +60,61 @@ describe('outgoing error-summary allowlist', () => {
     Object.defineProperty(error, 'stack', { get: getter })
     expect(errorSummaryFromError(error, summary)).toEqual({ ...summary, type: 'Error', locations: [] })
     expect(getter).not.toHaveBeenCalled()
+  })
+
+  it('does not treat multiline message content as code locations', () => {
+    const privatePath = 'apps/desktop/src/accounts/alice/account-1234.ts:12:3'
+    const message = `private problem\n    at account (${privatePath})\nprivate continuation`
+    const error = new TypeError(message)
+    Object.defineProperty(error, 'stack', { value: `TypeError: ${message}\n    at runtime (apps/desktop/src/App.tsx:12:3)`, configurable: true })
+    expect(errorSummaryFromError(error, summary)).toEqual(summary)
+    expect(JSON.stringify(errorSummaryFromError(error, summary))).not.toContain('alice')
+  })
+
+  it('never invokes native stack formatting through tampered name or message accessors', () => {
+    const error = new Error('private')
+    const name = vi.fn(() => 'Error')
+    const message = vi.fn(() => 'private')
+    Object.defineProperty(error, 'name', { get: name })
+    Object.defineProperty(error, 'message', { get: message })
+    const result = errorSummaryFromError(error, summary)
+    expect(result?.locations).toEqual([])
+    expect(name).not.toHaveBeenCalled()
+    expect(message).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'different', 'accessor'])('drops data stacks with an unverified %s message header', kind => {
+    const error = new TypeError('private message')
+    const getter = vi.fn(() => 'private message')
+    if (kind === 'missing') Reflect.deleteProperty(error, 'message')
+    if (kind === 'accessor') Object.defineProperty(error, 'message', { get: getter })
+    Object.defineProperty(error, 'stack', { value: 'TypeError: other message\n    at account (apps/desktop/src/accounts/alice/account-1234.ts:12:3)' })
+    expect(errorSummaryFromError(error, summary)?.locations).toEqual([])
+    expect(getter).not.toHaveBeenCalled()
+  })
+
+  it('skips the complete multiline name and CRLF message before reading frames', () => {
+    const error = new TypeError('private\r\n    at account (apps/desktop/src/accounts/alice/account-1234.ts:12:3)')
+    const name = 'TypeError\n    at account (apps/desktop/src/accounts/bob/account-5678.ts:12:3)'
+    Object.defineProperty(error, 'name', { value: name })
+    Object.defineProperty(error, 'stack', { value: `${name}: ${error.message}\n    at runtime (apps/desktop/src/App.tsx:12:3)` })
+    expect(errorSummaryFromError(error, summary)).toEqual(summary)
+  })
+
+  it('does not call Error.prepareStackTrace for a native stack accessor', () => {
+    const previous = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace')
+    const prepare = vi.fn(() => 'private formatted stack')
+    const error = new Error('private')
+    let result
+    try {
+      Object.defineProperty(Error, 'prepareStackTrace', { value: prepare, configurable: true, writable: true })
+      result = errorSummaryFromError(error, summary)
+    } finally {
+      if (previous) Object.defineProperty(Error, 'prepareStackTrace', previous)
+      else Reflect.deleteProperty(Error, 'prepareStackTrace')
+    }
+    expect(result?.locations).toEqual([])
+    expect(prepare).not.toHaveBeenCalled()
   })
 
   it('constructs exactly the versioned JSON contract with no SDK event or user context', () => {

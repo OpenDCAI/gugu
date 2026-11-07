@@ -61,7 +61,14 @@ export function registerErrorSummaryReporting(deps: {
   })
   const safely = (action: () => void) => { try { action() } catch { /* No recursive error-reporting failures. */ } }
   const metadata = () => ({ version: app.getVersion(), system: process.platform, time: new Date().toISOString() })
-  const reportError = (error: unknown, type?: string) => safely(() => reporter.report(errorSummaryFromError(error, metadata(), type)))
+  const captureScope = () => {
+    const current = context()
+    return current.eligible && current.allowed ? current.scope : undefined
+  }
+  const reportError = (error: unknown, type?: string) => safely(() => {
+    if (captureScope() === undefined) return
+    reporter.report(errorSummaryFromError(error, metadata(), type))
+  })
   let initialized = false
   let previousOwner = deps.owner()
   ipcMain.on('error-summary:consent-changed', () => safely(() => {
@@ -74,7 +81,11 @@ export function registerErrorSummaryReporting(deps: {
   ipcMain.on('error-summary:report', (event, candidate: unknown) => {
     if (!BrowserWindow.fromWebContents(event.sender)) return
     safely(() => {
-      const summary = sanitizeErrorSummary(candidate)
+      const scope = captureScope()
+      if (scope === undefined || !candidate || typeof candidate !== 'object') return
+      // A renderer approval may have become stale before this IPC was received.
+      if (Object.getOwnPropertyDescriptor(candidate, 'context')?.value !== scope) return
+      const summary = sanitizeErrorSummary(Object.getOwnPropertyDescriptor(candidate, 'summary')?.value)
       // The main process supplies trusted version, OS and time, not the sender.
       if (summary) reporter.report({ ...summary, ...metadata() })
     })
