@@ -24,23 +24,11 @@ function own(input: object, key: string): unknown {
   return Object.getOwnPropertyDescriptor(input, key)?.value
 }
 
-function stackFrames(input: object, standardName: string | undefined): string[] {
-  // Never call a stack getter, including V8's: formatting can execute arbitrary
-  // name/message getters and Error.prepareStackTrace. Unknown stacks stay empty.
-  const stack = own(input, 'stack')
-  const message = own(input, 'message')
-  const nameDescriptor = Object.getOwnPropertyDescriptor(input, 'name')
-  const name = nameDescriptor ? nameDescriptor.value : standardName
-  if (typeof stack !== 'string' || stack.length > 32_000 || typeof message !== 'string' || typeof name !== 'string') return []
-  // A message (or name) may contain newlines and convincing-looking stack frames.
-  // Require and remove the entire exact header, not just its first line.
-  const header = name === '' ? message : message === '' ? name : `${name}: ${message}`
-  return stack.startsWith(`${header}\n`) ? stack.slice(header.length + 1).split('\n') : []
-}
-
 export function sanitizeErrorLocation(value: unknown): string | null {
   const safe = redactErrorSummaryValue(value)
   if (!safe) return null
+  const appBundle = safe.match(/^gugu-app:\/\/app\/(assets\/[A-Za-z0-9_-]+\.js)(?::([1-9]\d{0,6}):([1-9]\d{0,6}))?$/)
+  if (appBundle) return `dist/${appBundle[1]}${appBundle[2] ? `:${appBundle[2]}:${appBundle[3]}` : ''}`
   const slashes = safe.replace(/\\/g, '/')
   const position = slashes.match(/:(\d+):(\d+)$/)
   const withoutPosition = position ? slashes.slice(0, position.index) : slashes
@@ -80,20 +68,12 @@ export function sanitizeErrorSummary(input: unknown): ErrorSummary | null {
   }
 }
 
-export function errorSummaryFromError(error: unknown, metadata: Pick<ErrorSummary, 'version' | 'system' | 'time'>, type?: string): ErrorSummary | null {
+export function errorSummaryFromError(error: unknown, metadata: Pick<ErrorSummary, 'version' | 'system' | 'time'>, type?: string, locations: readonly string[] = []): ErrorSummary | null {
   const value = error && typeof error === 'object' ? error : null
   const name = value ? own(value, 'name') : undefined
   // Standard Error names live on prototypes, but no inherited name/getter is read.
   const standardName = error instanceof TypeError ? 'TypeError' : error instanceof RangeError ? 'RangeError' : error instanceof ReferenceError ? 'ReferenceError' : error instanceof SyntaxError ? 'SyntaxError' : error instanceof URIError ? 'URIError' : error instanceof EvalError ? 'EvalError' : error instanceof AggregateError ? 'AggregateError' : error instanceof Error ? 'Error' : undefined
-  const locations: string[] = []
-  if (value) {
-    for (const line of stackFrames(value, standardName)) {
-      const frame = line.match(/^\s*at\s+(?:.*?\s+\()?(.+?:\d+:\d+)\)?\s*$/)
-      if (frame) {
-        const safe = sanitizeErrorLocation(frame[1])
-        if (safe) locations.push(safe)
-      }
-    }
-  }
+  // Locations come from the separate consent-gated runtime boundary, never text
+  // in an error message, an arbitrary stack string or extra metadata fields.
   return sanitizeErrorSummary({ type: type ?? standardName ?? name, locations, version: own(metadata, 'version'), system: own(metadata, 'system'), time: own(metadata, 'time') })
 }

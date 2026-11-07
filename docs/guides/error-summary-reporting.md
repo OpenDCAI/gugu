@@ -26,13 +26,40 @@ are reduced to application roots; user home directories, third-party files and
 URL parameters are excluded. No raw log, screenshot, memory, replay, trace,
 profile, session tracking, cookie or breadcrumb collector is initialized.
 
-Stack extraction accepts only own data properties and verifies/removes the entire
-name/message header, including all embedded newlines, before parsing frames.
-It never invokes stack/name/message accessors or `Error.prepareStackTrace`.
-Native V8 stacks exposed through accessors therefore produce no locations;
-unknown or mismatched headers also fail closed. Reviewed handled operations use
-fixed code locations without formatting the error. Browser DOM exceptions are
-excluded at the handled-error boundary without reading their name getter.
+The pure normalizer never reads an error stack or message. A separate runtime
+boundary, called only after consent, accepts only the matching V8 native stack
+accessor. It synchronously installs a private formatter, reads real CallSites,
+then restores the exact previous `Error.prepareStackTrace` descriptor in `finally`.
+There is no await or foreign formatter call inside that window, and no permanent
+global lock. It reads only application file/line/column values; error name,
+message, constructor getters, arbitrary stack strings and custom stack getters
+are never used as location sources. Multiline messages cannot inject frames.
+V8 caches the private formatter's controlled string (without message or function
+names) on that captured Error. Weakly held sanitized locations allow repeat reads
+of our own result; they do not keep the Error alive.
+
+The main host prepends its exception-monitor and rejection listeners, ahead of
+ordinary loggers that might format the stack first. This gives the original throw
+point, not the collection handler. A stack previously cached by another formatter
+cannot be authenticated and yields no locations. An unreplaceable formatter also
+fails closed. These cases never fall back to a constant collection location.
+The renderer prefers brand-checked native ErrorEvent file/line/column metadata for
+published application bundles, so earlier local logging does not erase ordinary
+browser error locations. Synthetic events, replacement event getters, queries,
+foreign URLs and user source paths are excluded. Promise rejection/React signals
+without browser location metadata can still have empty locations if their stack
+was already formatted. Reviewed handled operations retain their fixed operation
+code locations. Browser DOM exceptions are excluded there without reading name.
+
+Empty-location measurement must separate eligible, configured, consented summaries
+by capture path; denied/unconfigured occurrences are not its denominator. The
+controlled same-realm Node test and Electron 44 run-as-node probe each produce
+0/20 empty for fresh throws and 20/20 empty after prior formatting, with both
+source-map-support 0.5.13 and 0.5.21 restored and still operational. This is a
+coverage matrix, not an estimate of a production percentage. The deployed main
+listener order and earlier renderer local logging affect the real mix. No new
+outgoing measurement field or production sampler is added. Live Blink/packaged
+pilot acceptance must measure that mix rather than extrapolate from these tests.
 
 The client POSTs JSON to the configured HTTPS `/v1/beta-errors` route. The exact
 request is `{ schemaVersion: 1, summary }`, where summary has only the five fields

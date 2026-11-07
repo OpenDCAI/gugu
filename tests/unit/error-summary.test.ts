@@ -29,13 +29,17 @@ describe('outgoing error-summary allowlist', () => {
     expect(sanitizeErrorLocation('http://localhost:18537/src/App.tsx:12:3')).toBe('apps/desktop/src/App.tsx:12:3')
     expect(sanitizeErrorLocation('/Users/alice/client/apps/desktop/dist-electron/main.js:12:3')).toBe('apps/desktop/dist-electron/main.js:12:3')
     expect(sanitizeErrorLocation('file:///Applications/Gugu.app/Contents/Resources/app.asar/dist/assets/main-abcd.js:12:3')).toBe('dist/assets/main-abcd.js:12:3')
+    expect(sanitizeErrorLocation('gugu-app://app/assets/main-abcd.js:12:3')).toBe('dist/assets/main-abcd.js:12:3')
+    expect(sanitizeErrorLocation('gugu-app://app/src/accounts/alice/account-1234.ts:12:3')).toBeNull()
+    expect(sanitizeErrorLocation('gugu-app://app/assets/main-abcd.js?private=alice:12:3')).toBeNull()
   })
 
   it('drops third-party URLs, arbitrary files, traversal, query credentials and first-line error messages', () => {
     for (const path of ['https://evil.test/apps/desktop/src/App.tsx:1:2', '/Users/alice/Documents/private.js:1:2', 'apps/desktop/src/../../private.js:1:2', 'apps/desktop/src/App.tsx?token=sk-verySecret123456789:1:2']) expect(sanitizeErrorLocation(path)).toBeNull()
     const error = new TypeError('private message someone@example.test')
     Object.defineProperty(error, 'stack', { value: 'TypeError: private message someone@example.test\n    at privateFunction (/Users/alice/work/gugu/apps/desktop/src/App.tsx:12:3)\n    at external (https://evil.test/page.js:1:2)' })
-    expect(errorSummaryFromError(error, summary)).toEqual(summary)
+    expect(errorSummaryFromError(error, summary, undefined, summary.locations)).toEqual(summary)
+    expect(errorSummaryFromError(error, summary)?.locations).toEqual([])
   })
 
   it('ignores accessors without executing them and rejects invalid time', () => {
@@ -67,7 +71,7 @@ describe('outgoing error-summary allowlist', () => {
     const message = `private problem\n    at account (${privatePath})\nprivate continuation`
     const error = new TypeError(message)
     Object.defineProperty(error, 'stack', { value: `TypeError: ${message}\n    at runtime (apps/desktop/src/App.tsx:12:3)`, configurable: true })
-    expect(errorSummaryFromError(error, summary)).toEqual(summary)
+    expect(errorSummaryFromError(error, summary)).toEqual({ ...summary, locations: [] })
     expect(JSON.stringify(errorSummaryFromError(error, summary))).not.toContain('alice')
   })
 
@@ -93,12 +97,12 @@ describe('outgoing error-summary allowlist', () => {
     expect(getter).not.toHaveBeenCalled()
   })
 
-  it('skips the complete multiline name and CRLF message before reading frames', () => {
+  it('never uses multiline names or CRLF messages as locations', () => {
     const error = new TypeError('private\r\n    at account (apps/desktop/src/accounts/alice/account-1234.ts:12:3)')
     const name = 'TypeError\n    at account (apps/desktop/src/accounts/bob/account-5678.ts:12:3)'
     Object.defineProperty(error, 'name', { value: name })
     Object.defineProperty(error, 'stack', { value: `${name}: ${error.message}\n    at runtime (apps/desktop/src/App.tsx:12:3)` })
-    expect(errorSummaryFromError(error, summary)).toEqual(summary)
+    expect(errorSummaryFromError(error, summary)).toEqual({ ...summary, locations: [] })
   })
 
   it('does not call Error.prepareStackTrace for a native stack accessor', () => {

@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { app, ipcMain, BrowserWindow } from 'electron'
 import { createErrorSummaryReporter } from '../shared/error-summary-reporter'
 import { errorSummaryFromError, sanitizeErrorSummary } from '../shared/error-summary'
+import { errorSummaryStackLocations } from '../shared/error-summary-stack'
 import { errorSummaryDestination, errorSummaryRequest } from '../shared/error-summary-transport'
 
 declare const __GUGU_ERROR_REPORTING_ENDPOINT__: string | undefined
@@ -67,7 +68,7 @@ export function registerErrorSummaryReporting(deps: {
   }
   const reportError = (error: unknown, type?: string) => safely(() => {
     if (captureScope() === undefined) return
-    reporter.report(errorSummaryFromError(error, metadata(), type))
+    reporter.report(errorSummaryFromError(error, metadata(), type, errorSummaryStackLocations(error)))
   })
   let initialized = false
   let previousOwner = deps.owner()
@@ -90,8 +91,9 @@ export function registerErrorSummaryReporting(deps: {
       if (summary) reporter.report({ ...summary, ...metadata() })
     })
   })
-  process.on('uncaughtExceptionMonitor', error => reportError(error))
-  process.on('unhandledRejection', error => reportError(error))
+  // Read before ordinary fatal/rejection loggers format and cache the raw stack.
+  process.prependListener('uncaughtExceptionMonitor', error => reportError(error))
+  process.prependListener('unhandledRejection', error => reportError(error))
   app.on('render-process-gone', (_event, _contents, details) => {
     if (details.reason !== 'clean-exit') reportError(null, 'RendererProcessGone')
   })

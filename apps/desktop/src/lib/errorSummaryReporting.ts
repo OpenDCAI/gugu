@@ -1,4 +1,6 @@
 import { errorSummaryFromError } from '../../shared/error-summary'
+import { errorSummaryStackLocations } from '../../shared/error-summary-stack'
+import { createErrorSummaryErrorEventReader } from './errorSummaryErrorEvent'
 
 const OPERATIONS = {
   'settings.read': 'apps/desktop/src/session/renderer/features/settings/app-settings-client.ts',
@@ -25,7 +27,7 @@ async function refreshConsent(): Promise<void> {
   } catch { /* Missing/unavailable consent host means collection stays disabled. */ }
 }
 
-async function report(error: unknown, type?: string, operation?: keyof typeof OPERATIONS): Promise<void> {
+async function report(read: () => { error: unknown; locations?: string[] } | null, type?: string): Promise<void> {
   const api = window.electronAPI
   // Drop pre-consent errors immediately. Never retain them until a later approval.
   if (!api || context === null || checking) return
@@ -35,9 +37,11 @@ async function report(error: unknown, type?: string, operation?: keyof typeof OP
   try {
     const fresh = allowedContext(await api.invoke('error-summary:consent-read'))
     if (token !== generation || context !== expected || fresh !== expected) return
-    const summary = errorSummaryFromError(error, { version: 'unknown', system: 'unknown', time: new Date().toISOString() }, type)
+    const input = read()
+    if (!input) return
+    const locations = input.locations?.length ? input.locations : errorSummaryStackLocations(input.error)
+    const summary = errorSummaryFromError(input.error, { version: 'unknown', system: 'unknown', time: new Date().toISOString() }, type, locations)
     if (!summary) return
-    if (operation) summary.locations = [OPERATIONS[operation]]
     // Context is local IPC only; the host checks it again and never transmits it.
     api.eventSend('error-summary:report', { context: expected, summary })
   } catch { /* A reporting failure cannot create a second user error. */ } finally { checking = false }
@@ -48,7 +52,7 @@ export function reportHandledError(error: unknown, operation: keyof typeof OPERA
   // Browser control-flow exceptions are excluded without calling their name getter.
   if (error instanceof DOMException) return
   window.electronAPI?.eventSend('error-summary:encounter', null)
-  void report(error, 'HandledError', operation)
+  void report(() => ({ error, locations: [OPERATIONS[operation]] }), 'HandledError')
 }
 
 let installed = false
@@ -57,7 +61,8 @@ export function installErrorSummaryReporting(): void {
   installed = true
   window.electronAPI.eventOn('error-summary:consent-changed', () => { void refreshConsent() })
   void refreshConsent()
-  window.addEventListener('error', event => { void report(event.error) })
-  window.addEventListener('unhandledrejection', event => { void report(event.reason) })
-  window.addEventListener('gugu:react-error', event => { void report((event as CustomEvent<unknown>).detail, 'ReactRenderError') })
+  const readErrorEvent = createErrorSummaryErrorEventReader()
+  window.addEventListener('error', event => { void report(() => readErrorEvent(event)) })
+  window.addEventListener('unhandledrejection', event => { void report(() => ({ error: event.reason })) })
+  window.addEventListener('gugu:react-error', event => { void report(() => ({ error: (event as CustomEvent<unknown>).detail }), 'ReactRenderError') })
 }

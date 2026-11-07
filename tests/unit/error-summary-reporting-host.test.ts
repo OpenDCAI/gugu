@@ -3,9 +3,11 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { runInThisContext } from 'node:vm'
 import { app, ipcMain } from 'electron'
 import { registerErrorSummaryReporting } from '../../apps/desktop/electron/error-summary-reporting-host'
 import * as normalization from '../../apps/desktop/shared/error-summary'
+import * as stack from '../../apps/desktop/shared/error-summary-stack'
 
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events')
@@ -85,14 +87,16 @@ describe('native summary reporting boundary', () => {
     ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision }) })
     registerErrorSummaryReporting({ eligible: true, owner: () => null })
     const capture = vi.spyOn(normalization, 'errorSummaryFromError')
+    const extract = vi.spyOn(stack, 'errorSummaryStackLocations')
     const sanitize = vi.spyOn(normalization, 'sanitizeErrorSummary')
     const getter = vi.fn(() => 'private')
     const error = new Error('private')
     Object.defineProperty(error, 'stack', { get: getter })
-    process.listeners('uncaughtExceptionMonitor').at(-1)!(error, 'uncaughtException')
-    process.listeners('unhandledRejection').at(-1)!(error, Promise.resolve())
+    process.listeners('uncaughtExceptionMonitor').find(listener => !previousExceptionListeners.includes(listener))!(error, 'uncaughtException')
+    process.listeners('unhandledRejection').find(listener => !previousRejectionListeners.includes(listener))!(error, Promise.resolve())
     ipcMain.emit('error-summary:report', { sender: { trusted: true } }, { context: 'anonymous', summary: candidate })
     expect(capture).not.toHaveBeenCalled()
+    expect(extract).not.toHaveBeenCalled()
     expect(sanitize).not.toHaveBeenCalled()
     expect(getter).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
@@ -104,12 +108,28 @@ describe('native summary reporting boundary', () => {
     const getter = vi.fn(() => 'private')
     const error = new TypeError('private')
     for (const property of ['stack', 'name', 'message']) Object.defineProperty(error, property, { get: getter })
-    process.listeners('uncaughtExceptionMonitor').at(-1)!(error, 'uncaughtException')
+    process.listeners('uncaughtExceptionMonitor').find(listener => !previousExceptionListeners.includes(listener))!(error, 'uncaughtException')
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     expect(getter).not.toHaveBeenCalled()
     const body = String(vi.mocked(fetch).mock.calls[0][1]!.body)
     expect(JSON.parse(body).summary).toMatchObject({ type: 'TypeError', locations: [] })
     expect(body).not.toContain('private')
+  })
+
+  it('prepends native capture before an existing logger and keeps the actual throw frame', async () => {
+    const log = (error: Error) => { void error.stack }
+    process.on('uncaughtExceptionMonitor', log)
+    ipcMain.on('error-summary:read-local-consent', (reply: unknown) => { if (typeof reply === 'function') reply({ eligible: true, decision: 'allowed' }) })
+    registerErrorSummaryReporting({ eligible: true, owner: () => null })
+    const throwError = runInThisContext('(function throwSite(ErrorType){throw new ErrorType("private")})', { filename: 'apps/desktop/electron/summary-throw.js' }) as (constructor: typeof Error) => never
+    let error!: Error
+    try { throwError(Error) } catch (caught) { error = caught as Error }
+    const handlers = process.listeners('uncaughtExceptionMonitor').filter(listener => !previousExceptionListeners.includes(listener))
+    expect(handlers[0]).not.toBe(log)
+    for (const listener of handlers) listener(error, 'uncaughtException')
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]!.body))
+    expect(body.summary.locations[0]).toBe('apps/desktop/electron/summary-throw.js:1:38')
   })
 
   it('rejects a renderer report whose allowed account changed before IPC delivery', () => {
