@@ -22,7 +22,7 @@
 .first-run-install-notification-heading, .first-run-install-task-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
 .first-run-install-notification-heading strong { font-weight: 500; }
 .first-run-install-task { margin-top: var(--spacing-md); }
-.first-run-install-task-heading > span + span { color: var(--text-secondary); }
+.first-run-install-task-heading > span:not(:first-child) { color: var(--text-secondary); }
 @media (max-width: 480px) { .first-run-harness-choices { grid-template-columns: 1fr; } }
 /* 全屏步骤(规范 3):顶上「n / N」,底部左「上一步」右主按钮。 */
 .first-run-step-count { margin: 0 0 var(--spacing-md); font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }

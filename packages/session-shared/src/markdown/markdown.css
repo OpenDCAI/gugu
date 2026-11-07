@@ -111,10 +111,10 @@
 .gg-md ol { list-style-type: decimal; }
 .gg-md ol ol { list-style-type: lower-alpha; }
 .gg-md li { margin: 0; padding: 0; }
-.gg-md li + li { margin-top: var(--md-li-gap); }
+.gg-md li:not(:first-child) { margin-top: var(--md-li-gap); }
 .gg-md li > :is(ul, ol) { margin-top: var(--md-li-gap); }
 .gg-md li > p { display: block; margin: 0; }
-.gg-md li > p + p { margin-top: var(--md-gap); }
+.gg-md li > p:not(:first-child) { margin-top: var(--md-gap); }
 .gg-md li::marker { color: var(--md-faint); }
 /* task list: the checkbox sits in the indent, wrapped lines hang at the same column as the text */
 .gg-md li:has(> input[type='checkbox'], > p:first-child > input[type='checkbox']) { list-style: none; }

@@ -787,7 +787,7 @@ button.mk-name:focus-visible {
 .mk-facts > div:first-child {
   padding-left: 0;
 }
-.mk-facts > div + div::before {
+.mk-facts > div:not(:first-child)::before {
   content: '';
   position: absolute;
   left: 0;
