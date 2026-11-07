@@ -268,8 +268,6 @@ export function AddFriendSearch({
         <SearchBar value={query} onChange={handleQueryChange} onSubmit={handleSearch} autoFocus={autoFocus} />
       </div>
 
-      {hasQuery && completedQuery === query.trim() && !isSearching && searchResults.length === 0 && <InviteFriendsPreview />}
-
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {hasQuery && isSearching && (
@@ -291,6 +289,7 @@ export function AddFriendSearch({
             {t('friendSearch.noResults')}
           </div>
         )}
+        {hasQuery && completedQuery === query.trim() && !isSearching && searchResults.length === 0 && <InviteFriendsPreview />}
         {hasQuery && !isSearching && searchResults.length > 0 && searchResults.map((u) => (
           <SearchResultItem
             key={u.id}

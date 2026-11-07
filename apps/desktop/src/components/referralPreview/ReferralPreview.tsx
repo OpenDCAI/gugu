@@ -10,6 +10,7 @@ import { MenuItem } from '../ui/Menu'
 import { SettingsGroup, SettingsRow } from '../settings/SettingsPrimitives'
 import { Mail } from '@/lib/icons'
 import '../../i18n/registerMainCatalog'
+import './referralPreview.css'
 
 // Review-only surfaces. A production build cannot enable this preview.
 const enabled = import.meta.env.DEV && import.meta.env.VITE_REFERRAL_ENTRY_PREVIEW === '1'
@@ -164,7 +165,7 @@ export function ReferralAccountPreview() {
   if (!enabled) return null
   return (
     <>
-      <SettingsGroup>
+      <SettingsGroup className="gg-referral-account-preview">
         <SettingsRow
           title={
             <span className="flex items-center gap-2">
