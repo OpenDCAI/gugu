@@ -43,6 +43,13 @@ async function executePlatformOperation(operationId: string,route: ConnectionRou
   if (!operation) return
   if (operation.scopeKey !== 'platform' || operation.operation !== 'remove' || operation.terminal)
     throw new ConnectionError('operation-refused','CONNECTION_OPERATION_UNSUPPORTED')
+  if (route.verificationProtocol === 2) {
+    const status = await connectionClientForRoute(ownerConnectionClient,routing,route).operationStatus(operationId)
+    if (!status || status.scopeKey !== 'platform' || status.resourceKey !== operation.resourceKey || status.operation !== 'remove')
+      throw new ConnectionError('invalid-response','CONNECTION_OPERATION_MISMATCH')
+    if (status.original.errorCode === 'CONNECTION_OUTCOME_UNKNOWN') throw new ConnectionError('outcome-unknown','CONNECTION_OUTCOME_UNKNOWN')
+    if (!status.effective.blocksNewOperations) return
+  }
   const item = snapshot.items.find(row => row.scopeKey === 'platform' && row.resourceKey === operation.resourceKey)
   if (typeof item?.data.providerId !== 'string') throw new ConnectionError('invalid-resource','CONNECTION_RESOURCE_INVALID')
   await routing.assert(route,true)
@@ -78,7 +85,15 @@ const bridge: ConnectionBridge = {
       if (route.verificationProtocol === 2) {
         const base = store,ledger = verification(ownerId,route)
         const reader = createConnectionVerificationReader({ ledger,deviceId,snapshot: () => base.peekSnapshot?.(),
-          client: connectionClientForRoute(ownerConnectionClient,routing,route),assertCurrent: base.assertCurrent,changed: base.invalidate })
+          client: connectionClientForRoute(ownerConnectionClient,routing,route),assertCurrent: base.assertCurrent,changed: base.invalidate,
+          cancel: async row => {
+            await base.assertCurrent()
+            const platform = row.scopeKey === 'platform' ? rendererPlatformIntegrationsClient() : undefined
+            if (platform && !platform.cancelOperation) throw new ConnectionError('unsupported-device','CONNECTION_CANCELLATION_UNAVAILABLE')
+            const result = row.scopeKey === 'platform' ? await platform!.cancelOperation!(row.operationId)
+              : await connectionClientForRoute(ownerConnectionClient,routing,route).cancelAuthorization(row.operationId)
+            await base.assertCurrent(); return result
+          } })
         store = { ...base,verification: ledger,
           snapshot: async () => reader.project(await base.snapshot()),
           peekSnapshot: () => { const snapshot = base.peekSnapshot?.(); return snapshot ? reader.project(snapshot) : undefined },

@@ -22,13 +22,34 @@ it.each(['connected','notConnected'] as const)('preserves the previous %s state 
     .toMatchObject({ state,connectionStatus: '正在取消',connectionBusy: true,saved: true })
 })
 it('removes the pending overlay after a real result while retaining the original UNKNOWN receipt',() => {
-  for (const outcome of ['applied','failed'] as const) {
+  for (const outcome of ['applied','failed','cancelled'] as const) {
     const received: ConnectionOperationStatus = { ...status(),resolution: { outcome,resolvedAt: '2026-11-07T00:00:00Z',errorCode: null },
-      effective: { state: outcome === 'applied' ? 'succeeded' : 'failed',connectionState: outcome === 'applied' ? 'connected' : 'disconnected',blocksNewOperations: false },confirmation: { state: 'resolved',deadlineAt: null } }
+      effective: { state: outcome === 'applied' ? 'succeeded' : outcome,connectionState: outcome === 'applied' ? 'connected' : 'disconnected',blocksNewOperations: false },confirmation: { state: 'resolved',deadlineAt: null,cancelRequested: true } }
     const snapshot = source(received,true)
     expect(connectionApplicationStatus(snapshot,'asana')).toBeUndefined(); expect(snapshot.items).toEqual([])
     expect(snapshot.verification?.[0]?.status?.original.errorCode).toBe('CONNECTION_OUTCOME_UNKNOWN')
   }
+})
+it('uses the captured pre-window state while cancelling even if metadata changes behind the dialog',() => {
+  const snapshot = source(undefined,true)
+  snapshot.verification![0]!.previous = { state: 'unverified',saved: true }
+  const presentation = connectionApplicationStatus(snapshot,'asana')!
+  expect(withConnectionVerification({ id: 'asana',name: 'Asana',description: '',state: 'needsReauth',saved: true },presentation,'正在取消'))
+    .toMatchObject({ state: 'unverified',connectionBusy: true,connectionStatus: '正在取消' })
+})
+it('shows a server-confirmed cancellation request in the same application row after another client requested it',() => {
+  const snapshot = source({ ...status(),confirmation: { state: 'pending',deadlineAt: null,cancelRequested: true } })
+  expect(connectionApplicationStatus(snapshot,'asana')).toMatchObject({ key: 'cancelling',confirming: true,preserveState: true })
+})
+it('uses a newer read-only UNKNOWN fact without changing an older pending receipt',() => {
+  const snapshot = source()
+  snapshot.verification = []
+  snapshot.items = [{ owner_user_id: 'owner',domain: 'integrations',device_id: 'one',resource_key: '["device:one","key"]',revision: '1',
+    deleted_at: null,data: { providerId: 'asana' },body_item_id: null,body_sha256: null,observed_at: null,updated_at: 'now' }]
+  snapshot.application = [{ operationId,domain: 'integrations',scopeKey: 'device:one',resourceKey: '["device:one","key"]',deviceId: 'one',revision: '1',operation: 'save',status: 'pending',errorCode: null,
+    verificationOriginal: status().original,effective: status().effective }]
+  expect(connectionApplicationStatus(snapshot,'asana')).toEqual({ key: 'authorizationUnknown',confirming: true })
+  expect(snapshot.application[0]).toMatchObject({ status: 'pending',errorCode: null })
 })
 it('does not replace a newer tombstone with historical authorization success or failure',() => {
   const received: ConnectionOperationStatus = { ...status(),resourceKey: 'original-key',revision: '4',resolution: { outcome: 'failed',resolvedAt: '2026-11-07T00:00:00Z',errorCode: null },

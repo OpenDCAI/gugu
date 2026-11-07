@@ -3,11 +3,12 @@ import type { ConnectionOperationStatus } from '@gugu/core/cloud/connectionOpera
 import type { ConnectionMetadataSnapshot } from './connection-metadata'
 import type { ConnectionVerificationStore,ConnectionVerification } from './connection-verification'
 
-/** Reading the original UUID never starts authorization or deletion. Missing
- * replies retain confirmation. A bounded rotating queue also covers old accounts. */
+/** Observe original UUIDs and retry only explicitly requested cancellation.
+ * Missing replies retain confirmation; authorization/deletion is never replayed. */
 export function createConnectionVerificationReader(input: {
   ledger: ConnectionVerificationStore; snapshot(): ConnectionMetadataSnapshot | undefined; deviceId?: string | null
   client: Pick<ConnectionClient,'operationStatus'>; assertCurrent(): void | Promise<void>
+  cancel?(row: ConnectionVerification): Promise<ConnectionOperationStatus | null>
   changed?(): void
 }) {
   let cursor = 0,previous: ConnectionVerification[] = []
@@ -21,7 +22,7 @@ export function createConnectionVerificationReader(input: {
     return { ...snapshot,verificationProtocol: 2,verification: previous.filter(row => row.scopeKey === 'platform' || !input.deviceId || row.deviceId === input.deviceId),
       application: snapshot.application.map(operation => {
         const status = observed.get(operation.operationId)
-        return status && matches(operation,status) ? { ...operation,resolution: status.resolution,effective: status.effective,confirmation: status.confirmation } : operation
+        return status && matches(operation,status) ? { ...operation,verificationOriginal: status.original,resolution: status.resolution,effective: status.effective,confirmation: status.confirmation } : operation
       }),
     }
   }
@@ -47,11 +48,24 @@ export function createConnectionVerificationReader(input: {
         const [operationId,target] = next
         try {
           await input.assertCurrent()
+          let cancelError: unknown,resolved = false
+          const record = target.local ? local.find(row => row.operationId === operationId) : undefined
+          if (record?.cancelRequested && !record.status?.confirmation.cancelRequested) {
+            try {
+              if (!input.cancel) throw new ConnectionError('unsupported-device','CONNECTION_CANCELLATION_UNAVAILABLE')
+              const cancelled = await input.cancel(record)
+              await input.assertCurrent()
+              if (cancelled !== null) { input.ledger.accept(operationId,cancelled); resolved = !cancelled.effective.blocksNewOperations }
+            } catch (error) { cancelError = error }
+          }
           const result = await input.client.operationStatus(operationId)
           await input.assertCurrent()
-          if (result === null) continue
+          if (result === null) { if (cancelError && !resolved) throw cancelError; continue }
           if (result.operationId !== operationId) throw new ConnectionError('invalid-response','CONNECTION_OPERATION_MISMATCH')
-          if (target.local) input.ledger.accept(operationId,result)
+          if (target.local) {
+            input.ledger.accept(operationId,result)
+            if (cancelError && result.effective.blocksNewOperations && !resolved) throw cancelError
+          }
           else {
             if (!target.operation || !matches(target.operation,result)) throw new ConnectionError('invalid-response','CONNECTION_OPERATION_MISMATCH')
             if (JSON.stringify(observed.get(operationId)) !== JSON.stringify(result)) changed = true

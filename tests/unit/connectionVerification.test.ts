@@ -45,10 +45,30 @@ describe('durable public verification identities',() => {
     const f = setup(),ledger = f.open(); ledger.begin(intent); ledger.accept(operationId,status()); ledger.requestCancellation(operationId)
     expect(f.open().read(operationId)).toMatchObject({ cancelRequested: true,status: status() })
   })
+  it('retains the pre-window presentation through reconstruction and never rewrites an unresolved UNKNOWN original',() => {
+    const f = setup(),ledger = f.open(),previous = { state: 'connected' as const,saved: true }
+    ledger.begin({ ...intent,previous }); ledger.requestCancellation(operationId); ledger.accept(operationId,status())
+    expect(f.open().read(operationId)?.previous).toEqual(previous)
+    expect(() => ledger.accept(operationId,{ ...status(),original: { status: 'applied',errorCode: null,terminal: true },
+      effective: { state: 'succeeded',connectionState: 'connected',blocksNewOperations: false } })).toThrow('CONNECTION_VERIFICATION_INVALID')
+    expect(f.open().read(operationId)?.status?.original.errorCode).toBe('CONNECTION_OUTCOME_UNKNOWN')
+  })
+  it('persists only whitelisted pre-window presentation fields',() => {
+    const f = setup(); f.open().begin({ ...intent,previous: { state: 'connected',saved: true,credentialGeneration: 'private-generation' } } as Parameters<ReturnType<typeof f.open>['begin']>[0])
+    expect([...f.rows.values()].join('')).not.toContain('private-generation')
+    expect(f.open().read(operationId)?.previous).toEqual({ state: 'connected',saved: true })
+  })
   it('refuses a new authorization when persistence fails, with no in-memory replacement',() => {
     const f = setup(); f.storage.setItem.mockImplementation(() => { throw new Error('QUOTA') })
     expect(() => f.open().begin(intent)).toThrow('QUOTA')
     expect(f.open().list()).toEqual([])
+  })
+  it('discards only an identity proven unsubmitted and retains a submitted request through reconstruction',() => {
+    const f = setup(),ledger = f.open(); ledger.begin(intent); ledger.discardUnsubmitted(operationId)
+    expect(ledger.list()).toEqual([])
+    ledger.begin(intent); ledger.markSubmitted(operationId)
+    expect(() => f.open().discardUnsubmitted(operationId)).toThrow('CONNECTION_VERIFICATION_INVALID')
+    expect(f.open().read(operationId)).toMatchObject({ operationId,submitted: true })
   })
   it('blocks a retained action during cancellation and releases it only after an independent result',async () => {
     const ledger = setup().open(); ledger.begin(intent); ledger.requestCancellation(operationId)

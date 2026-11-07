@@ -1,10 +1,15 @@
 import { ConnectionError } from '@gugu/core/cloud/connections'
 import { parseConnectionOperationStatus,type ConnectionOperationStatus } from '@gugu/core/cloud/connectionOperationStatus'
+import type { AssistantConnectedApp } from '../assistant/assistant-app-connections'
+
+export type ConnectionPreviousPresentation = Pick<AssistantConnectedApp,'state' | 'saved'>
 
 export type ConnectionVerification = {
   operationId: string; providerId: string; scopeKey: string; resourceKey: string | null; deviceId: string | null
   operation: 'save' | 'remove' | 'enable' | 'disable'; authorityEpoch: string; createdAt: number; status?: ConnectionOperationStatus
   cancelRequested?: boolean
+  previous?: ConnectionPreviousPresentation
+  submitted?: true
 }
 type StoragePort = Pick<Storage,'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
 const PREFIX = 'gugu.connection-verification.v1:'
@@ -28,12 +33,16 @@ export function createConnectionVerification(input: {
       || !['save','remove','enable','disable'].includes(String(value.operation)) || typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt)
       || typeof value.authorityEpoch !== 'string' || !/^\d+$/.test(value.authorityEpoch)
       || value.cancelRequested !== undefined && typeof value.cancelRequested !== 'boolean') return invalid()
+    if (value.previous !== undefined && (!object(value.previous) || typeof value.previous.saved !== 'boolean'
+      || !['checking','notConnected','connected','needsReauth','checkFailed','unverified','paused','retrying'].includes(String(value.previous.state)))) return invalid()
+    if (value.submitted !== undefined && value.submitted !== true) return invalid()
     const status = value.status === undefined ? undefined : parseConnectionOperationStatus(value.status,operationId)
     if (status && (status.scopeKey !== value.scopeKey || status.deviceId !== value.deviceId || status.operation !== value.operation
       || value.resourceKey !== null && status.resourceKey !== null && value.resourceKey !== status.resourceKey)) return invalid()
     return { operationId,providerId: value.providerId,scopeKey: value.scopeKey,resourceKey: value.resourceKey as string | null,
       deviceId: value.deviceId as string | null,operation: value.operation as ConnectionVerification['operation'],createdAt: value.createdAt,
       authorityEpoch: value.authorityEpoch,
+      ...(value.previous ? { previous: { state: (value.previous as ConnectionPreviousPresentation).state,saved: (value.previous as ConnectionPreviousPresentation).saved } } : {}),...(value.submitted ? { submitted: true as const } : {}),
       ...(value.cancelRequested === true ? { cancelRequested: true } : {}),...(status ? { status } : {}) }
   }
   function read(operationId: string) {
@@ -63,7 +72,7 @@ export function createConnectionVerification(input: {
   }
   return {
     list,read,
-    begin(value: Omit<ConnectionVerification,'createdAt' | 'status' | 'cancelRequested' | 'authorityEpoch'>) {
+    begin(value: Omit<ConnectionVerification,'createdAt' | 'status' | 'cancelRequested' | 'authorityEpoch' | 'submitted'>) {
       const previous = read(value.operationId)
       if (previous) {
         if (previous.authorityEpoch !== input.epoch || previous.providerId !== value.providerId || previous.scopeKey !== value.scopeKey || previous.deviceId !== value.deviceId
@@ -81,6 +90,17 @@ export function createConnectionVerification(input: {
       const record = parse(JSON.stringify({ version: 1,...value,authorityEpoch: input.epoch,createdAt: Date.now() }),value.operationId)
       save(record); return record
     },
+    markSubmitted(operationId: string) {
+      const record = read(operationId)
+      if (!record) return invalid()
+      save({ ...record,submitted: true })
+    },
+    discardUnsubmitted(operationId: string) {
+      const record = read(operationId)
+      if (!record || record.submitted || record.status) return invalid()
+      input.storage.removeItem(prefix + operationId)
+      current(); input.changed()
+    },
     bind(operationId: string,resourceKey: string | null) {
       const record = read(operationId)
       if (!record || record.resourceKey !== null && record.resourceKey !== resourceKey) return invalid()
@@ -95,6 +115,7 @@ export function createConnectionVerification(input: {
       const record = read(operationId),status = parseConnectionOperationStatus(value,operationId)
       if (!record || status.scopeKey !== record.scopeKey || status.deviceId !== record.deviceId || status.operation !== record.operation
         || record.resourceKey !== null && status.resourceKey !== null && record.resourceKey !== status.resourceKey) return invalid()
+      if (record.status?.original.errorCode === 'CONNECTION_OUTCOME_UNKNOWN' && JSON.stringify(status.original) !== JSON.stringify(record.status.original)) return invalid()
       if (record.status && !record.status.effective.blocksNewOperations) {
         if (status.effective.blocksNewOperations) return
         if (record.status.resolution && JSON.stringify(status.resolution) !== JSON.stringify(record.status.resolution)

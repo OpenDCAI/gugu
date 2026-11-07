@@ -14,10 +14,10 @@ function setup(local: ConnectionVerification[] = [],source = snapshot()) {
   let owner = 'owner'
   const ledger = { list: () => local,accept: vi.fn() } as unknown as ConnectionVerificationStore
   const operationStatus = vi.fn<(operationId: string) => Promise<ConnectionOperationStatus | null>>(async () => result())
-  const effects = vi.fn(),changed = vi.fn()
+  const effects = vi.fn(),changed = vi.fn(),cancel = vi.fn<(row: ConnectionVerification) => Promise<ConnectionOperationStatus | null>>(async () => null)
   const reader = createConnectionVerificationReader({ ledger,snapshot: () => source,client: { operationStatus,commit: effects } as unknown as Parameters<typeof createConnectionVerificationReader>[0]['client'],
-    assertCurrent: () => { if (owner !== 'owner') throw new Error('ACCOUNT_CHANGED') },changed })
-  return { reader,ledger,operationStatus,effects,changed,source,account: (next: string) => { owner = next } }
+    assertCurrent: () => { if (owner !== 'owner') throw new Error('ACCOUNT_CHANGED') },changed,cancel })
+  return { reader,ledger,operationStatus,effects,changed,cancel,source,account: (next: string) => { owner = next } }
 }
 describe('read-only verification recovery',() => {
   it('reads the original UUID and overlays a resolution without rewriting its UNKNOWN receipt or any account',async () => {
@@ -62,5 +62,25 @@ describe('read-only verification recovery',() => {
     expect(f.changed).toHaveBeenCalledOnce()
     await expect(f.reader.refresh()).rejects.toThrow('OFFLINE')
     expect(f.changed).toHaveBeenCalledOnce(); expect(f.effects).not.toHaveBeenCalled()
+  })
+  it('retries only the original cancellation when a reply is missing and then reads that UUID without replaying authorization',async () => {
+    const local: ConnectionVerification = { operationId,providerId: 'asana',scopeKey: 'device:one',deviceId: 'one',resourceKey: null,operation: 'save',createdAt: 1,authorityEpoch: '1',cancelRequested: true }
+    const f = setup([local],snapshot([])); f.operationStatus.mockResolvedValue(null)
+    await f.reader.refresh(); await f.reader.refresh()
+    expect(f.cancel).toHaveBeenCalledTimes(2); expect(f.cancel.mock.calls.map(([row]) => row.operationId)).toEqual([operationId,operationId])
+    expect(f.operationStatus.mock.calls.flat()).toEqual([operationId,operationId]); expect(f.ledger.accept).not.toHaveBeenCalled(); expect(f.effects).not.toHaveBeenCalled()
+  })
+  it('keeps polling after the service acknowledges cancellation without sending more cancellation requests',async () => {
+    const pending: ConnectionOperationStatus = { ...result(),resolution: null,effective: { state: 'confirming',connectionState: 'confirming',blocksNewOperations: true },confirmation: { state: 'pending',deadlineAt: null,cancelRequested: true } }
+    const local: ConnectionVerification = { operationId,providerId: 'asana',scopeKey: 'device:one',deviceId: 'one',resourceKey: 'original-key',operation: 'save',createdAt: 1,authorityEpoch: '1',cancelRequested: true,status: pending }
+    const f = setup([local],snapshot([]))
+    await f.reader.refresh(); expect(f.cancel).not.toHaveBeenCalled(); expect(f.ledger.accept).toHaveBeenCalledWith(operationId,result()); expect(f.effects).not.toHaveBeenCalled()
+  })
+  it('accepts successful evidence even when the concurrent cancellation request is unavailable',async () => {
+    const local: ConnectionVerification = { operationId,providerId: 'asana',scopeKey: 'device:one',deviceId: 'one',resourceKey: null,operation: 'save',createdAt: 1,authorityEpoch: '1',cancelRequested: true }
+    const f = setup([local],snapshot([])); f.cancel.mockRejectedValue(Object.assign(new Error('UNAVAILABLE'),{ code: '503' }))
+    await f.reader.refresh(); expect(f.ledger.accept).toHaveBeenCalledWith(operationId,result()); expect(f.effects).not.toHaveBeenCalled()
+    f.operationStatus.mockResolvedValue(null)
+    await expect(f.reader.refresh()).rejects.toMatchObject({ code: '503' }); expect(f.effects).not.toHaveBeenCalled()
   })
 })

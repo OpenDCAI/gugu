@@ -48,6 +48,7 @@ export function OwnerConnectorDetail({ host,app,deviceId,panelNavigation,onBack 
   const connect = () => {
     const platform = app.integration?.auth.methods.some(method => (method.kind === 'form' || method.kind === 'mcp-oauth') && method.custody === 'platform')
     if (!platform && !deviceId) { notify({ tier: 'error',title: copy('chooseAppDevice',{ name: app.name }) }); return }
+    host.connectionAuthorizationOpened?.(app.id,{ state: app.state,saved: app.saved })
     if (app.id === 'github') showGithub({ host })
     else showSetup({ integration: app.id,host })
   }

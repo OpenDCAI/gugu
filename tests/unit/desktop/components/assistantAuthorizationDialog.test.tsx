@@ -11,7 +11,7 @@ import { prepareThenStartCliLogin } from '../../../../apps/desktop/src/session/r
 import { ownerConnectionActions } from '../../../../apps/desktop/src/components/connections/owner-connection-actions'
 import { createConnectionRouting,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 import type { ConnectionClient } from '@gugu/core/cloud/connections'
-import { createReactHarness,clickElement,deferred } from '../../../support/testHarness'
+import { createReactHarness,clickElement,deferred,typeInto } from '../../../support/testHarness'
 
 const fixture=vi.hoisted(()=>({host:null as unknown,metadata:null as unknown,context:null as unknown,online:false,notice:vi.fn(),bridge:{} as Record<string,unknown>}))
 vi.mock('@/lib/notices',()=>({notify:fixture.notice}))
@@ -59,6 +59,19 @@ it.each(['feishu','notion'])('shows one explanation when the authorization host 
 it('explains missing form fields instead of leaving a disabled submit button',async()=>{
  const f=setup('asana')
  try{await f.render();const button=f.h.container.querySelector<HTMLButtonElement>('footer button:last-child')!;expect(button.matches(':disabled')).toBe(false);await clickElement(button);expect(f.h.container.querySelector('[role="alert"]')?.textContent).toContain('个人访问令牌');expect(f.prepare).not.toHaveBeenCalled();expect(f.native).not.toHaveBeenCalled()}finally{f.h.cleanup()}
+})
+it('cancels a pending protocol-2 form on window close and ignores its late success without a notification',async()=>{
+ const f=setup('asana'),pending=deferred<{success:true}>(),cancel=vi.fn()
+ f.host.connectionMetadataExpected=true;f.host.connectionMetadata={ownerId:'owner',verificationProtocol:2} as ConnectionMetadataStore
+ const context=fixture.context as {connectIntegration:()=>Promise<unknown>;cancelIntegrationAuthorization:()=>void}
+ context.connectIntegration=()=>pending.promise;context.cancelIntegrationAuthorization=cancel
+ try{
+  await f.render();await typeInto(f.h.container.querySelector('input')!,'synthetic')
+  await clickElement(f.h.container.querySelector('footer button:last-child')!)
+  await f.h.render(null);expect(cancel).toHaveBeenCalledExactlyOnceWith('asana')
+  pending.resolve({success:true});await f.h.render(null)
+  expect(f.success).not.toHaveBeenCalled();expect(fixture.notice).not.toHaveBeenCalled()
+ }finally{pending.resolve({success:true});f.h.cleanup()}
 })
 it.each(['feishu','notion'])('does not start %s authorization after the person closes the dialog during preparation',async id=>{
  const pending=deferred<void>(),f=setup(id,vi.fn(()=>pending.promise))

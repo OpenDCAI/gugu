@@ -2,7 +2,6 @@ import {describe,it,expect,vi} from 'vitest'
 import {createConnectionClient} from '@gugu/core/cloud/connections'
 import {parseConnectionOperationStatus} from '@gugu/core/cloud/connectionOperationStatus'
 import {createPlatformIntegrationsClient} from '@gugu/core/cloud/platformIntegrations'
-import {createConnectionClient} from '@gugu/core/cloud/connections'
 const operationId='10000000-0000-4000-8000-000000000001'
 const status=()=>({version:1,operationId,scopeKey:'platform',resourceKey:null,deviceId:null,revision:null,operation:'save',
  original:{status:'pending',errorCode:null,terminal:false},resolution:null,

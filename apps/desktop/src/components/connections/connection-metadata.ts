@@ -1,4 +1,5 @@
 import type { ConnectionApplication } from '@gugu/core/cloud/connections'
+import type { ConnectionOperationStatus } from '@gugu/core/cloud/connectionOperationStatus'
 import type { ConnectionVerification,ConnectionVerificationStore } from './connection-verification'
 import type { AssistantPanelItem, AssistantPanelReceipt, AssistantPanelSnapshot } from '@gugu/core/cloud/assistantPanel'
 
@@ -9,7 +10,9 @@ export type ConnectionMetadataItem = Omit<AssistantPanelItem, 'assistant_user_id
 }
 export type ConnectionMetadataSnapshot = Omit<AssistantPanelSnapshot, 'items' | 'application'> & {
   items: ConnectionMetadataItem[]
-  application: (AssistantPanelSnapshot['application'][number] & Partial<Omit<ConnectionApplication,'status' | 'resourceKey'>> & { wireStatus?: ConnectionApplication['status'] })[]
+  application: (AssistantPanelSnapshot['application'][number] & Partial<Omit<ConnectionApplication,'status' | 'resourceKey'>> & {
+    wireStatus?: ConnectionApplication['status']; verificationOriginal?: ConnectionOperationStatus['original']
+  })[]
   verificationProtocol?: 2
   verification?: ConnectionVerification[]
 }

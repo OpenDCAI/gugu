@@ -2,6 +2,7 @@ import { connectionReadOptions } from '@/components/connections/connection-read-
 import { useConnectionReadNotice } from '@/components/connections/useConnectionReadNotice';
 import { connectionNeedsConfirmation } from '@/components/connections/connection-application-status';
 import { CONNECTIONS_CHANGED, peekOwnerConnectionMetadata,ownerConnectionMetadataView } from '@/components/connections/owner-connection-metadata';
+import { rendererLogger } from '@/lib/log';
 import { builtinConnectionCatalog } from '@/components/connections/builtin-connection-catalog';
 import type { ConnectionMetadataSnapshot } from '@/components/connections/connection-metadata';
 import { peekAssistantPanelIntegrations } from '@/components/assistant/assistant-panel-integrations';
@@ -254,7 +255,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const cancelIntegrationAuthorization = useCallback(
     (integrationId: string) => {
       cliGenerations.current.set(integrationId, (cliGenerations.current.get(integrationId) ?? 0) + 1);
-      void api.cancelAuthorization(integrationId);
+      void api.cancelAuthorization(integrationId).catch(error => rendererLogger('connections').warn({ code: (error as { code?: string } | null)?.code },'Authorization cancellation will retain its original identity'));
     },
     [api]
   );

@@ -15,17 +15,15 @@ export function useConnectionRecovery(store: ConnectionMetadataStore | undefined
       if (store.verificationProtocol === 2) {
         try { await store.refreshVerification?.() }
         catch (error) { failed = true; rendererLogger('connections').warn({ code: (error as { code?: string } | null)?.code },'Operation status will retry without executing the effect') }
-        failures = failed ? failures + 1 : 0
-        if (!stopped) timer = setTimeout(() => void run(),failed ? connectionReadDelay(failures) : 3000)
-        return
       }
       const snapshot = store.peekSnapshot?.()
-      for (const operation of snapshot?.application ?? []) {
+      for (const operation of store.verificationProtocol === 2 && (!allowed || failed) ? [] : snapshot?.application ?? []) {
         if (stopped || connectionBridge().accountId() !== store.ownerId) return
         const item = snapshot?.items.find(row => row.resource_key === operation.resourceKey)
         if (item?.source?.scopeKey !== 'platform' || operation.operation !== 'remove' || operation.terminal
           || operation.status !== 'pending' || (operation as typeof operation & { wireStatus?: string }).wireStatus === 'started'
-          || operation.errorCode === 'CONNECTION_OUTCOME_UNKNOWN') continue
+          || operation.errorCode === 'CONNECTION_OUTCOME_UNKNOWN' || operation.verificationOriginal?.errorCode === 'CONNECTION_OUTCOME_UNKNOWN'
+          || operation.effective?.blocksNewOperations === false) continue
         try { await connectionBridge().retryOperation(operation.operationId) }
         catch (error) { failed = true; rendererLogger('connections').warn({ code: (error as { code?: string } | null)?.code },'Platform operation will retry with its original identity') }
         if (!stopped) store.invalidate()
