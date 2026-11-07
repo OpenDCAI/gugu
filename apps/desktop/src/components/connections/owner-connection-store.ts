@@ -2,6 +2,7 @@ import { ConnectionError, parseConnectionSnapshot, type ConnectionClient, type C
 import type { ConnectionMetadataItem, ConnectionMetadataSnapshot } from './connection-metadata'
 import { createConnectionMetadataStore, type ConnectionMetadataCache } from './connection-metadata-store'
 import { assertConnectionApplicationAvailable } from './connection-action-guard'
+import type { ConnectionVerificationStore } from './connection-verification'
 
 export const ownerConnectionResourceKey = (scopeKey: string, resourceKey: string) => JSON.stringify([scopeKey, resourceKey])
 
@@ -56,6 +57,7 @@ export function connectionMetadataSnapshot(ownerId: string, snapshot: Connection
 export function createOwnerConnectionStore(input: {
   ownerId: string; deviceId?: string | null; accountId(): string | null; client: ConnectionClient; cache: ConnectionMetadataCache; changed(): void
   executePlatformOperation?(operationId: string): Promise<void>
+  verificationProtocol?: 1 | 2; verification?: ConnectionVerificationStore
 }) {
   const assertCurrent = () => { if (input.accountId() !== input.ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED') }
   const store = createConnectionMetadataStore({ ownerId: input.ownerId,accountId: input.accountId,cache: input.cache,changed: input.changed,assertCurrent,

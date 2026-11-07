@@ -8,10 +8,15 @@ import { assistantPanelLibraryHost } from '../../../../apps/desktop/src/componen
 import type { ConnectionMetadataStore } from '../../../../apps/desktop/src/components/connections/connection-metadata'
 import { connectionActionNoticeScope,reportConnectionActionFailure } from '../../../../apps/desktop/src/components/connections/connection-action-notice'
 import { prepareThenStartCliLogin } from '../../../../apps/desktop/src/session/renderer/features/integrations/cli-tool-prepare'
-import { createReactHarness,clickElement,deferred } from '../../../support/testHarness'
+import { ownerConnectionActions } from '../../../../apps/desktop/src/components/connections/owner-connection-actions'
+import { createConnectionRouting,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
+import type { ConnectionClient } from '@gugu/core/cloud/connections'
+import { createReactHarness,clickElement,deferred,typeInto } from '../../../support/testHarness'
 
-const fixture=vi.hoisted(()=>({host:null as unknown,metadata:null as unknown,context:null as unknown,online:false,notice:vi.fn()}))
+const fixture=vi.hoisted(()=>({host:null as unknown,metadata:null as unknown,context:null as unknown,online:false,notice:vi.fn(),bridge:{} as Record<string,unknown>}))
 vi.mock('@/lib/notices',()=>({notify:fixture.notice}))
+vi.mock('@/lib/connectionBridge',()=>({connectionBridge:()=>fixture.bridge}))
+vi.mock('@/lib/platformIntegrations',()=>({rendererPlatformIntegrationsClient:()=>({})}))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/integrations/integrations-provider',()=>({IntegrationsProvider:({children}:{children:ReactNode})=>children,useIntegrationsContext:()=>fixture.context}))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/library/library-host',()=>({LibraryHostProvider:({children}:{children:ReactNode})=>children,useLibraryHost:()=>fixture.host}))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/remote-hosts/remote-hosts-store',()=>({remoteHostsStore:{device:()=>({isOnline:fixture.online})}}))
@@ -54,6 +59,19 @@ it.each(['feishu','notion'])('shows one explanation when the authorization host 
 it('explains missing form fields instead of leaving a disabled submit button',async()=>{
  const f=setup('asana')
  try{await f.render();const button=f.h.container.querySelector<HTMLButtonElement>('footer button:last-child')!;expect(button.matches(':disabled')).toBe(false);await clickElement(button);expect(f.h.container.querySelector('[role="alert"]')?.textContent).toContain('个人访问令牌');expect(f.prepare).not.toHaveBeenCalled();expect(f.native).not.toHaveBeenCalled()}finally{f.h.cleanup()}
+})
+it('cancels a pending protocol-2 form on window close and ignores its late success without a notification',async()=>{
+ const f=setup('asana'),pending=deferred<{success:true}>(),cancel=vi.fn()
+ f.host.connectionMetadataExpected=true;f.host.connectionMetadata={ownerId:'owner',verificationProtocol:2} as ConnectionMetadataStore
+ const context=fixture.context as {connectIntegration:()=>Promise<unknown>;cancelIntegrationAuthorization:()=>void}
+ context.connectIntegration=()=>pending.promise;context.cancelIntegrationAuthorization=cancel
+ try{
+  await f.render();await typeInto(f.h.container.querySelector('input')!,'synthetic')
+  await clickElement(f.h.container.querySelector('footer button:last-child')!)
+  await f.h.render(null);expect(cancel).toHaveBeenCalledExactlyOnceWith('asana')
+  pending.resolve({success:true});await f.h.render(null)
+  expect(f.success).not.toHaveBeenCalled();expect(fixture.notice).not.toHaveBeenCalled()
+ }finally{pending.resolve({success:true});f.h.cleanup()}
 })
 it.each(['feishu','notion'])('does not start %s authorization after the person closes the dialog during preparation',async id=>{
  const pending=deferred<void>(),f=setup(id,vi.fn(()=>pending.promise))
@@ -111,5 +129,29 @@ it('closes a blocked owner CLI dialog quietly instead of offering a new authoriz
  try{
   await f.render();await clickElement(f.h.container.querySelector('footer button:last-child')!)
   expect(f.close).toHaveBeenCalledOnce();expect(fixture.notice).not.toHaveBeenCalled();expect(f.native).not.toHaveBeenCalled()
+ }finally{f.h.cleanup()}
+})
+
+it.each(['AbortError','cancelled','failure'] as const)('preserves %s classification through owner actions and CLI orchestration while the dialog remains mounted',async kind=>{
+ const f=setup('feishu'),route:ConnectionRoute={mode:'owner',epoch:'1',phase:'stable',acceptingNewOperations:true}
+ const failure=kind==='AbortError'?new DOMException('User cancelled','AbortError'):Object.assign(new Error('synthetic action failure'),kind==='cancelled'?{cancelled:true}:{})
+ const prepare=vi.fn(async()=>({status:'ready' as const})),login=vi.fn(async()=>{throw failure})
+ const client={snapshot:async()=>({version:1,state:'ready',revision:'0',items:[],application:[]}),recreateBegin:vi.fn(async()=>({recreationId:'e8939ca7-ef3e-4474-a71c-76eb993b0a17',operationId:'6c67af58-7190-4c6f-9d49-06d0f6f4865f',expectedItemRevision:null,revision:'0',expiresAt:'2099-01-01T00:00:00Z'}))} as unknown as ConnectionClient
+ fixture.bridge={accountId:()=> 'owner',client,routing:createConnectionRouting({accountId:()=> 'owner',read:async()=>route,changed:()=>{}})}
+ f.host.connectionMetadataExpected=true;f.host.connectionMetadata={ownerId:'owner',invalidate:vi.fn()} as unknown as ConnectionMetadataStore
+ const base={...f.host,integrations:{...f.host.integrations,cliToolPrepare:prepare,cliLoginStart:login,ownerAuthorizationBegin:vi.fn(async()=>{}),ownerAuthorizationComplete:vi.fn(async()=>{}),ownerAccounts:vi.fn(async()=>[]),ownerAuthorizationCommit:vi.fn()}}
+ const actions=ownerConnectionActions(base,base,'cloud',route)
+ fixture.host=actions
+ ;(fixture.context as {startCliLogin:()=>Promise<unknown>}).startCliLogin=()=>prepareThenStartCliLogin(actions.integrations,'feishu')
+ try{
+  await f.render();await clickElement(f.h.container.querySelector('footer button:last-child')!)
+  expect(prepare).toHaveBeenCalledOnce();expect(login).toHaveBeenCalledOnce();expect(client.recreateBegin).toHaveBeenCalledOnce()
+  expect(f.h.container.querySelector('h2')).not.toBeNull();expect(f.success).not.toHaveBeenCalled()
+  if(kind==='failure'){
+   expect(fixture.notice).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({tier:'error',title:expect.stringContaining('飞书')}))
+   expect(f.close).not.toHaveBeenCalled()
+  }else{
+   expect(fixture.notice).not.toHaveBeenCalled();expect(f.close).toHaveBeenCalledOnce()
+  }
  }finally{f.h.cleanup()}
 })

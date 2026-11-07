@@ -7,6 +7,19 @@ const status=()=>({version:1,operationId,scopeKey:'platform',resourceKey:null,de
  original:{status:'pending',errorCode:null,terminal:false},resolution:null,
  effective:{state:'confirming',connectionState:'confirming',blocksNewOperations:true},confirmation:{state:'pending',deadlineAt:null}})
 describe('public operation result boundary',()=>{
+ it('reads native or platform status through the named owner RPC without a runtime, service or guessed resource',async()=>{
+  const transport=vi.fn(async()=>({data:{...status(),scopeKey:'device:one',deviceId:'one',evidence:'private'},error:null}))
+  const client=createConnectionClient(transport,()=> 'owner')
+  expect(await client.operationStatus(operationId)).toEqual({...status(),scopeKey:'device:one',deviceId:'one'})
+  expect(transport).toHaveBeenCalledExactlyOnceWith('connection_operation_status',{p_operation_id:operationId})
+ })
+ it('retains a missing status as unknown data and never converts a permission error to another source',async()=>{
+  const missing=createConnectionClient(async()=>({data:null,error:null}),()=> 'owner')
+  expect(await missing.operationStatus(operationId)).toBeNull()
+  const transport=vi.fn(async()=>({data:null,error:{code:'42501',message:'CLOSED'}}))
+  await expect(createConnectionClient(transport,()=> 'owner').operationStatus(operationId)).rejects.toMatchObject({code:'42501'})
+  expect(transport).toHaveBeenCalledOnce()
+ })
  it('projects only public fields, retaining nullable pre-publication identity',()=>{
   const value={...status(),credentialGeneration:'private-generation',evidence:{private:true}}
   const parsed=parseConnectionOperationStatus(value,operationId)
@@ -22,6 +35,8 @@ describe('public operation result boundary',()=>{
   expect(()=>parseConnectionOperationStatus({...status(),operationId:'other'},operationId)).toThrow()
   expect(()=>parseConnectionOperationStatus({...status(),original:{status:'failed',errorCode:'private-database-error',terminal:true}},operationId)).toThrow()
   expect(()=>parseConnectionOperationStatus({...status(),effective:{state:'confirming',connectionState:'confirming',blocksNewOperations:false}},operationId)).toThrow()
+  expect(()=>parseConnectionOperationStatus({...status(),original:{status:'failed',errorCode:'CONNECTION_OUTCOME_UNKNOWN',terminal:true},
+   effective:{state:'succeeded',connectionState:'connected',blocksNewOperations:false}},operationId)).toThrow()
  })
  it('reads status with GET and no body, never the deletion or authorization endpoint',async()=>{
   const fetcher=vi.fn(async()=>Response.json(status()))

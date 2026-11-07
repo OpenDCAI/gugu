@@ -155,7 +155,7 @@ export function connectionLibraryHost(base: LibraryHost, panel: ConnectionMetada
       }
     }))
   }
-  return { ...base,key: panel ? ownerMode ? `owner-connections:${panel.ownerId}:${panel.authorityEpoch ?? ''}:${panel.deviceId ?? 'all'}:${base.key}`
+  return { ...base,key: panel ? ownerMode ? `owner-connections:${panel.ownerId}:${panel.authorityEpoch ?? ''}:${panel.deviceId ?? 'all'}:${base.key}${panel.verificationProtocol === 2 ? ':verification:2' : ''}`
     : `assistant-panel:${panel.ownerId}:${panel.assistantId}${panel.authorityEpoch ? `:${panel.authorityEpoch}` : ''}` : ownerMode ? 'connections:loading' : 'assistant-panel:loading',
     ...(ownerMode ? { connectionMetadata: panel,connectionMetadataExpected: true,connectionMetadataError: loadError } : {}),
     prepareAssistantAction: prepareAction,integrations,

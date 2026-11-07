@@ -1,7 +1,7 @@
 import { useLibraryHost } from '@renderer/features/library/library-host'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 
-import { useState, type ReactNode } from 'react';
+import { useEffect,useRef,useState, type ReactNode } from 'react';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { Button } from '@renderer/lib/ui/button';
 import { ConfirmButton } from '@renderer/lib/ui/confirm-button';
@@ -38,19 +38,29 @@ export function SetupFormShell({
   children,
 }: SetupFormShellProps) {
   const host = useLibraryHost();
-  const { connectIntegration, isIntegrationMutating } = useIntegrationsContext();
+  const { connectIntegration, isIntegrationMutating,cancelIntegrationAuthorization } = useIntegrationsContext();
   const { toast } = useToast();
   const { translate } = useSessionMessages();
   const [error, setError] = useState<string | null>(null);
   const isMutating = isIntegrationMutating(providerId);
+  const submitting = useRef(false),mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (submitting.current && host.connectionMetadata?.verificationProtocol === 2) cancelIntegrationAuthorization(providerId);
+    };
+  },[host.connectionMetadata?.verificationProtocol,providerId,cancelIntegrationAuthorization]);
 
   const handleSubmit = async () => {
     if (isMutating) return;
     if (!canSubmit) { setError(validationMessage); return; }
     setError(null);
+    submitting.current = true;
 
     try {
       const result = await connectIntegration(providerId, getInput(), editAccountId);
+      if (!mounted.current) return;
       if (!result.success) {
         setError(result.error);
         return;
@@ -62,9 +72,10 @@ export function SetupFormShell({
       });
       onSuccess();
     } catch (e) {
+      if (!mounted.current) return;
       // @@@raw detail — provider 返回的失败原因原样展示,缺失时才用本地化外壳。
       setError(e instanceof Error ? e.message : translate('integrations.connectFailed'));
-    }
+    } finally { submitting.current = false; }
   };
 
   return (

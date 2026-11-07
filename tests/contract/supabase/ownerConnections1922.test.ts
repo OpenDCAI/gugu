@@ -8,6 +8,8 @@ import { withContractDatabase } from './database'
 type Database = Parameters<Parameters<typeof withContractDatabase>[0]>[0]
 const rpc = {
   connection_authority: [],
+  connection_operation_status:[['p_operation_id','uuid']],
+  connection_authorization_cancel:[['p_operation_id','uuid']],
   connection_attempt_prepare:[['p_operation_id','uuid'],['p_epoch','bigint'],['p_runtime_instance_id','text']],
   connection_attempt_inspect:[['p_operation_id','uuid'],['p_runtime_instance_id','text']],
   connection_snapshot: [['p_device_id','text']],
@@ -82,6 +84,15 @@ describe('owner connections #1922 client/database contract', () => {
     const attempt=await client.prepareAttempt(instance,operationId,'1');
     expect(attempt).toMatchObject({operationId,ownerId:owner,deviceId:device,authorityEpoch:'1',accountId:'managed',effectKind:'authorize'});
     expect(attempt.attemptOrder).toMatch(/^[1-9][0-9]*$/);expect(await client.inspectAttempt(instance,operationId)).toEqual(attempt);
+    const publicStatus=await client.operationStatus(operationId);
+    expect(publicStatus).toMatchObject({operationId,scopeKey:`device:${device}`,deviceId:device,operation:'save'});
+    expect(Object.keys(publicStatus!).sort()).toEqual(['version','operationId','scopeKey','resourceKey','deviceId','revision','operation','original','resolution','effective','confirmation'].sort());
+    expect(JSON.stringify(publicStatus)).not.toContain(attempt.credentialGeneration);
+    expect(await otherClient.operationStatus(operationId)).toBeNull();expect(await otherClient.operationStatus(randomUUID())).toBeNull();
+    const cancellation=await client.cancelAuthorization(operationId);
+    expect(cancellation).toMatchObject({operationId,original:publicStatus!.original,confirmation:{cancelRequested:true},effective:{state:'confirming',blocksNewOperations:true}});
+    expect(await client.cancelAuthorization(operationId)).toEqual(cancellation);
+    expect(await otherClient.cancelAuthorization(operationId)).toBeNull();
     await expect(client.prepareAttempt(instance,operationId,'2')).rejects.toMatchObject({code:'42501'});
     const otherInstance=randomUUID();await db.query('INSERT INTO identity.runtime_instances(instance_id,device_id,owner_user_id) VALUES($1,$2,$3)',[otherInstance,foreignDevice,other]);
     expect(await otherClient.inspectAttempt(otherInstance,operationId)).toBeNull();

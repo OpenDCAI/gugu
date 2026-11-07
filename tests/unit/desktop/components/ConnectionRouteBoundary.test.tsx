@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act,createElement } from 'react'
+import { act,createElement,useEffect } from 'react'
 import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest'
 import { createConnectionRouting,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
 import { ConnectionRouteBoundary } from '@/components/connections/ConnectionRouteBoundary'
@@ -11,10 +11,11 @@ import { createReactHarness,renderWithAppProviders } from '../../../support/test
 let harness: ReturnType<typeof createReactHarness>,route: ConnectionRoute,refresh: () => void
 const notice = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/notices',() => ({ notify: notice }))
-const owner = vi.fn(),legacy = vi.fn(),read = vi.fn()
+const owner = vi.fn(),legacy = vi.fn(),read = vi.fn(),mounted = vi.fn(),unmounted = vi.fn()
 beforeEach(() => {
   harness = createReactHarness(); owner.mockReset(); legacy.mockReset(); read.mockReset()
   notice.mockClear()
+  mounted.mockClear(); unmounted.mockClear()
   route = { mode: 'legacy',epoch: '0',phase: 'stable',acceptingNewOperations: true }
   read.mockImplementation(async () => route)
   const routing = createConnectionRouting({ accountId: () => 'boundary-owner',read,changed: () => {} })
@@ -27,12 +28,24 @@ beforeEach(() => {
   ;(window as ConnectionWindow).__GUGU_CONNECTIONS__ = bridge
 })
 afterEach(() => { harness.cleanup(); vi.useRealTimers(); delete (window as ConnectionWindow).__GUGU_CONNECTIONS__ })
-function Owner() { const allowed = useConnectionMutationAllowed(); return createElement('button',{ disabled: !allowed },'Authorize') }
+function Owner() { const allowed = useConnectionMutationAllowed(); useEffect(() => { mounted(); return () => { unmounted() } },[]); return createElement('button',{ disabled: !allowed },'Authorize') }
 function Legacy() { legacy(); return createElement('span',null,'Legacy accounts') }
 const render = () => renderWithAppProviders(harness,createElement(ConnectionRouteBoundary,{ legacy: createElement(Legacy),owner: value => {
   owner(value); return createElement('div',null,`Owner accounts ${value.epoch}`,createElement(Owner))
 } }),{ auth: { id: 'boundary-owner' } })
 describe('connection shell authority boundary without a query provider', () => {
+  it('discards an open protocol-1 owner shell when verification changes, while treating omitted protocol as 1',async () => {
+    route = { ...route,mode: 'owner',epoch: '3' }
+    await render()
+    await vi.waitFor(() => expect(mounted).toHaveBeenCalledOnce())
+    route = { ...route,verificationProtocol: 1 }
+    await act(async () => { refresh() })
+    expect(mounted).toHaveBeenCalledOnce(); expect(unmounted).not.toHaveBeenCalled()
+    route = { ...route,verificationProtocol: 2 }
+    await act(async () => { refresh() })
+    await vi.waitFor(() => expect(mounted).toHaveBeenCalledTimes(2))
+    expect(unmounted).toHaveBeenCalledOnce()
+  })
   it('retains legacy rendering without opening owner data or an assistant from the routing reader', async () => {
     await render()
     await vi.waitFor(() => expect(harness.container.textContent).toContain('Legacy accounts'))

@@ -1,4 +1,6 @@
 import type { ConnectionApplication } from '@gugu/core/cloud/connections'
+import type { ConnectionOperationStatus } from '@gugu/core/cloud/connectionOperationStatus'
+import type { ConnectionVerification,ConnectionVerificationStore } from './connection-verification'
 import type { AssistantPanelItem, AssistantPanelReceipt, AssistantPanelSnapshot } from '@gugu/core/cloud/assistantPanel'
 
 /** Public integration metadata shared by the owner service and legacy panel
@@ -8,13 +10,20 @@ export type ConnectionMetadataItem = Omit<AssistantPanelItem, 'assistant_user_id
 }
 export type ConnectionMetadataSnapshot = Omit<AssistantPanelSnapshot, 'items' | 'application'> & {
   items: ConnectionMetadataItem[]
-  application: (AssistantPanelSnapshot['application'][number] & Partial<Omit<ConnectionApplication,'status' | 'resourceKey'>> & { wireStatus?: ConnectionApplication['status'] })[]
+  application: (AssistantPanelSnapshot['application'][number] & Partial<Omit<ConnectionApplication,'status' | 'resourceKey'>> & {
+    wireStatus?: ConnectionApplication['status']; verificationOriginal?: ConnectionOperationStatus['original']
+  })[]
+  verificationProtocol?: 2
+  verification?: ConnectionVerification[]
 }
 
 export interface ConnectionMetadataStore {
   ownerId: string
   deviceId?: string
   authorityEpoch?: string
+  verificationProtocol?: 1 | 2
+  verification?: ConnectionVerificationStore
+  refreshVerification?(): Promise<void>
   /** Legacy readers keep their own cache namespace while they still exist. */
   assistantId?: string
   snapshot(): Promise<ConnectionMetadataSnapshot>
@@ -30,7 +39,7 @@ export interface ConnectionMetadataStore {
 
 export const connectionMetadataKey = (store: ConnectionMetadataStore) =>
   JSON.stringify(store.assistantId ? [store.ownerId,store.assistantId,store.deviceId ?? null,...(store.authorityEpoch ? [store.authorityEpoch] : [])]
-    : [store.ownerId,'owner-connections',store.authorityEpoch ?? null,store.deviceId ?? null])
+    : [store.ownerId,'owner-connections',store.authorityEpoch ?? null,store.deviceId ?? null,...(store.verificationProtocol === 2 ? ['verification:2'] : [])])
 
 export function connectionMetadataCollection(snapshot: ConnectionMetadataSnapshot, deviceId?: string) {
   return snapshot.items.filter(row => row.domain === 'integrations' && !row.deleted_at

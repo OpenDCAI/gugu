@@ -19,6 +19,7 @@ import { useOwnerLibraryHost } from './useOwnerLibraryHost'
 import { OwnerConnectorDetail } from './OwnerConnectorDetail'
 import './connection-copy'
 import { connectionApplicationStatus } from './connection-application-status'
+import { withConnectionVerification } from './connection-verification-presentation'
 import { useConnectionRecovery } from './useConnectionRecovery'
 import { useConnectionMutationAllowed } from './connection-mutation-context'
 import type { ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
@@ -48,7 +49,8 @@ function OwnerConnectorList({ host,selectedDeviceId,panelNavigation,showDevicePi
     id => connectorState(data.hasConfiguredConnections ? !!data.configuredConnections[id] : undefined,data.checkedConnections[id],
       undefined,true),data.configuredConnections).map(app => {
       const status = connectionApplicationStatus(host.connectionMetadata?.peekSnapshot?.(),app.id,data.connectionOperations)
-      return status ? { ...app,state: status.confirming ? 'checking' as const : 'needsReauth' as const,connectionStatus: copy(status.key) } : app
+      return status ? host.connectionMetadata?.verificationProtocol === 2 ? withConnectionVerification(app,status,copy(status.key))
+        : { ...app,state: status.confirming ? 'checking' as const : 'needsReauth' as const,connectionStatus: copy(status.key) } : app
     }),[data,host.connectionMetadata,i18n.language,channels.list,settings,t,copy])
   const selected = openId ? apps.find(app => app.id === openId) : null
   if (selected) return <OwnerConnectorDetail host={host} app={selected} deviceId={selectedDeviceId} panelNavigation={panelNavigation} onBack={() => setOpenId(null)} />

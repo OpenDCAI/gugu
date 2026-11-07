@@ -156,6 +156,8 @@ export function createConnectionClient(transport: ConnectionTransport, accountId
         || value.phase === 'quiescing' && value.acceptingNewOperations) return invalid()
       return value as ConnectionAuthority
     }),
+    operationStatus: (operationId: string) => request('connection_operation_status',{ p_operation_id: operationId },value =>
+      value === null ? null : parseConnectionOperationStatus(value,operationId)),
     inspectAttempt:(runtimeInstanceId:string,operationId:string)=>request('connection_attempt_inspect',{p_runtime_instance_id:runtimeInstanceId,p_operation_id:operationId},value=>{
       if(value===null)return null
       const attempt=parseNativeConnectionAttempt(value,invalid)

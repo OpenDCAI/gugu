@@ -36,3 +36,30 @@ it('does not start recovery during a transition or after an account switch',asyn
   await act(async () => { await vi.advanceTimersByTimeAsync(60000) })
   expect(fixture.retry).not.toHaveBeenCalled()
 })
+it('keeps protocol-2 status observation read-only during quiescence and stops after an owner switch',async () => {
+  const observe = vi.fn(async () => {}),current = { ...store,verificationProtocol: 2 as const,refreshVerification: observe }
+  function ReadOnly() { useConnectionRecovery(current,false); return null }
+  await harness.render(createElement(ReadOnly))
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+  expect(observe).toHaveBeenCalledOnce(); expect(fixture.retry).not.toHaveBeenCalled()
+  fixture.owner = 'other'
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000) })
+  expect(observe).toHaveBeenCalledOnce(); expect(fixture.retry).not.toHaveBeenCalled()
+})
+it('keeps ordinary protocol-2 pending revocation retrying its original UUID after a fresh status read',async () => {
+  const observe = vi.fn(async () => {}),current = { ...store,verificationProtocol: 2 as const,refreshVerification: observe }
+  function Recover() { useConnectionRecovery(current,true); return null }
+  await harness.render(createElement(Recover)); await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+  expect(observe).toHaveBeenCalledOnce(); expect(fixture.retry).toHaveBeenCalledExactlyOnceWith('original-platform-uuid')
+})
+it.each(['unavailable','UNKNOWN'] as const)('does not retry a stale protocol-2 pending effect after a status becomes %s',async kind => {
+  const original = store.peekSnapshot!()!,snapshot = { ...original,application: original.application.map(row => ({ ...row })) }
+  const observe = vi.fn(async () => {
+    if (kind === 'unavailable') throw new Error('503')
+    Object.assign(snapshot.application[0]!,{ verificationOriginal: { status: 'failed',errorCode: 'CONNECTION_OUTCOME_UNKNOWN',terminal: true } })
+  })
+  const current = { ...store,verificationProtocol: 2 as const,refreshVerification: observe,peekSnapshot: () => snapshot }
+  function Recover() { useConnectionRecovery(current,true); return null }
+  await harness.render(createElement(Recover)); await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+  expect(observe).toHaveBeenCalledOnce(); expect(fixture.retry).not.toHaveBeenCalled()
+})

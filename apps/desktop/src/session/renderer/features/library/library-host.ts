@@ -4,6 +4,7 @@
 // MCP、扩展)的钩子都换成这里给的那台机器的同名方法(经设备 RPC 转到那台机器上**同一个控制器**)——界面组件一个都
 // 不认它,照旧渲染同一套控件,只是数据与动作来自另一台机器(与新建框的 remote-create-source 同一种做法)。
 import { createContext, useContext } from 'react';
+import type { ConnectionPreviousPresentation } from '@/components/connections/connection-verification';
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
 import { events, onMachineEvent, rpc, rpcOn } from '@renderer/lib/ipc';
 import { TOO_OLD_CODES } from '@renderer/features/remote-hosts/connection-status';
@@ -111,6 +112,8 @@ export type LibraryHost = {
   connectionMetadata?: ConnectionMetadataStore;
   connectionMetadataExpected?: boolean;
   connectionMetadataError?: unknown;
+  canAuthorizeConnection?: (providerId: string) => boolean;
+  connectionAuthorizationOpened?: (providerId: string,previous: ConnectionPreviousPresentation) => void;
   assistantPanel?: AssistantPanelFiles;
   assistantPanelExpected?: boolean;
   assistantPanelError?: unknown;
