@@ -3,8 +3,8 @@ import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useNativeSessionRecord } from './useNativeSessionRecord'
 import { useSessionRestart } from './useSessionRestart'
-import { useToast } from '@/components/toastContext'
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useTimelineFailureNotice } from './useTimelineFailureNotice'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { showPhoneAppView } from '@/components/appSlot/phoneAppState'
 import { reaction } from 'mobx'
 import { useTranslation } from 'react-i18next'
@@ -81,8 +81,6 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   onBack: () => void
 }) {
   const { t } = useTranslation('main')
-  const { toast } = useToast()
-  const reportedReadFailure = useRef<{ key: string; reported: boolean }>({ key: `${device.device_id}/${session.conversationId}`, reported: false })
   const mobile = useMobileShell()
   const { label: machineLabel } = useMachineLabel()
   const phoneHost = isPhoneDevice(device)
@@ -118,18 +116,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const recovery = useSessionRestart({ deviceId: device.device_id, projectId: session.projectId, sessionId: session.conversationId,
     missing: native && nativeRecord.errorCode === 'record_not_found', online, local,
     onReady: () => { reload(); return nativeRecord.reload() } })
-  const readFailure = error ?? nativeRecord.error ?? recovery.error
-  const readFailureKey = `${device.device_id}/${session.conversationId}`
-  useEffect(() => {
-    if (reportedReadFailure.current.key !== readFailureKey) {
-      reportedReadFailure.current = { key: readFailureKey, reported: false }
-      return
-    }
-    if (!readFailure) { reportedReadFailure.current.reported = false; return }
-    if (reportedReadFailure.current.reported) return
-    reportedReadFailure.current.reported = true
-    toast(messageForUser(readFailure), 'error')
-  }, [readFailureKey, readFailure, toast])
+  useTimelineFailureNotice(`${device.device_id}/${session.conversationId}`, error ?? nativeRecord.error, recovery)
   // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
   // answering is the earlier fact. Same note as offline; the reads keep trying and the page comes back by itself.
   const hostSilent = !local && online && ((link === 'lost' && (!error || remoteFailureKind(errorCode) === 'machine-unreachable')) || (native && nativeRecord.unreachable))
