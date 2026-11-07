@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { openTokenCachePager } from '../token-scan-worker/sqlite-cache';
 import type { TokenScanWorkerLike } from '../token-scan-client';
 import type { FromWorker, ToWorker } from '../token-scan-worker/protocol';
@@ -14,7 +15,7 @@ export function createInProcessTokenScanWorker(cacheDbPath?: string): TokenScanW
 } {
   const listeners = { message: [] as Array<(m: FromWorker) => void>, error: [] as Array<(e: Error) => void>, exit: [] as Array<(c: number) => void> };
   let alive = true;
-  const cache = cacheDbPath ? openTokenCachePager(cacheDbPath) : undefined;
+  const cache = cacheDbPath ? openTokenCachePager(cacheDbPath, Database) : undefined;
   const service = createTokenScanService((message) => {
     const copy = structuredClone(message);
     setImmediate(() => alive && listeners.message.forEach((listener) => listener(copy)));
