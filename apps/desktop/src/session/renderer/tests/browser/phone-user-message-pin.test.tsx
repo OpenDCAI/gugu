@@ -1,12 +1,13 @@
-import { createChatContext, createChatState, type ChatView, type TranscriptTurn } from '@gugu/session-chat-ui';
+import type { ChatView, PendingPrompt } from '@gugu/session-chat-ui';
+import type { TranscriptTurn } from '@gugu/session-core/acp/client';
 import { ChatComposer, MessageProvider, type PromptEditorRef } from '@gugu/session-ui/react/components';
 import { ThemeProvider } from '@gugu/session-ui/react/primitives';
-import { AgentConversationView } from '@renderer/lib/chat/agent-conversation-view';
+import { SessionTranscriptView } from '@/components/assistant-ui/session-transcript-view.aui';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { platform } from '@/platform';
-import { createRef } from 'react';
+import { createRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import '@/styles/tokens.css';
@@ -19,6 +20,7 @@ const originalTheme = document.documentElement.dataset.theme;
 afterEach(() => {
   cleanups.splice(0).reverse().forEach(cleanup => cleanup());
   Object.defineProperty(platform, 'kind', originalKind);
+  vi.unstubAllGlobals();
   if (originalTheme) document.documentElement.dataset.theme = originalTheme;
   else delete document.documentElement.dataset.theme;
 });
@@ -27,8 +29,7 @@ async function mount(kind: typeof platform.kind, width: number) {
   await page.viewport(width, 844);
   Object.defineProperty(platform, 'kind', { configurable: true, value: kind });
   document.documentElement.dataset.theme = 'light';
-  const context = createChatContext({ locale: () => 'en-US', selfIdentity: () => ({ userId: 'owner', displayName: 'You', guguNumber: null }) });
-  const state = createChatState(context);
+  vi.stubGlobal('__GUGU_SELF_IDENTITY__', { getSnapshot: () => ({ userId: 'owner', displayName: 'You', guguNumber: null }), subscribe: () => () => {} });
   const host = document.body.appendChild(document.createElement('div'));
   host.className = 'emlight';
   host.setAttribute('data-ta-scope', '');
@@ -38,15 +39,23 @@ async function mount(kind: typeof platform.kind, width: number) {
   const editor = createRef<PromptEditorRef>();
   let view!: ChatView;
   let mounts = 0;
-  root.render(<ThemeProvider><MessageProvider locale="en-US" translate={translateSessionMessage}>
-    <AgentConversationView context={context} state={state} onReady={ready => { view = ready; mounts++; }}
-      composerContent={<ChatComposer mobile={kind !== 'electron' && width < 720} hideLockedAgent agentLocked editorApiRef={editor}
-        onSubmit={text => {
-          state.session.setPendingPrompt({ id: 'own-message', text, sentAt: Date.now(), held: true, delivery: { state: 'sending' } });
-          editor.current!.clear();
-        }} />} />
-  </MessageProvider></ThemeProvider>);
-  cleanups.push(() => { root.unmount(); state.dispose(); context.dispose(); host.remove(); });
+  let publishReply!: (turn: TranscriptTurn) => void;
+  function Fixture() {
+    const [pendingPrompt, setPendingPrompt] = useState<PendingPrompt | null>(null);
+    const [turns, setTurns] = useState<TranscriptTurn[]>([]);
+    publishReply = turn => { setTurns([turn]); setPendingPrompt(null); };
+    return <ThemeProvider><MessageProvider locale="en-US" translate={translateSessionMessage}>
+      <SessionTranscriptView uri="phone-pin-fixture" turns={turns} pendingPrompt={pendingPrompt} mobile
+        onReady={ready => { view = ready; mounts++; }}
+        composerContent={<ChatComposer mobile={kind !== 'electron' && width < 720} hideLockedAgent agentLocked editorApiRef={editor}
+          onSubmit={text => {
+            setPendingPrompt({ id: 'own-message', text, sentAt: Date.now(), held: true, delivery: { state: 'sending' } });
+            editor.current!.clear();
+          }} />} />
+    </MessageProvider></ThemeProvider>;
+  }
+  root.render(<Fixture />);
+  cleanups.push(() => { root.unmount(); host.remove(); });
   await until('conversation composer mounted', () => !!view && !!host.querySelector('[data-testid="prompt-editor"]'));
   const scroller = host.querySelector<HTMLElement>('[data-chat-scroll]')!;
   const card = () => host.querySelector<HTMLElement>('[data-user-card="own-message"]');
@@ -59,8 +68,7 @@ async function mount(kind: typeof platform.kind, width: number) {
       ...Array.from({ length: 90 }, (_, i) => ({ kind: 'message' as const, id: `reply-${i}`, seq: i + 1, role: 'assistant' as const,
         text: `Response ${i + 1}: this reply leaves enough room to exercise transcript scrolling.` })),
     ] };
-    state.transcript.activeTurn.set(turn, 'generating');
-    state.session.setPendingPrompt(null);
+    publishReply(turn);
   };
   const scrollTo = async (value: number) => {
     scroller.scrollTop = value;
@@ -107,7 +115,9 @@ it('updates phone pinning on a retained web transcript without remounting', asyn
   t.reply();
   await until('desktop user message mounted', () => t.card() != null && t.pinned());
   await page.viewport(390, 844);
-  await until('phone layout disables the existing pin lane', () => t.wrapper() != null && !t.pinned());
+  await until('phone layout disables the existing pin lane', () => !t.pinned());
+  await t.scrollTo(0);
+  await until('phone user message remains in normal flow', () => t.wrapper() != null && !t.pinned());
   expect(t.wrapper()!.querySelector('[data-chat-pin-backdrop]')).toBeNull();
   await page.viewport(1000, 844);
   await until('desktop layout restores its pin lane', t.pinned);
