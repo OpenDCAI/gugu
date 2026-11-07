@@ -20,6 +20,9 @@ vi.mock('../session-view-context', () => ({
   useSessionViewContext: () => ({ projectId: 'project', sessionId: 'task' }),
 }));
 vi.mock('@/components/legacy-dm-history/LegacyDmHistoryEntry', () => ({ LegacyDmHistoryDialog: () => null }));
+vi.mock('@/components/legacy-dm-history/useLegacyDmHistoryEntry', () => ({
+  useLegacyDmHistoryEntry: () => ({ isAvailable: () => false, onMenuOpen: () => undefined }),
+}));
 vi.mock('@renderer/features/sessions/session-reload-confirm', () => ({
   SessionReloadConfirm: ({ open, onConfirm }: { open: boolean; onConfirm: () => Promise<void> }) =>
     open ? <button data-confirm onClick={() => void onConfirm()}>confirm</button> : null,

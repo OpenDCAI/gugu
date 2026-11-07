@@ -13,6 +13,7 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { log } from '@renderer/utils/logger';
 import { useSessionViewContext } from '../session-view-context';
 import { LegacyDmHistoryDialog } from '@/components/legacy-dm-history/LegacyDmHistoryEntry';
+import { useLegacyDmHistoryEntry } from '@/components/legacy-dm-history/useLegacyDmHistoryEntry';
 
 /**
  * 一条会话的动作 —— 置顶、重命名、重启本会话、归档(#7052)。「通用 / 编程」的手动切换已删:展示跟设置 → 通用的「终端」开关走。
@@ -24,7 +25,7 @@ import { LegacyDmHistoryDialog } from '@/components/legacy-dm-history/LegacyDmHi
  * spec session-graph「会话页菜单只动它点名的那条会话」:页签写的是谁,动的就是谁(子会话的页签动子会话)。
  */
 interface SessionActions {
-  commandsFor(sessionId: string, rename: () => void): TabCommand[];
+  commandsFor(sessionId: string, rename: () => void, legacyHistory: Pick<TabCommand, 'isAvailable' | 'onMenuOpen'>): TabCommand[];
 }
 
 const SessionActionsContext = createContext<SessionActions | null>(null);
@@ -32,8 +33,9 @@ const SessionActionsContext = createContext<SessionActions | null>(null);
 /** The commands of the session a tab names, for its right-click menu. Outside a session page: none. */
 export function useSessionTabCommands(sessionId: string | undefined, rename: () => void): TabCommand[] {
   const actions = useContext(SessionActionsContext);
+  const legacyHistory = useLegacyDmHistoryEntry(sessionId);
   if (!actions || !sessionId) return [];
-  return actions.commandsFor(sessionId, rename);
+  return actions.commandsFor(sessionId, rename, legacyHistory);
 }
 
 export const SessionActionsProvider = observer(function SessionActionsProvider({ children }: { children: ReactNode }) {
@@ -73,14 +75,14 @@ export const SessionActionsProvider = observer(function SessionActionsProvider({
 
   const actions = useMemo<SessionActions>(
     () => ({
-      commandsFor(sessionId, rename) {
+      commandsFor(sessionId, rename, legacyHistory) {
         const session = sessionRegistry.get(pageSessionId)?.sessions.get(sessionId);
         if (!session) return [];
         const pinned = session.data.isPinned ?? false;
         return [
           {
             id: 'session:legacy-history', label: translate('legacyDm.history'), icon: Archive,
-            group: 'edit' as const, fold: true, run: () => setLegacySessionId(sessionId),
+            group: 'edit' as const, fold: true, ...legacyHistory, run: () => setLegacySessionId(sessionId),
           },
           {
             id: 'session:pin',
