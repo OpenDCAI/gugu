@@ -35,7 +35,7 @@ export function createConnectionRuntime(input: {
   function worker(ownerId: string, deviceId: string) {
     async function auth() {
       const value = await getAuth()
-      if (disposed || value?.userId !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
+      if (disposed || value?.userId !== ownerId || await input.deviceId() !== deviceId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
       return value
     }
     const rawCloud = createConnectionClient(async (name,args) => {
@@ -67,9 +67,14 @@ export function createConnectionRuntime(input: {
       return id
     }
     let nativeStore:Promise<ReturnType<typeof import('../session/main/core/provider-accounts/connection-effect-evidence').createNativeConnectionEvidence>>|undefined
+    let evidenceSigner:Promise<import('@gugu/core/cloud/connectionEvidence').ConnectionEvidenceSigner>|undefined
     const native=createConnectionNativeEvidence({ownerId,deviceId,cloud:rawCloud,instance,assertCurrent:async()=>{await auth()},store:()=>{
       nativeStore??=Promise.all([import('../session/main/db/client'),import('../session/main/core/provider-accounts/connection-effect-evidence')])
         .then(([{db},{createNativeConnectionEvidence}])=>createNativeConnectionEvidence(db));return nativeStore
+    },signer:()=>{
+      evidenceSigner??=Promise.all([import('../session/main/core/secrets/connection-evidence-signer'),import('../session/main/core/secrets/encrypted-app-secrets-store')])
+        .then(([{createNativeConnectionEvidenceSigner},{encryptedAppSecretsStore}])=>createNativeConnectionEvidenceSigner({ownerId,deviceId,secrets:encryptedAppSecretsStore,assertCurrent:async()=>{await auth()}}));
+      return evidenceSigner
     }})
     let expectedHead = '0'
     const application = createConnectionOperationApplication({ deviceId,

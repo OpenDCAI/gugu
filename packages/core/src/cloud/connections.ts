@@ -100,9 +100,9 @@ function parseApplication(value: unknown): ConnectionApplication {
     || !nullableString(value.errorCode) || typeof value.terminal !== 'boolean') return invalid()
   if(value.effective!==undefined){
     const e=value.effective,r=value.resolution
-    if(!object(e)||!['confirming','succeeded','failed'].includes(String(e.state))||typeof e.blocksNewOperations!=='boolean'
+    if(!object(e)||!['confirming','succeeded','failed','cancelled'].includes(String(e.state))||typeof e.blocksNewOperations!=='boolean'
       ||e.blocksNewOperations!==(e.state==='confirming')||!['confirming','connected','disconnected','failed'].includes(String(e.connectionState))
-      ||r!==null&&(!object(r)||!['applied','failed'].includes(String(r.outcome))||typeof r.resolvedAt!=='string'))return invalid()
+      ||r!==null&&(!object(r)||!['applied','failed','cancelled'].includes(String(r.outcome))||typeof r.resolvedAt!=='string'))return invalid()
     if(r===null&&e.state!=='confirming'&&value.errorCode==='CONNECTION_OUTCOME_UNKNOWN')return invalid()
   }
   return value as ConnectionApplication
@@ -148,6 +148,7 @@ export function createConnectionClient(transport: ConnectionTransport, accountId
     return result
   }
   return {
+    cancelAuthorization:(operationId:string)=>request('connection_authorization_cancel',{p_operation_id:operationId},value=>value===null?null:parseConnectionOperationStatus(value,operationId)),
     authority: () => request('connection_authority',{},value => {
       if (!object(value) || value.version !== 1 || !['legacy','owner'].includes(String(value.mode)) || !revision(value.epoch)
         ||value.verificationProtocol!==undefined&&value.verificationProtocol!==1&&value.verificationProtocol!==2
