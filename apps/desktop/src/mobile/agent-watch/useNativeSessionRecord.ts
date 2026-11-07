@@ -69,7 +69,10 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
       setError(null); setErrorCode(null); setUnreachable(false)
     })
     requests.current = nextRequest
-    return nextRequest.catch(error => { if (epoch.current === ownEpoch) setConfirmed(null); throw error })
+    return nextRequest.catch(error => {
+      if (epoch.current !== ownEpoch) return
+      setConfirmed(null); throw error
+    })
   }, [deviceId, sessionId, local, key])
   useEffect(() => {
     if (!enabled || !online || local) return

@@ -16,6 +16,22 @@ const record = (start: number, count: number, hasNewer = false): NativeSessionRe
   turns: Array.from({ length: count }, (_, i) => ({ id: `s:turn:s${start + i}`, seq: start + i, initiator: 'user', items: [] })),
   nextCursor: start ? start : null, originTurnIds: [], activeTurn: null, hasNewer,
 })
+it('discards a cancelled old poll when the transport epoch changes during backoff', async () => {
+  vi.useFakeTimers()
+  scope.read.mockRejectedValueOnce(new Error('Host temporarily unavailable'))
+  let state!: ReturnType<typeof useNativeSessionRecord>
+  function Fixture() { state = useNativeSessionRecord('cancelled-poll-host', 'cancelled-poll', true, true); return null }
+  await harness.render(<Fixture />)
+  expect(scope.read).toHaveBeenCalledOnce()
+  expect(state.error).toBeNull()
+  await act(async () => { scope.link(false); await vi.advanceTimersByTimeAsync(0) })
+  expect(state.error, 'cancelling an obsolete poll is not a failure of the current connection').toBeNull()
+  scope.read.mockResolvedValue({ ok: true, value: record(940, 60) })
+  await act(async () => { scope.link(true) })
+  expect(state.ready).toBe(true)
+  expect(state.error).toBeNull()
+  expect(state.record?.turns.at(-1)?.seq).toBe(999)
+})
 it.each([false, true])('opens the latest page in one read instead of walking from the first unread (local=%s)', async local => {
   scope.read.mockImplementation(async (input: { tail?: boolean }) => ({ ok: true, value: input.tail ? record(940, 60) : record(0, 60, true) }))
   let state!: ReturnType<typeof useNativeSessionRecord>
