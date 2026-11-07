@@ -9,7 +9,6 @@ import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.security.KeyStore;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -111,9 +110,7 @@ final class GuguAgentHostStore {
         ByteBuffer body = ByteBuffer.allocate(1 + iv.length + encrypted.length).put((byte) iv.length).put(iv).put(encrypted);
         File target = file(context, owner);
         if (!target.getParentFile().isDirectory() && !target.getParentFile().mkdirs()) throw new IllegalStateException("无法创建手机宿主凭据目录");
-        File temp = new File(target.getPath() + ".tmp");
-        Files.write(temp.toPath(), body.array());
-        Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        DurableFile.write(target, body.array());
     }
 
     private static File file(Context context, String owner) { return new File(context.getNoBackupFilesDir(), "phone-agent-host/" + GuguAgentHostPolicy.owner(owner) + "/config.enc"); }
