@@ -51,6 +51,8 @@
   <body>
     <div data-gugu-boot aria-hidden="true"><!--gugu-startup-poster--></div>
     <div id="root"></div>
+    <!-- @@@root-stays-put: portals append to <body>. With this fixed sibling #root is never :last-child or :only-child, so opening any portal cannot restyle the whole app. -->
+    <div data-root-sibling hidden></div>
     <script type="module" src="/src/lib/startup-motion-bootstrap.ts"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
