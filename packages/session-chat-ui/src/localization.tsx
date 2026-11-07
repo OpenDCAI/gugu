@@ -23,7 +23,7 @@ const fallbackMessages = {
   'transcript.activitySentOne': "Sent {count} message to {names}",
   'transcript.activityGroupSentOne': "Sent {count} message in {names}",
   'transcript.activityMoreGroups': " and others ({count} groups)",
-  'transcript.activityMoreDestinations': " and others",
+  'transcript.activityMoreDestinations': " and others ({count} destinations)",
   'transcript.activityAgent': "agent",
   'transcript.activityGroup': "group",
   'transcript.activitySeparator': ", ",
