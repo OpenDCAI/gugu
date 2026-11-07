@@ -327,6 +327,37 @@ describe('one cloud provider and verified raw chunk cache', () => {
     expect(objectFetch).toHaveBeenCalledTimes(1)
     await decoded.dispose(); key.fill(0)
   })
+  // A server that knows the combined fields signs the ready copy in file-request and checks the version in the ACK.
+  it.each([[true, ['file-request', 'file-read-complete']], [false, ['file-request', 'file-read-complete']]])('a combined server opens an encrypted copy in two calls (version unchanged: %s)', async (same, routes) => {
+    const local = { ...revision, source: 'local' as const, host_account_id: 'host', host_device_id: 'device', host_project_id: 'project', relative_path: 'file.bin', temporary_transfer: true }
+    const key = await createFileKey(), encoded = await transformFile({ direction: 'encrypt', revision: local, source: bytesFile(plain), sink: sink(), key })
+    const cipher = Buffer.concat([await encoded.file.read(0, 524288), await encoded.file.read(524288, encoded.file.size - 524288)])
+    const a = api(local, cipher, { codec: 'secretstream-v1', key: Buffer.from(key).toString('base64'), ciphertext_bytes: cipher.length, ciphertext_sha256: digest(cipher) })
+    const apiFetch = a.fetcher.getMockImplementation()!
+    a.fetcher.mockImplementation(async (input, init) => {
+      const route = String(input).split('/').at(-1)!
+      if (route === 'file-request') {
+        const download = await (await apiFetch(String(input).replace('file-request', 'file-download'), init)).json()
+        a.calls.pop(); a.calls.push({ route, body: JSON.parse(init!.body as string) })
+        return Response.json({ status: 'ready', transfer_status: 'ready', download })
+      }
+      if (route === 'file-read-complete') {
+        a.calls.push({ route, body: JSON.parse(init!.body as string) })
+        return Response.json({ acknowledged: same, current: { ...local, status: 'ready', sha256: same ? local.sha256 : 'f'.repeat(64) } })
+      }
+      return apiFetch(input, init)
+    })
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: cache().store, sink: async () => sink(), fetch: (async () => new Response(cipher)) as typeof fetch })
+    if (same) {
+      const decoded = await cloud.temporary(local, context)
+      expect(digest(Buffer.concat([await decoded.read(0, 524288), await decoded.read(524288, plain.length - 524288)]))).toBe(revision.sha256)
+      await decoded.dispose()
+    } else await expect(cloud.temporary(local, context)).rejects.toThrow('File access or revision changed during download')
+    expect(a.calls.map(row => row.route)).toEqual(routes)
+    expect(a.calls[0]!.body.download_request_id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(a.calls[1]!.body).toMatchObject({ download_id: 'download', ref: { item_id: 'file', version: 2 }, expect: { sha256: local.sha256, size_bytes: local.size_bytes } })
+    await encoded.file.dispose(); key.fill(0)
+  })
   it.each(['key', 'ciphertext_sha256'])('rejects an expired lease renewal that changes encrypted %s before reading more bytes', async field => {
     const local = { ...revision, source: 'local' as const, host_account_id: 'host', host_device_id: 'device', host_project_id: 'project', relative_path: 'file.bin', temporary_transfer: true }
     const key = await createFileKey(), encoded = await transformFile({ direction: 'encrypt', revision: local, source: bytesFile(plain), sink: sink(), key })

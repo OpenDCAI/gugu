@@ -95,22 +95,27 @@ export function cloudFileProviders(deps: {
     (deps.fetch ?? (await deps.endpoint(context)).fetch ?? fetch)(url, init)
   const read = async (revision: FileRevision, context: FileContext, encrypted: boolean, destination?: FileSink): Promise<FileBytes> => {
     const ref = 'item_id' in context.ref ? { ...context.ref, version: revision.version } : context.ref
+    // A server that knows `download_request_id` answers `download` (the lease, once the copy is ready) and checks the
+    // version in the read acknowledgement: two round trips fewer per open. Older servers answer neither.
+    let lease: Download | undefined, combined = false
+    const downloadRequest = crypto.randomUUID()
     if (encrypted) await withBoundedOperation(600_000, () => new Error('File device is unavailable or its transfer timed out'), async timeout => {
       const waiting = { ...context, signal: anySignal([context.signal, timeout]) }, requestId = crypto.randomUUID()
       for (;;) {
         waiting.signal.throwIfAborted()
-        const state = await request(waiting, 'file-request', { ref, as: context.actor.actorId, request_id: requestId }) as { status: string; transfer_status: string; host_label?: string | null; host_online?: boolean }
+        const state = await request(waiting, 'file-request', { ref, as: context.actor.actorId, request_id: requestId, download_request_id: downloadRequest }) as { status: string; transfer_status: string; host_label?: string | null; host_online?: boolean; download?: Download | null }
         if (state.status !== 'ready' || state.transfer_status === 'retired') throw new Error('File transfer is no longer available')
-        if (state.transfer_status === 'ready') break
+        if (state.transfer_status === 'ready') {
+          combined = state.download !== undefined
+          if (state.download) lease = accept(state.download)
+          break
+        }
         // Only the device that keeps this version can send it: say so instead of waiting while it is offline.
         if (state.host_online === false) throw new Error(`${state.host_label?.trim() || 'The computer that keeps this file'} is offline. This file opens when it is back online.`)
         await new Promise(resolve => setTimeout(resolve, 700))
       }
     })
-    let lease: Download | undefined
-    const sign = async (renew = false, origin = false) => {
-      const row = await request(context, 'file-download', { ref, as: context.actor.actorId,
-        request_id: origin && !renew && lease ? lease.download_id : crypto.randomUUID(), ...(origin ? { origin: true } : {}) }) as Download
+    function accept(row: Download) {
       if (missingObject(row)) throw new MissingFileObjectError()
       if (row.status !== 'ready' || typeof row.url !== 'string' || row.size_bytes !== (encrypted ? ciphertextSize(revision.size_bytes) : revision.size_bytes) || row.sha256 !== revision.sha256 || !sameLegacyObject(revision, row) ||
         row.origin_available !== undefined && typeof row.origin_available !== 'boolean' ||
@@ -118,8 +123,10 @@ export function cloudFileProviders(deps: {
           lease && (row.ciphertext_sha256 !== lease.ciphertext_sha256 || row.key !== lease.key))) throw new Error('File download commitment changed')
       return lease = row
     }
+    const sign = async (renew = false, origin = false) => accept(await request(context, 'file-download', { ref, as: context.actor.actorId,
+      request_id: origin && !renew && lease ? lease.download_id : crypto.randomUUID(), ...(origin ? { origin: true } : {}) }) as Download)
     // A key still requires the current download ACL, even if every ciphertext chunk is cached.
-    if (encrypted) await sign()
+    if (encrypted && !lease) await sign()
     const digest = encrypted ? lease!.ciphertext_sha256! : revision.sha256, key = cacheKey(context, digest ?? crypto.randomUUID())
     const source = remoteSource(encrypted ? ciphertextSize(revision.size_bytes) : revision.size_bytes, key, destination || revision.legacy_object ? uncached : deps.cache, async (renew, origin) => renew || origin ? sign(renew, origin) : lease ?? await sign(), (url, init) => objectFetch(context, url, init), context.signal)
     let dataKey: Uint8Array | undefined
@@ -134,10 +141,12 @@ export function cloudFileProviders(deps: {
       // Downloads publish only after the final authorization read; private snapshot readers retain their existing sink.
       const writing = destination ? { ...sink, commit: async (): Promise<FileBytes> => ({ size: revision.size_bytes, read: async () => { throw new Error('Download is not committed') }, dispose: async () => {} }) } : sink
       const file = encrypted ? (await transformFile({ direction: 'decrypt', revision, source, sink: writing, key: dataKey!, ciphertextSha256: lease!.ciphertext_sha256!, signal: context.signal })).file : await copyVerifiedFile(revision, source, writing, context.signal)
-      const current = await metadata({ ...context, ref }) as Download
+      const read = encrypted && combined ? await request(context, 'file-read-complete', { download_id: lease!.download_id, as: context.actor.actorId,
+        ref, expect: { sha256: revision.sha256, size_bytes: revision.size_bytes } }) as { acknowledged: boolean; current: Download } : null
+      const current = read ? read.current : await metadata({ ...context, ref }) as Download
       if (missingObject(current)) throw new MissingFileObjectError()
-      if (current.status !== 'ready' || current.sha256 !== revision.sha256 || current.size_bytes !== revision.size_bytes || !sameLegacyObject(revision, current)) throw new Error('File access or revision changed during download')
-      if (encrypted) await request(context, 'file-read-complete', { download_id: lease!.download_id, as: context.actor.actorId })
+      if (read && !read.acknowledged || current.status !== 'ready' || current.sha256 !== revision.sha256 || current.size_bytes !== revision.size_bytes || !sameLegacyObject(revision, current)) throw new Error('File access or revision changed during download')
+      if (encrypted && !read) await request(context, 'file-read-complete', { download_id: lease!.download_id, as: context.actor.actorId })
       return destination ? await sink.commit() : file
     } catch (error) {
       await sink?.abort()
