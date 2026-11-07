@@ -3,6 +3,8 @@ import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import { openFixture,type FixtureDb } from '@tooling/utils/db';
 import { eq } from 'drizzle-orm';
 import { appSecrets,kv } from '@main/db/schema';
+import {createNativeConnectionEvidenceSigner} from '../secrets/connection-evidence-signer';
+import type {ConnectionEvidenceAction} from '@gugu/core/cloud/connectionEvidence';
 import { EncryptedAppSecretsStore } from '../secrets/encrypted-app-secrets-store';
 import { ProviderAccountRegistry } from './provider-account-registry';
 import {createConnectionNativeEvidence} from '../../../../sessionpage/connection-native-evidence';
@@ -19,6 +21,16 @@ describe('managed native effect custody transaction',()=>{
   recreationId:randomUUID(),expectedItemRevision:null,expectedHeadRevision:'0',effectKind:'authorize',authorityEpoch:'4',requestHash:'a'.repeat(64),operationRevision:null,admissionId:null,deadlineAt:Date.now()+600_000});
  const registry=()=>new ProviderAccountRegistry(fixture.db,new EncryptedAppSecretsStore(fixture.db,secureStorage as never,'darwin'));
  const saved=()=>fixture.db.select().from(appSecrets).all();
+ async function signedNative(a:ManagedConnectionAttempt,store:ReturnType<typeof createNativeConnectionEvidence>){
+  const signer=createNativeConnectionEvidenceSigner({ownerId:a.ownerId,deviceId:a.deviceId,
+   secrets:new EncryptedAppSecretsStore(fixture.db,secureStorage as never,'darwin')});
+  const {keyId}=await signer.provision(randomUUID());
+  const query=(action:ConnectionEvidenceAction,attempt=a)=>({attempt,challenge:{version:1 as const,challengeId:randomUUID(),nonce:'a'.repeat(64),keyId,
+   ownerId:a.ownerId,deviceId:a.deviceId,operationId:a.operationId,attemptId:a.attemptId,action,expiresAt:new Date(Date.now()+30_000).toISOString()}});
+  const native=createConnectionNativeEvidence({ownerId:a.ownerId,deviceId:a.deviceId,instance:()=> 'fixture-runtime',assertCurrent:async()=>{},
+   signer:async()=>signer,store:async()=>store,cloud:{prepareAttempt:async()=>a,inspectAttempt:async()=>a}});
+  return {native,query};
+ }
  it('commits real encrypted storage, account and original UUID/generation evidence together',async()=>{
   const service=createNativeConnectionEvidence(fixture.db),a=attempt(),accounts=registry();service.begin(a);
   await service.run(a,()=>accounts.upsertAccount({providerId:'github',accountId:'real-account',secret:'fixture-secret'}));
@@ -162,22 +174,20 @@ describe('managed native effect custody transaction',()=>{
  it('serves only original device proof and refuses foreign or altered identities before touching the journal',async()=>{
   const store=createNativeConnectionEvidence(fixture.db),a=attempt(),accounts=registry();store.begin(a);
   await store.run(a,()=>accounts.upsertAccount({providerId:'github',accountId:'first',secret:'fixture-secret'}));
-  const native=createConnectionNativeEvidence({ownerId:a.ownerId,deviceId:a.deviceId,instance:()=> 'fixture-runtime',assertCurrent:async()=>{},
-    store:async()=>store,cloud:{prepareAttempt:async()=>a,inspectAttempt:async()=>a}});
+  const {native,query}=await signedNative(a,store);
   const changes=()=>fixture.sqlite.prepare('SELECT total_changes() AS n').get(),before=changes();
-  const proof=await native.read(a,a.ownerId);expect(proof).toMatchObject({version:1,state:'applied',accountId:'first'});
+  const proof=await native.read(query('read'),a.ownerId);expect(proof).toMatchObject({version:1,proof:{state:'applied',accountId:'first'}});
   expect(changes()).toEqual(before);expect(JSON.stringify(proof)).not.toContain('fixture-secret');
-  await expect(native.fence(a,randomUUID())).rejects.toMatchObject({code:'42501'});
-  await expect(native.fence({...a,credentialGeneration:randomUUID()},a.ownerId)).rejects.toMatchObject({code:'42501'});
+  await expect(native.fence(query('fence'),randomUUID())).rejects.toMatchObject({code:'42501'});
+  await expect(native.fence(query('fence',{...a,credentialGeneration:randomUUID()}),a.ownerId)).rejects.toMatchObject({code:'42501'});
   expect(changes()).toEqual(before);
  });
  it('automatically fences a forever missing native attempt without replaying authorization',async()=>{
   const store=createNativeConnectionEvidence(fixture.db),a=attempt();let effects=0;
-  const native=createConnectionNativeEvidence({ownerId:a.ownerId,deviceId:a.deviceId,instance:()=> 'fixture-runtime',assertCurrent:async()=>{},
-    store:async()=>store,cloud:{prepareAttempt:async()=>a,inspectAttempt:async()=>a}});
-  expect(await native.fence(a,a.ownerId)).toMatchObject({state:'prepared',fenced:true});
+  const {native,query}=await signedNative(a,store);
+  expect(await native.fence(query('fence'),a.ownerId)).toMatchObject({proof:{state:'prepared',fenced:true}});
   store.begin(a);await expect(store.run(a,async()=>{effects++;})).rejects.toThrow('CONNECTION_ATTEMPT_ALREADY_STARTED');
-  expect(effects).toBe(0);const again=await native.fence(a,a.ownerId);expect(again.fenced).toBe(true);
+  expect(effects).toBe(0);const again=await native.fence(query('fence'),a.ownerId);expect(again.proof.fenced).toBe(true);
  });
  it('durably fences a known refusal without issuing a credential effect',async()=>{
   const store=createNativeConnectionEvidence(fixture.db),a=attempt();store.begin(a);
@@ -195,7 +205,7 @@ describe('managed native effect custody transaction',()=>{
  it('cancels a prepared original authorization while its upstream action is paused, before credential custody',async()=>{
   const store=createNativeConnectionEvidence(fixture.db),a=attempt(),accounts=registry();let prepared=0;
   const native=createConnectionNativeEvidence({ownerId:a.ownerId,deviceId:a.deviceId,instance:()=> 'fixture-runtime',assertCurrent:async()=>{},
-   store:async()=>store,cloud:{prepareAttempt:async()=>{prepared++;return a},inspectAttempt:async()=>a}});
+   signer:async()=>{throw Error('fixture-unused')},store:async()=>store,cloud:{prepareAttempt:async()=>{prepared++;return a},inspectAttempt:async()=>a}});
   await native.begin('github',a.operationId,a.authorityEpoch);expect(prepared).toBe(1);
   let enter!:()=>void,release!:()=>void;
   const started=new Promise<void>(resolve=>{enter=resolve}),resume=new Promise<void>(resolve=>{release=resolve});

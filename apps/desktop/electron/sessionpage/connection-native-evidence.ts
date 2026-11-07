@@ -1,3 +1,4 @@
+import {parseConnectionEvidenceContext,parseConnectionEvidenceChallenge,type ConnectionEvidenceSigner,type ConnectionEvidenceProof} from '@gugu/core/cloud/connectionEvidence'
 import {parseNativeConnectionAttempt} from '@gugu/core/cloud/connectionAttempts'
 import {ConnectionError,type ConnectionClient} from '@gugu/core/cloud/connections'
 import type {createNativeConnectionEvidence} from '../session/main/core/provider-accounts/connection-effect-evidence'
@@ -6,7 +7,7 @@ type Store=ReturnType<typeof createNativeConnectionEvidence>
 /** Device evidence is obtained only from the real SQLite boundary. The service
  * asks the original device; renderer success flags and account lists are ignored. */
 export function createConnectionNativeEvidence(input:{ownerId:string;deviceId:string;cloud:Pick<ConnectionClient,'prepareAttempt'|'inspectAttempt'>;
-  instance():string;assertCurrent():Promise<void>;store():Promise<Store>}){
+  instance():string;assertCurrent():Promise<void>;store():Promise<Store>;signer():Promise<ConnectionEvidenceSigner>}){
   async function inspect(operationId:string){
     await input.assertCurrent()
     const value=await input.cloud.inspectAttempt(input.instance(),operationId)
@@ -21,17 +22,27 @@ export function createConnectionNativeEvidence(input:{ownerId:string;deviceId:st
     await input.assertCurrent();(await input.store()).begin(value);return value
   }
   async function readProof(raw:unknown,requestOwner:string,fence:boolean){
-    const supplied=parseNativeConnectionAttempt(raw)
+    if(!raw||typeof raw!=='object'||Array.isArray(raw)||Object.keys(raw).length!==2||!Object.hasOwn(raw,'attempt')||!Object.hasOwn(raw,'challenge'))
+      throw new ConnectionError('42501','CONNECTION_ATTEMPT_UNAVAILABLE')
+    const payload=raw as {attempt:unknown;challenge:unknown}
+    const supplied=parseConnectionEvidenceContext(payload.attempt)
+    const challenge=parseConnectionEvidenceChallenge(supplied,fence?'fence':'read',payload.challenge)
     if(requestOwner!==input.ownerId||supplied.ownerId!==input.ownerId||supplied.deviceId!==input.deviceId)
       throw new ConnectionError('42501','CONNECTION_ATTEMPT_UNAVAILABLE')
     const original=await inspect(supplied.operationId)
     if(JSON.stringify(original)!==JSON.stringify(supplied))throw new ConnectionError('42501','CONNECTION_ATTEMPT_UNAVAILABLE')
+    const signer=await input.signer()
+    await signer.assertCurrentKey(challenge)
     const store=await input.store()
+    await input.assertCurrent()
+    parseConnectionEvidenceChallenge(original,fence?'fence':'read',challenge)
     // Fencing writes only an original-attempt tombstone, never the effect.
     const proof=fence?store.fence(original):store.read(original)
-    return {version:1,attempt:original,state:proof.state,fenced:proof.fenced,
+    const normalized:ConnectionEvidenceProof={version:1,attempt:original,state:proof.state,fenced:proof.fenced,
       ...(proof.digest?{digest:proof.digest}:{}),...(proof.fenceDigest?{fenceDigest:proof.fenceDigest}:{}),
       ...(proof.accountId?{accountId:proof.accountId}:{}),...(proof.publication?{publication:proof.publication}:{})}
+    await input.assertCurrent()
+    return signer.sign(challenge,normalized)
   }
   async function run<T>(provider:string,operationId:string,epoch:string,action:()=>Promise<T>):Promise<T>{
     const original=await inspect(operationId)

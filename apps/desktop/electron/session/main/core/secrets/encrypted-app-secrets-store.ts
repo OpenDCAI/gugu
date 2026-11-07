@@ -38,6 +38,14 @@ export class EncryptedAppSecretsStore {
     };
   }
 
+  /** Immutable key material must never be replaced by a concurrent creator. */
+  async createSecret(key: string, secret: string): Promise<boolean> {
+    this.assertSecureStorageAvailable();
+    const encryptedSecret = this.safeStorageApi.encryptString(secret).toString('base64');
+    return this.db.insert(appSecrets).values({key,secret:encryptedSecret})
+      .onConflictDoNothing({target:appSecrets.key}).run().changes === 1;
+  }
+
   async setSecret(key: string, secret: string): Promise<void> {
     this.assertSecureStorageAvailable();
     const encryptedSecret = this.safeStorageApi.encryptString(secret).toString('base64');
