@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { widgetCheckScopeOf } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
 
 const messageId = '44444444-4444-4444-8444-444444444444'
-const agentId = 'agent-1', chatId = 'chat-1'
+const agentId = 'agent-1', chatId = '33333333-3333-4333-8333-333333333333'
 const context = { agentId, supabaseUrl: '', anonKey: '', getAccessToken: async () => 'token' }
 const content = JSON.stringify({ v: 2, app: 'vote', view: 'poll', text: 'Dinner', data: { file: 'poll.json' } })
 function source(overrides: Record<string, unknown> = {}, visible = true, members = [agentId], found = true) {
@@ -20,13 +20,16 @@ function source(overrides: Record<string, unknown> = {}, visible = true, members
 }
 
 describe('widget checks use message visibility and membership', () => {
-  it('reads once and preserves immutable input and sender', async () => {
+  it.each([messageId, `gugu-chat://${chatId}/${messageId}`])('reads %s once and preserves immutable input and sender', async id => {
     const deps = source()
-    await expect(widgetCheckScopeOf(context, messageId, deps)).resolves.toEqual({
+    await expect(widgetCheckScopeOf(context, id, deps)).resolves.toEqual({
       tabKind: 'vote.poll', chatId, widget: { id: messageId, messageId: messageId, senderId: 'sender-1', text: 'Dinner', data: { file: 'poll.json' } },
     })
     expect(deps.restGet).toHaveBeenCalledTimes(1)
     expect(deps.restRpc.mock.calls.map(([name]) => name)).toEqual(['can_read_message', 'list_member_ids'])
+  })
+  it('rejects a URI that names the readable message in a different chat', async () => {
+    await expect(widgetCheckScopeOf(context, `gugu-chat://${messageId}/${messageId}`, source())).rejects.toThrow('there is no widget message')
   })
   it('h0 preserves the message height in the checked widget scope', async () => {
     const deps = source({ content: JSON.stringify({ ...JSON.parse(content), height: 360 }) })

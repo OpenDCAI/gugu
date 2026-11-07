@@ -48,6 +48,12 @@ beforeEach(() => {
 });
 
 describe('handedChatsAs: a chat is handed only as the agent, and only one the agent is in', () => {
+  it('hands a chat URI as the same canonical chat and rejects message or malformed URI targets', async () => {
+    expect(await handedChatsAs(AGENT, [`gugu-chat://${CHAT}`])).toEqual([{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]);
+    for (const uri of ['gugu-chat://bad', `gugu-chat://${CHAT}/11111111-1111-4111-8111-111111111111`]) {
+      await expect(handedChatsAs(AGENT, [uri])).rejects.toThrow('not a chat you are in');
+    }
+  });
   it('① the agent is not in it (its door refuses): refused, naming the chat — the program is never handed it', async () => {
     statusError = { message: `workspace: ${CHAT} is not a chat you are a member of`, hint: 'workspace_not_member' };
     await expect(handedChatsAs(AGENT, [CHAT])).rejects.toThrow(`${CHAT}: not a chat you are in, so it was not handed over`);

@@ -1,5 +1,5 @@
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
-import { parseGuguLink, type GuguLinkTarget, type LinkPlace, type OpenTarget } from '@gugu/core/shared/ui/guguLink'
+import { guguLink, parseGuguLink, type GuguLinkTarget, type LinkPlace, type OpenTarget } from '@gugu/core/shared/ui/guguLink'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { platform } from '../platform'
 import { notify } from './notices'
@@ -39,6 +39,10 @@ export async function openTarget(target: OpenTarget, groupParticipantRequestId?:
     if (outcome.kind === 'failed') throw new Error(`${outcome.name}: ${outcome.detail ?? outcome.reason}`)
     return true
   } catch (error) {
+    if (target.kind === 'session' && 'itemId' in target && target.itemId) {
+      const { takeTaskReveal } = await import('../hooks/useSourceMessageReveal')
+      takeTaskReveal(target.sessionId, guguLink(target))
+    }
     if (target.kind === 'file') throw new Error(await fileFailureMessage(target), { cause: error })
     throw error
   }

@@ -123,7 +123,7 @@ describe('inbox recovery without another incoming message', () => {
   it('immediately admits image text and its folder link after one download failure, without a disclosure or second download', async () => {
     const { deps, inject, postDisclosure } = inbox({
       content: '[附件] screen.png (image/png)\n[Size] 3\n[Kind] image\n[Caption]\nPlease explain the screenshot',
-      contentType: 'image', fileItemId: 'image-item', fileVersion: 2,
+      contentType: 'image', fileItemId: '0d000000-0000-4000-8000-000000000001', fileVersion: 2,
     })
     deps.downloadAttachment = vi.fn(async () => { throw new Error('download HTTP 503') })
     const started = Date.now()
@@ -131,7 +131,7 @@ describe('inbox recovery without another incoming message', () => {
     expect(Date.now() - started).toBeLessThan(3000)
     expect(inject).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining('Please explain the screenshot') }))
     expect(inject.mock.calls[0]![0].text).toContain('[Image not saved: download HTTP 503]')
-    expect(inject.mock.calls[0]![0].text).toContain('gugu-file://image-item?v=2')
+    expect(inject.mock.calls[0]![0].text).toContain('gugu-file://0d000000-0000-4000-8000-000000000001?v=2')
     expect(inject.mock.calls[0]![0].attachments).toBeUndefined()
     expect(deps.downloadAttachment).toHaveBeenCalledTimes(1)
     expect(postDisclosure).not.toHaveBeenCalled()

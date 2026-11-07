@@ -86,7 +86,7 @@ async function withMessageAttachment(action: unknown, context: GuguMcpContext): 
     const target = args.message_id ?? args.widget_id
     if (target !== undefined) {
       if (context.kind !== 'social' || context.forkOf !== undefined) throw new Error('app_check: widget messages need a session with a Gugu identity')
-      // message_id was decoded by the shared MCP registrar; widget_id is the legacy alias.
+      // A message URI keeps its chat until the reader verifies both; widget_id is the legacy alias.
       const scope = await widgetCheckScopeOf(context, readTypedIdLenient('msg', target) ?? target)
       if (args.tab_kind !== undefined && args.tab_kind !== scope.tabKind) throw new Error(`app_check: this widget uses ${scope.tabKind}, not ${args.tab_kind}`)
       const { message_id: _message, widget_id: _widget, ...rest } = action as Record<string, unknown>
@@ -104,7 +104,9 @@ async function withMessageAttachment(action: unknown, context: GuguMcpContext): 
   if (context.kind !== 'social' || context.forkOf !== undefined) {
     throw new Error('app_install: source_message_id needs a session with a Gugu identity; pass source_dir instead')
   }
-  return { action: 'install_attachment', ...(await extensionAttachmentOf(context, decodeTypedId('msg', messageId, 'source_message_id'))) }
+  const link = typeof messageId === 'string' ? parseGuguLink(messageId) : null
+  return { action: 'install_attachment', ...(await extensionAttachmentOf(context,
+    link?.kind === 'chat' && link.messageId ? messageId : decodeTypedId('msg', messageId, 'source_message_id'))) }
 }
 
 /**

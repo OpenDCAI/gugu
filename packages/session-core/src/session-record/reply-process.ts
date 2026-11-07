@@ -1,4 +1,4 @@
-import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
+import { parseConversationLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns/turn';
 import { isGuguServer } from '../acp/models/turns/opened-outputs';
 import { catalogCall, type McpToolCall, type ToolCallItem } from '../acp/models/turns/tool-calls';
@@ -29,6 +29,8 @@ function replySourceText(text: string, batchOwnerId?: string, options: { include
 }
 
 export function sourceChatMatches(facts: DeliveryReadFacts, chatId: unknown): boolean {
+  const target = typeof chatId === 'string' ? parseGuguLink(chatId) : null;
+  if (target?.kind === 'chat' && !target.messageId) chatId = target.chatId;
   if (chatId === facts.chat) return true;
   const source = facts.sourceLink ? parseConversationLink(facts.sourceLink) : null;
   return source?.messageId !== undefined && source.messageId === facts.messageId?.replace(/^msg:/, '').toLowerCase()
@@ -46,8 +48,15 @@ function isRootSend(item: ToolCallItem): item is McpToolCall {
   return tool === 'message_send' || tool === 'widget_send';
 }
 
-function sendArgs(item: McpToolCall): Record<string, unknown> {
-  return (catalogCall(item.tool, item.rawInput)?.args ?? JSON.parse(item.rawInput ?? '')) as Record<string, unknown>;
+export function sendArgs(item: McpToolCall): Record<string, unknown> {
+  const args = (catalogCall(item.tool, item.rawInput)?.args ?? JSON.parse(item.rawInput ?? '')) as Record<string, unknown>;
+  const chat = typeof args.chat_id === 'string' ? parseGuguLink(args.chat_id) : null;
+  if (chat?.kind === 'chat' && !chat.messageId) args.chat_id = chat.chatId;
+  const reply = typeof args.reply_to_message_id === 'string' ? parseGuguLink(args.reply_to_message_id) : null;
+  if (reply?.kind === 'chat' && reply.messageId) {
+    args.reply_to_message_id = reply.messageId;
+  }
+  return args;
 }
 
 /** Where an agent's own send went, as the session timeline names it. */
@@ -105,7 +114,7 @@ export function messageSendTargetOf(item: TranscriptItem, turn?: TranscriptTurn)
   if (item.kind !== 'mcp-tool-call' || item.status === 'error' || item.parentToolCallId || !isGuguServer(item.server)
     || !/(?:^|__)message_send(?:_file)?$/.test(item.tool)) return null;
   try {
-    const args = JSON.parse(item.rawInput ?? '') as Record<string, unknown>;
+    const args = sendArgs(item);
     return args && typeof args.chat_id === 'string' && args.chat_id.trim() ? chatSendTarget(args, item, turn) : null;
   } catch { return null; }
 }

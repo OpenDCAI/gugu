@@ -83,7 +83,7 @@ function fakeDb({ staleOnce }: { staleOnce?: string } = {}) {
     if (path.startsWith('messages?id=eq.')) {
       const id = path.slice('messages?id=eq.'.length).split('&')[0]
       const message = attachmentMessages[id]
-      return message ? [{ id, chat_id: message.chat_id, content: '[附件] 报告.pdf (application/pdf)\n[Size] 5\n[Kind] file', content_type: 'attachment', file_item_id: `item-${id}`, file_version: 1, file_blob_id: null }] : []
+      return message ? [{ id, chat_id: message.chat_id, content: '[附件] 报告.pdf (application/pdf)\n[Size] 5\n[Kind] file', content_type: 'attachment', file_item_id: '0d000000-0000-4000-8000-000000000001', file_version: 1, file_blob_id: null }] : []
     }
     throw new Error(`unexpected read: ${path}`)
   }

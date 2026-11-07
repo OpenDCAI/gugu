@@ -95,6 +95,7 @@ export function groupFileLink(
   itemId: string,
   place: { version?: number | null; at?: Readonly<Record<string, string | number>> | null } = {},
 ): string {
+  if (!MESSAGE_UUID.test(itemId)) throw new Error('A file link requires an item UUID')
   const version = place.version == null ? '' : `?v=${place.version}`
   const pairs = Object.entries(place.at ?? {}).map(([key, value]) => `${part(key)}=${part(String(value))}`)
   return `gugu-file://${itemId}${version}${pairs.length ? `#${pairs.join('&')}` : ''}`
@@ -243,7 +244,7 @@ export type GuguLinkTarget =
    * A session. Optional hints, never in the URL: `projectId` / `deviceId` where the opener already knows them (a remote
    * session the task list does not draw is opened through its machine); `beside` keeps the screen view's layout.
    */
-  | { kind: 'session'; sessionId: string; projectId?: string; deviceId?: string; beside?: true }
+  | { kind: 'session'; sessionId: string; itemId?: string; projectId?: string; deviceId?: string; beside?: true }
   | { kind: 'project'; projectId: string }
   | { kind: 'server-login'; code: string }
 
@@ -258,6 +259,13 @@ export function parseGuguLink(raw: string, options: { supabaseUrl?: string } = {
   if (chat) return { kind: 'chat', ...chat }
   const file = parseGroupFileLink(raw)
   if (file) return { kind: 'file', ...file }
+  const quote = /^gugu-session:\/\/([^/?#]+)\?message=([^&#]+)$/.exec(raw)
+  if (quote) {
+    try {
+      const sessionId = decodeURIComponent(quote[1]!), itemId = decodeURIComponent(quote[2]!)
+      return sessionId && itemId ? { kind: 'session', sessionId, itemId } : null
+    } catch { return null }
+  }
   let url: URL
   try { url = new URL(raw) } catch { return null }
   if (options.supabaseUrl) {
@@ -327,9 +335,16 @@ export function guguLink(target: Exclude<GuguLinkTarget, { kind: 'server-login' 
       return `${scheme}://app/${target.extensionId}${query.size ? `?${query}` : ''}`
     }
     case 'session':
+      if (target.itemId !== undefined) {
+        if (!target.sessionId || !target.itemId) throw new Error('A session quote needs its session and original item')
+        const escapePart = (value: string) => encodeURIComponent(value).replace(/[()]/g, char => `%${char.charCodeAt(0).toString(16)}`)
+        return `gugu-session://${escapePart(target.sessionId)}?message=${escapePart(target.itemId)}`
+      }
+      if (!scheme) throw new Error('An external resource link needs the build scheme')
+      return `${scheme}://session/${encodeURIComponent(target.sessionId)}`
     case 'project':
       if (!scheme) throw new Error('An external resource link needs the build scheme')
-      return `${scheme}://${target.kind}/${encodeURIComponent(target.kind === 'session' ? target.sessionId : target.projectId)}`
+      return `${scheme}://project/${encodeURIComponent(target.projectId)}`
   }
 }
 

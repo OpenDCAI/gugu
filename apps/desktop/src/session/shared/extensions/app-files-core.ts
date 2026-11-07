@@ -1,4 +1,5 @@
 import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { FILE_KEEPS, type FileKeep } from '@gugu/core/shared/fileStorage';
 import { AttachmentsError, configuredEndpoint, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
@@ -190,10 +191,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export function sourceMessageIdsOf(value: unknown): string[] {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value) || !value.every((id) => typeof id === 'string' && UUID.test(id))) {
+  const ids = Array.isArray(value) ? value.map(id => {
+    const link = typeof id === 'string' ? parseGuguLink(id) : null;
+    return link?.kind === 'chat' && link.messageId ? link.messageId : typeof id === 'string' ? id.replace(/^msg:/, '') : id;
+  }) : null;
+  if (!ids || !ids.every((id) => typeof id === 'string' && UUID.test(id))) {
     throw new AppFileError('invalid', "sourceMessageIds takes message ids, as an entry's sourceMessageIds gives them");
   }
-  return [...new Set(value as string[])];
+  return [...new Set(ids as string[])];
 }
 
 /** A picked file's type by its name, where the picker does not say (a desktop path): the one table attachments use too. */

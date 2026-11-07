@@ -3,14 +3,14 @@ import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { OPEN_LINK_TARGET, type LinkNavigation } from '../lib/guguLinks'
-import type { AppDetailLink, GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+import { guguLink, type AppDetailLink, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { readMobileShell } from './useMobileShell'
 import { SERVER_LOGIN_APPROVE_EVENT } from '../lib/inAppLinks'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { OPEN_ASSISTANT_TASK_CHAT, readAssistantTaskChat, type AssistantTaskChat } from '../lib/assistantTaskChat'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { chatService } from '../lib/chat'
-import { askReveal } from './useSourceMessageReveal'
+import { askReveal, askTaskReveal } from './useSourceMessageReveal'
 import { readIdentityDirectoryBridge } from '../lib/identityDirectoryBridge'
 
 /** The navigation belongs to the chat shell, not a Markdown renderer or an agent. */
@@ -91,6 +91,7 @@ export function useLinkNavigation(input: {
         return
       }
       if (target.kind === 'session') {
+        if (target.itemId) askTaskReveal(target.sessionId, guguLink(target))
         const assistant=readAssistantShellBridge()?.getSnapshot()
         if(assistant?.assistant){
           const {resolveAssistantWorkTarget}=await import('../lib/assistantWorkTarget')

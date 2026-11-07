@@ -18,6 +18,31 @@ function turn(tool = send()): TranscriptTurn {
   ] };
 }
 describe('explicit message streaming and reply effort', () => {
+  it('projects URI chat and reply inputs through the existing conversation parser', () => {
+    const chat = '127ec4f0-30b1-4583-b469-706756153bdd';
+    const source = 'ee1a78d8-55f3-42ac-b437-4cf4e81a4741';
+    const tool = { ...send({ chat_id: `gugu-chat://${chat}`, reply_to_message_id: `gugu-chat://${chat}/${source}` }), status: 'done' as const, outputText: `replied (id=msg:${messageId})` };
+    const record = turn(tool); const input = record.items[0];
+    if (input.kind !== 'message') throw new Error('fixture');
+    input.text = input.text.replace('chat="dm"', `chat="${chat}"`).replace('msg:source', `msg:${source}`);
+    expect(replySend(tool, replySource(record)!)).toEqual({ text: 'First part', replyToMessageId: source });
+    expect(messageSendTargetOf(tool, record)).toMatchObject({ conversationId: chat });
+    expect(successfulMessageSend(tool)).toEqual({ id: messageId, text: 'First part', chat, replyTo: source });
+    expect(filterTurnsForChat([{ ...record, items: [tool] }], chat)).toHaveLength(1);
+    expect(replyProcesses([record], chat).has(messageId)).toBe(true);
+  });
+  it.each(['223101', 'aid:owner'])('keeps a legal %s address when the reply id is a URI', chat => {
+    const canonical = '127ec4f0-30b1-4583-b469-706756153bdd';
+    const source = 'ee1a78d8-55f3-42ac-b437-4cf4e81a4741';
+    const tool = send({ chat_id: chat, reply_to_message_id: `gugu-chat://${canonical}/${source}` });
+    expect(agentSendOf(tool)).toMatchObject({ text: 'First part', to: { chatId: chat } });
+    if (chat === '223101') {
+      const record = turn(tool); const input = record.items[0];
+      if (input.kind !== 'message') throw new Error('fixture');
+      input.text = input.text.replace('chat="dm"', `chat="${chat}" source_link="gugu-chat://${canonical}/${source}"`).replace('msg:source', `msg:${source}`);
+      expect(replySend(tool, replySource(record)!)).toEqual({ text: 'First part', replyToMessageId: source });
+    }
+  });
   it('uses a real owner envelope and successful root receipt to authorize yielding', () => {
     const next = renderDeliveryEnvelope({ route: 'chat', from: 'Owner', fromId: 'user:owner',
       chat: 'dm', messageId: 'msg:' + messageId, content: 'Next', at: '2026-10-27T04:10:00Z' });
