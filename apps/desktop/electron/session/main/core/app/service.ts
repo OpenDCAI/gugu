@@ -462,11 +462,17 @@ class AppService implements IInitializable, IDisposable {
       // Fall through to the `devenv {{path}}` openCommands fallback (devenv on PATH).
     }
 
+    // A file's program runs in its folder and takes the file; a terminal is given the folder: `open -a Terminal <file>` runs the file —
+    // by URL too (Warp).
+    const isDirectory = (await stat(target)).isDirectory();
+    const cwd = isDirectory ? target : dirname(target);
+    const opened = TERMINAL_OPEN_IN_APP_IDS.has(appId) ? cwd : target;
+
     if (platformConfig?.openUrls) {
       for (const urlTemplate of platformConfig.openUrls) {
         const url = urlTemplate
-          .replace('{{path_url}}', encodeURIComponent(target))
-          .replace('{{path}}', target);
+          .replace('{{path_url}}', encodeURIComponent(opened))
+          .replace('{{path}}', opened);
         try {
           await shell.openExternal(url);
           return;
@@ -479,10 +485,6 @@ class AppService implements IInitializable, IDisposable {
       );
     }
 
-    // A file's program runs in its folder and takes the file; a terminal is given the folder: `open -a Terminal <file>` runs the file.
-    const isDirectory = (await stat(target)).isDirectory();
-    const cwd = isDirectory ? target : dirname(target);
-    const opened = TERMINAL_OPEN_IN_APP_IDS.has(appId) ? cwd : target;
     const quoted = (p: string) =>
       process.platform !== 'win32' ? `'${p.replace(/'/g, "'\\''")}'` : `"${p.replace(/"/g, '""')}"`;
     const commands: string[] = platformConfig?.openCommands ?? [];
