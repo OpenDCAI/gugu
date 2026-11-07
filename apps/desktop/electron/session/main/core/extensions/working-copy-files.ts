@@ -1,3 +1,4 @@
+import { requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import { isExpandableFileNode, type FileNode } from '@gugu/session-core/files';
@@ -23,13 +24,14 @@ interface View { place: WorkspacePlace; root: string; projector: FileTreeProject
 
 async function openView(place: WorkspacePlace): Promise<View> {
   // Imported when used: a page let go of (`releaseWorkingCopies`) must not load the workspace stack to do it.
-  const [{ localRootOf }, { acquireWorkspaceRuntime }, { runtimeManager }, { FileTreeProjector: Projector }] = await Promise.all([
-    import('./app-files'),
+  const { localRootOf } = await import('./app-files');
+  const { workspaceRoot: root } = await localRootOf(place);
+  await requireAgentFileTreeAccess(root);
+  const [{ acquireWorkspaceRuntime }, { runtimeManager }, { FileTreeProjector: Projector }] = await Promise.all([
     import('@main/core/workspaces/workspace-runtime'),
     import('@main/core/runtime/runtime-manager'),
     import('@main/core/files/file-tree/projector'),
   ]);
-  const { workspaceRoot: root } = await localRootOf(place);
   const unreadable = () => new AppFileError('not-found', 'This folder cannot be read on its computer');
   const runtime = await acquireWorkspaceRuntime({ manager: runtimeManager }, root, true).catch(() => { throw unreadable(); });
   const projector = new Projector(runtime.fileTree, () => undefined);
@@ -74,6 +76,7 @@ export async function listWorkingCopy(place: WorkspacePlace, folder: string | un
   if (pageId !== null && !kept) views.set(key, opening.catch((error: unknown) => { views.delete(key); throw error; }));
   const view = await opening;
   try {
+    await requireAgentFileTreeAccess(view.root);
     const listed = await view.projector.listDir(view.subscriptionId, folderPath(view.root, folder));
     if (!listed.success) throw new AppFileError('not-found', `No folder ${JSON.stringify(folder ?? '')} in this working copy`);
     return await entriesOf(view, listed.data);
@@ -95,6 +98,7 @@ export function releaseWorkingCopies(pageId: number): void {
 export async function readWorkingCopy(place: WorkspacePlace, file: string, offset: number, length: number): Promise<{ size: number; etag: string; offset: number; data: string }> {
   const [{ localRootOf }, { readWorkspaceChunk, WorkspaceTransferError }] = await Promise.all([import('./app-files'), import('@main/core/files/workspace-transfer')]);
   const { workspaceRoot } = await localRootOf(place);
+  await requireAgentFileTreeAccess(workspaceRoot);
   try {
     const chunk = await readWorkspaceChunk(workspaceRoot, { path: file, offset, length: Math.min(length, REMOTE_WORKSPACE_CHUNK_BYTES) });
     return { size: chunk.size, etag: chunk.etag, offset: chunk.offset, data: chunk.data };
@@ -118,6 +122,7 @@ export async function watchWorkingCopy(place: WorkspacePlace, folder: string | u
   if (session && await sessionMachine(session).catch(() => null)) return () => {};
   const [{ localRootOf }, { runtimeManager }] = await Promise.all([import('./app-files'), import('@main/core/runtime/runtime-manager')]);
   const { workspaceRoot: root } = await localRootOf(place);
+  await requireAgentFileTreeAccess(root);
   const named = folderPath(root, folder) ?? root;
   const below = relOf(root, named);
   const cannotWatch = () => new AppFileError('not-found', 'This folder cannot be watched on its computer');

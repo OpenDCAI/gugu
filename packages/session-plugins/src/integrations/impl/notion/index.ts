@@ -8,6 +8,7 @@ import { NOTION_MCP_URL } from './types';
 const plugin = defineIntegrationPlugin(
   {
     id: 'notion',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://www.notion.so',

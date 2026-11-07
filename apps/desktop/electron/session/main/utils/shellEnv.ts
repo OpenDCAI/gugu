@@ -99,6 +99,9 @@ function expandGlob(pattern: string): string[] {
  * buildAgentEnv only overwrites that slot when this detector actually finds something — so a
  * failed detection now falls back to the user's real value instead of leaving the slot empty.
  *
+ * The scan below runs once per process: every agent, terminal and git spawn reuses its answer instead of
+ * blocking the main process on `launchctl` again (it is synchronous and sits on the open-a-session path).
+ *
  * @returns The path to the SSH agent socket, or undefined if not found
  */
 export function detectSshAuthSock(): string | undefined {
@@ -106,7 +109,13 @@ export function detectSshAuthSock(): string | undefined {
   if (process.env.SSH_AUTH_SOCK) {
     return process.env.SSH_AUTH_SOCK;
   }
+  scanned ??= { socket: scanSshAuthSock() };
+  return scanned.socket;
+}
 
+let scanned: { socket: string | undefined } | undefined;
+
+function scanSshAuthSock(): string | undefined {
   // macOS launchd (fast, no shell spawn)
   if (process.platform === 'darwin') {
     try {

@@ -24,7 +24,12 @@ export default {
     "projectFolderSessions_one": "{{count}} 个会话",
     "projectFolderSessions_other": "{{count}} 个会话"
   },
-  "links": { "task": "查看工作：{{title}}", "unavailable": "这条关联消息已删除或当前无法访问" },
+  "links": {
+    "task": "查看工作：{{title}}", "unavailable": "这条关联消息已删除或当前无法访问",
+    "fileHostOffline": "存放这个文件的电脑当前离线，请等电脑上线后再试",
+    "fileMissing": "这个文件已删除或无法访问",
+    "fileOpenFailed": "暂时打不开这个文件，请稍后重试"
+  },
   "question": {
     "title": "需要你确认", "other": "自己填写", "later": "稍后回答", "resume": "继续回答",
     "previous": "上一题", "next": "下一题", "submit": "提交回答", "submitting": "发送中…",
@@ -59,10 +64,7 @@ export default {
       "assistant": "你的个人助理在这里，记安排、办事情直接告诉它。",
       "collaboration": "一个项目一个群，和 Agent 一起推进工作。"
     },
-    "dismiss": "知道了",
-    "unreadable": "读不到提示进度，请重试。",
-    "saveFailed": "提示进度未保存，请重试。",
-    "retry": "重试"
+    "dismiss": "知道了"
   },
   "rail": "咕咕",
   "nav": {
@@ -792,6 +794,22 @@ export default {
     "title": "能力与连接"
   },
   "connectors": {
+    "catalog": {
+      "search": "搜索应用",
+      "all": "全部应用",
+      "mine": "我的连接",
+      "featured": "精选",
+      "viewApp": "查看应用",
+      "viewAll": "查看全部（{{count}}）",
+      "attention": "需要处理",
+      "noConnections": "还没有连接任何应用",
+      "browse": "浏览全部应用",
+      "noResults": "没有找到相关应用",
+      "clearSearch": "清除搜索",
+      "searchAll": "搜索全部应用",
+      "results": "搜索结果",
+      "backToAll": "返回全部应用"
+    },
     "wechatDescription": "在微信里和咕咕聊天",
     "paused": "已暂停",
     "retrying": "正在恢复",

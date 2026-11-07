@@ -11,6 +11,7 @@ import { topicService } from '../lib/topics'
 import { rendererLogger } from '../lib/log'
 import { useAuth } from '../store/auth'
 import { ingestMessages, localMessageQueries } from '../lib/messageIngest'
+import { readRevisionResourceKey, type AccountRevisionEvent, type AccountRevisionListener } from '../lib/accountRevisionCoordinator'
 
 const topicsLog = rendererLogger('chat/topics')
 
@@ -55,14 +56,38 @@ type TopicsState = {
 
 const IDLE: TopicsState = { forChatId: null, topics: EMPTY_TOPICS, loading: false, error: null }
 
+type SubscribeAccountRevision = (event: AccountRevisionEvent, listener: AccountRevisionListener) => () => void
+
+/** Read topics of a line and record their access facts locally, as of the local revision before the read. */
+async function readTopics(userId: string | null, sourceChatId: string, topicChatId?: string) {
+  const revision = userId ? await localMessageQueries()?.throughRevision(userId) : null
+  const rows = await topicService.listTopicsOfChat(sourceChatId, topicChatId)
+  const record = async () => {
+    if (userId) await ingestMessages(userId, { writes: rows.map(topic => ({ type: 'chatAccess', access: {
+      chatId: topic.chat_id, sourceChatId, ownMember: topic.is_participant, revision: revision ?? '0',
+    } })), revisions: [] })
+  }
+  return { rows, record }
+}
+
+const lastActivity = (topic: TopicSummary) => (topic.last_message_at ? Date.parse(topic.last_message_at) : -Infinity)
+
+/** One topic's fresh summary in the list; absent means it is gone (archived, or no longer visible). */
+function withTopic(topics: TopicSummary[], topicChatId: string, row: TopicSummary | undefined): TopicSummary[] {
+  const rest = topics.filter((topic) => topic.chat_id !== topicChatId)
+  if (!row) return rest.length === topics.length ? topics : rest
+  // The server's order: latest activity first. Array sort is stable, so the fresh row leads its ties.
+  return [row, ...rest].sort((a, b) => lastActivity(b) - lastActivity(a))
+}
+
 /**
- * @param subscribeChatChanged 订阅 chat_changed。别人在这条线上开了话题时,服务端会给来源线的
- *   每个成员发一条 chat_changed(迁移 20260918223500),这里听到就重拉 —— 否则对端要重开这条线
- *   才看得见新话题,而老的 thread 面板本来是有这条实时的(#1588),换成话题不能反而丢掉。
+ * @param subscribeAccountRevision 订阅 chat_changed。话题的新建、改名、归档、成员变化和新消息,服务端都会给来源线的
+ *   每个成员发一条 chat_changed,entity_id 是那条话题(gugu-supabase 20261106120000)。这里只重读那一条 ——
+ *   否则对端要重开这条线才看得见新话题(#1588)。来源线自己的 chat_changed(每条消息一次)没有 entity_id,与这份清单无关。
  */
 export function useTopicsOfChat(
   sourceChatId: string | null,
-  subscribeChatChanged?: (listener: (chatIds: readonly string[]) => void) => () => void,
+  subscribeAccountRevision?: SubscribeAccountRevision,
 ): UseTopicsOfChatResult {
   const [state, setState] = useState<TopicsState>(IDLE)
   const [reloadToken, setReloadToken] = useState(0)
@@ -87,12 +112,9 @@ export function useTopicsOfChat(
     let cancelled = false
     void (async () => {
       try {
-        const revision = userId ? await localMessageQueries()?.throughRevision(userId) : null
-        const rows = await topicService.listTopicsOfChat(sourceChatId)
+        const { rows, record } = await readTopics(userId, sourceChatId)
         if (cancelled || seq !== loadSeqRef.current) return
-        if (userId) await ingestMessages(userId, { writes: rows.map(topic => ({ type: 'chatAccess', access: {
-          chatId: topic.chat_id, sourceChatId, ownMember: topic.is_participant, revision: revision ?? '0',
-        } })), revisions: [] })
+        await record()
         if (cancelled || seq !== loadSeqRef.current) return
         if (cacheKey) lastTopics.set(cacheKey, rows)
         setState({ forChatId: sourceChatId, topics: rows, loading: false, error: null })
@@ -120,13 +142,51 @@ export function useTopicsOfChat(
     setReloadToken((token) => token + 1)
   }, [])
 
+  const loadingRef = useRef(scoped.loading)
+  loadingRef.current = scoped.loading
   useEffect(() => {
-    if (!sourceChatId || !subscribeChatChanged) return
-    return subscribeChatChanged((chatIds) => {
-      // 只认「我正看的这条线」的事件 —— 别的线上开话题与这份清单无关,重拉就是白跑一次往返。
-      if (chatIds.includes(sourceChatId)) reload()
+    if (!sourceChatId || !subscribeAccountRevision) return
+    let active = true
+    // A later read of the same topic supersedes an earlier one still in flight.
+    const latest = new Map<string, number>()
+    let reads = 0
+    const refresh = async (topicChatId: string) => {
+      const read = ++reads
+      latest.set(topicChatId, read)
+      const current = () => active && latest.get(topicChatId) === read
+      try {
+        const { rows, record } = await readTopics(userId, sourceChatId, topicChatId)
+        if (!current()) return
+        await record()
+        if (!current()) return
+        setState((state) => {
+          if (state.forChatId !== sourceChatId) return state
+          const topics = withTopic(state.topics, topicChatId, rows[0])
+          if (cacheKey) lastTopics.set(cacheKey, topics)
+          return { ...state, topics, error: null }
+        })
+      } catch (err) {
+        if (!current()) return
+        topicsLog.error({ error: err, sourceChatId, topicChatId }, 'read topic failed')
+        if (cacheKey) lastTopics.delete(cacheKey)
+        setState((state) => state.forChatId === sourceChatId
+          ? { ...state, error: (err as Error)?.message ?? String(err) } : state)
+      }
+    }
+    const unsubscribe = subscribeAccountRevision('chat_changed', (operations) => {
+      for (const operation of operations) {
+        const { chatId, entityId } = readRevisionResourceKey(operation.payload, 'chat_changed')
+        if (chatId !== sourceChatId || !entityId) continue
+        // The whole-line read still in flight may predate this change: read the line again instead.
+        if (loadingRef.current) reload()
+        else void refresh(entityId)
+      }
     })
-  }, [sourceChatId, subscribeChatChanged, reload])
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [sourceChatId, subscribeAccountRevision, reload, userId, cacheKey])
 
   const bySourceMessageId = useMemo(() => {
     const index = new Map<string, TopicSummary[]>()

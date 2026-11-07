@@ -43,18 +43,6 @@ type UseTopicSurfaceArgs = {
   embedded: boolean
 }
 
-/** 事件载荷里的 chat_id —— 形状坏了就当没这条,❌ 不因为一条脏事件把整个订阅拆了。 */
-function revisionChatIds(operations: readonly { payload: unknown }[]): string[] {
-  const ids: string[] = []
-  for (const operation of operations) {
-    const payload = operation.payload
-    if (!payload || typeof payload !== 'object') continue
-    const chatId = (payload as { chat_id?: unknown }).chat_id
-    if (typeof chatId === 'string' && chatId) ids.push(chatId)
-  }
-  return ids
-}
-
 export type TopicSurface = {
   /** 这条线上长出来的话题,按来源消息分组 —— 锚点卡读它。 */
   anchorsByMessageId: Map<string, TopicSummary[]>
@@ -98,14 +86,9 @@ export function useTopicSurface({
   const onCreateFailedRef = useRef(onCreateFailed)
   onCreateFailedRef.current = onCreateFailed
   // 清单只有一个属主:useTopicsOfChat。锚点卡与顶栏话题面板读的是同一份,❌ 不各拉各的。
-  const subscribeChatChanged = useCallback(
-    (listener: (chatIds: readonly string[]) => void) =>
-      subscribeAccountRevision('chat_changed', (operations) => listener(revisionChatIds(operations))),
-    [subscribeAccountRevision],
-  )
   const { topics, bySourceMessageId, reload: reloadTopics } = useTopicsOfChat(
     topicsSourceChatId(chat),
-    subscribeChatChanged,
+    subscribeAccountRevision,
   )
   // 分栏是这条线页签条上的一枚(chat-tabs/chat-layouts):开着哪条话题、在不在屏上都由那里说,按来源线各记各的
   // (@@@3922 的 subject-scoped 由此而来:换了来源线读的就是另一条页签条)。
@@ -130,7 +113,7 @@ export function useTopicSurface({
   useEffect(() => { if (splitChatId) reloadTopics() }, [splitChatId, reloadTopics])
 
   // message_created for a topic row reaches only the topic's members; every source-line member gets the source
-  // chat_changed that reloads `topics`. So the open line catches up to its own summary whenever the summary is
+  // chat_changed that re-reads this topic in `topics`. So the open line catches up to its own summary whenever the summary is
   // newer than the line's tail -- one rule for whoever is reading, member or not.
   const summaryAt = Date.parse(topics.find((summary) => summary.chat_id === splitChatId)?.last_message_at ?? '')
   // The window is ordered by seq with unsent rows (seq < 1, local clock) last (compareMessageOrder), so the last

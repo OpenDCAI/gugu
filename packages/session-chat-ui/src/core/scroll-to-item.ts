@@ -12,6 +12,6 @@ export function itemScrollTarget(input: {
   const { rowTop, rowHeight, viewportHeight, topInset, align, offset } = input;
   const target = align === 'center'
     ? rowTop - topInset - Math.max(0, (viewportHeight - topInset - rowHeight) / 2)
-    : align === 'end' ? rowTop - viewportHeight + rowHeight : rowTop;
+    : align === 'end' ? rowTop - viewportHeight + rowHeight : rowTop - topInset;
   return Math.max(0, target + offset);
 }

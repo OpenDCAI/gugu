@@ -111,6 +111,7 @@ export function buildIntegrationListPayload(locale?: string, custodyOf?: Custody
     name: plugin.metadata.name,
     description: pick(plugin.metadata.description, locale),
     websiteUrl: plugin.metadata.websiteUrl,
+    catalog: plugin.metadata.catalog,
     features: features(plugin.metadata.id),
     disconnectCredentialLabel: disconnectCredentialLabel(plugin.capabilities.auth, locale),
     capabilities: issueCapabilities(plugin.metadata.id),

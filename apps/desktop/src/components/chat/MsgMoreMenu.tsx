@@ -1,9 +1,10 @@
 import { useState, type RefObject } from 'react'
+import { MoreHorizontal } from '@/lib/icons'
 import { useTranslation } from 'react-i18next'
 import { messageMenuModel, type MessageMenuCapabilities } from '@gugu/core/shared/ui/messageMenuModel'
-import { Menu, MenuItem, type MenuAnchorProps } from '../ui/Menu'
+import { Menu, MenuFold, MenuItem, type MenuAnchorProps } from '../ui/Menu'
 import { DeferredEmojiQuickPicker } from './messageActionModules'
-import { messageActionItems, type MessageActionTarget } from './messageActionItems'
+import { messageActionItems, type MessageActionItem, type MessageActionTarget } from './messageActionItems'
 import { PhoneMessageMenu } from './PhoneMessageMenu'
 
 /**
@@ -24,17 +25,21 @@ export function MsgMoreMenu({ hasHoverBar, onReact, onClose, lift, isRetracted, 
     return <PhoneMessageMenu open={lift.open} bubble={lift.bubble} touchY={lift.touchY} mine={lift.mine} items={items}
       reactionsDisabled={isRetracted} onReact={onReact} onClose={onClose} />
   }
+  const row = (item: MessageActionItem) => (
+    <MenuItem key={item.key} icon={<item.icon size={15} />} disabled={item.disabled} danger={item.danger}
+      data-testid={`message-action-${item.key}`}
+      onClick={item.onSelect ? () => { item.onSelect?.(); onClose() } : undefined}>
+      {item.label}
+    </MenuItem>
+  )
   return (
     <Menu {...(anchor as MenuAnchorProps)} minWidth={0} ariaLabel={t('message.actions.more')} onClose={onClose}>
       <div className={showReactions ? 'w-[min(358px,calc(100vw-24px))]' : 'min-w-40'} data-testid="message-action-menu">
         {showReactions && <DeferredEmojiQuickPicker menu disabled={isRetracted} onPick={onReact} onClose={onClose} onExpand={() => setExpanded(true)} />}
-        {!expanded && items.map((item) => (
-          <MenuItem key={item.key} icon={<item.icon size={15} />} disabled={item.disabled} danger={item.danger}
-            data-testid={`message-action-${item.key}`}
-            onClick={item.onSelect ? () => { item.onSelect?.(); onClose() } : undefined}>
-            {item.label}
-          </MenuItem>
-        ))}
+        {!expanded && <>
+          {items.filter((item) => !item.fold).map(row)}
+          <MenuFold icon={<MoreHorizontal size={15} />} label={t('message.actions.more')} data-testid="message-action-more">{items.filter((item) => item.fold).map(row)}</MenuFold>
+        </>}
       </div>
     </Menu>
   )

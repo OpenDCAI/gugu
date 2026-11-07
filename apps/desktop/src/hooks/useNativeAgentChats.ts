@@ -1,10 +1,14 @@
-import { useMemo } from 'react'
-import { useStructurallyShared } from '@/hooks/useStructurallyShared'
+import { useMemo, useRef } from 'react'
+import { replaceEqualDeep } from '@tanstack/react-query'
+import { shareRows } from '@/lib/chatProjectionAlgebra'
+import { memoizeByReference } from '@/lib/memoizeByReference'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { isOwnedAgentPeer, useOwnedAgentEntries } from '@/lib/ownedAgentConversation'
 import { directoryRows, useDirectoryDevices, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+
+const EMPTY_SESSIONS: readonly SessionpageSessionSummary[] = []
 
 /** Ordinary replies keep their native journal; explicit owner notifications also light the numeric badge. */
 export function useNativeAgentChats(chats: readonly ChatItem[]): ChatItem[] {
@@ -12,29 +16,22 @@ export function useNativeAgentChats(chats: readonly ChatItem[]): ChatItem[] {
   const devices = useDirectoryDevices()
   useOwnedAgentEntries()
   const mobile = useMobileShell()
-  // 目录里的会话**一次**扫出来,按 agent 分好组。
-  //
-  // 原来每一行 agent 私聊都重扫一遍整个目录(`directoryRows(devices, directory)` 在 map 里面),
-  // 于是这一段是「会话数 × 目录里的会话数」—— 机器多、任务多的时候,列表每渲染一次就要重算
-  // 几百上千遍同一份目录。现在只扫一次。
+  const previousBuckets = useRef<Record<string, SessionpageSessionSummary[]>>({})
+  // Group the directory once; unchanged buckets remain the same projection dependency.
   const sessionsByAgent = useMemo(() => {
-    const byAgent = new Map<string, SessionpageSessionSummary[]>()
+    const byAgent: Record<string, SessionpageSessionSummary[]> = {}
     for (const row of directoryRows(devices, directory)) {
       const agentUserId = row.session.agent?.userId
       if (!agentUserId) continue
-      const bucket = byAgent.get(agentUserId)
-      if (bucket) bucket.push(row.session)
-      else byAgent.set(agentUserId, [row.session])
+      ;(byAgent[agentUserId] ??= []).push(row.session)
     }
-    for (const bucket of byAgent.values()) {
+    for (const bucket of Object.values(byAgent)) {
       bucket.sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     }
-    return byAgent
+    return previousBuckets.current = replaceEqualDeep(previousBuckets.current, byAgent)
   }, [devices, directory])
-  // 合并出来的行每次都是新对象;内容没变就沿用上一次那个,会话行(memo)才不会每次列表更新都重画。
-  return useStructurallyShared(chats.map(chat => {
-    if ((chat.kind !== 'dm' && chat.kind !== 'ai') || !isOwnedAgentPeer(chat.peer_user_id)) return chat
-    const sessions = sessionsByAgent.get(chat.peer_user_id ?? '') ?? []
+  const project = useMemo(() => memoizeByReference((chat: ChatItem, sessions: readonly SessionpageSessionSummary[] | null): ChatItem => {
+    if (sessions === null) return chat
     // Several conversations can belong to the same agent; the latest reply can be in an older task.
     const last = sessions.reduce<SessionpageSessionSummary['nativeLastMessage']>((latest, session) => {
       const candidate = session.nativeLastMessage
@@ -48,5 +45,10 @@ export function useNativeAgentChats(chats: readonly ChatItem[]): ChatItem[] {
     // ❌ On a computer: its session page waits for that machine without a word, so the row would do nothing when clicked.
     const seen = mobile && sessions[0] && last === undefined && !chat.last_message_at ? sessions[0].lastInteractedAt : undefined
     return newer ? { ...withNotifications, last_message_preview: last.text, last_message_at: last.at, last_message_failure: null } : seen ? { ...withNotifications, last_message_at: seen } : withNotifications
-  }))
+  }), [mobile])
+  const shared = useRef<ChatItem[]>([])
+  shared.current = shareRows(shared.current, chats.map(chat => project(chat,
+    (chat.kind === 'dm' || chat.kind === 'ai') && isOwnedAgentPeer(chat.peer_user_id)
+      ? sessionsByAgent[chat.peer_user_id ?? ''] ?? EMPTY_SESSIONS : null)))
+  return shared.current
 }

@@ -15,7 +15,7 @@ describe('marketHome', () => {
       entry('browser-use', '2026-10-16T11:41:18Z', { firstRun: true }),
       entry('computer-use', '2026-10-16T11:41:20Z'),
       entry('day-calendar', '2026-10-14T03:03:16Z'),
-      entry('forum', '2026-10-21T01:49:21Z'),
+      entry('notes', '2026-10-21T01:49:21Z'),
       entry('kanban', '2026-10-19T06:18:32Z'),
       entry('office', '2026-10-16T01:01:31Z', { firstRun: true }),
       entry('omnisearch', '2026-10-16T01:01:35Z', { firstRun: true }),
@@ -25,12 +25,12 @@ describe('marketHome', () => {
       entry('studio', '2026-10-22T09:48:52Z'),
       entry('turtle-soup', '2026-10-19T01:32:59Z'),
     ];
-    const home = marketHome(entries, new Map([['kanban', 12], ['forum', 4], ['studio', 3], ['computer-use', 2]]));
-    expect(ids(home.featured)).toEqual(['kanban', 'forum', 'studio']);
+    const home = marketHome(entries, new Map([['kanban', 12], ['notes', 4], ['studio', 3], ['computer-use', 2]]));
+    expect(ids(home.featured)).toEqual(['kanban', 'notes', 'studio']);
     expect(ids(home.remaining)).toEqual(['paper-club', 'turtle-soup', 'spexcode', 'computer-use', 'browser-use', 'omnisearch', 'office', 'day-calendar', 'radar']);
     expect(ids([...home.featured, ...home.remaining]).sort()).toEqual(ids(entries).sort());
-    expect(ids(home.newest)).toEqual(['studio', 'forum', 'kanban', ...ids(home.remaining)]);
-    expect(ids(home.popular!)).toEqual(['kanban', 'forum', 'studio', 'computer-use']);
+    expect(ids(home.newest)).toEqual(['studio', 'notes', 'kanban', ...ids(home.remaining)]);
+    expect(ids(home.popular!)).toEqual(['kanban', 'notes', 'studio', 'computer-use']);
   });
 
   it('keeps small catalogs short and distinguishes a failed ranking from no qualifying installs', () => {

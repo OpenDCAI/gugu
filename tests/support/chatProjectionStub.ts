@@ -60,7 +60,6 @@ export function chatProjectionModuleStub(read: () => ChatProjectionStub) {
         return stub.hydrateImpl ? await stub.hydrateImpl() : stub.rows
       },
       advance: async () => { const stub = read(); return stub.advanceImpl ? stub.advanceImpl() : stub.rows },
-      ingestLocalWrite: () => read().rows,
       // 替身也走真接线的形状:认领一组 event → **一次**推进 → 把行交给 store 发布。
       attach: ({ subscribe, cursor, signal, publish }: {
         subscribe: (events: readonly string[], listener: (operations: readonly unknown[]) => void | Promise<void>) => () => void

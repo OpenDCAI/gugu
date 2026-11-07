@@ -19,7 +19,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
@@ -616,9 +615,7 @@ public class GuguAgentHostService extends Service {
                 try {
                     File target = stateFile(GuguAgentHostService.this, owner);
                     target.getParentFile().mkdirs();
-                    File temp = new File(target.getPath() + ".tmp");
-                    Files.write(temp.toPath(), next.toString().getBytes(StandardCharsets.UTF_8));
-                    Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    DurableFile.write(target, next.toString().getBytes(StandardCharsets.UTF_8));
                 } catch (Exception error) { android.util.Log.e("GuguAgentHost", "Cannot persist phone host state"); }
             }
         }

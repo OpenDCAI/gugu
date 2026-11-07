@@ -31,12 +31,28 @@ export function openLink(raw: string | OpenTarget, groupParticipantRequestId?: s
 }
 
 export async function openTarget(target: OpenTarget, groupParticipantRequestId?: string): Promise<boolean> {
-  const outcome = platform.kind === 'electron'
-    ? await (await import('../session/renderer/lib/ipc')).rpc.extensions.openLink({ target, ...(groupParticipantRequestId ? { groupParticipantRequestId } : {}) })
-    : await (await import('../components/appSlot/phoneAppHost')).openPhoneLink(target)
-  if (outcome.kind === 'not-gugu-link') return false
-  if (outcome.kind === 'failed') throw new Error(`${outcome.name}: ${outcome.detail ?? outcome.reason}`)
-  return true
+  try {
+    const outcome = platform.kind === 'electron'
+      ? await (await import('../session/renderer/lib/ipc')).rpc.extensions.openLink({ target, ...(groupParticipantRequestId ? { groupParticipantRequestId } : {}) })
+      : await (await import('../components/appSlot/phoneAppHost')).openPhoneLink(target)
+    if (outcome.kind === 'not-gugu-link') return false
+    if (outcome.kind === 'failed') throw new Error(`${outcome.name}: ${outcome.detail ?? outcome.reason}`)
+    return true
+  } catch (error) {
+    if (target.kind === 'file') throw new Error(await fileFailureMessage(target), { cause: error })
+    throw error
+  }
+}
+
+async function fileFailureMessage(target: Extract<GuguLinkTarget, { kind: 'file' }>): Promise<string> {
+  const [{ i18n }, { fileMetadata }] = await Promise.all([
+    import('../i18n'), import('./fileAccess'), import('../i18n/registerAssistantCatalog'),
+  ])
+  const file = await Promise.resolve().then(() => fileMetadata(target.itemId, target.version)).catch(() => null)
+  const key = file?.status === 'ready' && file.revision.source === 'local' && file.revision.host_online === false
+    ? 'fileHostOffline'
+    : file && file.status !== 'ready' ? 'fileMissing' : 'fileOpenFailed'
+  return i18n.t(`assistant:links.${key}`)
 }
 
 /** DOM callers claim synchronously; the one promise reports a failure through the existing notice host. */

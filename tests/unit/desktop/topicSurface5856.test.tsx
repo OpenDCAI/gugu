@@ -4,9 +4,9 @@
 // 这三条都属于「不写判据就永远没人发现」的那类:界面上不会报错,只是某件事一直不发生。
 //   ① 分栏里读过的消息要推已读水位。不推 ⇒ 那条话题在会话列表里永远挂着未读,
 //      而「通知只到参与者」的另一半正是「读过了就别再叫我」。
-//   ② 别人在我正看的这条线上开了话题 ⇒ 当场重拉清单(服务端给来源线成员发 chat_changed,
-//      迁移 20260918223500)。老的 thread 面板有这条实时(#1588),换成话题不能反而丢掉。
-//      反例同样钉住:别的线上开话题 ❌ 不许触发重拉(那是白跑一次往返)。
+//   ② 别人在我正看的这条线上开了话题 ⇒ 当场读到那条话题(服务端给来源线成员发 chat_changed,
+//      entity_id 是那条话题,gugu-supabase 20261106080000)。老的 thread 面板有这条实时(#1588),换成话题不能反而丢掉。
+//      反例同样钉住:来源线自己的消息、别的线上开话题 ❌ 不许触发读取(那是白跑一次往返)。
 //   ③ 分栏里 @ 到的人要真的写进 to_user_ids —— 那是「被 @ 进来」的唯一通路。
 import { chatWindowStub, topicHistoryStub } from '../../support/chatWindowStub'
 import { renderWithConversations } from '../../support/conversationAccountStub'
@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import { createNode, createReactHarness, chat, message, renderWithAppProviders } from '../../support/testHarness'
 
-const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
+const listTopicsOfChat = vi.fn<(sourceChatId: string, topicChatId?: string) => Promise<TopicSummary[]>>()
 const getMessages = vi.fn<() => Promise<MessageItem[]>>()
 const markRead = vi.hoisted(() => vi.fn<(chatId: string, seq: number) => Promise<unknown>>())
 const sendScopedMessage = vi.fn()
@@ -27,7 +27,7 @@ let sourceMessages: MessageItem[]
 
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
   topicService: {
-    listTopicsOfChat: (sourceChatId: string) => listTopicsOfChat(sourceChatId),
+    listTopicsOfChat: (sourceChatId: string, topicChatId?: string) => listTopicsOfChat(sourceChatId, topicChatId),
     createTopic: (...args: unknown[]) => createTopic(...args),
   },
 }))
@@ -155,25 +155,33 @@ describe('topic reading uses the shared visible-message watermark', () => {
   })
 })
 
-describe('别人在这条线上开了话题,清单当场重拉', () => {
-  it('来源线的 chat_changed 触发重拉', async () => {
+describe('别人在这条线上开了话题,清单当场读到它', () => {
+  it('来源线上话题的 chat_changed 只读那一条话题', async () => {
+    await mount()
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(1)
+    await emit('chat_changed', 'chat-A', { entity_id: 'topic-1' })
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(2)
+    expect(listTopicsOfChat).toHaveBeenLastCalledWith('chat-A', 'topic-1')
+  })
+
+  it('反例:来源线自己的 chat_changed(每条消息一次)❌ 不读话题', async () => {
     await mount()
     expect(listTopicsOfChat).toHaveBeenCalledTimes(1)
     await emit('chat_changed', 'chat-A')
-    expect(listTopicsOfChat).toHaveBeenCalledTimes(2)
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(1)
   })
 
   it('反例:别的线上的 chat_changed ❌ 不许重拉(否则上一条判据是死的)', async () => {
     await mount()
     expect(listTopicsOfChat).toHaveBeenCalledTimes(1)
-    await emit('chat_changed', 'some-other-chat')
+    await emit('chat_changed', 'some-other-chat', { entity_id: 'topic-9' })
     expect(listTopicsOfChat).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('an open topic follows its summary for every reader, member or not', () => {
   // A source-line member who never spoke in the topic gets no message_created for its rows,
-  // only the source line's chat_changed. The open line must still show the new reply.
+  // only the source line's chat_changed naming the topic. The open line must still show the new reply.
   it('catches up when the source chat_changed brings a newer summary, and not otherwise', async () => {
     const first = message({ id: 't1', chat_id: 'topic-1', seq: 1, created_at: '2026-09-18T00:00:00.000Z' })
     const reply = message({ id: 't2', chat_id: 'topic-1', seq: 2, created_at: '2026-09-18T00:01:00.000Z' })
@@ -182,11 +190,11 @@ describe('an open topic follows its summary for every reader, member or not', ()
     await openSplit(true)
     expect(surface!.splitLine.messages.map((row) => row.id)).toEqual(['t1'])
     const reads = getMessages.mock.calls.length
-    await emit('chat_changed', 'chat-A')
+    await emit('chat_changed', 'chat-A', { entity_id: 'topic-1' })
     expect(getMessages.mock.calls.length).toBe(reads)
     listTopicsOfChat.mockResolvedValue([topic({ is_participant: false, last_message_at: reply.created_at, message_count: 2 })])
     getMessages.mockResolvedValue([first, reply])
-    await emit('chat_changed', 'chat-A')
+    await emit('chat_changed', 'chat-A', { entity_id: 'topic-1' })
     await act(async () => { await vi.dynamicImportSettled() })
     expect(surface!.splitLine.messages.map((row) => row.id)).toEqual(['t1', 't2'])
   })
@@ -203,7 +211,7 @@ describe('a summary this reader cannot see past is caught up to once', () => {
     const reads = getMessages.mock.calls.length
     listTopicsOfChat.mockResolvedValue([topic({ is_participant: false, last_message_at: '2026-09-18T00:05:00.000Z' })])
     for (let i = 0; i < 3; i++) {
-      await emit('chat_changed', 'chat-A')
+      await emit('chat_changed', 'chat-A', { entity_id: 'topic-1' })
       await act(async () => { await vi.dynamicImportSettled() })
     }
     expect(getMessages.mock.calls.length - reads).toBe(1)
@@ -217,12 +225,12 @@ describe('#6010 摘要参与人数随来源线的失效通知更新', () => {
     expect(surface?.anchorsByMessageId.get('msg-1')?.[0]?.participant_count).toBe(1)
     for (const count of [2, 1]) {
       listTopicsOfChat.mockResolvedValue([topic({ participant_count: count, is_participant: false })])
-      await emit('chat_changed', 'chat-A')
+      await emit('chat_changed', 'chat-A', { entity_id: 'topic-1' })
       expect(surface?.anchorsByMessageId.get('msg-1')?.[0]?.participant_count).toBe(count)
       expect(surface?.topics[0]?.is_participant).toBe(false)
     }
     expect(listTopicsOfChat).toHaveBeenCalledTimes(3)
-    await emit('chat_changed', 'chat-B')
+    await emit('chat_changed', 'chat-B', { entity_id: 'topic-1' })
     expect(listTopicsOfChat).toHaveBeenCalledTimes(3)
     expect(getMessages).not.toHaveBeenCalled()
   })

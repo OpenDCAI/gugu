@@ -30,8 +30,6 @@ function senderLabel(sender: TimelineSender | undefined, translate: Translate): 
       return `${sender.name} · ${translate('transcript.deliveryViaSession')}`;
     case 'extension':
       return `${sender.name} · ${translate('transcript.deliveryViaExtension')}`;
-    case 'forum':
-      return `${sender.name} · ${translate('transcript.deliveryViaForum')}`;
     case 'group':
       return `${sender.name} · ${((chat) => chat ? translate('transcript.deliveryViaGroup', { chat }) : translate('transcript.deliveryViaUnnamedGroup'))(sender.chatId ? chatDisplayName(sender.chatId) : null)}`;
     case 'chat':

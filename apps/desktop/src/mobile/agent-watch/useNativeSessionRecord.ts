@@ -4,6 +4,7 @@ import { remoteFailureKind, type NativeSessionRecord } from '@gugu/session-core/
 import { machineRpc, onLinkChange } from './sessionpage-rpc'
 import { messageForUser } from '@/lib/userFacingError'
 import { hydrateCachedNativeRecord, readCachedNativeRecord, writeCachedNativeRecord } from './timeline-cache'
+import { recoverTimelineRead } from './timeline-read-recovery'
 import { mergeNativeRecordPage, projectNativeRecord } from './native-record-state'
 
 /** ACP records come from the task page archive, not a second parse of the provider's JSONL. */
@@ -15,6 +16,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
   /** The last read failed because that machine did not answer (not because it refused): the page says it is away. */
   const [unreachable, setUnreachable] = useState(false)
   const epoch = useRef(0)
+  const recoveryAbort = useRef(new AbortController())
   const key = `${deviceId}/${sessionId}`
   const [confirmed, setConfirmed] = useState<{ key: string; epoch: number } | null>(null)
   const connected = useRef(online)
@@ -27,6 +29,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
   useEffect(() => {
     const connectionEpoch = epoch
     const generation = ++connectionEpoch.current
+    recoveryAbort.current.abort(); recoveryAbort.current = new AbortController()
     connected.current = online; setConfirmed(null)
     // Reconcile the latest page first, even when the cache or host's first unread is far behind.
     requests.current = Promise.resolve(); tailRequested.current = true
@@ -36,10 +39,11 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
       if (!stored || epoch.current !== generation || value.current) return
       value.current = stored; setRecord(stored)
     })
-    return () => { connectionEpoch.current++ }
+    return () => { connectionEpoch.current++; recoveryAbort.current.abort() }
   }, [deviceId, sessionId, enabled, online])
   const read = useCallback((mode: 'poll' | 'older' | 'newer' | 'tail' = 'poll') => {
     const ownEpoch = epoch.current
+    const signal = recoveryAbort.current.signal
     const nextRequest = requests.current.catch(() => undefined).then(async () => {
       if (epoch.current !== ownEpoch || !connected.current || !current.current.enabled || !current.current.online) return
       const requested = current.current
@@ -50,10 +54,12 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
         : tail ? { tail: true } : mode === 'newer' && last !== undefined ? { after: last }
         : previous?.hasNewer && last !== undefined ? { before: last + 1 }
         : last !== undefined ? { after: Math.max(-1, last - 29) } : {}
-      const result = await machineRpc(deviceId, local).sessionTimeline.sessionNativeRecord({ conversationId: sessionId, ...input })
-      if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code })
+      const page = await recoverTimelineRead(async () => {
+        const result = await machineRpc(deviceId, local).sessionTimeline.sessionNativeRecord({ conversationId: sessionId, ...input })
+        if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code })
+        return result.value
+      }, signal, () => { if (epoch.current === ownEpoch) setConfirmed(null) })
       if (epoch.current !== ownEpoch || current.current.deviceId !== requested.deviceId || current.current.sessionId !== requested.sessionId || !current.current.enabled) return
-      const page = result.value
       if (tail) tailRequested.current = false
       const merged = mergeNativeRecordPage(value.current, page, mode, tail)
       const next = isDeepEqual(value.current, merged) ? value.current! : merged
@@ -63,13 +69,17 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
       setError(null); setErrorCode(null); setUnreachable(false)
     })
     requests.current = nextRequest
-    return nextRequest.catch(error => { if (epoch.current === ownEpoch) setConfirmed(null); throw error })
+    return nextRequest.catch(error => {
+      if (epoch.current !== ownEpoch) return
+      setConfirmed(null); throw error
+    })
   }, [deviceId, sessionId, local, key])
   useEffect(() => {
     if (!enabled || !online || local) return
     return onLinkChange(deviceId, open => {
+      recoveryAbort.current.abort(); recoveryAbort.current = new AbortController()
       epoch.current++; connected.current = open; requests.current = Promise.resolve(); tailRequested.current = true; setConfirmed(null)
-      if (open) void read('tail').catch(error => setError(messageForUser(error)))
+      if (open) { const ownEpoch = epoch.current; void read('tail').catch(error => { if (epoch.current === ownEpoch) setError(messageForUser(error)) }) }
     })
   }, [deviceId, enabled, online, local, read])
   useEffect(() => {

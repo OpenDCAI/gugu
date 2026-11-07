@@ -1,5 +1,6 @@
 // Browser-safe list copy, shared with the host plugin definition.
 export const summary = {
+  catalog: { categoryId: "work", aliases: ["WeCom", "企业微信"] },
   name: { en: "WeCom", 'zh-CN': "企业微信" },
   description: {
       en: 'WeCom messages, docs, calendar, to-dos and meetings',

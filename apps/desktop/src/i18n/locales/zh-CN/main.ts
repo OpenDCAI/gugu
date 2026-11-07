@@ -231,14 +231,7 @@ export default {
       "empty": "这个会话还没有内容。",
       "loadFailed": "打不开时间线",
       "reload": "重新读取",
-      "reloaded": {
-        "epoch_changed": "机器重开了这份记录，时间线已整份重载。",
-        "cursor_ahead": "手机这边的位置比机器还靠前，时间线已整份重载。",
-        "source_replaced": "会话记录被换过了，时间线已整份重载。",
-        "source_unreadable": "会话记录读不了，时间线已整份重载。",
-        "gap": "中间有一段没收到，时间线已整份重载。",
-        "gap_too_large": "断开太久、缺的太多，时间线已整份重载。"
-      },
+
       "outcome": {
         "done": "已结束",
         "cancelled": "已取消",

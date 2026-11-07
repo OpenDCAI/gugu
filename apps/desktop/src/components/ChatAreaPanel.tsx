@@ -855,7 +855,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
           onQuoteConsumed={() => setQuoteText(null)}
           mentionToInsert={mentionToInsert}
           onMentionInserted={() => setMentionToInsert(null)}
-          chatId={activeChatId} hidden={!surfaceVisible || selectMode}
+          chatId={activeChatId} hidden={!surfaceVisible || selectMode} entryActive={navigationTarget && surfaceVisible && tabs.chatUp}
           isGroupChat={isRoomChatSurface}
           groupMembers={composerGroupMembers} currentUserId={user?.id ?? null} agentStatuses={groupAgentStatuses} messages={messages}
           whisperTarget={whisperTarget}

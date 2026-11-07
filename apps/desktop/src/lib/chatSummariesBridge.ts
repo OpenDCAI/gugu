@@ -7,6 +7,8 @@
 // 壳那棵树知道每个对话(聊天列表那一份),会话页不知道:壳写、会话页读,同一个 window 对象 +
 // 一个 window 事件(谁先起来都接得上)。两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
+import { replaceEqualDeep } from '@tanstack/react-query'
+import { memoizeByReference } from './memoizeByReference'
 
 export type ChatSummary = {
   readonly peerUserId?: string | null
@@ -28,12 +30,11 @@ const EVENT = 'gugu:chat-summaries'
 const NAMES_EVENT = 'gugu:chat-names'
 
 type Summaries = ReadonlyMap<string, ChatSummary>
-
-/** 壳:聊天列表那一份(整份替换;没变不通知)。 */
-export function publishChatSummaries(chats: readonly {
+type SummarySource = {
   peer_user_id?: string | null; unread_locator?: { message_id: string | null } | null; id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; public_id?: number | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
-}[]): void {
-  const next: Summaries = new Map(chats.map((chat) => [chat.id, {
+}
+const summaryOf = memoizeByReference((chat: SummarySource, name: string | null | undefined): ChatSummary =>
+  replaceEqualDeep(read()?.get(chat.id), {
     ...(chat.alias ? { alias: chat.alias } : {}),
     ...(typeof chat.public_id === 'number' && Number.isSafeInteger(chat.public_id) && chat.public_id > 0 ? { publicId: chat.public_id } : {}),
     peerUserId: chat.peer_user_id ?? null,
@@ -41,18 +42,20 @@ export function publishChatSummaries(chats: readonly {
     unreadCount: chat.unread_count,
     isMarkedUnread: chat.is_marked_unread === true,
     hasMessages: Boolean(chat.last_message_at),
-    name: chat.name || null,
+    name: name || null,
     kind: chat.kind,
     lastMessagePreview: chat.last_message_preview || null,
     sourceChatId: chat.source_chat_id || null,
-  }]))
+  }))
+
+/** 壳:聊天列表那一份(整份替换;没变不通知)。 */
+export function publishChatSummaries<T extends SummarySource>(chats: readonly T[], nameOf?: (chat: T) => string | null | undefined): void {
   const current = read()
-  if (current && current.size === next.size && [...next].every(([id, summary]) => {
-    const was = current.get(id)
-    return was !== undefined && was.alias === summary.alias && was.publicId === summary.publicId && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
-  })) return
+  const next: Summaries = new Map(chats.map(chat => [chat.id, summaryOf(chat, nameOf?.(chat) ?? chat.name)]))
+  if (current && current.size === next.size && [...next].every(([id, summary]) => current.get(id) === summary)) return
   const namesChanged = !current || current.size !== next.size || [...next].some(([id, summary]) => {
     const was = current.get(id)
+    if (was === summary) return false
     return !was || was.name !== summary.name || was.alias !== summary.alias || was.publicId !== summary.publicId || was.kind !== summary.kind || was.peerUserId !== summary.peerUserId
   })
   ;(window as unknown as Record<string, unknown>)[KEY] = next

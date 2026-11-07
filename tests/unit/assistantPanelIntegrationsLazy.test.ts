@@ -1,6 +1,21 @@
 import { expect,it,vi } from 'vitest'
 import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles'
 import { readAssistantPanelIntegrations } from '../../apps/desktop/src/components/assistant/assistant-panel-integrations'
+it('reads public category and aliases from the lightweight catalog without fetching details', async () => {
+  const body = vi.fn()
+  const catalog = { categoryId: 'work', aliases: ['Feishu', '飞书'] }
+  const rows = [
+    { resource_key: 'catalog:feishu', data: { providerId: 'feishu', catalog } },
+    { resource_key: 'catalog:legacy', data: { providerId: 'legacy', displayName: 'Legacy app' } },
+    { resource_key: 'catalog:unknown', data: { providerId: 'unknown', catalog: { categoryId: 'future', aliases: ['Public alias', 5] } } },
+  ]
+  const panel = { collection: async () => rows, snapshot: async () => ({ application: [] }), body } as unknown as AssistantPanelFiles
+  const result = await readAssistantPanelIntegrations(panel, 'zh-CN')
+  expect(result.items[0]?.catalog).toEqual(catalog)
+  expect(result.items[1]?.catalog).toBeUndefined()
+  expect(result.items[2]?.catalog).toEqual({ categoryId: 'future', aliases: ['Public alias'] })
+  expect(body).not.toHaveBeenCalled()
+})
 it.each([
   { displayName: 'default', metadata: undefined, expected: undefined },
   { displayName: 'default', metadata: { login: 'ada@example.com' }, expected: 'ada@example.com' },

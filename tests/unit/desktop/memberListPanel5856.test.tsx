@@ -455,7 +455,7 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
     await act(async () => { input.blur() })
     expect(updateSettings).toHaveBeenLastCalledWith('source-1', { agent_flood_threshold: 12 })
   })
-  it('普通 chat_changed 保留私聊话题阈值框的草稿、DOM 和焦点', async () => {
+  it('话题的 chat_changed 重读那条话题时保留私聊话题阈值框的草稿、DOM 和焦点', async () => {
     const values = seedSettings()
     const listeners = new Set<AccountRevisionListener>()
     await renderSettings(undefined, (_event, listener) => {
@@ -468,13 +468,14 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(input, '12')
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    const topics = await topicService.listTopicsOfChat('source-1')
+    const topics = (await topicService.listTopicsOfChat('source-1')).filter((topic) => topic.chat_id === 'topic-1')
     let resolveTopics!: (value: typeof topics) => void
     listTopics.mockImplementationOnce(() => new Promise((resolve) => { resolveTopics = resolve }))
     values.set('source-1', 7)
     await act(async () => {
-      for (const listener of [...listeners]) await listener([{ revision: '1', event: 'chat_changed', payload: { chat_id: 'source-1' } }])
+      for (const listener of [...listeners]) await listener([{ revision: '1', event: 'chat_changed', payload: { chat_id: 'source-1', entity_id: 'topic-1' } }])
     })
+    expect(listTopics).toHaveBeenLastCalledWith('source-1', 'topic-1')
     expect(inputs()[0]).toBe(input)
     expect(document.activeElement).toBe(input)
     expect(input.value).toBe('12')
@@ -541,7 +542,7 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
   it('私聊来源只列话题配置，不为单聊提供无效阈值', async () => {
     seedSettings('admin')
     await renderSettings()
-    expect(listTopics).toHaveBeenCalledWith('source-1')
+    expect(listTopics).toHaveBeenCalledWith('source-1', undefined)
     expect(getSettings).not.toHaveBeenCalledWith('source-1')
     expect(inputs()).toHaveLength(1)
     await change(inputs()[0], '8')

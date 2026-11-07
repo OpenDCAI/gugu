@@ -1,6 +1,6 @@
 import type { TabOpenIntent } from '@shared/view-state';
 import type { GuguLinkTarget, LinkPlace } from '@gugu/core/shared/ui/guguLink';
-import type { AppComposeDetail, AppForumConsentDetail, AppForwardFilesDetail, AppOpenWithDetail, AppShowMessageDetail, PeekTarget } from './app-runtime-protocol';
+import type { AppComposeDetail, AppForwardFilesDetail, AppOpenWithDetail, AppShowMessageDetail, PeekTarget } from './app-runtime-protocol';
 import type { GroupAvatarMember } from '@gugu/core/shared/types/chat';
 import type { ExtensionManifest } from './manifest';
 import type { MarketCodeSource } from './market';
@@ -64,9 +64,7 @@ export type ExtensionHostAction =
   /** An install could not give the chat it was asked for (main's own, no page asks it): the window says so, with the App's page. */
   | { kind: 'notGivenAt'; extensionId: string; chat: { id: string; name: string } }
   /** A banner's click naming a chat's file: opened in its chat, as a link to it is. */
-  | { kind: 'openChatFile'; chatId: string; itemId: string; onlyIfOpen?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> }
-  /** 论坛 (9): the window draws the points sheet (posting a bounty, settling one) and does it if the person confirms. */
-  | { kind: 'forumConsent'; detail: AppForumConsentDetail };
+  | { kind: 'openChatFile'; chatId: string; itemId: string; onlyIfOpen?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> };
 
 export interface ExtensionHostActionCommand {
   /** The page that asked; null for a link's or a banner's click, which no page made. */

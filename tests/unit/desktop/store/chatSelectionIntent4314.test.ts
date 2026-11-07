@@ -126,7 +126,6 @@ vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
       if (projectionStub.advanceImpl) return projectionStub.advanceImpl()
       return projectionStub.rows
     },
-    ingestLocalWrite: () => projectionStub.rows,
     attach: ({ subscribe, cursor, signal, publish }: {
       subscribe: (events: readonly string[], listener: (operations: readonly unknown[]) => void | Promise<void>) => () => void
       cursor: () => string

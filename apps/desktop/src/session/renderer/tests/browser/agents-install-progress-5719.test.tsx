@@ -40,12 +40,12 @@ afterEach(() => {
   host.remove()
 })
 
-function mount(progress: AgentInstallProgress | null, onCancel = () => {}): void {
+function mount(progress: AgentInstallProgress | null, onCancel = () => {}, compact = false): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   root.render(
     <QueryClientProvider client={client}>
       <SessionLocalizationProvider>
-        <InstallProgressRow progress={progress} onCancel={onCancel} />
+        <InstallProgressRow progress={progress} onCancel={onCancel} compact={compact} />
       </SessionLocalizationProvider>
     </QueryClientProvider>
   )
@@ -56,7 +56,7 @@ const downloading: AgentInstallProgress = {
   phase: 'downloading',
   elapsedMs: 3_000,
   bytesDone: 1024 * 1024 * 40,
-  bytesPerSecond: 1024 * 1024 * 2,
+  bytesPerSecond: 1024 * 1024 * 2
 }
 
 it('有分母时条子的实测宽度就是那个比例', async () => {
@@ -74,7 +74,10 @@ it('有分母时条子的实测宽度就是那个比例', async () => {
 
 it('没有分母时不画定长条，界面上一个百分比都不出现', async () => {
   mount(downloading)
-  await until('indeterminate bar renders', () => page.getByTestId('install-progress-indeterminate').query() != null)
+  await until(
+    'indeterminate bar renders',
+    () => page.getByTestId('install-progress-indeterminate').query() != null
+  )
   expect(host.querySelector('[data-testid="install-progress-determinate"]')).toBeNull()
   expect(host.textContent ?? '').not.toMatch(/\d+\s*%/)
   const track = host.querySelector<HTMLElement>('[data-testid="install-progress-track"]')!
@@ -82,14 +85,23 @@ it('没有分母时不画定长条，界面上一个百分比都不出现', asyn
   const [animation] = bar.getAnimations()
   expect(animation).toBeDefined()
   for (const frame of (animation.effect as KeyframeEffect).getKeyframes()) {
-    expect(Object.keys(frame).filter(key => !['offset', 'computedOffset', 'easing', 'composite'].includes(key))).toEqual(['transform'])
+    expect(
+      Object.keys(frame).filter(
+        (key) => !['offset', 'computedOffset', 'easing', 'composite'].includes(key)
+      )
+    ).toEqual(['transform'])
   }
   animation.pause()
   const duration = animation.effect!.getTiming().duration as number
-  for (const [time, offset] of [[0, -0.4], [duration - 0.001, 1]]) {
+  for (const [time, offset] of [
+    [0, -0.4],
+    [duration - 0.001, 1]
+  ]) {
     animation.currentTime = time
     const bounds = track.getBoundingClientRect()
-    expect(Math.abs(bar.getBoundingClientRect().left - bounds.left - bounds.width * offset)).toBeLessThan(0.5)
+    expect(
+      Math.abs(bar.getBoundingClientRect().left - bounds.left - bounds.width * offset)
+    ).toBeLessThan(0.5)
   }
 })
 
@@ -104,4 +116,37 @@ it('取消按下之后立刻变灰 —— 重复按只会再发一条没用的�
 
   expect(onCancel).toHaveBeenCalledTimes(1)
   await until('cancel button disables itself', () => el.disabled)
+})
+
+it.each(['emlight', 'emdark'])(
+  'settings progress shows measured percent and bytes above a left-aligned bar in %s',
+  async (theme) => {
+    host.className = 'gugu-skin ' + theme
+    mount(
+      { ...downloading, bytesDone: 8.4 * 1024 * 1024, bytesTotal: 22.1 * 1024 * 1024 },
+      () => {},
+      true
+    )
+    const heading = page.getByTestId('install-progress-heading')
+    const track = page.getByTestId('install-progress-track')
+    await expect.element(heading).toHaveTextContent('38%')
+    expect(host.textContent).toContain('8.4 MB / 22.1 MB')
+    const title = heading.element().getBoundingClientRect()
+    const bounds = track.element().getBoundingClientRect()
+    const bar = page.getByTestId('install-progress-determinate').element().getBoundingClientRect()
+    expect(bounds.left).toBeCloseTo(title.left, 1)
+    expect(bounds.top).toBeGreaterThan(title.bottom)
+    expect(bar.left).toBeCloseTo(bounds.left, 1)
+    expect(bar.width / bounds.width).toBeCloseTo(8.4 / 22.1, 2)
+  }
+)
+it('settings progress keeps only measured text when the download total is unknown', async () => {
+  mount(downloading, () => {}, true)
+  await expect
+    .element(page.getByTestId('install-progress-heading'))
+    .toHaveTextContent('Downloading package')
+  expect(host.textContent).toContain('40.0 MB')
+  expect(host.textContent).not.toMatch(/\d+\s*%/)
+  expect(host.querySelector('[data-testid="install-progress-track"]')).toBeNull()
+  expect(host.querySelector('[data-testid="install-progress-indeterminate"]')).toBeNull()
 })

@@ -94,7 +94,7 @@ afterEach(() => {
 it('点备用链接:系统浏览器打开它,登录弹窗留着,登录不取消', async () => {
   showModal('agentSignInModal', {
     providerId: 'codebuddy',
-    providerName: 'CodeBuddy Code',
+    providerName: 'CodeBuddy',
     steps: [{ methodId: 'codebuddy-international', transport: 'acp-authenticate' }],
   });
   await until('the fallback link is shown', () => document.querySelector('[data-testid="acp-sign-in-fallback"]') !== null);

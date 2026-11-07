@@ -237,14 +237,7 @@ export default {
       "empty": "This task has no content yet.",
       "loadFailed": "Could not open the timeline",
       "reload": "Load again",
-      "reloaded": {
-        "epoch_changed": "The machine reopened this record, so the timeline was reloaded in full.",
-        "cursor_ahead": "This phone was ahead of the machine, so the timeline was reloaded in full.",
-        "source_replaced": "The task's record was replaced, so the timeline was reloaded in full.",
-        "source_unreadable": "The task's record could not be read, so the timeline was reloaded in full.",
-        "gap": "An update went missing on the way here, so the timeline was reloaded in full.",
-        "gap_too_large": "Too much was missed while disconnected, so the timeline was reloaded in full."
-      },
+
       "outcome": {
         "done": "Finished",
         "cancelled": "Cancelled",
