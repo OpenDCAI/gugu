@@ -147,6 +147,7 @@ export function isPlatformServiceMissing(error: unknown): boolean {
 export type PlatformIntegrationsClient = {
   connectOperation?(provider:string,operationId:string,epoch:string,fields:Record<string,string>,signal?:AbortSignal):Promise<ConnectionAuthorizationResult>
   beginOAuthOperation?(provider:string,operationId:string,epoch:string,signal?:AbortSignal):Promise<{operationId:string;authorizationUrl:string;expiresAt:number}>
+  cancelOperation?(operationId:string,signal?:AbortSignal):Promise<ConnectionOperationStatus>
   operationStatus?(operationId:string,signal?:AbortSignal):Promise<ConnectionOperationStatus>
 
   beginOAuth?(provider: string, signal?: AbortSignal): Promise<{ attemptId: string; authorizationUrl: string; expiresAt: number }>
@@ -307,6 +308,8 @@ export function createPlatformIntegrationsClient(options: {
       if(url.protocol!=='https:'||url.username||url.password)throw badResponse('POST oauth/start-operation')
       return{operationId,authorizationUrl:value.authorizationUrl,expiresAt:value.expiresAt as number}
     },
+    cancelOperation:async(operationId,signal)=>parseConnectionOperationStatus(json((await request('POST',
+      `${options.baseUrl}/integrations/operations/${encodeURIComponent(operationId)}/cancel`,undefined,signal)).raw,'POST cancel operation'),operationId),
     operationStatus:async(operationId,signal)=>parseConnectionOperationStatus(json((await request('GET',
       `${options.baseUrl}/integrations/operations/${encodeURIComponent(operationId)}`,undefined,signal)).raw,'GET operation status'),operationId),
     disconnectOperation: async (provider, operationId, expectedHeadRevision, signal) =>

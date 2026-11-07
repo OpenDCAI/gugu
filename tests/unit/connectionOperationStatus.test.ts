@@ -1,4 +1,5 @@
 import {describe,it,expect,vi} from 'vitest'
+import {createConnectionClient} from '@gugu/core/cloud/connections'
 import {parseConnectionOperationStatus} from '@gugu/core/cloud/connectionOperationStatus'
 import {createPlatformIntegrationsClient} from '@gugu/core/cloud/platformIntegrations'
 const operationId='10000000-0000-4000-8000-000000000001'
@@ -38,4 +39,21 @@ describe('public operation result boundary',()=>{
   expect(url).toBe('https://fixture.invalid/integrations/amap/connect-operation')
   expect(JSON.parse(request.body as string)).toEqual({operationId,epoch:'4',fields:{apiKey:'fixture-key'}})
  })
+})
+
+it('cancels only the original owner UUID and preserves a silent independent cancellation result',async()=>{
+ const value={...status(),resolution:{outcome:'cancelled',resolvedAt:'2026-11-07T00:00:00Z',errorCode:null},
+  effective:{state:'cancelled',connectionState:'disconnected',blocksNewOperations:false},confirmation:{state:'resolved',deadlineAt:null,cancelRequested:true}}
+ const fetcher=vi.fn(async()=>Response.json(value)),client=createPlatformIntegrationsClient({baseUrl:'https://fixture.invalid',accessToken:async()=> 'fixture-token',fetch:fetcher})
+ expect(await client.cancelOperation!(operationId)).toEqual(value)
+ const [url,request]=fetcher.mock.calls[0]! as unknown as [string,RequestInit]
+ expect(url).toBe(`https://fixture.invalid/integrations/operations/${operationId}/cancel`);expect(request.method).toBe('POST');expect(request.body).toBeUndefined()
+ const transport=vi.fn(async()=>({data:value,error:null})),community=createConnectionClient(transport,()=> 'owner')
+ expect(await community.cancelAuthorization(operationId)).toEqual(value)
+ expect(transport).toHaveBeenCalledExactlyOnceWith('connection_authorization_cancel',{p_operation_id:operationId})
+})
+it('does not treat UNKNOWN or a mismatched cancellation projection as a settled result',()=>{
+ const v={...status(),original:{status:'failed',errorCode:'CONNECTION_OUTCOME_UNKNOWN',terminal:true},effective:{state:'succeeded',connectionState:'connected',blocksNewOperations:false}}
+ expect(()=>parseConnectionOperationStatus(v,operationId)).toThrow()
+ expect(()=>parseConnectionOperationStatus({...status(),resolution:{outcome:'cancelled',resolvedAt:'2026-11-07T00:00:00Z',errorCode:null}},operationId)).toThrow()
 })
