@@ -4,8 +4,17 @@ import { chat, displayIdentity } from '../../../support/testHarness'
 import { createChatMembershipProjection } from '../../../../apps/desktop/src/lib/chatRowDerivations'
 import { memoizeByReference } from '../../../../apps/desktop/src/lib/memoizeByReference'
 import { publishChatSummaries, readChatSummaries } from '../../../../apps/desktop/src/lib/chatSummariesBridge'
+import { assertIdentityClosure } from '../../../../apps/desktop/src/lib/identityClosure'
 
 afterEach(() => publishChatSummaries([]))
+
+it('rechecks an identity array that a caller mutates in place', () => {
+  const identities = [displayIdentity('first')]
+  assertIdentityClosure('mutable', ['first'], identities)
+  identities.splice(0, 1, displayIdentity('second'))
+  expect(() => assertIdentityClosure('mutable', ['first'], identities)).toThrow('first')
+  expect(() => assertIdentityClosure('mutable', ['second'], identities)).not.toThrow()
+})
 
 it.each([10, 100, 1000])('derives only the changed row among %i rows', size => {
   const rows = Array.from({ length: size }, (_, index) => chat({ id: `c${index}` }))
@@ -44,6 +53,23 @@ it('keeps aggregate agent ids and skips sort when a private preview changes or r
     expect(next.agentIds).toBe(before.agentIds)
   } finally { sort.mockRestore() }
   expect(project([dm], directory).agentIds).toEqual(['agent'])
+})
+
+it.each([10, 100, 1000])('does not revisit settled member fields after %i preview-only row updates', size => {
+  const project = createChatMembershipProjection()
+  const directory = { agent: displayIdentity('agent', { type: 'agent' }) }
+  const rows = Array.from({ length: size }, (_, index) => chat({ id: `g${index}`, kind: 'group', member_user_ids: ['agent'] }))
+  const before = project(rows, directory)
+  const updated = rows.map(row => ({ ...row, last_message_preview: 'new' }))
+  expect(project(updated, directory)).toBe(before)
+  const reads: string[] = []
+  for (const [id, part] of before.parts) {
+    const agents = part.agents
+    Object.defineProperty(part, 'agents', { enumerable: true, get() { reads.push(id); return agents } })
+  }
+  expect(project(updated, directory)).toBe(before)
+  console.info('settled member fields', reads)
+  expect(reads).toEqual([])
 })
 
 it.each([10, 100, 1000])('reads summary fields for only the changed row among %i rows', size => {

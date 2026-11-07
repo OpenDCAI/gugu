@@ -445,6 +445,10 @@ export function missingDependencies(
 
 // ── 装配:纯函数、零 IO ─────────────────────────────────────────────────────
 
+/** Keep an equal published object whole; a changed input remains the incoming object. */
+export function shareObject<T extends object>(current: T | undefined, next: T): T {
+  return current && replaceEqualDeep(current, next) === current ? current : next
+}
 
 // @@@one-row-object — a conversation row exists once in memory as a list row. The projection mints it; the chat list,
 // the projection's own snapshot and every derived list share that object. When a list is rebuilt, an unchanged row
@@ -456,8 +460,7 @@ export function shareRows<T extends { id: string }>(current: readonly T[], next:
   const byId = new Map(current.map(row => [row.id, row]))
   let unchanged = current.length === next.length
   const shared = next.map((row, index) => {
-    const held = byId.get(row.id)
-    const kept = held !== undefined && (held === row || replaceEqualDeep(held, row) === held) ? held : row
+    const kept = shareObject(byId.get(row.id), row)
     if (kept !== current[index]) unchanged = false
     return kept
   })
@@ -592,6 +595,7 @@ export function reassemble(
     let row = keep(chatId) ? assembleChat(source, viewerId, chatId) : null
     if (!row) continue
     const held = previous.get(chatId)
+    // This assembly is not published yet; reuse its unchanged nested member arrays as well.
     if (held) row = replaceEqualDeep(held, row)
     let low = 0, high = next.length
     while (low < high) {

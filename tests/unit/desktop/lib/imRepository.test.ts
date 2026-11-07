@@ -19,6 +19,7 @@ import {
 import { message as messageFixture, displayIdentity as identity } from '../../../support/testHarness'
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
 import { readCompleteCachedChats } from '../../../../apps/desktop/src/lib/chatSnapshotPublication'
+import * as displayIdentityModule from '../../../../apps/desktop/src/lib/displayIdentity'
 function chat(id: string): ChatItem {
   return {
     id,
@@ -455,6 +456,22 @@ describe('account-scoped normalized IM repository', () => {
     ])
     const reopened = await openImRepository('account-a', { adapter, storage: window.localStorage })
     expect(imSelectors.identitiesById(reopened.snapshot())[original.id]).toEqual(updated)
+  })
+  it.each([10, 100, 1000])('does not reparse or persist %i unchanged identities', async size => {
+    const repository = await openImRepository('account-a', { adapter })
+    await repository.putIdentities(Array.from({ length: size }, (_, index) => identity(`p${index}`)))
+    const held = Object.values(imSelectors.identitiesById(repository.snapshot()))
+    const parsing = vi.spyOn(displayIdentityModule, 'displayIdentityFromRow')
+    const commit = vi.spyOn(adapter, 'commit')
+    try {
+      await repository.putIdentities(held)
+      await repository.putIdentities(held.map(row => ({ ...row })))
+      const writes = commit.mock.calls.flatMap(([operations]) => operations)
+      console.info('identity parse inputs', parsing.mock.calls.map(([row]) => (row as { id: string }).id))
+      console.info('identity persistence writes', writes)
+      expect(parsing).not.toHaveBeenCalled()
+      expect(writes).toEqual([])
+    } finally { parsing.mockRestore(); commit.mockRestore(); repository.close() }
   })
   it('prepares queued diffs from the latest successful commit and publishes only after durability', async () => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })

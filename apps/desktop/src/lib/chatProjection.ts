@@ -11,7 +11,6 @@
 // 会话列表的云端取数只有这一条路(I7):从前冷启另走 `chatListLoader` 的 8 波串行链,
 // 那就是第二个属主在原地 —— #3271 的病只治了增量那一半。
 
-import { replaceEqualDeep } from '@tanstack/react-query'
 import type { ChatItem, ChatUnreadLocator, GroupMemberRole, NotificationLevel } from '@gugu/core/shared/types/chat'
 import { isPendingDelivery, turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
 import {
@@ -36,6 +35,7 @@ import {
   releaseWave,
   settleWave,
   shareRows,
+  shareObject,
   splitKey,
   splitMembershipId,
   type Cell,
@@ -268,8 +268,7 @@ export function createChatProjection(viewerId: string, held?: HeldObjects): Chat
       const found = await readDisplayIdentities([...ids], signal)
       const byId = new Map<string, unknown>()
       for (const identity of found) {
-        const kept = held?.identity(identity.id)
-        byId.set(identity.id, kept && replaceEqualDeep(kept, identity) === kept ? kept : identity)
+        byId.set(identity.id, shareObject(held?.identity(identity.id), identity))
       }
       return indexExact(ids, byId)
     },
