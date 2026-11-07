@@ -50,3 +50,21 @@ it.each([0, 1])('gives entry %i a color-only semantic base default', index => {
   })
   expect(found).toBe(1)
 })
+// @@@has-universal-descendant — `group-has-*` compiles to `:has(...) *`: a change the browser cannot
+// scope re-styles the whole page, and one such rule cost every message-bubble hover about 240 ms.
+const hasThenUniversal = /:has\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)[^,]*?(?:(?<![>+\s])\s+\*|~\s*\*)/
+function flatSelector(rule: Rule): string {
+  const chain = [rule.selector]
+  for (let parent: Node | undefined = rule.parent; parent; parent = parent.parent) {
+    if (isRule(parent)) chain.unshift(parent.selector)
+  }
+  return chain.join(' ')
+}
+it.each([0, 1])('keeps entry %i free of :has() followed by a universal descendant', index => {
+  expect(hasThenUniversal.test(':is(:where(.group\\/field):has(:disabled) *)')).toBe(true)
+  const hits: string[] = []
+  compiled[index].walkRules(rule => {
+    if (hasThenUniversal.test(flatSelector(rule))) hits.push(flatSelector(rule))
+  })
+  expect(hits).toEqual([])
+})
