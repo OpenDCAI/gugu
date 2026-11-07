@@ -4,6 +4,7 @@ import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels';
 import { createEffect, createRoot } from 'solid-js';
 import { parseSentAttachmentLink } from '@gugu/session-core/session-record/send-receipt';
+import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 
 export function originalMessagePresentation(message: MessageItem): DeliveryMessagePresentation | null {
   if (message.content_type !== 'attachment' || message.retracted_at) return null;
@@ -44,9 +45,12 @@ export function connectDeliveredMessagePresentation(state: ChatState, load: (id:
 
 export async function resolveDeliveredAttachment(id: string): Promise<string | null> {
   const messageId = parseSentAttachmentLink(id)?.messageId;
-  if (!messageId) return null;
+  const file = messageId ? null : parseGroupFileLink(id);
+  const source = messageId ? { kind: 'message' as const, messageId }
+    : file?.version !== undefined ? { kind: 'item' as const, itemId: file.itemId, version: file.version } : null;
+  if (!source) return null;
   const { attachmentBytes } = await import('@/lib/attachmentBytes');
-  const result = await attachmentBytes({ kind: 'message', messageId }, 'thumb');
+  const result = await attachmentBytes(source, 'thumb');
   if (result.status !== 'ready') return null;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

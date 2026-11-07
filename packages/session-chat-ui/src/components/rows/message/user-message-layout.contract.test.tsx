@@ -323,3 +323,8 @@ it('projects task file references into existing name chips without changing the 
   expect(item.text).toBe(SHORT.text);
   expect(item.attachments).toEqual([{ id: 'brief:1', name: 'brief.txt', kind: 'file' }]);
 });
+
+it('projects a task image reference as an image the host can resolve', () => {
+  const item = normalizeMessage({ ...SHORT, files: [{ itemId: 'shot', version: 2, name: 'shot.jpg', mimeType: 'image/jpeg', sizeBytes: 3 }] });
+  expect(item.attachments).toEqual([{ id: 'gugu-file://shot?v=2', name: 'shot.jpg', kind: 'image' }]);
+});
