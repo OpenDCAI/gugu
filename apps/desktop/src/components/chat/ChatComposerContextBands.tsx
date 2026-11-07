@@ -5,13 +5,16 @@ import { IconButton } from '../ui/IconButton'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { FileStorageNotice } from './FileStorageNotice'
 
-export function ChatComposerContextBands({ chatId, isGroupChat, hidden, quoteContent, onQuoteConsumed, whisperTarget, onExitWhisper }: ChatMessageComposerProps) {
+export function ChatComposerContextBands({ chatId, isGroupChat, hidden, quoteContent, onQuoteConsumed, whisperTarget, onExitWhisper, returnedToPublic }: ChatMessageComposerProps & { returnedToPublic?: boolean }) {
   const { t } = useTranslation('messaging')
   return <>
     {chatId && isGroupChat && !hidden && <FileStorageNotice chatId={chatId} />}
     {whisperTarget && <div className="flex items-center gap-2 rounded-[var(--radius-control)] bg-[var(--bg-primary)] px-2 py-1">
       <span className="flex-1 text-[length:var(--font-caption)] text-[var(--faint-fg)]">{t('composer.whisperBanner', { name: whisperTarget.displayName })}</span>
       <IconButton size="sm" aria-label={t('composer.exitWhisper')} onClick={onExitWhisper}><X /></IconButton>
+    </div>}
+    {isGroupChat && !whisperTarget && returnedToPublic && <div role="status" className="rounded-[var(--radius-control)] bg-[var(--bg-primary)] px-2 py-1 text-[length:var(--font-caption)] text-[var(--text-secondary)]">
+      {t('composer.returnedToPublic')}
     </div>}
     {/* 回复条浮在消息流上,底只给它自己这张卡(owner 10-25)。 */}
     {quoteContent && <MessageQuotePreview quote={quoteContent} onClear={onQuoteConsumed} />}

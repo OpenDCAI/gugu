@@ -97,7 +97,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     ...groupMembers.filter((member) => member.id !== currentUserId).map((member) => ({ ...member, alias: contacts.find((contact) => contact.id === member.id)?.alias })),
   ] : [], [isGroupChat, groupMembers, currentUserId, contacts, t])
   const activeTargets = activeMentionPicks(text, mentionTargets, members)
-  const { sending, handleSend } = useChatMessageSend({ ...deliveryProps, disabled, disabledReason }, draft, members, activeTargets, inputRef, mobile)
+  const { sending, handleSend, returnedToPublic } = useChatMessageSend({ ...deliveryProps, disabled, disabledReason }, draft, members, activeTargets, inputRef, mobile)
   const { byEngine, renderMentionIcon: renderSessionMentionIcon } = useSessionAgentCreationTools()
   const renderMentionIcon = useCallback<NonNullable<Parameters<typeof ChatComposer>[0]['renderMentionIcon']>>((attrs) => {
     if (attrs.id === MENTION_ALL_USER_ID) return <Avatar name={attrs.name ?? attrs.label} size={14} variant="group"
@@ -198,7 +198,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
           <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.choose(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
           <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ''; if (picked.length) { const accepted = fileSelection.choose(picked); fileSelection.release(accepted); if (accepted.length) setPhotos(accepted.map(item => item.file)) } }} />
         </>}
-        <ChatComposerContextBands {...deliveryProps} />
+        <ChatComposerContextBands {...deliveryProps} returnedToPublic={returnedToPublic} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
         {invitation}
         {phoneTask.overlay}

@@ -456,6 +456,7 @@ export default {
       "task": "New task"
     },
     "whisperBanner": "Whisper to {{name}} · only visible to you both",
+    "returnedToPublic": "Back in group chat · your next message is visible to group members",
     "whisperPlaceholder": "Whisper to {{name}}…"
   },
   "emoji": {

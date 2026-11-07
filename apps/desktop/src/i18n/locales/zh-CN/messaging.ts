@@ -454,6 +454,7 @@ export default {
       "task": "新任务"
     },
     "whisperBanner": "悄悄话给 {{name}} · 仅你与对方可见",
+    "returnedToPublic": "已回到群聊 · 下一条消息对群成员可见",
     "whisperPlaceholder": "悄悄话给 {{name}}…"
   },
   "emoji": {
