@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 import { JoinGroupById } from './contacts/JoinGroupById'
 import { SearchField } from './ui/SearchField'
 import { useBackLayer } from './ui/sheetStack'
+import { InviteFriendsPreview } from './referralPreview/ReferralPreview'
 
 // @@@add-friend-unify (#加人链路统一) AddFriendSearch 是「搜索用户 → 发好友申请」的唯一实现，
 // 同时被 ContactsPanel 的「添加联系人」路由（面板态，showHeader）与 ChatListPanel 的「+ 添加联系人」
@@ -167,6 +168,7 @@ export function AddFriendSearch({
 
   const { toast } = useToast()
   const [query, setQuery] = useState('')
+  const [completedQuery, setCompletedQuery] = useState('')
   // @@@1505 点「添加」先开附言 Dialog 收集申请附言（选填），再发申请（加好友先附言、再发申请）。
   const [pendingTarget, setPendingTarget] = useState<ContactUser | null>(null)
   const [note, setNote] = useState('')
@@ -214,11 +216,14 @@ export function AddFriendSearch({
     // @@@contact-qr-import (#537) - 粘贴一张联系人 QR 的文本时，解析出对方咕咕号再搜，
     // 让「加我」QR 不用扫码也能加。
     const qr = parseGuguQrPayload(q)
-    await searchUsers(qr?.kind === 'contact' ? String(qr.gugu_number) : q).catch(reportSearchError)
+    setCompletedQuery('')
+    await searchUsers(qr?.kind === 'contact' ? String(qr.gugu_number) : q)
+      .then(() => setCompletedQuery(q)).catch(reportSearchError)
   }
 
   const handleQueryChange = (v: string) => {
     setQuery(v)
+    setCompletedQuery('')
     if (!v.trim()) clearSearch()
   }
 
@@ -226,7 +231,7 @@ export function AddFriendSearch({
   useEffect(() => {
     if (!seed) return
     setQuery(seed.query)
-    void searchUsers(seed.query).catch(reportSearchError)
+    void searchUsers(seed.query).then(() => setCompletedQuery(seed.query.trim())).catch(reportSearchError)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed?.token, reportSearchError, searchUsers])
 
@@ -284,6 +289,7 @@ export function AddFriendSearch({
             {t('friendSearch.noResults')}
           </div>
         )}
+        {hasQuery && completedQuery === query.trim() && !isSearching && searchResults.length === 0 && <InviteFriendsPreview />}
         {hasQuery && !isSearching && searchResults.length > 0 && searchResults.map((u) => (
           <SearchResultItem
             key={u.id}

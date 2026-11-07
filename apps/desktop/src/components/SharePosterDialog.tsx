@@ -1,5 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import QRCode from 'qrcode'
 import { createSharePosterCanvas, copyPosterToClipboard, downloadPoster } from './sharePosterCanvas'
 import { Sheet } from './ui/Sheet'
@@ -28,10 +28,15 @@ export interface SharePosterDialogProps {
   qrCaption?: string
   /** 底部邀请 CTA 文案。 */
   ctaText?: string
+  posterVariant?: 'contact'
+  zIndex?: string
+  heading?: string
+  headerContent?: ReactNode
+  previewContent?: ReactNode
   onClose: () => void
 }
 
-export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, totalMemberCount, qrCaption, ctaText, onClose }: SharePosterDialogProps) {
+export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, totalMemberCount, qrCaption, ctaText, posterVariant, zIndex = 'var(--z-modal-top)', heading, headerContent, previewContent, onClose }: SharePosterDialogProps) {
   const { t } = useTranslation('contacts')
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [posterDataUrl, setPosterDataUrl] = useState<string | null>(null)
@@ -74,6 +79,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       totalMemberCount,
       qrCaption: qrCaption ?? t('sharing.scanToJoinGugu'),
       ctaText: ctaText ?? t('sharing.connectCta'),
+      variant: posterVariant,
     })
       .then((canvas) => {
         if (cancelled) return
@@ -87,7 +93,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       })
       .finally(() => { if (!cancelled) setGenerating(false) })
     return () => { cancelled = true }
-  }, [qrDataUrl, title, subtitle, memberKey, totalMemberCount, qrCaption, ctaText, t])
+  }, [qrDataUrl, title, subtitle, memberKey, totalMemberCount, qrCaption, ctaText, posterVariant, t])
 
   const handleCopy = useCallback(async () => {
     const canvas = posterCanvasRef.current
@@ -121,10 +127,10 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       onClose={onClose}
       desktopWidth="min(400px, 100%)"
       desktopMaxHeight="calc(100dvh - 32px)"
-      ariaLabel={t('sharing.posterTitle')}
+      ariaLabel={heading ?? t('sharing.posterTitle')}
       // @@@1862 — 此对话框常从成员资料弹层(MemberProfilePopover, --z-popover)里打开。Sheet 默认
       // --z-modal < --z-popover,弹层会盖住对话框并拦截「下载图片」的点击。用 --z-modal-top 盖住残留弹层。
-      zIndex="var(--z-modal-top)"
+      zIndex={zIndex}
     >
       <div
         style={{
@@ -147,7 +153,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
           }}
         >
           <span style={{ fontSize: 'var(--font-title)', fontWeight: 600, color: 'var(--text-primary)' }}>
-            {t('sharing.posterTitle')}
+            {heading ?? t('sharing.posterTitle')}
           </span>
           <button
             onClick={onClose}
@@ -166,6 +172,8 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
           </button>
         </div>
 
+        {headerContent}
+        {previewContent ?? (<>
         {/* Poster preview */}
         <div
           style={{
@@ -182,7 +190,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
             style={{
               width: '100%',
               maxWidth: 360,
-              aspectRatio: '3 / 4',
+              aspectRatio: posterVariant === 'contact' ? '360 / 376' : '3 / 4',
               background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-xl)',
               border: '1px solid var(--border-subtle)',
@@ -262,6 +270,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
             {downloadDone ? t('sharing.downloaded') : t('sharing.downloadImage')}
           </button>
         </div>
+        </>)}
       </div>
     </Sheet>
   )

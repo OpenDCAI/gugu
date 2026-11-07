@@ -1,0 +1,8 @@
+/* Continue the existing sign-in rows without changing their feedback spacing. */
+.gg-settings-detail:not([data-mobile]) .gg-account-login-methods:has(> .gg-settings-card:last-child) + .gg-referral-account-preview {
+  margin-top: calc(-1 * var(--spacing-2xl));
+}
+
+.gg-settings-detail:not([data-mobile]) .gg-account-login-methods + .gg-referral-account-preview .gg-settings-row {
+  border-top: 1px solid var(--border-color);
+}

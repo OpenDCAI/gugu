@@ -9,6 +9,7 @@ import { AgentOwnerLabel } from './AgentOwnerLabel'
 import { useAuth } from '../store/auth'
 import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
 import { SharePosterDialog } from './SharePosterDialog'
+import { PersonalSharePreview } from './referralPreview/ReferralPreview'
 import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
 import { useTranslation } from 'react-i18next'
 import { resolveMessagingValue } from '@/lib/localizedStoredValue'
@@ -268,6 +269,7 @@ export function MemberProfileCard({
       ? createGuguQrScanUrl(createContactQrPayload(member.guguNumber), { downloadUrl: GUGU_ANDROID_DOWNLOAD_URL })
       : null
   const canShare = shareQrValue !== null
+  const SelfOrContactShare = !isAgent && member.id === user?.id ? PersonalSharePreview : SharePosterDialog
 
   const handleOpenChat = () => {
     if (!onOpenChat) return
@@ -465,7 +467,7 @@ export function MemberProfileCard({
       ) : null}
     </div>
     {showShare && shareQrValue ? (
-      <SharePosterDialog
+      <SelfOrContactShare
         title={member.displayName}
         subtitle={isAgent ? 'Agent · 咕咕' : '咕咕'}
         qrValue={shareQrValue}

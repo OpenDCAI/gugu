@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { InviteFriendsMenuItem, ReferralSharePreview } from '../referralPreview/ReferralPreview'
 import { useTranslation } from 'react-i18next'
 import { ListChecks, UserPlus, Users } from '@/lib/icons'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
@@ -29,6 +30,7 @@ export function AddContactMenu({
 }) {
   const { t } = useTranslation('contacts')
   const [open, setOpen] = useState(false)
+  const [inviteOpen, setInviteOpen] = useState(false)
 
   const pick = (run: () => void) => () => {
     setOpen(false)
@@ -36,6 +38,7 @@ export function AddContactMenu({
   }
 
   return (
+    <>
     <DropdownMenu.Root open={open} modal={false} onOpenChange={setOpen}>
       <DropdownMenu.Trigger
         className="gg-icon-btn gg-ghost gg-pressable window-no-drag-region"
@@ -74,9 +77,12 @@ export function AddContactMenu({
           >
             {t('joinGroup.title')}
           </MenuItem>
+          <InviteFriendsMenuItem onSelect={pick(() => setInviteOpen(true))} />
         </DropdownMenu.Content>
       ) : null}
     </DropdownMenu.Root>
+    {inviteOpen && <ReferralSharePreview onClose={() => setInviteOpen(false)} />}
+    </>
   )
 }
 
