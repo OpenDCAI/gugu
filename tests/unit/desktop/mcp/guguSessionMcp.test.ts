@@ -88,6 +88,15 @@ const socialContext = (
 })
 
 describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
+  it('passes a conversation URI to spawn as its chat UUID and rejects message targets', async () => {
+    const seen: unknown[] = []
+    const client = await connectTo(socialContext(async action => { seen.push(action); return {} }))
+    const chat = '33333333-3333-4333-8333-333333333333'
+    expect((await client.callTool({ name: 'session_spawn', arguments: { prompt: 'p', chat_id: `gugu-chat://${chat}` } })).isError).not.toBe(true)
+    expect(seen).toContainEqual(expect.objectContaining({ action: 'spawn', chat_id: chat }))
+    expect((await client.callTool({ name: 'session_spawn', arguments: { prompt: 'p', chat_id: `gugu-chat://${chat}/${chat}` } })).isError).toBe(true)
+    expect(seen).toHaveLength(1)
+  })
   it('rejects legacy nest and malformed parent IDs on the new spawn tool before dispatch', async () => {
     const seen: unknown[] = []
     const client = await connectTo(socialContext(async action => { seen.push(action); return {} }))
@@ -877,6 +886,9 @@ describe('project_* tools', () => {
     const { tool, ...args } = JSON.parse(responseText(result)).undo
     expect((await client.callTool({ name: tool, arguments: args })).isError ?? false).toBe(false)
     expect(seen[1]).toEqual({ action: 'project_restore_device', project_id: 'p2', device: 'b', chat_id, expected_chat_id: null })
+    expect((await client.callTool({ name: tool, arguments: { ...args, chat_id: `gugu-chat://${chat_id}`, expected_chat_id: `gugu-chat://${chat_id}` } })).isError).not.toBe(true)
+    expect(seen[2]).toMatchObject({ chat_id, expected_chat_id: chat_id })
+    expect((await client.callTool({ name: tool, arguments: { ...args, chat_id: `gugu-chat://${chat_id}/${chat_id}` } })).isError).toBe(true)
   })
 })
 

@@ -96,7 +96,7 @@ describe('#6492 group_list', () => {
       total: 2,
       rows: '1-2',
       next: null,
-      items: [{ ...rows[0], pinned: false }, { ...rows[1], pinned: true }],
+      items: rows.map((row, index) => ({ ...row, pinned: index === 1, chat_id: `gugu-chat://${row.chat_id}` })),
     })
     expect(h.rpcs).toEqual([{ name: 'list_owner_groups_as', body: { p_as_user_id: SELF } }])
     expect(JSON.parse(await h.call('group_list', { joined: false })).items.map((g: Row) => g.name)).toEqual(['Design'])

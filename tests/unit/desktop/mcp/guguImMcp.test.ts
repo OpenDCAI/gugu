@@ -11,6 +11,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { groupRulesVersion, memoryGroupRulesLedger } from '../../../../packages/core/src/local/agent/groupRulesDelivery'
 import { registerGuguExtensionTools } from '../../../../apps/desktop/electron/mcp/gugu-extension-tool'
 import { registerGuguSessionTools, SESSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-session-tool'
+import { agentSendOf, messageSendTargetOf, replyProcesses, replySend, replySource, sentMessageId, successfulGuguSendMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process'
+import { sendReceipt } from '@gugu/session-core/session-record/send-receipt'
+import type { McpToolCall } from '../../../../packages/session-core/src/acp/models/turns/tool-calls'
+import type { TranscriptTurn } from '../../../../packages/session-core/src/acp/models/turns/turn'
 vi.hoisted(() => {
   process.env.GUGU_AGENT_ID = 'agent-1'
   process.env.GUGU_ACCESS_TOKEN = `x.${Buffer.from(JSON.stringify({ sub: 'owner-1' })).toString('base64url')}.x`
@@ -169,7 +173,7 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
       const row = {
         id: args.message_id, chat_id: args.chat_id, sender_user_id: args.sender_user_id, to_user_ids: args.to_user_ids, thread_root_id: args.thread_root_id ?? null,
         content: `[附件] ${String(args.file_name)} (${type})\n[Size] ${bytes.length}\n[Kind] ${type.startsWith('image/') ? 'image' : 'file'}`,
-        content_type: 'attachment', file_item_id: `item:${String(args.staging_key)}`, file_version: 1, file_blob_id: null,
+        content_type: 'attachment', file_item_id: W_NEW, file_version: 1, file_blob_id: null,
       }
       // 服务端按消息 id 幂等:同一条重放,回同一行,不再多一条。
       if (!calls.inserts.some(([, existing]) => (existing as Record<string, unknown>).id === row.id)) calls.inserts.push(['messages', row])
@@ -254,7 +258,7 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
     attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token', fetch: attachmentsFetch }),
     resolveFile: async (ref: { message_id: string }) => {
       const message = calls.inserts.map(([, row]) => row as Record<string, unknown>).find(row => row.id === ref.message_id)
-      const bytes = stagedBytes.get(String(message?.file_item_id).slice('item:'.length))
+      const bytes = stagedBytes.get(String(commitBodies.find(body => body.message_id === message?.id)?.staging_key))
       return bytes ? verifiedFileHandle(bytes) : { status: 'gone', sha256: null }
     },
   }
@@ -944,11 +948,28 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   test('message_send（成员合法）→ insert messages.text', async () => {
     const h = harness(['agent-1', 'alice'])
     const client = await connect(h.deps)
-    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
-    expect(text(r)).toMatch(/^sent/)
+    const args = { chat_id: 'gugu-chat://00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] }
+    const r = await client.callTool({ name: 'message_send', arguments: args })
+    expect(text(r)).toMatch(/^sent \(id=msg:/)
     expect(h.calls.inserts).toHaveLength(1)
     expect(h.calls.inserts[0][0]).toBe('messages')
     expect((h.calls.inserts[0][1] as Record<string, unknown>).content_type).toBe('text')
+    const id = String((h.calls.inserts[0][1] as Record<string, unknown>).id)
+    const tool: McpToolCall = { kind: 'mcp-tool-call', id: 'send', toolCallId: 'call', seq: 1,
+      title: 'send', tool: 'message_send', server: 'gugu', status: 'done',
+      rawInput: JSON.stringify(args), outputText: text(r) }
+    const record: TranscriptTurn = { id: 'turn', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 'input', seq: 0, role: 'user', text: '<gugu_delivery route="chat" from="Owner" from_id="user:owner" msg="msg:source" chat="00000000-0000-4000-8000-000000000001" chat_kind="group"><![CDATA[Hi]]></gugu_delivery>' }, tool,
+    ] }
+    expect(sentMessageId(tool)).toBe(id)
+    expect(successfulGuguSendMessageId(tool)).toBe(id)
+    expect(sendReceipt(tool.outputText)).toBeNull()
+    expect(agentSendOf(tool, record)).toMatchObject({ text: 'hi', to: { kind: 'chat', conversationId: '00000000-0000-4000-8000-000000000001' } })
+    expect(messageSendTargetOf(tool, record)).toMatchObject({ conversationId: '00000000-0000-4000-8000-000000000001', whisper: false })
+    expect(replySend(tool, replySource(record)!)).toEqual({ text: 'hi' })
+    expect(successfulMessageSend(tool)).toMatchObject({ id, chat: '00000000-0000-4000-8000-000000000001' })
+    expect(replyProcesses([record], '00000000-0000-4000-8000-000000000001').has(id)).toBe(true)
+    process.stdout.write(`[resource-ref-compat] ${JSON.stringify({ output: text(r), tool, record, id, chat: '00000000-0000-4000-8000-000000000001' })}\n`)
     await client.close()
   })
   test('message_send does not post to a group when the readable roster omits the current agent', async () => {
@@ -1946,9 +1967,11 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect(h.deps)
     const r = await client.callTool({ name: 'message_send_file', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', file_name: 'a b.png', file_path: fixtureFile('src.png', Buffer.from([1, 2, 3])), mime_type: 'image/png' } })
     expect(JSON.parse(text(r))).toMatchObject({ status: 'sent', file_name: 'a b.png', source_link: expect.stringMatching(/^gugu-chat:\/\/00000000-0000-4000-8000-000000000001\//) })
+    expect(JSON.parse(text(r))).toMatchObject({ file: `gugu-file://${W_NEW}?v=1`, version: 1 })
+    expect(JSON.parse(text(r))).not.toHaveProperty('ref')
     expect(h.calls.uploads[0][0]).toBe('oss')
     const row = h.calls.inserts[0][1] as Record<string, unknown>
-    expect(row).toMatchObject({ content_type: 'attachment', chat_id: '00000000-0000-4000-8000-000000000001', sender_user_id: 'agent-1', file_item_id: `item:${String(h.calls.uploads[0][1])}` })
+    expect(row).toMatchObject({ content_type: 'attachment', chat_id: '00000000-0000-4000-8000-000000000001', sender_user_id: 'agent-1', file_item_id: W_NEW })
     expect(String(row.content)).toContain('[附件] a b.png')
     await client.close()
   })
@@ -2040,7 +2063,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     // 新式信封:[附件] / [Size] / [Kind] 三行(没有 [URL],字节由消息指着的条目给)。
     expect(String(row.content).split('\n')).toHaveLength(3)
     expect(String(row.content)).toContain(`[Size] ${size}`)
-    expect(row.file_item_id).toBe(`item:${String(h.calls.uploads[0][1])}`)
+    expect(row.file_item_id).toBe(W_NEW)
     await client.close()
   })
   test('message_send_file → commit 被拒:报错原话,没有消息(没提交的上传在服务端过期回收,这里不清)', async () => {
@@ -2692,7 +2715,7 @@ describe('message_send whisper (#6835)', () => {
     const h = harness(['agent-1', 'alice'])
     replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', is_whisper: false }])
     const r = await send(h, { whisper: true, to_user_ids: ['user:alice'], reply_to_message_id: 'msg:m1' })
-    expect(text(r)).toMatch(/^replied/)
+    expect(text(r)).toContain('replied (id=msg:')
     expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'], reply_to_message_id: 'm1' })
   })
 

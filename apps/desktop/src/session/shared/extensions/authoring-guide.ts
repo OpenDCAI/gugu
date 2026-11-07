@@ -258,11 +258,12 @@ Needs \`notifications\`:
 
 Free:
 
-- \`linkTo(target)\` (API 13), desktop/phone/programs → a resource link: \`{ kind: 'chat', chat, message? }\`;
-  \`{ kind: 'file', file, at?, version? }\` (file id or entry); \`{ kind: 'session', session }\`;
-  \`{ kind: 'project', project }\`; \`{ kind: 'app', app?, tab?, path?, query?, chat?, session? }\`.
-  App defaults: yourself, your first tab; at most one chat/session. Stored chat/file links are build-independent;
-  \`external: true\` uses the build scheme for OS invocation (email/browser), as App/session/project links do. Never spell schemes.
+- \`linkTo(target)\` (API 13), all surfaces → URI: \`{kind:'chat',chat,message?}\`;
+  \`{kind:'file',file,at?,version?}\` (id or entry); \`{kind:'session',session}\`;
+  \`{kind:'project',project}\`; \`{kind:'app',app?,tab?,path?,query?,chat?,session?}\`.
+  App defaults: self/first tab; chat/session exclusive. Chat/file links are build-independent;
+  \`external:true\` uses the build scheme for OS invocation, as App/session/project do. Never spell schemes.
+  Workspace file ids replace link: write \`[name](id)\`, escaping [] and backslashes in name.
 - \`openLink(url)\` (API 13), desktop/phone → opens the resource, no capability. Page click/key required (including native \`<a>\` and \`gugu.markdown\`);
   programs/background pages only generate links.
 - \`onLink(fn)\` → \`{ tab, path, query, file }\`: that link, a pill to your file (\`refs\`; \`file\`: id) or (API 7)

@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { conversationLink } from '../../../packages/core/src/shared/ui/guguLink'
 // @ts-expect-error — 注入式 MCP server 是无类型 .mjs;运行时 import 可用。
 import { callTool, RpcHttpError } from '../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
 
@@ -196,14 +197,14 @@ describe('profile_whoami / message_conversations against the migrated database',
     await db.query('UPDATE chat.chat_members SET is_pinned = true WHERE chat_id = $1 AND user_id = $2', [ownGroup, owner])
     const conversations = ((await call('message_conversations', {})) as { items: Array<{ id: string; kind: string; pinned: boolean }> }).items
     const ids = conversations.map((row) => row.id)
-    expect(ids).toEqual(expect.arrayContaining([ownGroup, ownerLeft]))
-    expect(ids).not.toContain(notMine)
+    expect(ids.sort()).toEqual([ownGroup, ownerLeft].map(id => conversationLink(id)).sort())
+    expect(ids).not.toContain(conversationLink(notMine))
     expect(Object.keys(conversations[0]!).sort()).toEqual(
       ['id', 'kind', 'last_message_at', 'last_message_preview', 'name', 'pinned', 'public_id', 'status'],
     )
     const pinnedById = new Map(conversations.map((row) => [row.id, row.pinned]))
-    expect(pinnedById.get(ownGroup)).toBe(true)
-    expect(pinnedById.get(ownerLeft)).toBe(false)
+    expect(pinnedById.get(conversationLink(ownGroup))).toBe(true)
+    expect(pinnedById.get(conversationLink(ownerLeft))).toBe(false)
   })
 
   it('#84 主人与当前好友的私聊在列(主人的备注作名字),按主人读得到;与陌生人的私聊不在列', async () => {
@@ -221,9 +222,9 @@ describe('profile_whoami / message_conversations against the migrated database',
 
     const call = tools(owner, self)
     const dms = ((await call('message_conversations', { kind: 'dm' })) as { items: Array<Record<string, unknown>> }).items
-    expect(dms.map((row) => row.id)).toEqual([friendDm])
+    expect(dms.map((row) => row.id)).toEqual([conversationLink(friendDm)])
     expect(dms[0]).toMatchObject({ owner_dm: true, friend_user_id: `user:${friend}`, friend_display_name: 'Friend', name: 'Old Wang' })
-    expect(dms.map((row) => row.id)).not.toContain(strangerDm)
+    expect(dms.map((row) => row.id)).not.toContain(conversationLink(strangerDm))
 
     const history = (await call('message_history', { chat_id: friendDm })) as Array<{ content: string }>
     expect(history.map((row) => row.content)).toContain('see you at noon')

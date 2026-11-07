@@ -12,6 +12,9 @@ const ITEM = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 const rendered = (link: string) => link.replace(/[^ -~]/gu, (c) => encodeURIComponent(c))
 
 describe('gugu-file links (F10, F112)', () => {
+  it('refuses to serialize a working-copy path or an opaque id as a folder-file UUID', () => {
+    for (const id of ['src/a.ts', 'item-1', '']) expect(() => groupFileLink(id)).toThrow('item UUID')
+  })
   it('reads the item, whatever the case and a trailing slash or spaces', () => {
     expect(parseGroupFileLink(`gugu-file://${ITEM}`)).toEqual({ itemId: ITEM })
     expect(parseGroupFileLink(` GUGU-FILE://${ITEM.toUpperCase()}/ `)).toEqual({ itemId: ITEM })

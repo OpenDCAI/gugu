@@ -15,9 +15,9 @@ vi.mock('@gugu/core/cloud/deviceRuntime', () => ({ readCachedDeviceId: mocks.dev
 
 const { turnFileText, prefetchFiles } = await import('./turn-files');
 
-const doc: TurnFileRef = { itemId: 'item-doc', version: 2, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 12, path: '/Users/me/brief.txt' };
-const png: TurnFileRef = { itemId: 'item-png', version: 1, name: 'shot.png', mimeType: 'image/png', sizeBytes: 3, path: '/Users/me/shot.png' };
-const heic: TurnFileRef = { itemId: 'item-heic', version: 1, name: 'shot.heic', mimeType: 'image/heic', sizeBytes: 3, path: '/Users/me/shot.heic' };
+const doc: TurnFileRef = { itemId: '0d000000-0000-4000-8000-000000000001', version: 2, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 12, path: '/Users/me/brief.txt' };
+const png: TurnFileRef = { itemId: '0d000000-0000-4000-8000-000000000002', version: 1, name: 'shot.png', mimeType: 'image/png', sizeBytes: 3, path: '/Users/me/shot.png' };
+const heic: TurnFileRef = { itemId: '0d000000-0000-4000-8000-000000000003', version: 1, name: 'shot.heic', mimeType: 'image/heic', sizeBytes: 3, path: '/Users/me/shot.heic' };
 /** A resolved, authorized handle: where the resolver says the version is kept, read by the agent of `owner`. */
 const resolved = (source: 'local' | 'managed-object', host_device_id = 'this-device') => ({
   status: 'ready' as const, revision: { source, host_device_id }, reader: { accountId: 'owner', actorId: 'agent-1' },
@@ -82,12 +82,12 @@ describe('turnFileText (P3 task turn attachments)', () => {
     mocks.resolveAccountFile.mockResolvedValue(here);
     const { text, images } = await turnFileText('task-1', [doc], true);
     expect(mocks.agentOf).toHaveBeenCalledWith('task-1', expect.anything());
-    expect(mocks.resolveAccountFile).toHaveBeenCalledWith({ id: 'item-doc' }, 'agent-1', { version: 2 });
+    expect(mocks.resolveAccountFile).toHaveBeenCalledWith({ id: '0d000000-0000-4000-8000-000000000001' }, 'agent-1', { version: 2 });
     expect(mocks.deviceId).toHaveBeenCalledWith(expect.anything(), 'owner');
     expect(here.dispose).toHaveBeenCalled();
     expect(mocks.saveFileHandle).not.toHaveBeenCalled();
     expect(text.split('\n')[0]).toContain('brief.txt');
-    expect(text).toContain('gugu-file://item-doc?v=2');
+    expect(text).toContain('gugu-file://0d000000-0000-4000-8000-000000000001?v=2');
     expect(text).toContain('[File saved at local path: /Users/me/brief.txt]');
     expect(images).toEqual([]);
   });
@@ -115,7 +115,7 @@ describe('turnFileText (P3 task turn attachments)', () => {
     mocks.resolveAccountFile.mockResolvedValue({ status: 'gone', sha256: null });
     const { text, images } = await turnFileText('task-1', [png], true);
     expect(text.split('\n')[0]).toBe('[Image attached: shot.png]');
-    expect(text).toContain('gugu-file://item-png?v=1');
+    expect(text).toContain('gugu-file://0d000000-0000-4000-8000-000000000002?v=1');
     expect(text).toContain('[Image not saved: File is no longer available]');
     expect(images).toEqual([]);
   });

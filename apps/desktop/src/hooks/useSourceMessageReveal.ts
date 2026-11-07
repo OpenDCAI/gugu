@@ -14,8 +14,9 @@ const taskKey = (sessionId: string) => `task:${sessionId}`
 export function askTaskReveal(sessionId: string, reference: string): void {
   askReveal(taskKey(sessionId), reference)
 }
-export function takeTaskReveal(sessionId: string): string | undefined {
+export function takeTaskReveal(sessionId: string, expected?: string): string | undefined {
   const asked = JSON.stringify(['primary', taskKey(sessionId)]), reference = askedReveals.get(asked)
+  if (expected !== undefined && reference !== expected) return undefined
   askedReveals.delete(asked)
   return reference
 }

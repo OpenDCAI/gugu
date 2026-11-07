@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { conversationLink } from '../../../packages/core/src/shared/ui/guguLink'
 // @ts-expect-error — 注入式 MCP server 是无类型 .mjs;运行时 import 可用。
 import { callTool, RpcHttpError } from '../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
 
@@ -121,13 +122,13 @@ describe('#6835 whispers in an agent\'s own view, against the migrated database'
 
     const a = toolsAs(r, r.a)
     const b = toolsAs(r, r.b)
-    // 工具对外给 typed id(msg:<uuid>)。
+    // Primary message IDs are reusable conversation URIs; hidden IDs must remain absent.
     const ids = (rows: Array<{ id: string }>) => rows.map((row) => row.id).sort()
-    const typed = (...raw: string[]) => raw.map((id) => `msg:${id}`).sort()
-    expect(ids(await a.read('message_history'))).toEqual(typed(open, toA))
-    expect(ids(await b.read('message_history'))).toEqual(typed(open))
-    expect(ids(await a.read('message_search', { query: 'psst 6835' }))).toEqual(typed(open, toA))
-    expect(ids(await b.read('message_search', { query: 'psst 6835' }))).toEqual(typed(open))
+    const links = (...raw: string[]) => raw.map((id) => conversationLink(r.group, id)).sort()
+    expect(ids(await a.read('message_history'))).toEqual(links(open, toA))
+    expect(ids(await b.read('message_history'))).toEqual(links(open))
+    expect(ids(await a.read('message_search', { query: 'psst 6835' }))).toEqual(links(open, toA))
+    expect(ids(await b.read('message_search', { query: 'psst 6835' }))).toEqual(links(open))
     // 不留占位、不透露:B 的结果里连那几条的 id 都没有。
     for (const hidden of [toA, toOwner]) expect(JSON.stringify(await b.read('message_history'))).not.toContain(hidden)
     expect(JSON.stringify(await a.read('message_history'))).not.toContain(toOwner)

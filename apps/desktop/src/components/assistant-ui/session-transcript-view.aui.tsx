@@ -38,6 +38,7 @@ function SessionTranscriptContent({
   onVisibleItems,
   onAtBottomChange,
   onReady,
+  onDisposed,
   activeTurnId,
   pendingPrompt,
   pendingMessages,
@@ -58,6 +59,7 @@ function SessionTranscriptContent({
   pendingPrompt?: import('@gugu/session-chat-ui').PendingPrompt | null
   pendingMessages?: readonly import('@gugu/session-chat-ui').PendingPrompt[]
   onReady?: import('@renderer/lib/chat/chat-transcript').ChatTranscriptProps['onReady']
+  onDisposed?: import('@renderer/lib/chat/chat-transcript').ChatTranscriptProps['onDisposed']
   onAtBottomChange?: (atBottom: boolean) => void
   onVisibleItems?: (ids: readonly string[]) => void
   /** 此刻还在跑的后台任务(宿主算好的两份名单);不给 = 没有。 */
@@ -120,6 +122,7 @@ function SessionTranscriptContent({
       onVisibleItems={onVisibleItems}
       onAtBottomChange={onAtBottomChange}
       onReady={onReady}
+      onDisposed={onDisposed}
       composer="none"
       stickToBottom
       layout={layout ?? defaultLayout}

@@ -4,13 +4,14 @@
 // 「域」是架构一等公民(#4191),边界靠模块划分,不靠 server 拓扑。
 //
 // 这里也是 agent 与宿主之间的 id 边界(id 收敛第三刀,见 typedId.mjs):agent 看到的每个 id 都带类型
-// (`session:` / `project:` / `msg:`),传进来的 id 也必须带对类型——裸 UUID 或类型不符当场报错,
-// 而不是静默 not found。宿主内部(编排层、DB)照旧裸 UUID;编解码只在这一层做一次。
+// (`session:` / `project:` / `msg:`)。消息也收资源 URI;其余 typed id 规则不变。
+// 宿主内部(编排层、DB)照旧裸 UUID;消息 URI 留到读取时核对 chat 和 message。
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { appendFileSync } from 'node:fs'
 import type { z } from 'zod'
 import { TYPED_ID_KINDS, decodeTypedId, type TypedIdKind } from '@gugu/core/shared/typedId.mjs'
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { encodeResult, withPictures } from './sessionpage-tool-result'
 export { withPictures } from './sessionpage-tool-result'
 import { registerGuguTool } from './register-gugu-tool.mjs'
@@ -53,6 +54,12 @@ async function eachWindowed(spec: SessionpageListSpec, windowed: unknown, call: 
  *  `to`（session_message 的 union 寻址）是例外：条目保持 typed 传给宿主分派器，由它按前缀拆分两条腿。 */
 function decodeAction(action: SessionDispatchAction): SessionDispatchAction {
   const out: SessionDispatchAction = { ...action }
+  for (const field of ['chat_id', 'expected_chat_id']) {
+    if (typeof out[field] !== 'string') continue
+    const link = parseGuguLink(out[field])
+    if (link?.kind === 'chat' && !link.messageId) out[field] = link.chatId
+    else if (/^gugu(?:-[a-z0-9-]+)?:\/\//i.test(out[field])) throw new Error(`${field} requires a conversation link, not a message or another resource`)
+  }
   if (typeof out.project_id === 'string') out.project_id = decodeTypedId('project', out.project_id, 'project_id')
   if (typeof out.source_project_id === 'string') out.source_project_id = decodeTypedId('project', out.source_project_id, 'source_project_id')
   if (typeof out.device === 'string') out.device = decodeTypedId('device', out.device, 'device')
@@ -79,7 +86,9 @@ function decodeAction(action: SessionDispatchAction): SessionDispatchAction {
     out.parent_session_id = decodeTypedId('session', out.parent_session_id, 'parent_session_id')
   }
   if (typeof out.message_id === 'string') {
-    out.message_id = decodeTypedId('msg', out.message_id, 'message_id')
+    const link = parseGuguLink(out.message_id)
+    // Keep the URI until its message reader can also verify its chat, rather than losing that target here.
+    if (!(link?.kind === 'chat' && link.messageId)) out.message_id = decodeTypedId('msg', out.message_id, 'message_id')
   }
   return out
 }

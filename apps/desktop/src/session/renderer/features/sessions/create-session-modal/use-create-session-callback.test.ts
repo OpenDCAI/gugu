@@ -120,7 +120,7 @@ function Probe({
 }
 
 function attachFirstFile() {
-  const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+  const ref = { itemId: '0d000000-0000-4000-8000-000000000001', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
   const chip = { id: 'file', name: ref.name, kind: 'file' as const };
   initialSession.promptCapability = { kind: 'none', startupDelivery: 'startup-prompt' };
   initialSession.attachments = [chip];
@@ -360,7 +360,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
   });
 
   it.each([undefined, 'chat-target'])('PTY startup only includes a local path outside a chat task card (chat=%s)', async taskChatId => {
-    const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3, path: '/private/brief.txt' };
+    const ref = { itemId: '0d000000-0000-4000-8000-000000000001', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3, path: '/private/brief.txt' };
     initialSession.sessionView = 'code';
     initialSession.sessionpage = { 'tui': { identity: 'addressable', messageTransport: 'local-session' } };
     initialSession.promptCapability = { kind: 'argv', startupDelivery: 'startup-prompt' };
@@ -373,7 +373,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
       const prompt = mocks.createSession.mock.calls.at(-1)?.[0].sessionConfig.initialSession.initialPrompt as string;
       expect(prompt).toContain('make one task');
       expect(prompt).toContain('brief.txt');
-      expect(prompt).toContain('gugu-file://brief?v=1');
+      expect(prompt).toContain('gugu-file://0d000000-0000-4000-8000-000000000001?v=1');
       if (taskChatId) {
         expect(prompt).not.toContain(ref.path);
         expect(prompt).toContain('not saved');
@@ -504,7 +504,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'project-1', sessionId: mocks.createSession.mock.calls[0]![0].sessionConfig.initialSession.id });
   });
   it.each([true, false])('keeps the first turn deferred until attachment placement finishes (placed=%s)', async placed => {
-    const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+    const ref = { itemId: '0d000000-0000-4000-8000-000000000001', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
     let finish!: (value: typeof ref[] | null) => void;
     initialSession.promptCapability = { kind: 'none', startupDelivery: 'startup-prompt' };
     initialSession.attachments = [{ id: 'file', name: ref.name, kind: 'file' }];
@@ -566,7 +566,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     initialSession.promptCapability = { kind: 'keystroke' };
     await act(async () => root.render(React.createElement(Probe)));
     await act(async () => latest?.handleCreateSession());
-    expect(mocks.localSendMessage.mock.calls[0]?.[0].text).toContain('gugu-file://brief?v=1');
+    expect(mocks.localSendMessage.mock.calls[0]?.[0].text).toContain('gugu-file://0d000000-0000-4000-8000-000000000001?v=1');
     expect(initialSession.prompt).toBe('');
   });
 
