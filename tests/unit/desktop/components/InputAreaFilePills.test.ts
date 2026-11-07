@@ -9,8 +9,9 @@ import { chatStore, createReactHarness } from '../../../support/testHarness'
 import { APP_COMPOSE_EVENT, type AppComposeDetail } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { filePillText } from '../../../../apps/desktop/src/components/markdown/filePills'
 
-const { toastMock } = vi.hoisted(() => ({ toastMock: vi.fn() }))
+const { toastMock, notifyMock } = vi.hoisted(() => ({ toastMock: vi.fn(), notifyMock: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast: toastMock }) }))
+vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: notifyMock }))
 
 const DECK = 'gugu-file://0c000000-0000-4000-8000-0000000000a1?v=7#slide=3&shape=12'
 const SHEET = 'gugu-file://0c000000-0000-4000-8000-0000000000a2?v=2#range=销售!B2:D4'
@@ -86,6 +87,7 @@ async function draft(text: string) {
 beforeEach(() => {
   setLocalePreference('zh-CN')
   toastMock.mockClear()
+  notifyMock.mockClear()
   harness = createReactHarness()
   container = harness.container
 })
@@ -172,7 +174,7 @@ describe('file citations share the composer document with the words', () => {
     await send()
     expect(readComposer(textarea())).toBe(text)
     expect(pills()).toHaveLength(2)
-    expect(toastMock).toHaveBeenCalledWith('发送失败：offline', 'error')
+    expect(notifyMock).toHaveBeenCalledWith({ tier: 'error', title: '消息没发出去：发送未完成，请稍后重新发送' })
   })
 
   it('restores a failed send to its original chat without leaking into another draft', async () => {
