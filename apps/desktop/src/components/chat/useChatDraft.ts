@@ -15,6 +15,8 @@ export interface PendingAttachment {
   file: File
   previewUrl: string | null
   kind: AttachmentKind
+  // A phone photo that compressed smaller: `file` is one of the two, the chip's quality switch picks which.
+  photo?: { original: File; compressed: File }
 }
 
 // Stable empty singletons — the sync effect skips a dimension by reference-equality, so an empty store slot

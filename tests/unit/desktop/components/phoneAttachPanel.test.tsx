@@ -2,8 +2,11 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
-import { NATIVE_BACK_EVENT } from '@/components/ui/sheetStack'
 import { clickElement, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+
+// jsdom has no image decoder; only big.png compresses here. The real encoder has its own browser test.
+const compressed = new File(['s'], 'big.jpg', { type: 'image/jpeg' })
+vi.mock('@/components/chat/compressPhoto', () => ({ compressPhoto: async (file: File) => file.name === 'big.png' ? compressed : file }))
 
 let harness: ReturnType<typeof createReactHarness>
 const width = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
@@ -11,8 +14,6 @@ beforeEach(() => {
   harness = createReactHarness()
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:photo'), revokeObjectURL: vi.fn() }))
-  // jsdom has no image decoder: this stands for a format the device cannot decode (the file goes as it is).
-  vi.stubGlobal('createImageBitmap', vi.fn(async () => { throw new Error('undecodable') }))
 })
 afterEach(() => { harness.cleanup(); Object.defineProperty(window, 'innerWidth', width); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -46,32 +47,39 @@ describe('phone "+" panel (owner 11-05: photos and files are two different thing
     expect([camera.accept, camera.getAttribute('capture')]).toEqual(['image/*', 'environment'])
     expect([file.accept, file.multiple]).toEqual(['', true])
   })
-  it('sends picked photos from the preview page in one batch with the caption, compressed unless Original is on', async () => {
-    const onSendAttachments = await mount()
-    const photos = q<HTMLInputElement>('input[accept="image/*"][multiple]')!
-    const a = new File(['a'], 'a.png', { type: 'image/png' }), b = new File(['b'], 'b.png', { type: 'image/png' })
-    await pick(photos, [a, b])
-    expect(q('[data-testid="chat-photo-preview"]')).not.toBeNull()
-    expect(q('[data-testid="chat-photo-original"]')?.getAttribute('aria-checked'), 'Original is off by default').toBe('false')
-    const caption = q<HTMLInputElement>('.gg-phone-photos-caption')!
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(caption, 'look')
-      caption.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    await clickElement(q('[data-testid="chat-photo-send"]')!)
+  const tray = () => q('[data-chat-composer-host]')!.textContent
+  const submit = async () => {
+    await clickElement(q('[data-slot="composer-actions-end"] [data-slot="button"]')!)
     await act(async () => { await Promise.resolve() })
-    expect(onSendAttachments).toHaveBeenCalledExactlyOnceWith([a, b], expect.objectContaining({ caption: 'look' }))
-    expect(q('[data-testid="chat-photo-preview"]')).toBeNull()
-  })
-  it('drops one photo from the strip, and the back key cancels the whole pick', async () => {
+  }
+  it('adds picked photos to the composer tray; only the composer send sends them, in one batch', async () => {
     const onSendAttachments = await mount()
-    const photos = q<HTMLInputElement>('input[accept="image/*"][multiple]')!
-    await pick(photos, [new File(['a'], 'a.png', { type: 'image/png' }), new File(['b'], 'b.png', { type: 'image/png' })])
-    expect(q('[data-testid="chat-photo-send"]')?.textContent).toBe('发送(2)')
-    await clickElement(document.querySelectorAll<HTMLElement>('.gg-phone-photos-remove')[0])
-    expect(q('[data-testid="chat-photo-send"]')?.textContent).toBe('发送(1)')
-    await act(async () => { window.dispatchEvent(new Event(NATIVE_BACK_EVENT)) })
-    expect(q('[data-testid="chat-photo-preview"]')).toBeNull()
+    const a = new File(['a'], 'a.png', { type: 'image/png' }), b = new File(['b'], 'b.png', { type: 'image/png' })
+    await pick(q<HTMLInputElement>('input[accept="image/*"][multiple]')!, [a, b])
+    expect(document.querySelector('[role="dialog"]'), 'no page opens over the composer').toBeNull()
+    expect(tray()).toContain('a.png')
+    expect(tray()).toContain('b.png')
     expect(onSendAttachments).not.toHaveBeenCalled()
+    await submit()
+    expect(onSendAttachments).toHaveBeenCalledExactlyOnceWith([a, b], expect.anything())
+  })
+  it('takes a camera shot into the tray too', async () => {
+    const onSendAttachments = await mount()
+    await pick(q<HTMLInputElement>('input[capture="environment"]')!, [new File(['c'], 'c.png', { type: 'image/png' })])
+    expect(tray()).toContain('c.png')
+    expect(onSendAttachments).not.toHaveBeenCalled()
+  })
+  it('sends the compressed photo unless the chip is switched to the original', async () => {
+    const onSendAttachments = await mount()
+    const big = new File(['big'], 'big.png', { type: 'image/png' })
+    await pick(q<HTMLInputElement>('input[accept="image/*"][multiple]')!, [big])
+    await act(async () => { await Promise.resolve() })
+    expect(tray()).toContain('big.jpg')
+    await clickElement(q('[aria-label="发原图"]')!)
+    expect(tray()).toContain('big.png')
+    await clickElement(q('[aria-label="用压缩图"]')!)
+    await clickElement(q('[aria-label="发原图"]')!)
+    await submit()
+    expect(onSendAttachments).toHaveBeenCalledExactlyOnceWith([big], expect.anything())
   })
 })
