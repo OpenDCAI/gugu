@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 // @vitest-environment jsdom
-// 全局设置「咕咕 → 连接应用 · 云端」那一段(会话页画,资源库「集成」的同一份数据):已连接 / 可用两组,点一行进详情,
-// 详情的主按钮开的是同一个连接弹窗;读不到如实说读不到,❌ 画空列表。
+// Global settings uses the shared All apps / My connections directory. Rows open
+// the existing detail and setup flows; failed reads must remain distinguishable from empty data.
 import { act, createElement } from 'react'
 import { observable, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
+import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 import { useAssistantPanelPage } from '../../../../apps/desktop/src/lib/assistantPanelPage'
 
@@ -67,8 +67,10 @@ const state = (over: Record<string, unknown> = {}) => ({
 
 let harness: ReturnType<typeof createReactHarness>
 let queryClient: QueryClient
-const renderNode = (node: ReactNode) => harness.render(createElement(QueryClientProvider,{ client: queryClient },node))
+let accountSequence = 0
+const renderNode = (node: ReactNode) => renderWithAppProviders(harness, createElement(QueryClientProvider,{ client: queryClient },node), { auth: { id: `connector-settings-test-${accountSequence}` } })
 beforeEach(() => {
+  accountSequence += 1
   harness = createReactHarness()
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false,gcTime: 0 } } })
   remoteState.device = observable({ isOnline: true, lastSeenAt: null, hostKind: 'cloud' })
@@ -88,14 +90,16 @@ describe('咕咕 · 连接应用 · 云端', () => {
     await act(async () => { runInAction(() => { remoteState.device!.isOnline = false }) })
     expect(q('assistant-connector-feishu')).not.toBeNull()
   })
-  it('已连接的在上、可用的在下,一行一家;已连接那行说出连的是谁', async () => {
+  it('shows the complete compact directory and separates saved connections in My connections', async () => {
     integrations.value = state()
     await render()
+    const all = q('assistant-connectors-all')!
+    expect([...all.querySelectorAll('.gg-settings-row-title')].map((el) => el.textContent)).toEqual(['飞书', 'GitHub', 'Notion', '微信'])
+    await clickElement([...harness.container.querySelectorAll<HTMLElement>('[role="tab"]')].find(el => el.textContent === '我的连接')!)
     const connected = q('assistant-connectors-connected')!
-    const available = q('assistant-connectors-available')!
     expect([...connected.querySelectorAll('.gg-settings-row-title')].map((el) => el.textContent)).toEqual(['飞书'])
     expect(connected.textContent).toContain('日程与文档')
-    expect([...available.querySelectorAll('.gg-settings-row-title')].map((el) => el.textContent)).toEqual(['GitHub', 'Notion', '微信'])
+    expect(q('assistant-connector-notion')).toBeNull()
   })
 
   it('点一行进详情:没连的主按钮是「连接」,GitHub 走它自己的弹窗,其余走通用设置弹窗;「连接应用」回列表', async () => {
@@ -109,7 +113,7 @@ describe('咕咕 · 连接应用 · 云端', () => {
     expect(showGitHub).toHaveBeenCalledTimes(1)
     expect(showSetup).not.toHaveBeenCalled()
     await clickElement(q('assistant-connector-back')!)
-    expect(q('assistant-connectors-available')).not.toBeNull()
+    expect(q('assistant-connectors-all')).not.toBeNull()
     await clickElement(q('assistant-connector-notion')!)
     await clickElement(q('assistant-connector-connect')!)
     expect(showSetup).toHaveBeenCalledWith(expect.objectContaining({ integration: 'notion' }))
@@ -191,10 +195,9 @@ describe('咕咕 · 连接应用 · 住在电脑上(非会员)', () => {
     expect(q('toolbar-back')).toBeNull()
   })
 
-  it('账号授权明确写保存设备MacBook,详情说明当前电脑可用,不写云端', async () => {
+  it('keeps authorization custody in the detail for the current computer', async () => {
     integrations.value = state()
     await renderNode(createNode(HomeConnectorsSettings, { home: here, assistantName: '小咕' }))
-    expect(harness.container.textContent).toContain('授权保存在：MacBook（本机）')
     expect(harness.container.textContent).not.toContain('云端')
     await clickElement(q('assistant-connector-feishu')!)
     const detail = q('assistant-connector-detail')!

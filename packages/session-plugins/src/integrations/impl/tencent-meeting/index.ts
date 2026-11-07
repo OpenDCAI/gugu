@@ -4,7 +4,8 @@ import { verifyCliConnectionRecord } from '../../helpers/cli-connection';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 
 const plugin = defineIntegrationPlugin({
-  id: 'tencent-meeting', name: summary.name['zh-CN'], websiteUrl: 'https://meeting.tencent.com',
+  id: 'tencent-meeting',
+    catalog: summary.catalog, name: summary.name['zh-CN'], websiteUrl: 'https://meeting.tencent.com',
   description: summary.description,
   abilities: [
     { en: 'Find and manage your meetings', 'zh-CN': '查询和管理你的会议' },
