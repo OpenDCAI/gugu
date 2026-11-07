@@ -1,3 +1,5 @@
+import {parseConnectionOperationStatus,type ConnectionOperationStatus} from './connectionOperationStatus'
+import {parseNativeConnectionAttempt} from './connectionAttempts'
 /** Owner connection metadata. Credentials and third-party authorization stay in
  * their existing stores/services; this protocol never accepts an assistant ID. */
 export type ConnectionTransport = (name: string, args: Record<string, unknown>) => Promise<{
@@ -11,7 +13,7 @@ export type ConnectionItem = {
 }
 export type ConnectionApplication = Omit<ConnectionChange, 'payload'>
 export type ConnectionAuthority = {
-  version: 1; mode: 'legacy' | 'owner'; epoch: string; phase: 'stable' | 'quiescing'; acceptingNewOperations: boolean
+  verificationProtocol?:1|2; version: 1; mode: 'legacy' | 'owner'; epoch: string; phase: 'stable' | 'quiescing'; acceptingNewOperations: boolean
 }
 
 export type ConnectionSnapshot = { version: 1; revision: string } & (
@@ -20,6 +22,7 @@ export type ConnectionSnapshot = { version: 1; revision: string } & (
 )
 export type ConnectionOperation = 'save' | 'remove' | 'enable' | 'disable' | 'prepared' | 'error'
 export type ConnectionChange = {
+  resolution?:ConnectionOperationStatus['resolution'];effective?:ConnectionOperationStatus['effective'];confirmation?:ConnectionOperationStatus['confirmation'];
   operationId: string; requestHash: string; scopeKey: string; resourceKey: string; deviceId: string | null
   revision: string; expectedItemRevision: string; operation: ConnectionOperation; payload: Record<string, unknown>
   status: 'pending' | 'started' | 'failed'; errorCode: string | null; terminal: boolean; admissionId: string | null; startedAt: string | null
@@ -95,6 +98,13 @@ function parseApplication(value: unknown): ConnectionApplication {
     || !nullableString(value.startedAt) || value.admissionId !== null && !uuid(value.admissionId)
     || value.status === 'started' && (value.admissionId === null || value.startedAt === null)
     || !nullableString(value.errorCode) || typeof value.terminal !== 'boolean') return invalid()
+  if(value.effective!==undefined){
+    const e=value.effective,r=value.resolution
+    if(!object(e)||!['confirming','succeeded','failed','cancelled'].includes(String(e.state))||typeof e.blocksNewOperations!=='boolean'
+      ||e.blocksNewOperations!==(e.state==='confirming')||!['confirming','connected','disconnected','failed'].includes(String(e.connectionState))
+      ||r!==null&&(!object(r)||!['applied','failed','cancelled'].includes(String(r.outcome))||typeof r.resolvedAt!=='string'))return invalid()
+    if(r===null&&e.state!=='confirming'&&value.errorCode==='CONNECTION_OUTCOME_UNKNOWN')return invalid()
+  }
   return value as ConnectionApplication
 }
 export function parseConnectionSnapshot(value: unknown): ConnectionSnapshot {
@@ -138,11 +148,26 @@ export function createConnectionClient(transport: ConnectionTransport, accountId
     return result
   }
   return {
+    cancelAuthorization:(operationId:string)=>request('connection_authorization_cancel',{p_operation_id:operationId},value=>value===null?null:parseConnectionOperationStatus(value,operationId)),
     authority: () => request('connection_authority',{},value => {
       if (!object(value) || value.version !== 1 || !['legacy','owner'].includes(String(value.mode)) || !revision(value.epoch)
+        ||value.verificationProtocol!==undefined&&value.verificationProtocol!==1&&value.verificationProtocol!==2
         || !['stable','quiescing'].includes(String(value.phase)) || typeof value.acceptingNewOperations !== 'boolean'
         || value.phase === 'quiescing' && value.acceptingNewOperations) return invalid()
       return value as ConnectionAuthority
+    }),
+    inspectAttempt:(runtimeInstanceId:string,operationId:string)=>request('connection_attempt_inspect',{p_runtime_instance_id:runtimeInstanceId,p_operation_id:operationId},value=>{
+      if(value===null)return null
+      const attempt=parseNativeConnectionAttempt(value,invalid)
+      if(attempt.operationId!==operationId||attempt.ownerId!==accountId())return invalid()
+      return attempt
+    }),
+    prepareAttempt: (runtimeInstanceId:string,operationId:string,epoch:string) => request('connection_attempt_prepare',{
+      p_runtime_instance_id:runtimeInstanceId,p_operation_id:operationId,p_epoch:epoch,
+    },value=>{
+      const attempt=parseNativeConnectionAttempt(value,invalid)
+      if(attempt.operationId!==operationId||attempt.ownerId!==accountId()||attempt.authorityEpoch!==epoch)return invalid()
+      return attempt
     }),
     snapshot: (deviceId: string | null = null) => request('connection_snapshot',{ p_device_id: deviceId },parseConnectionSnapshot),
     resource: (scopeKey: string, resourceKey: string) => request('connection_resource',{ p_scope_key: scopeKey,p_resource_key: resourceKey },async value => {

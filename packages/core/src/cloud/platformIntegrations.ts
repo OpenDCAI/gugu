@@ -1,3 +1,4 @@
+import {parseConnectionAuthorizationResult,parseConnectionOperationStatus,type ConnectionAuthorizationResult,type ConnectionOperationStatus} from './connectionOperationStatus'
 /**
  * #921 人自己填的凭据(key / token,高德先上)由平台保管:管家 `/integrations` 接口的客户端。
  * 人在一台设备上填一次,平台加密存着;他的每台设备(含云电脑)都经平台的 MCP 转发口用它,凭据 ❌ 回到任何设备。
@@ -144,6 +145,11 @@ export function isPlatformServiceMissing(error: unknown): boolean {
 }
 
 export type PlatformIntegrationsClient = {
+  connectOperation?(provider:string,operationId:string,epoch:string,fields:Record<string,string>,signal?:AbortSignal):Promise<ConnectionAuthorizationResult>
+  beginOAuthOperation?(provider:string,operationId:string,epoch:string,signal?:AbortSignal):Promise<{operationId:string;authorizationUrl:string;expiresAt:number}>
+  cancelOperation?(operationId:string,signal?:AbortSignal):Promise<ConnectionOperationStatus>
+  operationStatus?(operationId:string,signal?:AbortSignal):Promise<ConnectionOperationStatus>
+
   beginOAuth?(provider: string, signal?: AbortSignal): Promise<{ attemptId: string; authorizationUrl: string; expiresAt: number }>
   oauthStatus?(provider: string, attemptId: string, signal?: AbortSignal): Promise<{ state: 'pending' | 'connected' | 'failed'; error?: string }>
   cancelOAuth?(provider: string, attemptId: string, signal?: AbortSignal): Promise<void>
@@ -293,6 +299,19 @@ export function createPlatformIntegrationsClient(options: {
     deleteCredential: async (provider, signal) => {
       await request('DELETE', `${providerPath(provider)}/credential`, undefined, signal)
     },
+    connectOperation:async(provider,operationId,epoch,fields,signal)=>parseConnectionAuthorizationResult(json((await request('POST',
+      `${providerPath(provider)}/connect-operation`,{operationId,epoch,fields},signal)).raw,'POST connect-operation'),operationId),
+    beginOAuthOperation:async(provider,operationId,epoch,signal)=>{
+      const value=json((await request('POST',`${providerPath(provider)}/oauth/start-operation`,{operationId,epoch},signal)).raw,'POST oauth/start-operation') as Record<string,unknown>|null
+      if(!value||value.operationId!==operationId||typeof value.authorizationUrl!=='string'||!Number.isSafeInteger(value.expiresAt))throw badResponse('POST oauth/start-operation')
+      const url=new URL(value.authorizationUrl)
+      if(url.protocol!=='https:'||url.username||url.password)throw badResponse('POST oauth/start-operation')
+      return{operationId,authorizationUrl:value.authorizationUrl,expiresAt:value.expiresAt as number}
+    },
+    cancelOperation:async(operationId,signal)=>parseConnectionOperationStatus(json((await request('POST',
+      `${options.baseUrl}/integrations/operations/${encodeURIComponent(operationId)}/cancel`,undefined,signal)).raw,'POST cancel operation'),operationId),
+    operationStatus:async(operationId,signal)=>parseConnectionOperationStatus(json((await request('GET',
+      `${options.baseUrl}/integrations/operations/${encodeURIComponent(operationId)}`,undefined,signal)).raw,'GET operation status'),operationId),
     disconnectOperation: async (provider, operationId, expectedHeadRevision, signal) =>
       parsePlatformConnectionReceipt(json((await request('POST', `${providerPath(provider)}/disconnect-operation`,
         { operationId, expectedHeadRevision }, signal)).raw, 'POST disconnect-operation'), operationId),

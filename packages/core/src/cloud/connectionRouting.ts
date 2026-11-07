@@ -32,10 +32,10 @@ export function createConnectionRouting(input: {
     if (previous && BigInt(previous.epoch) > BigInt(route.epoch)) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
     if (previous?.epoch === route.epoch && previous.mode !== route.mode) throw new ConnectionError('invalid-response','CONNECTION_ROUTING_INVALID')
     const value = previous && previous.epoch === route.epoch && previous.mode === route.mode && previous.phase === route.phase
-      && previous.acceptingNewOperations === route.acceptingNewOperations ? previous : Object.freeze({ ...route })
+      && previous.acceptingNewOperations === route.acceptingNewOperations && (previous.verificationProtocol??1) === (route.verificationProtocol??1) ? previous : Object.freeze({ ...route })
     cached.set(ownerId,value)
     if (previous?.epoch !== value.epoch || previous?.mode !== value.mode || previous.phase !== value.phase
-      || previous.acceptingNewOperations !== value.acceptingNewOperations) input.changed(ownerId,value)
+      || previous.acceptingNewOperations !== value.acceptingNewOperations || (previous?.verificationProtocol??1) !== (value.verificationProtocol??1)) input.changed(ownerId,value)
     return value
   }
   async function capture(): Promise<ConnectionRouteBinding> {
@@ -43,16 +43,16 @@ export function createConnectionRouting(input: {
     const route = await read()
     if (route.phase !== 'stable' || !route.acceptingNewOperations) throw new ConnectionError('quiescing','CONNECTION_CUTOVER_IN_PROGRESS')
     if (!ownerId || input.accountId() !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
-    return Object.freeze({ ...route,ownerId,key: JSON.stringify([ownerId,route.mode,route.epoch]),async assertCurrent() {
+    return Object.freeze({ ...route,ownerId,key: JSON.stringify([ownerId,route.mode,route.epoch,route.verificationProtocol??1]),async assertCurrent() {
       if (input.accountId() !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
       const current = await read()
-      if (current.mode !== route.mode || current.epoch !== route.epoch) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+      if (current.mode !== route.mode || current.epoch !== route.epoch || (current.verificationProtocol??1) !== (route.verificationProtocol??1)) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
       if (current.phase !== 'stable' || !current.acceptingNewOperations) throw new ConnectionError('quiescing','CONNECTION_CUTOVER_IN_PROGRESS')
     } })
   }
   async function assert(expected: ConnectionRoute, mutation = false) {
     const current = await read()
-    if (current.mode !== expected.mode || current.epoch !== expected.epoch) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
+    if (current.mode !== expected.mode || current.epoch !== expected.epoch || (current.verificationProtocol??1) !== (expected.verificationProtocol??1)) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
     if (mutation && (current.phase !== 'stable' || !current.acceptingNewOperations)) throw new ConnectionError('quiescing','CONNECTION_CUTOVER_IN_PROGRESS')
   }
   return { read,capture,assert,peek: () => { const owner = input.accountId(); return owner ? cached.get(owner) : undefined },
@@ -68,7 +68,7 @@ export function createConnectionRouting(input: {
 /** A captured route is never refreshed into another writable source. Completed
  * acknowledgements can drain during quiescing; new intents/effects cannot. */
 export function connectionClientForRoute(client: ConnectionClient,routing: Pick<ReturnType<typeof createConnectionRouting>,'assert'>,route: ConnectionRoute): ConnectionClient {
-  const newOperations = new Set(['commit','commitBatch','recreateBegin','admit'])
+  const newOperations = new Set(['commit','commitBatch','recreateBegin','admit','prepareAttempt'])
   return Object.fromEntries(Object.entries(client).map(([name,action]) => [name,name === 'authority' ? action : async (...args: unknown[]) => {
     await routing.assert(route,newOperations.has(name))
     const result = await (action as (...args: unknown[]) => Promise<unknown>)(...args)

@@ -7,6 +7,13 @@ function setup() {
   return { routing,read,changed,mode(next: Pick<ConnectionRoute,'mode' | 'epoch'> & Partial<ConnectionRoute>) { value = { phase: 'stable',acceptingNewOperations: true,...next } },account(next: string) { owner = next } }
 }
 describe('explicit connection authority routing', () => {
+  it('preserves an in-flight legacy action when the reader adds its default capability, and rejects a real protocol change',async()=>{
+    const {routing,mode,changed}=setup();const binding=await routing.capture();
+    mode({mode:'legacy',epoch:'1',verificationProtocol:1});await expect(binding.assertCurrent()).resolves.toBeUndefined();
+    expect(changed).toHaveBeenCalledTimes(1);
+    mode({mode:'legacy',epoch:'1',verificationProtocol:2});await expect(binding.assertCurrent()).rejects.toMatchObject({code:'route-changed'});
+  })
+
   it('uses only the original path in legacy mode, even when owner APIs are closed', async () => {
     const { routing } = setup(),legacy = vi.fn(async () => 'existing'),owner = vi.fn(async () => { throw Object.assign(new Error('CLOSED'),{ code: '42501' }) })
     expect(await routing.run({ legacy,owner })).toBe('existing')

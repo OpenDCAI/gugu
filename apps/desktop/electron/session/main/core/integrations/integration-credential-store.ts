@@ -40,7 +40,7 @@ type IntegrationAccountStore = Pick<
   | 'removeAccount'
   | 'removeAllAccounts'
   | 'isConfigured'
->;
+> & Partial<Pick<ProviderAccountRegistry,'compareAndSwapSecret'>>;
 
 type LegacySecretStore = {
   getSecret(key: string): Promise<string | null>;
@@ -172,6 +172,11 @@ export class IntegrationCredentialStore {
       secret: JSON.stringify(account.credentials),
       meta: account.displayName ? { displayName: account.displayName } : {},
     });
+  }
+
+  compareAndSwapAccount(integrationId: string, prior: IntegrationAccountRecord, credentials: IntegrationCredentials): Promise<boolean> {
+    if(!this.accounts.compareAndSwapSecret)throw new Error('CONNECTION_ATOMIC_STORE_UNAVAILABLE');
+    return this.accounts.compareAndSwapSecret(integrationId,prior.accountId,JSON.stringify(prior.credentials),JSON.stringify(credentials));
   }
 
   /** Remove one account, or every account when no accountId is given. */
