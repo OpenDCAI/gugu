@@ -280,7 +280,11 @@ else {
   addEventListener('scroll', measureText, { passive: true });
   addEventListener('pointermove', e => { if (seen) { const v = Math.hypot(e.clientX - pmx, e.clientY - pmy); falcon = Math.min(1.5, falcon + v * .02); } pmx = mx = e.clientX; pmy = my = e.clientY; seen = 1; }, { passive: true });
   document.addEventListener('pointerleave', () => { mx = my = -1e4; seen = 0; });
-  document.addEventListener('visibilitychange', () => { running = !document.hidden; if (running) { last = performance.now(); if (!raf) raf = requestAnimationFrame(frame); } });
+  let windowVisible = true;
+  const syncRunning = () => { running = !document.hidden && windowVisible; if (running) { last = performance.now(); if (!raf) raf = requestAnimationFrame(frame); } };
+  document.addEventListener('visibilitychange', syncRunning);
+  // The desktop keeps background throttling off, so a minimised window still looks visible in here: the host says so.
+  addEventListener('message', (event) => { if (event.source === parent && typeof event.data?.guguWindowVisible === 'boolean') { windowVisible = event.data.guguWindowVisible; syncRunning(); } });
   if (document.fonts) document.fonts.ready.then(() => { layout(); buildLogo(); });
   raf = requestAnimationFrame(frame);
 }

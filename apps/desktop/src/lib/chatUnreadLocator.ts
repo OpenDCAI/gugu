@@ -40,10 +40,6 @@ export async function markChatsReadAndRefresh(deps: {
   chats: readonly ChatItem[]
   nativeReads?: readonly NativeUnreadTarget[]
   refresh: (options?: { acceptEmpty?: boolean }) => Promise<void>
-  /** 自动清除保留当前服务端人工标记;显式「全部标已读」默认仍清除它。 */
-  preserveManualUnread?: boolean
-  /** 取未读流和分批期间用户可能更新读意图,每次写入前再核对。 */
-  canMarkRead?: (chatId: string) => boolean
 }): Promise<{ failedChats: number; error?: unknown }> {
   const seenSeq = new Map(deps.chats.map((chat) => [chat.id, chat.next_message_seq - 1]))
   const markedAtClick = new Set(deps.chats.filter(chat => chat.is_marked_unread).map(chat => chat.id))
@@ -55,20 +51,17 @@ export async function markChatsReadAndRefresh(deps: {
     if (error) throw new Error(error.message)
     const rows = (data ?? []) as Array<Record<string, unknown>>
     const manuallyUnread = new Set([
-      ...(deps.preserveManualUnread ? markedAtClick : []),
-      ...rows.filter(row => row.is_marked_unread === true && (deps.preserveManualUnread || !markedAtClick.has(String(row.chat_id)))).map(row => String(row.chat_id)),
+      ...rows.filter(row => row.is_marked_unread === true && !markedAtClick.has(String(row.chat_id))).map(row => String(row.chat_id)),
     ])
     const failedChatIds = new Set<string>()
     let failure: unknown
     await Promise.all([...rows.map(async (row) => {
       const chatId = String(row.chat_id)
       const seq = seenSeq.get(chatId)
-      if (seq === undefined || manuallyUnread.has(chatId) || Number(row.message_seq) > seq || deps.canMarkRead?.(chatId) === false) return
+      if (seq === undefined || manuallyUnread.has(chatId) || Number(row.message_seq) > seq) return
       const rootId = typeof row.thread_root_id === 'string' ? row.thread_root_id : null
       try {
-        await intent.run(chatId, async () => {
-          if (deps.canMarkRead?.(chatId) !== false) await writeRead(cloudReadTarget(chatId, rootId, seq))
-        })
+        await intent.run(chatId, () => writeRead(cloudReadTarget(chatId, rootId, seq)))
       } catch (err) {
         failedChatIds.add(chatId)
         failure ??= err
@@ -80,7 +73,7 @@ export async function markChatsReadAndRefresh(deps: {
       try {
         for (let offset = 0; offset < target.itemIds.length; offset += 500) {
           await intent.run(id, async () => {
-            if (!target.chatId || deps.canMarkRead?.(target.chatId) !== false) await writeRead({ kind: 'native',
+            await writeRead({ kind: 'native',
               deviceId: target.deviceId, conversationId: target.conversationId, itemIds: target.itemIds.slice(offset, offset + 500).map(nativeItemId) })
           })
         }

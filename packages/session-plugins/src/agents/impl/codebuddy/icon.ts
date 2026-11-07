@@ -6,7 +6,7 @@ export const icon: PluginIconAsset = {
   // 标识是透明底上的单色绿(#00BC90)。底板取同一个品牌绿、标识反白,与 qwen / claude 同一种处理;
   // 缺这一行时资源库的 App 图标回落成「深底 + 标识反白」,丢掉品牌色。
   plate: { color: '#00BC90', mark: 'white' },
-  alt: 'CodeBuddy Code',
+  alt: 'CodeBuddy',
   variants: [
     {
       minSize: 0,

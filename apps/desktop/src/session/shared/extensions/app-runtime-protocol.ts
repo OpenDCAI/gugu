@@ -619,14 +619,6 @@ export interface AppOpenInChatDetail {
   extensionId: string;
 }
 
-/**
- * 论坛 (9): a bounty's points move only behind a sheet the host draws (components/extensionBundle/ForumConsent): posting one, and
- * settling one. The page's call answers `{ confirming: true }` once the sheet is up; the sheet does it if the person confirms.
- */
-export const APP_FORUM_CONSENT_EVENT = 'gugu:app-forum-consent';
-export type AppForumConsentDetail =
-  | { type: 'bounty'; draft: import('./app-forum-core').BountyDraft }
-  | { type: 'award'; draft: import('./app-forum-core').AwardDraft };
 
 export interface AppShowMessageDetail {
   chatId: string;

@@ -19,7 +19,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -166,9 +165,7 @@ public class GuguAgentService extends Service {
         try {
             File target = stateFile(this, owner);
             target.getParentFile().mkdirs();
-            File temporary = new File(target.getPath() + ".tmp");
-            Files.write(temporary.toPath(), snapshot.toString().getBytes(StandardCharsets.UTF_8));
-            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            DurableFile.write(target, snapshot.toString().getBytes(StandardCharsets.UTF_8));
         } catch (Exception error) { android.util.Log.e("GuguAgent", "Cannot persist local agent state", error); }
     }
     @Override public void onDestroy() {

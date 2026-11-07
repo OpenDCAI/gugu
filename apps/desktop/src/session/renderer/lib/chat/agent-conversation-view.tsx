@@ -6,6 +6,10 @@ import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNo
 import { createPortal } from 'react-dom';
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript';
 import { ConversationCreditNotice } from '@/components/chat/ConversationCreditNotice';
+import type { ChatView } from '@gugu/session-chat-ui';
+import { ThreadScrollToBottom } from '@renderer/lib/ui/assistant-ui/thread-scroll-to-bottom';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { useLocale } from '@/i18n';
 
 /** Every agent conversation uses the project page's transcript and composer. Hosts own data and navigation. */
 export type AgentConversationViewProps = ChatTranscriptProps & {
@@ -15,7 +19,10 @@ export type AgentConversationViewProps = ChatTranscriptProps & {
 };
 
 export function AgentConversationView({ layout, composerContent, shown = true, onVisibleItems, style, className, onReady, ...props }: AgentConversationViewProps) {
+  useLocale(); // Keep the recovery control in the current UI language.
   const root = useRef<HTMLDivElement>(null);
+  const view = useRef<ChatView | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const hostCommands = props.commands;
   // Composer-only renders must not republish commands and remeasure history.
@@ -122,10 +129,13 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     <ChatTranscript stickToBottom pinUserMessages {...props}
       composer={composerContent ? 'slot' : props.composer}
       commands={commands}
-      onReady={view => { setSlot(view.composerSlot); onReady?.(view); }}
-      onDisposed={() => { setSlot(null); props.onDisposed?.(); }}
+      onReady={ready => { view.current = ready; setSlot(ready.composerSlot); onReady?.(ready); }}
+      onAtBottomChange={bottom => { setAtBottom(bottom); props.onAtBottomChange?.(bottom); }}
+      onDisposed={() => { view.current = null; setSlot(null); setAtBottom(true); props.onDisposed?.(); }}
       layout={{ preset: 'double', userGutter: 0, ...layout, agentConversation: true }} style={{ position: 'absolute', inset: 0 }} />
-    {slot && composerContent ? createPortal(composerContent, slot) : null}
+    {slot ? createPortal(<>{composerContent}<ThreadScrollToBottom atBottom={atBottom}
+      label={translateSessionMessage('chat.scrollToBottom')}
+      onScrollToBottom={() => view.current?.scrollToBottom({ behavior: 'smooth' })} /></>, slot) : null}
   </div>;
 }
 

@@ -8,6 +8,7 @@ import { PLANE_CLOUD_API_BASE_URL } from './types';
 const plugin = defineIntegrationPlugin(
   {
     id: 'plane',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://plane.so',

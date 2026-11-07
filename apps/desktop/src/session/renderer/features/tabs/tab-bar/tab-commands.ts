@@ -20,5 +20,7 @@ export interface TabCommand {
   isAvailable?(): boolean;
   /** 摆着但灰着(暂时用不了,照 VS Code / Chrome 的页签右键);默认可点。 */
   isEnabled?(): boolean;
+  /** 收进这一组的二级菜单(低频,悬浮再展开)。 */
+  fold?: true;
   run(): void | Promise<void>;
 }

@@ -57,6 +57,8 @@ export function useInstallSourceVersions(id: string, enabled: boolean) {
   return useQuery<InstallSourceVersions>({
     queryKey: [...INSTALL_SOURCE_VERSIONS_QUERY_KEY, id, host.key],
     queryFn: () => host.agents.getInstallSourceVersions(id),
+    retry: true,
+    retryDelay: attempt => Math.min(1000 * 2 ** attempt, 30_000),
     enabled: enabled && host.remote?.online !== false,
     staleTime: 30 * 60 * 1000,
   });
@@ -210,6 +212,8 @@ export function useAgentInstallationStatuses() {
   const query = useQuery<AgentInstallationStatus[]>({
     queryKey: key,
     queryFn: () => agentsRpc.listAgentInstallationStatus(),
+    retry: true,
+    retryDelay: attempt => Math.min(1000 * 2 ** attempt, 30_000),
     enabled: host.remote?.online !== false,
     staleTime: 30_000,
   });

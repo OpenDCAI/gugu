@@ -9,8 +9,6 @@ import { ownedAgentResourceSlotKey, ownedAgentResourceHost, canTakeOwnedAgentRes
 import { panelTabsOf, panelTabOf, openPanelItem, closeChatTab, type ChatPanelTab } from '@/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { installOwnedAgentResourceTabs } from '@/lib/ownedAgentResources'
 import { readSessionpageViewRequestBridge } from '@/lib/sessionpageViewRequestBridge'
-import { notify } from '@/lib/notices'
-import { messageForUser } from '@/lib/userFacingError'
 import { GroupTabContent } from './GroupTabContent'
 import { useChatOpener } from './useChatOpener'
 import { PaneContext } from '@renderer/features/tabs/pane-context'
@@ -36,8 +34,8 @@ function ResourceHost({ ownerId, chatId, projectId, sessionId }: OwnedAgentResou
   const show = useCallback((chatId: string, tabId: string) => {
     const target = ownedAgentResourceHost(ownerId, chatId)
     const open = readSessionpageViewRequestBridge()?.openChatResource
-    if (!open || !target) { notify({ tier: 'error', title: i18n.t('shell.errors.taskBridgeUnavailable', { ns: 'main' }) }); return }
-    void open({ projectId: target.projectId, sessionId: target.sessionId, chatId, sourceTabId: tabId }).catch(error => notify({ tier: 'error', title: messageForUser(error) }))
+    if (!open || !target) throw new Error(i18n.t('shell.errors.taskBridgeUnavailable', { ns: 'main' }))
+    return open({ projectId: target.projectId, sessionId: target.sessionId, chatId, sourceTabId: tabId })
   }, [ownerId])
   const opener = useChatOpener(chatId, show, () => canTakeOwnedAgentResource(ownerId, chatId))
   return <>

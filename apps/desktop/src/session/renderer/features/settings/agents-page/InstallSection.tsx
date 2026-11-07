@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   useAgentInstallationStatus,
   useInstallSourceVersions,
@@ -12,6 +12,7 @@ import type {
   SelectedSource,
 } from '@shared/core/agents/agent-payload';
 import { sameSelection, withRegistryChoice } from '@shared/core/agents/agent-payload';
+import { AgentAccountSection } from './AgentAccountSection';
 import { AgentSourceList, type SourceKind } from './AgentSourceList';
 import { resolveHarnessState } from './harness-state';
 import {
@@ -28,37 +29,21 @@ import { resolveManagedUpdate, resolveUpdateAction } from './update-action';
 
 export type InstallSectionProps = {
   agentId: string;
-  advancedOnly?: boolean;
   /** Full agent payload used to hydrate the hook before the first probe. */
   agentPayload: AgentPayload | undefined;
   /** Platform-specific install options from the agent payload. */
   installOptions: InstallOption[];
   /** Link to installation documentation, null if not set. */
   installDocs?: string | null;
-  /**
-   * 「账号」那一段。排在状态之后、高级之前 —— 装没装 → 登没登 → 高级,是用户要回答的顺序。
-   * 这一段自己画上边那条细线,没有账号行的家(它返回 null)就连线一起没有。
-   */
-  accountSlot?: ReactNode;
+
 };
 
-/**
- * 面板里那张安装卡的接线(#6157)。
- *
- * ❌ 这里曾经是一台「选来源」的机器:来源下拉、副本列表、装法单选、下载源单选、`⋯` 菜单,
- * 加起来五个控件都在问用户同一类问题 ——「你要用哪一份 / 用什么方式 / 从哪儿下」。owner 拍板
- * 全部收掉:界面上一家只有一种状态、三个按钮,选源由主进程按测速自己决定。
- *
- * `selectedSource` 这份意向**留着**(账还需要它,持久化层与运行时都读它),但现在只有「高级」
- * 那两项改得动它:自定义可执行文件路径(path / cli)与手动指定下载源(registry)。
- */
+/** Owns the existing install/source mutations; presentation follows the approved settings rows. */
 export const InstallSection = observer(function InstallSection({
   agentId,
   agentPayload,
   installOptions,
   installDocs,
-  accountSlot,
-  advancedOnly = false,
 }: InstallSectionProps) {
   const vm = useAgentInstallationStatus(agentId, agentPayload);
   const hasRegistryOptions = installOptions.some((option) => option.registry !== undefined);
@@ -304,17 +289,12 @@ export const InstallSection = observer(function InstallSection({
         customEditor={manualSlot}
       />
   );
-  return advancedOnly ? (
-    <AgentAdvancedSection compact agentId={agentId} registries={registries} registry={selectedSource.registry} onRegistryChange={onRegistryChange}>
-      {sources}
-    </AgentAdvancedSection>
-  ) : (
-    <>
-      {sources}
-      {accountSlot}
-      <AgentAdvancedSection agentId={agentId} registries={registries} registry={selectedSource.registry} onRegistryChange={onRegistryChange} />
-    </>
-  );
+  const ready = vm.status === 'available' && state !== 'broken' && state !== 'installing' && !vm.isUninstalling && !vm.lastInstallError && !vm.lastUpdateError;
+  return <>
+    {sources}
+    {ready && agentPayload && <AgentAccountSection agent={agentPayload} />}
+    <AgentAdvancedSection compact agentId={agentId} registries={registries} registry={selectedSource.registry} onRegistryChange={onRegistryChange} />
+  </>;
 });
 
 /**

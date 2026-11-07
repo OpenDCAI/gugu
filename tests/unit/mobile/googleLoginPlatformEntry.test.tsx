@@ -28,6 +28,9 @@ it.each(['capacitor', 'electron'] as const)('uses the actual %s platform to deci
   vi.stubGlobal('fetch', request)
   const { googleLogin } = await import('../../../apps/desktop/src/lib/googleLogin')
   expect(googleLogin.available).toBe(enabled)
+  // Authenticated account management does not enable the anonymous provider entry.
+  const accountBrowser = selected.platform.accountOAuthBrowser ?? selected.platform.oauthBrowser
+  expect(accountBrowser?.openLinkBrowser).toBeTypeOf('function')
   const { act } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { LoginPage } = await import('../../../apps/desktop/src/pages/LoginPage')

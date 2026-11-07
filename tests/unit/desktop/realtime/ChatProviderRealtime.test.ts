@@ -21,6 +21,7 @@ const {
   openImRepositoryMock,
   revisionListeners,
   revisionCoordinatorMock,
+  messageStorage,
 } =
   vi.hoisted(() => ({
     readMock: vi.fn(),
@@ -44,6 +45,7 @@ const {
     // @@@947 - openLocalSyncDb is overridden per-test to a memory-backed db so the L2 cold-start cache is
     openImRepositoryMock: vi.fn(),
     revisionListeners: new Map<string, (operations: readonly unknown[]) => void | Promise<void>>(),
+    messageStorage: { sqlite: false },
     revisionCoordinatorMock: {
       start: vi.fn(),
       stop: vi.fn(),
@@ -155,7 +157,6 @@ vi.mock('../../../../apps/desktop/src/lib/chatProjection', () => ({
       if (projectionStub.advanceImpl) return projectionStub.advanceImpl()
       return projectionStub.rows
     },
-    ingestLocalWrite: () => projectionStub.rows,
     attach: ({ subscribe, cursor, signal, publish }: {
       subscribe: (events: readonly string[], listener: (operations: readonly unknown[]) => void | Promise<void>) => () => void
       cursor: () => string
@@ -184,6 +185,7 @@ vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: {
+    get localMessages() { return messageStorage.sqlite ? 'sqlite' : undefined },
     capabilities: { notifications: false, badge: false },
     showNotification: vi.fn(),
     setBadge: vi.fn()
@@ -193,6 +195,8 @@ import { ChatProvider } from '../../../../apps/desktop/src/store/chat'
 import { useChatStore } from '../../../../apps/desktop/src/store/chatContext'
 import { useReportChatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
+import { ingestMessages } from '../../../../apps/desktop/src/lib/messageIngest'
+import { initializeMessageWindows, clearMessageWindows } from '../../../../apps/desktop/src/lib/messageWindows'
 import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/messageItem'
 import {
   readMessageWindow,
@@ -302,6 +306,7 @@ async function resolveDeferred<T>(item: ReturnType<typeof deferred<T>>, value: T
   })
 }
 beforeEach(async () => {
+  messageStorage.sqlite = false
   authOverride.current = null
   latestStore = null
   revisionListeners.clear()
@@ -967,6 +972,45 @@ describe('#947 persistent message-window cache (cold start + freshness gating)',
     expectTextContains(harness, 'before', 'arrived')
     expect(chatServiceMock.getMessages).toHaveBeenCalledTimes(1)
     expect(readMock).toHaveBeenLastCalledWith('chat-1', 2)
+  })
+
+  it('reads a desktop arrival from its committed local window without repeating the network repair', async () => {
+    chatServiceMock.getMessages.mockResolvedValue([message({ id: 'before', seq: 1 })])
+    const rendered = await renderActiveChat()
+    messageStorage.sqlite = true
+    initializeMessageWindows('user-1')
+    const rows: MessageItem[] = []
+    const invoke = vi.fn(async (method: string, ...args: unknown[]) => {
+      if (method === 'imMessages.ingest') {
+        const batch = args[1] as { writes: { message: MessageItem }[] }
+        rows.push(...batch.writes.map(write => write.message)); return batch.writes
+      }
+      if (method === 'imMessages.windows') return rows
+      throw new Error(`Unexpected RPC ${method}`)
+    })
+    const bridge = vi.spyOn(await import('../../../../apps/desktop/src/platform/desktopIpc'), 'desktopIpc')
+      .mockReturnValue({ invoke, eventOn: () => () => {} })
+    try {
+      chatServiceMock.getMessages.mockClear()
+      chatServiceMock.getOtherMembersReadSeqs.mockClear()
+      chatServiceMock.revalidateWindow.mockClear()
+      for (const seq of [2, 3]) {
+        const item = message({ id: `desktop-${seq}`, seq, content: `desktop body ${seq}` })
+        await actAndFlush(async () => { await ingestMessages('user-1', { writes: [{ type: 'put', message: item }], revisions: [] }) })
+        expectTextContains(rendered, item.content!)
+        expect(memRepository.snapshot().message.some(row => row.id === item.id)).toBe(false)
+        console.info('desktop arrival before listener', { id: item.id, sqliteWrites: invoke.mock.calls.filter(([method]) => method === 'imMessages.ingest').length, repositoryRows: memRepository.snapshot().message.length })
+        await emitRevision('message_created', { chat_id: 'chat-1', entity_id: item.id })
+      }
+      expect(chatServiceMock.getMessages).not.toHaveBeenCalled()
+      expect(chatServiceMock.getOtherMembersReadSeqs).not.toHaveBeenCalled()
+      expect(chatServiceMock.revalidateWindow).not.toHaveBeenCalled()
+      expect(readMock).toHaveBeenLastCalledWith('chat-1', 3)
+    } finally {
+      clearMessageWindows('user-1')
+      messageStorage.sqlite = false
+      bridge.mockRestore()
+    }
   })
 
   it('#5649 a carried row beyond the verified tail, or a thread reply, still takes the gap-heal path', async () => {

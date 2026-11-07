@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react'
+import { afterPaint } from './afterPaint'
 
 /**
  * 消息列表的滚动机制(#6595):整个消息窗口按文档流排(store 已把窗口限在 MAX_WINDOW 行内),位置交给浏览器。
@@ -113,7 +114,6 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
     const target = landingRef.current.landing ?? { index: 'LAST', align: 'end' }
     placeAtLanding(scroller, content, target)
     report(scroller)
-    capture(scroller)
     // 首帧那段够不够:最新处要比视口高出一截;锚点要真的落在该在的位置(不够时浏览器会把 scrollTop 夹住),且下方不留白。
     const view = scroller.getBoundingClientRect()
     const anchor = target.index === 'LAST' ? null : rowAt(content, target.index)
@@ -129,7 +129,7 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
         toId: needBelow && s.toId !== undefined ? rowIds[Math.min(rowIds.length - 1, end - 1 + GROW_ROWS)] : s.toId,
       }))
     }
-  }, [resetKey, start, end, rowIds, scrollerRef, contentRef, report, capture])
+  }, [resetKey, start, end, rowIds, scrollerRef, contentRef, report])
   // 第一次绘制之后的下一帧补齐整窗(两层 rAF:点击触发的提交里,一层 rAF 仍在这一帧的绘制之前)。
   useEffect(() => {
     let inner = 0
@@ -140,6 +140,13 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
     return () => { cancelAnimationFrame(outer); cancelAnimationFrame(inner) }
   }, [resetKey])
   const headKey = rowIds[start]
+  // @@@anchor-at-head-change - The anchor only matters when the window's head changes. This render is the last moment the old
+  // rows are still on screen, so measure it here — once per head change — instead of on every scroll event.
+  const measuredHeadRef = useRef(headKey)
+  if (measuredHeadRef.current !== headKey) {
+    measuredHeadRef.current = headKey
+    if (scrollerRef.current) capture(scrollerRef.current)
+  }
 
   // 头部插进一页旧消息(或窗口从头部裁掉几行):把读者正看着的那一行放回原处,在这次提交的绘制之前。
   // 浏览器的原生锚定多数时候已经做了(这里读到的差就是 0);它不管的是滚动条正好顶在 0 的时候,以及不支持锚定的 WebKit。
@@ -148,8 +155,7 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
     if (!scroller || !anchor || !anchor.row.isConnected || (followRef.current && atBottomRef.current)) return
     const delta = anchor.row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.top
     if (Math.abs(delta) > 0.5) scroller.scrollTop += delta
-    capture(scroller)
-  }, [headKey, scrollerRef, capture])
+  }, [headKey, scrollerRef])
 
   // 内容长高/变矮:在底部就贴住(新消息、最后一条长高、图片晚到);ResizeObserver 在布局之后、绘制之前回调。
   // 不在底部时视口上方的变化交给浏览器的滚动锚定,这里不动。
@@ -162,14 +168,13 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
       report(scroller)
     })
     observer.observe(content)
-    const onScroll = () => {
+    const scrolled = afterPaint(() => {
       report(scroller)
-      capture(scroller)
       if (scroller.scrollTop <= 120) callbacksRef.current.onStartReached?.()
-    }
-    scroller.addEventListener('scroll', onScroll, { passive: true })
-    return () => { observer.disconnect(); scroller.removeEventListener('scroll', onScroll) }
-  }, [resetKey, scrollerRef, contentRef, report, capture])
+    })
+    scroller.addEventListener('scroll', scrolled.schedule, { passive: true })
+    return () => { observer.disconnect(); scroller.removeEventListener('scroll', scrolled.schedule); scrolled.cancel() }
+  }, [resetKey, scrollerRef, contentRef, report])
 
   useImperativeHandle(handleRef, () => ({
     scrollToIndex: ({ index, align = 'start', offset = 0, behavior }) => {

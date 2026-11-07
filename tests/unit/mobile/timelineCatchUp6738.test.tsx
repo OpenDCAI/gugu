@@ -79,7 +79,7 @@ async function openTimeline(f: ReturnType<typeof fakeClient>) {
 }
 
 describe('补缺口失败(#6738)', () => {
-  it('传输层失败:不报错,时间线留着;下一次回前台再补上', async () => {
+  it('retries a transient catch-up in the background without requiring another foreground gesture', async () => {
     const f = fakeClient()
     await openTimeline(f)
     f.fetchAfter.mockRejectedValueOnce(timedOut())
@@ -87,21 +87,25 @@ describe('补缺口失败(#6738)', () => {
     await advance(10_000)
     expect(session.error, 'one timeout is not worth a red banner while the timeline is on screen').toBeNull()
     expect(session.phase).toBe('ready')
-    expect(f.fetchAfter, 'no retry of its own: the next foreground / reopen re-drives it').toHaveBeenCalledTimes(1)
+    expect(f.fetchAfter, 'the backoff automatically drives the next read').toHaveBeenCalledTimes(2)
     await foreground()
     await advance(0)
     expect(session.timeline.cursor?.seq).toBe(11)
   })
 
-  it('机器明确拒绝(会话没了):不重试,当场报;后来补上了就收回', async () => {
+  it('reports a persistent restart-time missing-session failure only after retry exhaustion', async () => {
     const f = fakeClient()
     await openTimeline(f)
-    f.fetchAfter.mockRejectedValueOnce(Object.assign(new Error('这台机器上没有会话 conversation-1'), { code: 'session_not_found' }))
+    f.fetchAfter.mockRejectedValue(Object.assign(new Error('这台机器上没有会话 conversation-1'), { code: 'session_not_found' }))
     await foreground()
     await advance(0)
-    expect(session.error).toContain('session_not_found')
+    expect(session.error).toBeNull()
+    await advance(5100)
+    expect(session.error).toContain('这台机器上没有会话')
+    expect(session.errorCode).toBe('session_not_found')
     await advance(10_000)
-    expect(f.fetchAfter).toHaveBeenCalledTimes(1)
+    expect(f.fetchAfter).toHaveBeenCalledTimes(4)
+    f.fetchAfter.mockResolvedValueOnce(caughtUp(11))
     await foreground()
     await advance(0)
     expect(session.error).toBeNull()
@@ -123,4 +127,25 @@ describe('到那台机器的窗口断了又通(订阅跟着窗口生灭)', () =>
     expect(f.client.fetchSnapshot, 'resubscribe from the cursor in hand, no full re-pull').toHaveBeenCalledTimes(1)
     expect(session.link).toBe('ok')
   })
+})
+
+
+it('records a host epoch reset in diagnostics and keeps subsequent catch-up working', async () => {
+  const logged = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+  try {
+    const f = fakeClient()
+    await openTimeline(f)
+    f.fetchAfter.mockResolvedValueOnce({ ok: false, reset: 'epoch_changed', snapshot: { ...SNAPSHOT, cursor: { epoch: 'reopened', seq: 1 } } })
+    await foreground()
+    await advance(0)
+    expect(session.timeline.cursor).toEqual({ epoch: 'reopened', seq: 1 })
+    expect(session.timeline.turns).toEqual(SNAPSHOT.turns)
+    expect(session.error).toBeNull()
+    expect(logged).toHaveBeenCalledExactlyOnceWith('[agent-watch/timeline] Timeline snapshot reset', { reason: 'epoch_changed' })
+    f.fetchAfter.mockResolvedValueOnce({ ok: true, batch: { from: 1, cursor: { epoch: 'reopened', seq: 2 }, turns: [], removedTurnIds: [], settlements: [] } })
+    await foreground()
+    await advance(0)
+    expect(session.timeline.cursor).toEqual({ epoch: 'reopened', seq: 2 })
+    expect(logged).toHaveBeenCalledTimes(1)
+  } finally { logged.mockRestore() }
 })

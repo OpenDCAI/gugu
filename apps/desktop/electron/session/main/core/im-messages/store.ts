@@ -2,12 +2,13 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { projectMessageSearchText } from '@gugu/core/shared/ui/messageSearchText'
 import type { ImMessageBatch, ImMessagePage, ImMessageRange, ImMessageWrite } from '@shared/core/im-messages'
 import { createChatAccess } from './chat-access'
-import { decimal, dropMessages, dropRanges, encodeRest, requireId, requireLimit, restore,
+import { decimal, dropMessages, dropRanges, encodeRest, requireId, requireLimit, restore, reusingStatements,
   type MessageSqlDatabase, type StoredMessage } from './message-row'
 import { searchMessages } from './search'
 
 /** All durable messages and their derived index share the existing session connection. */
-export function createImMessageStore(connection: MessageSqlDatabase) {
+export function createImMessageStore(database: MessageSqlDatabase) {
+  const connection = reusingStatements(database)
   const find = connection.prepare('SELECT rowid, claimed_revision FROM im_messages WHERE account_id = ? AND id = ?')
   const indexDelete = connection.prepare('DELETE FROM im_messages_text WHERE rowid = ?')
   const indexInsert = connection.prepare('INSERT INTO im_messages_text(rowid, text) VALUES (?, ?)')

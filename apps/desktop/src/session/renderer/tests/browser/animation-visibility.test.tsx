@@ -54,7 +54,12 @@ it('keeps one semantic running label and stationary glyphs throughout the compos
   const animations = label.getAnimations({ subtree: true });
   for (const animation of animations) {
     expect(animation.effect!.getTiming()).toMatchObject({ duration: 2000, iterations: Infinity });
-    for (const frame of (animation.effect as KeyframeEffect).getKeyframes()) {
+    const frames = (animation.effect as KeyframeEffect).getKeyframes();
+    // The transcript's rhythm as one loop: 20 steps in the first second, then still until the next cycle.
+    expect(frames.map((frame) => frame.computedOffset)).toEqual([0, 0.5, 1]);
+    expect(frames[0]!.easing).toBe('steps(20)');
+    expect(frames[1]!.transform).toBe(frames[2]!.transform);
+    for (const frame of frames) {
       expect(Object.keys(frame).filter((key) => !['offset', 'computedOffset', 'easing', 'composite'].includes(key))).toEqual(['transform']);
     }
     animation.pause();
@@ -88,11 +93,24 @@ it('pauses and resumes the running highlight and avatar pulses on the shared nat
 it('pauses avatar pulses scrolled out of view and resumes the same clocks when they return', async () => {
   const { host, animations } = await mount();
   const pulses = animations.filter((animation) => (animation as CSSAnimation).animationName === 'av-status-pulse');
+  // 14 steps while the ring is visible, then still: the second ring's 0.7 s delay lands on the same 70 ms grid.
+  const frames = (pulses[0]!.effect as KeyframeEffect).getKeyframes();
+  expect(frames.map((frame) => frame.computedOffset)).toEqual([0, 0.7, 1]);
+  expect(frames[0]!.easing).toBe('steps(14)');
+  expect(frames[1]!.transform).toBe(frames[2]!.transform);
   host.style.cssText = 'position:fixed;left:0;top:-2000px';
   await until('the off-screen pulses pause', () => pulses.every((animation) => animation.playState === 'paused'));
+  // Knock the clocks far off the document's; coming back has to bring them home, whatever the machine's speed.
+  for (const animation of pulses) animation.currentTime = Number(animation.timeline!.currentTime) - 60_000;
   host.style.cssText = '';
   await until('the pulses resume on screen', () => pulses.every((animation) => animation.playState === 'running'));
   expect(host.getAnimations({ subtree: true })).toEqual(animations);
+  // Back on the shared beat, and still paused by the shared stylesheet afterwards.
+  for (const animation of pulses) expect(Math.abs(Number(animation.currentTime) - Number(animation.timeline!.currentTime))).toBeLessThan(30_000);
+  window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false }));
+  await until('the window pause still reaches the pulses', () => pulses.every((animation) => animation.playState === 'paused'));
+  window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }));
+  await until('they resume', () => pulses.every((animation) => animation.playState === 'running'));
 });
 
 it('keeps a visible portal animated while the opener hides and stops it when its own window hides', async () => {

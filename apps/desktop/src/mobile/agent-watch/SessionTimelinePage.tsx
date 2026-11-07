@@ -3,7 +3,7 @@ import { useShownAgentName } from '@/hooks/useShownAgentName'
 import { useAvatarIdentity } from '@/lib/avatarIdentity'
 import { useNativeSessionRecord } from './useNativeSessionRecord'
 import { useSessionRestart } from './useSessionRestart'
-import { SessionLoadFailure } from './SessionLoadFailure'
+import { useTimelineFailureNotice } from './useTimelineFailureNotice'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { showPhoneAppView } from '@/components/appSlot/phoneAppState'
 import { reaction } from 'mobx'
@@ -116,6 +116,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const recovery = useSessionRestart({ deviceId: device.device_id, projectId: session.projectId, sessionId: session.conversationId,
     missing: native && nativeRecord.errorCode === 'record_not_found', online, local,
     onReady: () => { reload(); return nativeRecord.reload() } })
+  useTimelineFailureNotice(`${device.device_id}/${session.conversationId}`, error ?? nativeRecord.error, recovery)
   // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
   // answering is the earlier fact. Same note as offline; the reads keep trying and the page comes back by itself.
   const hostSilent = !local && online && ((link === 'lost' && (!error || remoteFailureKind(errorCode) === 'machine-unreachable')) || (native && nativeRecord.unreachable))
@@ -229,31 +230,17 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
       actions={headerActions}
       bodyFill
     >
-      {timeline.lastReset ? (
-        <AgentWatchNote
-          // 一档一条整句,❌ 不用「模板 + 片段」拼:各语言语序不同,拼出来的句子没法翻。
-          title={t(`agentWatch.timeline.reloaded.${timeline.lastReset}`)}
-          testId="agent-watch-reset-note"
-        />
-      ) : null}
-
       {!answering && queuedInputs.length === 0 ? (
         /* 待发消息只带正常发送中状态;没有待发内容时才显示机器连接状态。 */
         offlineNotice
       ) : null}
 
-      {answering && !recovery.pendingPrompt && !recovery.refreshing && (error || nativeRecord.error || recovery.error) ? (
-        <SessionLoadFailure
-          title={t('agentWatch.timeline.loadFailed')}
-          detail={recovery.error ?? nativeRecord.error ?? error ?? ''}
-          reloadLabel={t('agentWatch.timeline.reload')}
-          onReload={() => { if (recovery.retry) void recovery.retry(); else reload() }}
-          recovery={recovery}
-        />
-      ) : null}
+      {recovery.canStartFresh ? <Button variant="secondary" onClick={() => { void recovery.startFresh() }} disabled={recovery.busy}>
+        {translateSessionMessage('transcript.condition.startFresh')}
+      </Button> : null}
 
       {/* ⚠️ 此前是 `phase !== 'error'`:首次拉取失败就把时间线**和输入框**一起藏掉。
-          缓存里有东西时那是白藏 —— 错误已经在上面那条说明里说清楚了,内容照常给。 */}
+          缓存里有东西时那是白藏；重试耗尽走统一出口，内容照常给。 */}
       {(
         <SessionConversation
           agentName={shownName}

@@ -7,6 +7,7 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'forgejo',
+    catalog: summary.catalog,
     name: summary.name['zh-CN'],
     description: summary.description,
     websiteUrl: 'https://forgejo.org',

@@ -8,6 +8,7 @@
 // 为什么是 join 而不是「后到的赢」:把归并定成「按键取戳最大者」之后,收敛、幂等、
 // 与到达顺序无关这三件事就是这个代数的**定理**(见 spec 的 I1–I4),不再是调用点要守的纪律。
 
+import { replaceEqualDeep } from '@tanstack/react-query'
 import { IN_FILTER_CHUNK } from '@gugu/core/shared/inChunks'
 import type { AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import type { ChatItem, ChatKind, ChatStatus, ChatUnreadLocator, GroupMemberRole, NotificationLevel } from '@gugu/core/shared/types/chat'
@@ -402,139 +403,220 @@ export function foldBatch(open: ProjectionBatch | null, arrival: ProjectionBatch
  * 只会问「已知会话的成员」与「已知成员的身份」,不会引入新会话 ⇒ 闭包深度 ≤ 1,
  * 因此第二波之后必然为空;不为空就响亮失败,❌ 不循环补拉。
  */
-export function missingDependencies(cache: ProjectionCache, viewerId: string): EntityKey[] {
+export function missingDependencies(
+  cache: ProjectionCache,
+  viewerId: string,
+  // @@@incremental-list: a wave only asks about the keys it just settled — the cells already in the cache had their
+  // closure checked when they arrived. Default (snapshot / tests): every key in the cache.
+  keys: Iterable<EntityKey> = cache.keys(),
+  membersOf: (chatId: string) => Iterable<MembershipValue> = () => [],
+): EntityKey[] {
   const missing = new Set<EntityKey>()
-  const seenMembers = new Set<string>([viewerId])
   if (!cache.has(entityKey('identity', viewerId))) missing.add(entityKey('identity', viewerId))
-  // 我的成员行**蕴含**它的会话:成员行在、chat 行不在,就是那条会话刚被发布进收件箱。
-  for (const [key, cell] of cache) {
-    const parsed = splitKey(key)
-    if (parsed.family !== 'membership' || !cell.value) continue
-    const { chatId, userId } = splitMembershipId(parsed.id)
-    if (userId !== viewerId) continue
-    if (!cache.has(entityKey('chat', chatId))) missing.add(entityKey('chat', chatId))
-  }
-  for (const [key, cell] of cache) {
+  const need = (key: EntityKey) => { if (!cache.has(key)) missing.add(key) }
+  for (const key of keys) {
+    const cell = cache.get(key)
+    if (!cell?.value) continue
     const { family, id } = splitKey(key)
-    if (family !== 'chat' || !cell.value) continue
-    const dependencies = [entityKey('preview', id), entityKey('unread', id)]
-    if ((cell.value as ChatValue).kind === 'group') dependencies.push(entityKey('override', `group/${id}`))
-    for (const dependency of dependencies) {
-      if (!cache.has(dependency)) missing.add(dependency)
+    if (family === 'chat') {
+      // 会话要它的预览与未读;群还要群备注。
+      need(entityKey('preview', id))
+      need(entityKey('unread', id))
+      if ((cell.value as ChatValue).kind === 'group') need(entityKey('override', `group/${id}`))
+      if ((cell.value as ChatValue).kind === 'dm' || (cell.value as ChatValue).kind === 'ai') {
+        for (const member of membersOf(id)) if (member.user_id !== viewerId) {
+          need(entityKey('identity', member.user_id))
+          need(entityKey('override', member.user_id))
+        }
+      }
+    } else if (family === 'membership') {
+      const { chatId, userId } = splitMembershipId(id)
+      // 我的成员行**蕴含**它的会话:成员行在、chat 行不在,就是那条会话刚被发布进收件箱。
+      if (userId === viewerId) { need(entityKey('chat', chatId)); continue }
+      need(entityKey('identity', userId))
+      // 对端会话(dm/ai)的对端:装配要它的 identity **与** override(备注名)。
+      // ⚠️ override 也必须在闭包里 —— 装配消费它,不问就等于冷启静默丢掉所有联系人备注。
+      const kind = (cache.get(entityKey('chat', chatId))?.value as ChatValue | null | undefined)?.kind
+      if (kind === 'dm' || kind === 'ai') need(entityKey('override', userId))
     }
-  }
-  // 对端会话(dm/ai)的对端:装配要它的 identity **与** override(备注名)。
-  // ⚠️ override 也必须在闭包里 —— 装配消费它,不问就等于冷启静默丢掉所有联系人备注。
-  const peerChats = new Set<string>()
-  for (const [key, cell] of cache) {
-    const { family, id } = splitKey(key)
-    if (family !== 'chat' || !cell.value) continue
-    const kind = (cell.value as ChatValue).kind
-    if (kind === 'dm' || kind === 'ai') peerChats.add(id)
-  }
-  for (const [key, cell] of cache) {
-    const { family, id } = splitKey(key)
-    if (family !== 'membership' || !cell.value) continue
-    const { chatId, userId } = splitMembershipId(id)
-    if (peerChats.has(chatId) && userId !== viewerId && !cache.has(entityKey('override', userId))) {
-      missing.add(entityKey('override', userId))
-    }
-    if (seenMembers.has(userId)) continue
-    seenMembers.add(userId)
-    if (!cache.has(entityKey('identity', userId))) missing.add(entityKey('identity', userId))
   }
   return [...missing].sort()
 }
 
 // ── 装配:纯函数、零 IO ─────────────────────────────────────────────────────
 
-function liveValues<T extends EntityValue>(cache: ProjectionCache, family: EntityFamily): Map<string, T> {
-  const out = new Map<string, T>()
-  for (const [key, cell] of cache) {
-    const parsed = splitKey(key)
-    if (parsed.family !== family || !cell.value) continue
-    out.set(parsed.id, cell.value as T)
+/** Keep an equal published object whole; a changed input remains the incoming object. */
+export function shareObject<T extends object>(current: T | undefined, next: T): T {
+  return current && replaceEqualDeep(current, next) === current ? current : next
+}
+
+// @@@one-row-object — a conversation row exists once in memory as a list row. The projection mints it; the chat list,
+// the projection's own snapshot and every derived list share that object. When a list is rebuilt, an unchanged row
+// stays the object the list already held and a changed row is the new object itself — never a copy of it. (A copy
+// is one more resident generation per conversation: every holder of an older list keeps a full set of rows alive.)
+// Matching is by id, not by position: a new message moves one row to the top and must not turn every row below it
+// into a new object. The repository's durable-shaped row (no read_state_version) is the one other copy, by contract.
+export function shareRows<T extends { id: string }>(current: readonly T[], next: readonly T[]): T[] {
+  const byId = new Map(current.map(row => [row.id, row]))
+  let unchanged = current.length === next.length
+  const shared = next.map((row, index) => {
+    const kept = shareObject(byId.get(row.id), row)
+    if (kept !== current[index]) unchanged = false
+    return kept
+  })
+  return unchanged ? current as T[] : shared
+}
+
+/** What assembling one conversation reads: a cell value by key, and the conversation's members in display order. */
+export type AssembleSource = {
+  value<T extends EntityValue>(family: EntityFamily, id: string): T | undefined
+  members(chatId: string): readonly MembershipValue[]
+}
+
+/** Members in display order: joined_at, then user id. */
+export function sortMembers(members: MembershipValue[]): MembershipValue[] {
+  return members.sort((left, right) => (
+    left.joined_at === right.joined_at
+      ? (left.user_id < right.user_id ? -1 : left.user_id > right.user_id ? 1 : 0)
+      : (left.joined_at < right.joined_at ? -1 : 1)
+  ))
+}
+
+/** List order: most recent activity first; equal activity by id, so a full and an incremental assemble agree. */
+export function compareListRows(left: ChatItem, right: ChatItem): number {
+  return compareChatsByActivityDesc(left, right) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+}
+
+/** One conversation's list row, or null when it is not in the list (not published, deleted, peer not resolved yet). */
+export function assembleChat(source: AssembleSource, viewerId: string, chatId: string): ChatItem | null {
+  const chat = source.value<ChatValue>('chat', chatId)
+  if (!chat) return null
+  if (chat.status !== 'active' && chat.status !== 'stopped' && chat.status !== 'paused') return null
+  const own = source.value<MembershipValue>('membership', membershipId(chat.id, viewerId))
+  // inbox publication 是独立事实,不是 membership 副作用(conversation-data):
+  // 没发布的会话不进列表。
+  if (!own || !own.inbox_published || own.conversation_deleted_at) return null
+  const isPeerChat = chat.kind === 'dm' || chat.kind === 'ai'
+  const peerUserId = isPeerChat ? (source.members(chat.id).find(member => member.user_id !== viewerId)?.user_id ?? null) : null
+  // 身份引用只存稳定 id;peer 身份缺行时不把 name='' 当成功投影 ⇒ 该行不发布。
+  if (isPeerChat && (!peerUserId || !source.value('identity', peerUserId))) return null
+  const preview = source.value<PreviewValue>('preview', chat.id)
+  const locator = source.value<UnreadValue>('unread', chat.id) ?? null
+  const notificationLevel = own.notification_level
+  return {
+    id: chat.id,
+    public_id: chat.public_id,
+    kind: chat.kind,
+    status: chat.status,
+    peer_user_id: peerUserId,
+    peer_alias: peerUserId ? (source.value<OverrideValue>('override', peerUserId)?.alias ?? null) : null,
+    alias: chat.kind === 'group' ? (source.value<OverrideValue>('override', `group/${chat.id}`)?.alias ?? null) : null,
+    avatar: isRoomChat(chat.kind) ? (chat.avatar_url ?? null) : null,
+    // 群成员引用与对端同一条规则:身份缺行的成员不进这一行(下一条 agent_changed 一到就补上)。从前原样带上
+    // 全部成员 id,读侧 readCompleteCachedChats 发现一个没身份就把整份冷启动缓存作废 —— 会话列表每次冷启都空白。
+    member_user_ids: isRoomChat(chat.kind)
+      ? source.members(chat.id).filter(member => source.value('identity', member.user_id)).map(member => member.user_id)
+      : undefined,
+    name: isRoomChat(chat.kind) ? (chat.name ?? fallbackChatName(chat.kind)) : '',
+    created_at: chat.created_at,
+    last_message_at: preview ? preview.created_at : chat.last_message_at,
+    last_message_preview: preview ? preview.preview : chat.last_message_preview,
+    last_message_failure: preview?.failure ?? null,
+    unread_count: locator?.unread_count ?? 0,
+    unread_locator: locator,
+    pinned_message_id: chat.pinned_message_id,
+    last_read_seq: own.last_read_seq,
+    is_marked_unread: own.is_marked_unread,
+    read_state_version: own.version,
+    member_updated_at: own.updated_at,
+    next_message_seq: chat.next_message_seq,
+    is_pinned: own.is_pinned,
+    notification_level: notificationLevel,
+    is_muted: notificationLevel === 'none',
+    my_role: isRoomChat(chat.kind) ? own.role : undefined,
+    source_chat_id: chat.source_chat_id,
+    source_message_id: chat.source_message_id,
   }
-  return out
 }
 
 /**
  * assemble : C → 会话列表。**纯函数、零 IO** —— 于是「界面为什么长这样」永远只由 C 回答,
- * 不必回答「哪次请求先到」(spec「投影是什么」)。
+ * 不必回答「哪次请求先到」(spec「投影是什么」)。冷启快照走这里(读一遍整个缓存);增量走 reassemble。
  */
 export function assemble(cache: ProjectionCache, viewerId: string): ChatItem[] {
   if (!viewerId) throw new Error('assemble requires the viewer id')
-  const chats = liveValues<ChatValue>(cache, 'chat')
-  const memberships = liveValues<MembershipValue>(cache, 'membership')
-  const identities = liveValues<IdentityValue>(cache, 'identity')
-  const unread = liveValues<UnreadValue>(cache, 'unread')
-  const previews = liveValues<PreviewValue>(cache, 'preview')
-  const overrides = liveValues<OverrideValue>(cache, 'override')
-
+  const values = new Map<EntityFamily, Map<string, EntityValue>>()
   const membersByChat = new Map<string, MembershipValue[]>()
-  for (const membership of memberships.values()) {
-    const bucket = membersByChat.get(membership.chat_id)
-    if (bucket) bucket.push(membership)
-    else membersByChat.set(membership.chat_id, [membership])
+  for (const [key, cell] of cache) {
+    if (!cell.value) continue
+    const { family, id } = splitKey(key)
+    let bucket = values.get(family)
+    if (!bucket) values.set(family, bucket = new Map())
+    bucket.set(id, cell.value)
+    if (family === 'membership') {
+      const membership = cell.value as MembershipValue
+      const members = membersByChat.get(membership.chat_id)
+      if (members) members.push(membership)
+      else membersByChat.set(membership.chat_id, [membership])
+    }
   }
-  for (const bucket of membersByChat.values()) {
-    bucket.sort((left, right) => (
-      left.joined_at === right.joined_at
-        ? (left.user_id < right.user_id ? -1 : left.user_id > right.user_id ? 1 : 0)
-        : (left.joined_at < right.joined_at ? -1 : 1)
-    ))
+  for (const members of membersByChat.values()) sortMembers(members)
+  const source: AssembleSource = {
+    value: <T extends EntityValue>(family: EntityFamily, id: string) => values.get(family)?.get(id) as T | undefined,
+    members: (chatId) => membersByChat.get(chatId) ?? [],
   }
-
   const rows: ChatItem[] = []
-  for (const chat of chats.values()) {
-    if (chat.status !== 'active' && chat.status !== 'stopped' && chat.status !== 'paused') continue
-    const own = memberships.get(membershipId(chat.id, viewerId))
-    // inbox publication 是独立事实,不是 membership 副作用(conversation-data):
-    // 没发布的会话不进列表。
-    if (!own || !own.inbox_published || own.conversation_deleted_at) continue
-    const isPeerChat = chat.kind === 'dm' || chat.kind === 'ai'
-    const peers = (membersByChat.get(chat.id) ?? []).filter((member) => member.user_id !== viewerId)
-    const peerUserId = isPeerChat ? (peers[0]?.user_id ?? null) : null
-    // 身份引用只存稳定 id;peer 身份缺行时不把 name='' 当成功投影 ⇒ 该行不发布。
-    if (isPeerChat && (!peerUserId || !identities.has(peerUserId))) continue
-    const preview = previews.get(chat.id)
-    const locator = unread.get(chat.id) ?? null
-    const notificationLevel = own.notification_level
-    rows.push({
-      id: chat.id,
-      public_id: chat.public_id,
-      kind: chat.kind,
-      status: chat.status,
-      peer_user_id: peerUserId,
-      peer_alias: peerUserId ? (overrides.get(peerUserId)?.alias ?? null) : null,
-      alias: chat.kind === 'group' ? (overrides.get(`group/${chat.id}`)?.alias ?? null) : null,
-      avatar: isRoomChat(chat.kind) ? (chat.avatar_url ?? null) : null,
-      // 群成员引用与对端同一条规则:身份缺行的成员不进这一行(下一条 agent_changed 一到就补上)。从前原样带上
-      // 全部成员 id,读侧 readCompleteCachedChats 发现一个没身份就把整份冷启动缓存作废 —— 会话列表每次冷启都空白。
-      member_user_ids: isRoomChat(chat.kind)
-        ? (membersByChat.get(chat.id) ?? []).filter((member) => identities.has(member.user_id)).map((member) => member.user_id)
-        : undefined,
-      name: isRoomChat(chat.kind) ? (chat.name ?? fallbackChatName(chat.kind)) : '',
-      created_at: chat.created_at,
-      last_message_at: preview ? preview.created_at : chat.last_message_at,
-      last_message_preview: preview ? preview.preview : chat.last_message_preview,
-      last_message_failure: preview?.failure ?? null,
-      unread_count: locator?.unread_count ?? 0,
-      unread_locator: locator,
-      pinned_message_id: chat.pinned_message_id,
-      last_read_seq: own.last_read_seq,
-      is_marked_unread: own.is_marked_unread,
-      read_state_version: own.version,
-      member_updated_at: own.updated_at,
-      next_message_seq: chat.next_message_seq,
-      is_pinned: own.is_pinned,
-      notification_level: notificationLevel,
-      is_muted: notificationLevel === 'none',
-      my_role: isRoomChat(chat.kind) ? own.role : undefined,
-      source_chat_id: chat.source_chat_id,
-      source_message_id: chat.source_message_id,
-    })
+  for (const chatId of values.get('chat')?.keys() ?? []) {
+    const row = assembleChat(source, viewerId, chatId)
+    if (row) rows.push(row)
   }
-  rows.sort(compareChatsByActivityDesc)
-  return rows
+  return rows.sort(compareListRows)
+}
+
+/**
+ * @@@incremental-list — 增量:上一版列表里只有 `touched` 这几条会话重拼,其余行原样沿用;重拼的行按序插回。
+ * 每条消息的代价跟它碰到的会话数成正比,❌ 不随会话总数涨(owner O(1) 判据)。
+ */
+export function reassemble(
+  rows: readonly ChatItem[],
+  touched: ReadonlySet<string>,
+  source: AssembleSource,
+  viewerId: string,
+  keep: (chatId: string) => boolean = () => true,
+): ChatItem[] {
+  if (touched.size === 0) return rows as ChatItem[]
+  const previous = new Map<string, ChatItem>()
+  const next = rows.filter(row => {
+    if (!touched.has(row.id)) return true
+    previous.set(row.id, row)
+    return false
+  })
+  for (const chatId of touched) {
+    let row = keep(chatId) ? assembleChat(source, viewerId, chatId) : null
+    if (!row) continue
+    const held = previous.get(chatId)
+    // This assembly is not published yet; reuse its unchanged nested member arrays as well.
+    if (held) row = replaceEqualDeep(held, row)
+    let low = 0, high = next.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (compareListRows(next[middle]!, row) <= 0) low = middle + 1
+      else high = middle
+    }
+    next.splice(low, 0, row)
+  }
+  return next
+}
+
+/** Which conversations' rows a set of changed keys can change. A person's identity or alias reaches every conversation they are in. */
+export function touchedChats(keys: Iterable<EntityKey>, chatsOf: (userId: string) => Iterable<string>): Set<string> {
+  const touched = new Set<string>()
+  for (const key of keys) {
+    const { family, id } = splitKey(key)
+    if (family === 'chat' || family === 'preview' || family === 'unread') touched.add(id)
+    else if (family === 'membership') touched.add(splitMembershipId(id).chatId)
+    else if (family === 'override' && id.startsWith('group/')) touched.add(id.slice('group/'.length))
+    else if (family === 'override' || family === 'identity') for (const chatId of chatsOf(id)) touched.add(chatId)
+  }
+  return touched
 }

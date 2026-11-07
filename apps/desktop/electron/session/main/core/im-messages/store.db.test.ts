@@ -250,4 +250,22 @@ describe('durable local IM messages', () => {
     expect(store.page(account, { chatId: 'observer', limit: 10 }).rows).toEqual([])
     integrity()
   })
+
+  it('compiles each statement once per connection, however many messages and access facts arrive', () => {
+    const compiled = new Map<string, number>()
+    const prepare = fixture.sqlite.prepare.bind(fixture.sqlite)
+    vi.spyOn(fixture.sqlite, 'prepare').mockImplementation(((sql: string) => {
+      compiled.set(sql, (compiled.get(sql) ?? 0) + 1)
+      return prepare(sql)
+    }) as typeof fixture.sqlite.prepare)
+    const store = createImMessageStore(fixture.sqlite)
+    for (let seq = 1; seq <= 5; seq++) {
+      store.ingest(account, { writes: [], revisions: [{ revision: String(seq), writes: [
+        { type: 'put', message: message(`m${seq}`, 'orchid', seq) },
+        { type: 'chatAccess', access: { chatId: `topic-${seq}`, sourceChatId: 'chat-a', ownMember: seq % 2 === 0 } },
+      ] }], throughRevision: String(seq) })
+    }
+    expect(store.windows(account, ['chat-a'], 10)).toHaveLength(5)
+    expect([...compiled].filter(([, times]) => times > 1)).toEqual([])
+  })
 })
