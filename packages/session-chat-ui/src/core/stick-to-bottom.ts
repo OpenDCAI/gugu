@@ -6,6 +6,9 @@
 /** Distance from the bottom (px) within which the container is considered "stuck". */
 export const STICK_THRESHOLD_PX = 48;
 
+/** Only tolerate the browser's fractional scroll-height rounding when resuming follow. */
+export const SCROLL_END_EPSILON_PX = 1;
+
 export class StickToBottom {
   private el: HTMLElement;
   private stuck = true;

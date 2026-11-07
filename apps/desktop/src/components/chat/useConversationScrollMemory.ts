@@ -4,6 +4,7 @@ import { restoreLanding } from '../../lib/listLanding'
 import type { ListLanding } from '../../lib/flowList'
 import { currentAuthSessionSignal } from '../../lib/authSessionLoss'
 import type { UnreadLocatorCommit } from '../../lib/chatUnreadLocatorWindow'
+import { afterPaint } from '../../lib/afterPaint'
 
 const log = rendererLogger('conversation-scroll')
 
@@ -182,16 +183,20 @@ export function useConversationScrollMemory({
     setScrollerEl(element)
   }, [chatId, positionKey, enabled, capturePosition, isPreservingPosition])
 
+  // The read waits for the paint and records whoever owns the viewport then (nobody once the scroller has left), so a
+  // re-subscription in between (the ref callback changes when tail following is withdrawn) leaves it pending.
+  const rememberRef = useRef({ capturePosition, isPreservingPosition })
+  rememberRef.current = { capturePosition, isPreservingPosition }
   useEffect(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
-    const remember = () => {
+    const remember = afterPaint(() => {
       const owner = scrollerOwnerRef.current
-      if (owner && !isPreservingPosition()) capturePosition(owner)
-    }
-    scroller.addEventListener('scroll', remember, { passive: true })
-    return () => scroller.removeEventListener('scroll', remember)
-  }, [scrollerEl, capturePosition, isPreservingPosition])
+      if (owner && !rememberRef.current.isPreservingPosition()) rememberRef.current.capturePosition(owner)
+    })
+    scroller.addEventListener('scroll', remember.schedule, { passive: true })
+    return () => scroller.removeEventListener('scroll', remember.schedule)
+  }, [scrollerEl])
 
   const openLocation = useCallback(() => {
     const position = chatId && enabled && completedActivationRef.current !== activationKey ? positions.get(positionKey) : undefined

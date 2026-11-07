@@ -12,13 +12,29 @@ const a = 'user:11111111-1111-4111-8111-111111111111', human = 'user:22222222-22
 const ctx: SegmentCtx = { actor: (id: string) => id === a ? { id, type: 'agent', name: 'd3' } : id === human ? { id, type: 'human', name: 'Owner' } : null,
   chatName: (id: string) => id === 'group' ? 'gugu' : null, translate, agentConversation: true, active: false, expanded: () => false,
   pendingToolCallIds: () => new Set(), terminalSnapshot: () => null, plan: () => null, caches: {} } as unknown as SegmentCtx;
-const incoming = (id: string, type = 'agent', address = a): ChatMessage => ({ kind: 'message', id, seq: 0, role: 'user', text:
+const incoming = (id: string, type = 'agent', address = a) => ({ kind: 'message' as const, id, seq: 0, role: 'user' as const, text:
   `<gugu_delivery route="chat" chat="group" chat_kind="group" from="d3" from_id="${address}" from_type="${type}" msg="msg:${id}"><![CDATA[message ${id}]]></gugu_delivery>` });
 const message = (id: string): ChatMessage => ({ kind: 'message', id, seq: 0, role: 'assistant', text: id });
 const turn = (id: string, items: ChatMessage[]): TranscriptTurn => ({ id, seq: 0, initiator: 'user', outcome: { kind: 'done' }, items: items as TranscriptTurn['items'] });
 const segmenters = Object.fromEntries(['message', 'turn-process', 'tool-run'].map(kind => [kind, { kind, segment: item => [unit(kind, item, item, { key: 'self' })] } satisfies ItemSegmenter]));
 
 describe('agent activity identity and grouping', () => {
+  it('joins incoming tool-only activity across hover-only completion controls', () => {
+    const record = (id: string): TranscriptTurn => ({ ...turn(id, [incoming(`${id}-input`)]), items: [incoming(`${id}-input`),
+      { kind: 'mcp-tool-call', id: `${id}-read`, toolCallId: `${id}-read`, seq: 1, title: 'Read history', server: 'gugu', tool: 'message_history', status: 'done',
+        rawInput: JSON.stringify({ chat_id: 'group' }), outputText: '[]' }] });
+    const all = { ...segmenters, 'turn-completion': { kind: 'turn-completion', segment: item => [unit('turn-completion', item, item, { key: 'self' })] } satisfies ItemSegmenter };
+    const rows = flattenTier([record('one'), record('two')], ctx, all);
+    const heads = rows.filter(row => row.kind === 'agent-activity');
+    const footers = rows.filter(row => row.kind === 'turn-completion');
+    expect(footers).toHaveLength(2);
+    expect(heads).toHaveLength(1);
+    const group = heads[0].data as import('./agent-activity').AgentActivityGroup;
+    expect(group.events.reduce((sum,event) => sum + event.count, 0)).toBe(2);
+    expect(footers.every(row => row.activityFold === heads[0].id)).toBe(true);
+    expect(trailingActivity(rows)?.events).toHaveLength(2);
+  });
+
   it('folds only authenticated agent inputs, leaving human, unknown and mixed deliveries readable', () => {
     expect(incomingActivity(incoming('a'), ctx)?.count).toBe(1);
     expect(incomingActivity(incoming('h', 'human', human), ctx)).toBeNull();
@@ -103,7 +119,7 @@ describe('agent activity identity and grouping', () => {
     const actors = [a, 'user:33333333-3333-4333-8333-333333333333', 'session:505adac7-1905-473b-8d2f-d574b6892518']
       .map((id, index) => ({ id, name: `Agent ${index}`, target: { kind: 'session' as const, sessionId: id } }));
     const events = actors.map((actor, index) => ({ id: String(index), direction: 'received' as const, actors: [actor], count: 1, live: false }));
-    expect(activitySummaryText(activitySummary({ id: 'x', events }, translate))).toBe('Received 3 messages from Agent 0, Agent 1 and others');
+    expect(activitySummaryText(activitySummary({ id: 'x', events }, translate))).toBe('Received 3 messages from Agent 0, Agent 1 and others (3 destinations)');
   });
   it('does not reset reading when the same owner input changes its native/live projection identity', () => {
     const original = { ...message('optimistic'), role: 'user' as const, _meta: { guguClientMessageId: 'client-input' } };

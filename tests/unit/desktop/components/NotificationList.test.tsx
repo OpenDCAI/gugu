@@ -136,6 +136,7 @@ it.each([false, true])('opening the bell reads nothing; a read failure stays lis
   await mount(mobile); await open()
   await see('error-a'); await see('approval')
   expect(markSeen, 'looking at the list is not reading the task').not.toHaveBeenCalled()
+  expect(rows().map(row => row.querySelector('.gg-list-row-subtitle')?.textContent), 'the second line says why, not the name again').toEqual(['出错了', '等你批准'])
   expect(document.querySelector('[data-testid="notification-count"]')?.textContent).toBe('2')
   expect(rows().map(row => row.dataset.emphasis)).toEqual(['true', 'true'])
   expect(marks(), 'unread rows carry the chat list unread badge').toEqual([{ badge: '1', muted: false }, { badge: '1', muted: false }])

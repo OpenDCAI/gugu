@@ -167,6 +167,8 @@ describe('first unread navigation paints its final landing', () => {
     surface.scrollTop = surface.scrollHeight - surface.clientHeight - 500
     await scrolled
     await until('the real scroll event withdraws tail following', () => !view.history.isFollowingTail())
+    // Positions are recorded from painted frames (lib/afterPaint): the reader is restored to what was last on screen.
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)))
     const before = visible()
     await view.closeSlot()
     await until('the other root has removed the conversation slot', () => !view.scroller())

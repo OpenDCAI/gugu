@@ -205,7 +205,9 @@ it('a rejected task connection remains visible with its cause and keeps the orig
   await userEvent.click(page.getByRole('button', { name: 'Go sign in', exact: true }));
   await userEvent.click(page.getByTestId('connection-use-api'));
   await until('the host refused the switch', () => control.selected === 'rejected');
-  await until('the refusal is shown', () => document.querySelector('[role="alert"]')?.textContent?.includes('Connection could not switch') === true);
+  await until('the refusal is shown', () => document.querySelector('.subscription-connection-menu [role="alert"]')?.textContent?.includes('Connection could not switch') === true);
+  // The refusal stays where it was asked: the menu is still open, not exit-animating with the notice inside it.
+  expect(document.querySelector('.subscription-connection-menu')?.hasAttribute('data-open')).toBe(true);
   expect(control.connections.find(c => c.current)?.id).toBe('native');
   expect((host.querySelector('input') as HTMLInputElement).value).toBe('Original draft');
 });
@@ -246,7 +248,8 @@ it('working sessions refuse a task connection switch with a calm status and keep
   await userEvent.click(page.getByTestId('composer-model-trigger'));
   await userEvent.click(page.getByRole('button', { name: 'Go sign in', exact: true }));
   await userEvent.click(page.getByTestId('connection-use-api'));
-  await until('the busy refusal is rendered', () => document.querySelector('[role="status"]')?.textContent?.includes('2 Codex sessions') === true);
+  await until('the busy refusal is rendered', () => document.querySelector('.subscription-connection-menu [role="status"]')?.textContent?.includes('2 Codex sessions') === true);
+  expect(document.querySelector('.subscription-connection-menu')?.hasAttribute('data-open')).toBe(true);
   expect(document.querySelector('[role="alert"]')).toBeNull();
   expect(document.querySelector('[role="status"]')?.classList.contains('subscription-error')).toBe(false);
   expect(control.connections.find(c => c.current)?.id).toBe('native');

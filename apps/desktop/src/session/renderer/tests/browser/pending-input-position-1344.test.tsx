@@ -377,24 +377,18 @@ it.each(cases)('%s: record each actual paint boundary before Q starts', async (n
         .find(button => button.getAttribute('aria-label')?.startsWith('编辑'))!;
       await userEvent.click(edit);
       await until('edit reserves the persistent entry', () => !!own.rows.find(row => row.id === q!.id)?.sendQueue?.edit);
-      // The persisted reservation lands before the store clears its pending flag. While pending, the composer
-      // drops text changes and Enter, then resets the editor to the queued text, so typing on the row alone
-      // loses the edit. Type once the rendered composer has the edit open and the editor has settled: TipTap
-      // re-enables the editor (aria-disabled) in a later effect and focuses it a frame later. Both write the
-      // caret back to the end of the entry, so a fill() that selected the text first appends ("好edited …").
+      // The reservation can publish before the store clears pending, while the composer still drops edits.
+      // Wait for the rendered editor to accept input before selecting through its keymap.
       await until('the composer has opened the entry for editing', () => {
         const cancel = [...view.composerSlot!.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === t('common.cancel'));
         const editor = input.element();
-        const selection = window.getSelection();
-        if (!cancel || cancel.disabled || editor.getAttribute('aria-disabled') !== 'false' || document.activeElement !== editor
-          || editorApiRef.current?.getText() !== q!.text || !selection?.isCollapsed || !selection.focusNode || !editor.contains(selection.focusNode)) return false;
-        // A previously focused editor can satisfy activeElement before TipTap's queued
-        // focus callback moves the caret. Observe its final caret as well as its text.
-        const beforeCaret = document.createRange();
-        beforeCaret.selectNodeContents(editor); beforeCaret.setEnd(selection.focusNode, selection.focusOffset);
-        return beforeCaret.toString() === q!.text;
+        return !!cancel && !cancel.disabled && editor.getAttribute('aria-disabled') === 'false' && document.activeElement === editor
+          && editorApiRef.current?.getText() === q!.text && !store.queuedPromptEdit?.pending;
       });
-      await input.fill('edited queued input');
+      // fill() selects only the DOM; deferred focus reconciliation can restore the model's old caret.
+      // Mod-a updates ProseMirror's selection too, so subsequent focus work preserves the replacement.
+      await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}');
+      await userEvent.keyboard('edited queued input');
       await until('the queued editor and its controlled state contain the edit', () => editorApiRef.current?.getText() === 'edited queued input'
         && store.queuedPromptEdit?.text === 'edited queued input' && !store.queuedPromptEdit.pending);
       await userEvent.keyboard('{Enter}');

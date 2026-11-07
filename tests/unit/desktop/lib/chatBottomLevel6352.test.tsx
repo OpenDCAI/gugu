@@ -192,7 +192,7 @@ describe('pagination does not measure layout when no page can be requested', () 
 
   it('still requests an older page at the physical top even when no newer page exists', async () => {
     const view = await setup({ atBottom: false, scrollTop: 0 })
-    await act(async () => { view.scroller.dispatchEvent(new Event('scroll')) })
+    await act(async () => { view.scroller.dispatchEvent(new Event('scroll')); await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))) }) // read after paint (lib/afterPaint)
     expect(view.loadOlder).toHaveBeenCalledOnce()
     expect(view.loadNewer).not.toHaveBeenCalled()
     expect(view.scrollHeight).toHaveBeenCalled()

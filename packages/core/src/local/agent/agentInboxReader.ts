@@ -43,7 +43,7 @@ import {
   type GroupRulesLedger,
 } from './groupRulesDelivery'
 import { encodeTypedId } from '../../shared/typedId.mjs'
-import { ackForumViaRpc, recordForumFailureViaRpc, type ForumDeliveryFailure } from './forumInbox'
+import type { AppInboxFailure } from './appInbox'
 import { coreLogger } from '../../log'
 import { agentFailureNeedsModelChoice, agentFailureReason, type AgentFailureReason } from '../../shared/agentQuotaReason'
 import { turnFailureMarker } from '../../shared/ui/systemNotice'
@@ -104,8 +104,8 @@ export interface AgentInboxUnreadRow {
   scanFence?: number
   /** Local session-direct rows are fed into this same reader without inventing a cloud chat. */
   localSessionDirect?: { sessionId: string; envelope: string }
-  /** 论坛来源的一行(forumInbox.ts):帖子上该交给它的一件事,信封已做好;受理后按帖子确认 seq。 */
-  forum?: { postId: string; seq: number; envelope: string }
+  /** App 来源的一行(appInbox.ts):信封已做好;受理后按 key 确认 seq。 */
+  app?: { source: string; key: string; seq: number; envelope: string }
 }
 
 /**
@@ -182,13 +182,10 @@ export interface AgentInboxReaderDeps {
    * whether the source is still open (queued / dispatching); a terminal failure is never an assistant read.
    */
   claimedSources?: (agentUserId: string, messageIds: readonly string[]) => ReadonlyMap<string, boolean> | Promise<ReadonlyMap<string, boolean>>
-  /**
-   * 论坛来源(forumInbox.ts):有它才拉论坛(宿主的装配 agentInboxDepsFromBridge 接上 forum_pull_agent_inbox);确认与失败记录
-   * 默认 forum_ack / forum_record_delivery_failure。
-   */
-  fetchForumUnread?: (agentUserId: string) => Promise<AgentInboxUnreadRow[]>
-  ackForum?: (input: { agentUserId: string; postId: string; seq: number }) => Promise<void>
-  recordForumFailure?: (input: { agentUserId: string; postId: string; state: ForumDeliveryFailure; error: string }) => Promise<void>
+  /** App 来源(appInbox.ts):有它才拉;确认与失败记录也归那个 App。 */
+  fetchAppUnread?: (agentUserId: string) => Promise<AgentInboxUnreadRow[]>
+  ackApp?: (input: { source: string; agentUserId: string; key: string; seq: number }) => Promise<void>
+  recordAppFailure?: (input: { source: string; agentUserId: string; key: string; state: AppInboxFailure; error: string }) => Promise<void>
   fetchThreadMessages?: (chatId: string, threadRootId: string) => Promise<ThreadMessageRow[]>
   resolveGuguIds?: (
     userIds: Array<string | undefined>,
@@ -610,14 +607,14 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     }
     scanAfter = { chatId: tail.chatId, seq: tail.seq }
   }
-  // 论坛来源:聊天这一轮受理完(或本来就没有)才拉 —— 会话不 live / 此刻不收时它也不收,等下一个触发。
-  if (deps.fetchForumUnread && (verdict === 'idle' || verdict === 'accepted' || verdict === 'enqueued')) {
-    const forumRows = await deps.fetchForumUnread(agentUserId)
-    pulled += forumRows.length
-    if (forumRows.length > 0) {
+  // App 来源:聊天这一轮受理完(或本来就没有)才拉 —— 会话不 live / 此刻不收时它也不收,等下一个触发。
+  if (deps.fetchAppUnread && (verdict === 'idle' || verdict === 'accepted' || verdict === 'enqueued')) {
+    const appRows = await deps.fetchAppUnread(agentUserId)
+    pulled += appRows.length
+    if (appRows.length > 0) {
       const archival = await deps.sessionArchival?.(agentUserId) ?? null
       if (archival?.archivedAt) return { pulled, injected: injectedTotal, verdict: 'not-now' }
-      const unclaimed = await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, forumRows, archival, deps), deps)
+      const unclaimed = await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, appRows, archival, deps), deps)
       const batchResult = await injectBatch(agentUserId, unclaimed, deps)
       injectedTotal += batchResult.injected
       verdict = batchResult.verdict
@@ -688,7 +685,7 @@ type PreparedUnit = {
  * recorded as failed independently; it cannot prevent later rows from reaching admission.
  */
 function undeliverableRowReason(row: AgentInboxUnreadRow): string | null {
-  if (row.localSessionDirect || row.forum) return null
+  if (row.localSessionDirect || row.app) return null
   try {
     encodeTypedId('msg', row.id)
     encodeTypedId('chat', row.chatId)
@@ -878,7 +875,7 @@ async function prepareMessage(
   if (row.localSessionDirect) {
     return { row, envelope: row.localSessionDirect.envelope }
   }
-  if (row.forum) return { row, envelope: row.forum.envelope }
+  if (row.app) return { row, envelope: row.app.envelope }
   const identities = new Map<string, GuguIdentity>()
   if (row.senderUserId) {
     identities.set(row.senderUserId, {
@@ -1093,26 +1090,27 @@ async function advanceCursor(
   const markRead = deps.markRead
     ?? ((input: AgentDeliveredMessageRead) => markAgentDeliveredMessageRead(input, { accessToken: deps.accessToken }))
   const byChat = new Map<string, PreparedMessage[]>()
-  const forumSeqs = new Map<string, number>()
+  const appSeqs = new Map<string, number>()
+  const appKey = (app: NonNullable<AgentInboxUnreadRow['app']>) => `${app.source}\n${app.key}`
   for (const member of members) {
     const list = byChat.get(member.row.chatId) ?? []
     list.push(member)
     byChat.set(member.row.chatId, list)
-    if (member.row.forum) {
-      const { postId, seq } = member.row.forum
-      forumSeqs.set(postId, Math.max(forumSeqs.get(postId) ?? seq, seq))
+    if (member.row.app) {
+      const key = appKey(member.row.app)
+      appSeqs.set(key, Math.max(appSeqs.get(key) ?? member.row.app.seq, member.row.app.seq))
     }
   }
   for (const [chatId, chatMembers] of byChat) {
     const ordered = [...chatMembers].sort((a, b) => a.row.seq - b.row.seq)
     for (const member of ordered) {
       try {
-        if (member.row.forum) {
-          const seq = forumSeqs.get(member.row.forum.postId)
+        if (member.row.app) {
+          const seq = appSeqs.get(appKey(member.row.app))
           if (seq === undefined) continue
-          forumSeqs.delete(member.row.forum.postId)
-          const ack = deps.ackForum ?? ((input: { agentUserId: string; postId: string; seq: number }) => ackForumViaRpc(input, deps.accessToken))
-          await ack({ agentUserId, postId: member.row.forum.postId, seq })
+          appSeqs.delete(appKey(member.row.app))
+          if (!deps.ackApp) throw new Error('an App inbox row has no ackApp handler')
+          await deps.ackApp({ source: member.row.app.source, agentUserId, key: member.row.app.key, seq })
         } else if (member.row.localSessionDirect) {
           if (!deps.markLocalRead) throw new Error('local session-direct row has no markLocalRead handler')
           await deps.markLocalRead({
@@ -1156,10 +1154,11 @@ async function discloseBatchFailure(
 ): Promise<Disclosure> {
   const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
   const byChat = new Map<string, Pick<PreparedMessage, 'row'>[]>()
-  const byPost = new Set<string>()
+  const byApp = new Map<string, { source: string; key: string }>()
   for (const member of members) {
-    if (member.row.forum) {
-      byPost.add(member.row.forum.postId)
+    if (member.row.app) {
+      const { source, key } = member.row.app
+      byApp.set(`${source}\n${key}`, { source, key })
       continue
     }
     if (member.row.localSessionDirect) {
@@ -1175,20 +1174,19 @@ async function discloseBatchFailure(
     list.push(member)
     byChat.set(member.row.chatId, list)
   }
-  // Said only when every chat (and every post) got its row: a batch of local rows alone, or a post that failed, leaves it unsaid.
-  let said = byChat.size + byPost.size > 0
-  // 论坛来源:失败记在那条指派上(主人在帖子里看到),❌ 写成一条回复。没受理(游标没动、会重投)与受理了但那一轮失败分开记。
-  const recordForum = deps.recordForumFailure
-    ?? ((input: { agentUserId: string; postId: string; state: ForumDeliveryFailure; error: string }) => recordForumFailureViaRpc(input, deps.accessToken))
-  for (const postId of byPost) {
-    const state: ForumDeliveryFailure = completionError === undefined || beforeAdmission ? 'undelivered' : 'turn_failed'
+  // Said only when every chat (and every App's) got its row: a batch of local rows alone, or an App that failed, leaves it unsaid.
+  let said = byChat.size + byApp.size > 0
+  // App 来源:失败交给那个 App 记(它自己的界面上给主人看),❌ 写成一条回复。没受理(游标没动、会重投)与受理了但那一轮失败分开记。
+  for (const { source, key } of byApp.values()) {
+    const state: AppInboxFailure = completionError === undefined || beforeAdmission ? 'undelivered' : 'turn_failed'
     try {
-      await recordForum({ agentUserId, postId, state, error: reason })
+      if (!deps.recordAppFailure) throw new Error('an App inbox row has no recordAppFailure handler')
+      await deps.recordAppFailure({ source, agentUserId, key, state, error: reason })
     } catch (error) {
       said = false
       log.error(
-        { agentUserId, postId, state, err: error instanceof Error ? error.message : String(error) },
-        'forum delivery failure could not be recorded on the assignment; this failure remains undisclosed',
+        { agentUserId, source, key, state, err: error instanceof Error ? error.message : String(error) },
+        'an App could not record a delivery failure; the command row carries it',
       )
     }
   }
