@@ -22,12 +22,13 @@
   pointer-events: none;
 }
 
-/* Sonner slides cards below their origin while entering/leaving or being swiped.
- * The measured origin is the composer's safe edge: neither paint nor hit testing
- * may cross it. Keep the rest of the viewport (including shadows/close buttons).
+/* Sonner's zero-height host ends at the card's border box, 8px above the composer
+ * (notice-host-position.ts). The outline and shadow paint outside that box: let
+ * them use the clear gap. Enter/exit/swipe paint and hit testing are still clipped
+ * at the actual composer edge, rather than cutting through the card's bottom.
  */
 .gugu-notices-above-composer[data-sonner-toaster][data-y-position='bottom'] {
-  clip-path: inset(-100vh -100vw 0 -100vw);
+  clip-path: inset(-100vh -100vw -8px -100vw);
 }
 
 /* Copy confirmation stays above the conversation, away from the input/keyboard. */
