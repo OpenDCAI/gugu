@@ -113,7 +113,8 @@ describe('#3507 会话不在时的其余副作用', () => {
     const store = makeStore();
     await invoke(store);
     expect(toasts.some((entry) => entry.title === title), `${title} was silently skipped`).toBe(true);
-    expect(toasts.at(-1)?.description).toBe('ACP session is not connected');
+    expect(toasts.at(-1)?.description).toBe(translateSessionMessage('taskError.settingFailedRetry'));
+    expect(JSON.stringify(toasts)).not.toContain('ACP session is not connected');
     expect(toasts.at(-1)?.variant).toBe('destructive');
   });
 

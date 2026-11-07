@@ -65,7 +65,8 @@ import type { SessionViewLockState } from './session-view-lock';
 import { SessionViewControl } from './session-view-control';
 import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
 import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
-import { safeFailureLine } from '@renderer/features/sessions/gugu-reason';
+import { codexNeedsUpgrade } from '../session-input-failure-copy';
+import { useSessionInputNotice } from '../session-input-notice';
 import { log } from '@renderer/utils/logger';
 import {
   harnessCatalogNotice,
@@ -74,7 +75,7 @@ import {
 } from './harness-model-field';
 import { useHarnessModelOptions } from './use-harness-model-options';
 import { platformEffortFacts, resolveCreateEfforts } from '@shared/core/agents/create-efforts';
-import { HARNESS_MODEL_CATALOG_QUERY_KEY, useHarnessModelCatalog } from '@renderer/lib/stores/use-harness-model-catalog';
+import { HARNESS_MODEL_CATALOG_QUERY_KEY, useHarnessModelCatalog, forceRefreshHarnessModelCatalog } from '@renderer/lib/stores/use-harness-model-catalog';
 import { queryClient } from '@renderer/lib/query-client';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { useHarnessModelCredential } from '@renderer/lib/stores/use-harness-model-credential';
@@ -196,7 +197,7 @@ export type InitialSessionState = {
   retryPlatformCatalog?: () => void;
   /** harness 模型目录拿不到时的那句话（没装 / 没登录 / 坏了）。 */
   harnessNotice: string | null;
-  /** 「坏了」那一态的原因(宿主原文,长度不可控);就地显示在输入框下面,❌ toast(#6692)。 */
+  /** Diagnostic reason, only passed to the local log. */
   harnessNoticeDetail: string | null;
   /**
    * 去登录的那条路；不是「该去登录」那一态、或开不了登录终端时为 null。
@@ -1041,10 +1042,36 @@ export function useInitialSessionState(
   // 机器没连上时同理:咕咕模型的目录也是问那台机器要的,问不到是机器离线的结果,❌ 说成「模型列表尚未就绪」再给个「重试」。
   const platformCatalogNotice = machineUnreachable ? null : guguCatalogNotice(platformCatalog.catalogError, translate);
   const platformNotice = platformCatalogNotice?.text ?? null;
-  // 失败细节 ❌ 不拼进上面那句内联文案:那是 composer 工具栏,而 reason 是长度不可控的外部串,拼进去会把
-  // 工具栏撑破、溢出到卡片外(真机上就是这么炸的)。工具栏留一句定性(「读取 X 的模型失败」),原因就地
-  // 显示在输入框下面一行(#6692);启动失败那条也是就地显示。
-  const harnessNoticeDetail = harnessNoticeMessage?.detail ?? null;
+  const harnessNoticeDetail = harnessCatalogState.kind === 'unavailable' ? harnessCatalogState.reason : null;
+  const upgradeCodex = !!harnessNoticeDetail && codexNeedsUpgrade(harnessNoticeDetail);
+  const openInstaller = () => {
+    if (!providerId) return;
+    (window as typeof window & { __GUGU_OPEN_SESSIONPAGE_AGENT_INSTALL__?: (id: string) => void })
+      .__GUGU_OPEN_SESSIONPAGE_AGENT_INSTALL__?.(providerId);
+    navigate('library', { tab: 'agents', agentId: providerId });
+  };
+  const harnessAction = upgradeCodex || harnessNoticeMessage?.action === 'install'
+    ? (!machine && providerId ? { label: translate('taskError.runtimeUpgradeOpenInstaller', { harnessName: agentDisplayName }), onClick: openInstaller } : undefined)
+    : harnessNoticeMessage?.action === 'login'
+      ? (harnessSignIn ? { label: translate('harnessLogin.signIn'), onClick: () => harnessSignIn() } : undefined)
+      : harnessNoticeMessage?.action === 'retry' && providerId
+        ? { label: translate('harnessCatalog.retry'), onClick: () => { void forceRefreshHarnessModelCatalog(queryClient, providerId, sessionpageSurface, machine).catch(error => log.error('Model catalog retry failed', { error })); } }
+        : undefined;
+  useSessionInputNotice(`session-catalog:${machine ?? 'local'}:${providerId ?? 'none'}:${sessionpageSurface}`, !harnessNoticeMessage
+    ? null
+    : harnessCatalogState.kind === 'unknown' ? undefined : {
+      title: upgradeCodex ? translate('taskError.codexUpgrade') : harnessNotice ?? undefined,
+      tier: 'error', action: harnessAction,
+      diagnostic: harnessNoticeDetail ?? undefined,
+    });
+  useSessionInputNotice(`session-platform-catalog:${machine ?? 'local'}:${providerId ?? 'none'}:${sessionpageSurface}`,
+    platformCatalogNotice?.retryable ? {
+      title: platformNotice ?? undefined, diagnostic: platformCatalog.catalogError,
+      action: { label: translate('harnessCatalog.retry'), onClick: () => platformCatalog.retry() },
+    } : null);
+  useSessionInputNotice(`session-provider:${machine ?? 'local'}:${providerId ?? 'none'}`, providerError ? {
+    title: providerError,
+  } : null);
 
   /**
    * ⚠️ **这里原来有一条右下角 toast:「{name} 未登录」。2026-08-28 去掉了(owner 定)。**
@@ -1698,45 +1725,6 @@ export function InitialSessionField({
     [remoteMachine, state.projectId, translate]
   );
 
-  // 平台分组缺席的原因,贴在模型选择器同一排。ChatComposer 的模型列表是平铺的
-  // `DropdownMenu.RadioItem`,`ComposerModelOption` 没有 disabled/说明行的位置(组件在
-  // packages/session-ui),所以这句话只能落在工具栏里 —— 不可点、无边框、跟 Chat UI 标签同一档
-  // 字号与色阶,不额外造视觉层级。
-  // ⚠️ 这两条的长度不由这里决定（平台那句按主进程的原因码取、harness 那句是失败定性 + 插值名字）——
-  // 所以必须自己封顶：`min-w-0` 让 flex 子项允许被压缩（默认 `min-width:auto` 不缩），
-  // `max-w-*` + `truncate` 保证再长也只占一行、多出来的用省略号收掉。
-  // ❌ 别指望文案短就不会溢出：真机上一条主进程原样转达的英文错误就把这排撑破、溢出到卡片外。
-  // 全文不会因此丢失 —— `title` 悬浮可看，失败细节另有 toast。
-  const noticeClassName = 'min-w-0 max-w-[22rem] truncate px-1 text-xs text-foreground-muted';
-
-  const platformNotice = state.platformNotice ? (
-    <span role="status" title={state.platformNotice} className={noticeClassName}>
-      {state.platformNotice}
-    </span>
-  ) : undefined;
-  const platformRetry = state.platformNotice && state.retryPlatformCatalog ? (
-    <button
-      type="button"
-      onClick={() => state.retryPlatformCatalog?.()}
-      className="shrink-0 px-1 text-xs text-foreground-muted underline underline-offset-2 hover:text-foreground"
-    >
-      {translate('harnessCatalog.retry')}
-    </button>
-  ) : undefined;
-
-  // 与 platformNotice 同一档视觉：无边框、跟 Chat UI 标签同字号色阶。
-  //
-  // 这里**只留一句状态**（没装 / 没登录 / 读坏了），不可点：它长度不由前端决定，整句做成按钮
-  // 会把一条会被 truncate 的文字变成一个热区。
-  // ⚠️ 2026-09-05 删掉了曾并排在它后面的那枚「去登录」动作词 —— 去登录的路搬进了模型清单
-  // （`harnessModelUnlock`），理由写在 `harnessSignIn` 的 prop 文档里：那颗按钮在选了平台模型
-  // 时会退化成一个没有上下文的孤零零「去登录」。❌ 别再往这排加登录入口。
-  const harnessNotice = state.harnessNotice ? (
-    <span role="status" title={state.harnessNotice} className={noticeClassName}>
-      {state.harnessNotice}
-    </span>
-  ) : undefined;
-
   const grokPermissionNotice = state.provider === 'grok' ? (
     <span
       role="status"
@@ -1765,12 +1753,9 @@ export function InitialSessionField({
   ) : undefined;
 
   const toolbarExtra =
-    sessionViewControl || platformNotice || harnessNotice || grokPermissionNotice ? (
+    sessionViewControl || grokPermissionNotice ? (
       <>
         {sessionViewControl}
-        {harnessNotice}
-        {platformNotice}
-        {platformRetry}
         {grokPermissionNotice}
       </>
     ) : undefined;
@@ -1881,24 +1866,7 @@ export function InitialSessionField({
           text={attachmentViewer?.previewText}
           truncated={attachmentViewer?.previewTruncated}
         />
-        {state.providerError ? (
-          <p role="alert" className="mt-1 text-xs text-foreground-destructive">
-            {state.providerError}
-          </p>
-        ) : null}
-        {/* #6692 读不到模型目录的原因:工具栏那句定性的下文,就地一行。原文长度不可控 —— 只取第一行、遮掉路径与
-            令牌、封顶 280 字(与启动失败同一个 safeFailureLine)。这一行窄了会省略号收掉,title 里放的是同一份
-            处理过的那一行,悬停看得到被省略的部分;原文的其余部分不显示。 */}
-        {state.harnessNotice && state.harnessNoticeDetail ? (
-          <p
-            role="status"
-            data-testid="harness-catalog-failure-detail"
-            title={safeFailureLine(state.harnessNoticeDetail)}
-            className="mt-1 truncate px-1 text-xs text-foreground-muted"
-          >
-            {safeFailureLine(state.harnessNoticeDetail)}
-          </p>
-        ) : null}
+
       </div>
     </Field>
   );

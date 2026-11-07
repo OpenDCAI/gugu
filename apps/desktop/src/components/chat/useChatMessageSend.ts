@@ -6,7 +6,7 @@ import { firstMentionedUserId, resolveMentionUserIds, type MentionCandidate } fr
 import { rememberGroupMention } from '@/lib/groupMentionRecall'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { rendererLogger } from '@/lib/log'
-import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { useSessionInputNotice } from '@/session/renderer/features/sessions/session-input-notice'
 import { useToast } from '../toastContext'
 import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type MentionTarget, type PendingAttachment } from './useChatDraft'
 import { contentWithQuote } from './messageQuoteContent'
@@ -21,6 +21,9 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const [sending, setSending] = useState(false)
+  const [sendFailure, setSendFailure] = useState<{ chatId: string | null | undefined; reason: string } | null>(null)
+  const failureChatId = sendFailure ? sendFailure.chatId : chatId
+  useSessionInputNotice(`chat-send:${failureChatId ?? 'new'}:${currentUserId ?? 'self'}`, sendFailure ? { title: t('composer.sendFailedRetry'), diagnostic: sendFailure.reason } : null)
   const sendingRef = useRef(false)
   const activeChatIdRef = useRef(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
@@ -91,6 +94,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       if (typed && (!captionOnImage || !onSendAttachments)) {
         await onSend(content, { ...sendOptions, beforeDeliver: beforeSend, submittedAt })
       }
+      setSendFailure(current => current?.chatId === chatId ? null : current)
       // Successful send → object URLs are no longer needed
       revokeAttachmentPreviewUrls(snapshotAttachments)
       if (!mobile && isGroupChat && currentUserId && chatId && !whisperTarget) {
@@ -124,7 +128,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       }
       // Drop the now-stale snapshot URLs (replaced by fresh ones above, or unused when persisting to store).
       revokeAttachmentPreviewUrls(snapshotAttachments)
-      toast(t('composer.sendFailed', { reason: safeFailureLine(reason) }), 'error')
+      setSendFailure({ chatId, reason })
     } finally {
       sendingRef.current = false
       setSending(false)

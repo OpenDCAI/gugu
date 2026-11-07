@@ -21,6 +21,8 @@ export function describeSessionFailure(
   translate: SessionTranslate
 ): string {
   switch (failure.kind) {
+    case 'attachment-host-update-required':
+      return translate('composer.attachmentHostUpdateRequired');
     case 'raw':
       return failure.detail;
     case 'project-not-found':
@@ -45,4 +47,3 @@ export function describeSessionFailure(
       });
   }
 }
-

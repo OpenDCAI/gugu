@@ -68,7 +68,7 @@ import { projectOwnerNotifications } from '@gugu/session-core/session-record/own
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
-import { failureText } from '../gugu-reason';
+import { failureReason, failureText } from '../gugu-reason';
 import { modelSettingRejection, type ModelSettingRejection } from '../session-config/model-setting-rejection';
 import { rpc, rpcOn, onMachineEvent } from '@renderer/lib/ipc';
 import { sessionTurnSettledChannel, type StoredSettledTurn } from '@shared/core/sessions/sessionEvents';
@@ -1531,7 +1531,9 @@ export class AcpChatStore {
       const displayReason = rejection ? reason?.split('\n')[0] : reason;
       runInAction(() => {
         if (!result.success) {
-          this.modelSettingError = failureText(displayReason ?? '', translateSessionMessage);
+          this.modelSettingError = failureReason(displayReason ?? '')
+            ? failureText(displayReason ?? '', translateSessionMessage)
+            : translateSessionMessage('taskError.settingFailedRetry');
         } else if (result.data.status === 'applied') {
           this.modelSettingError = null;
         }
@@ -1546,7 +1548,9 @@ export class AcpChatStore {
       const reason = describeFailureCause(error);
       const displayReason = rejection ? reason?.split('\n')[0] : reason;
       runInAction(() => {
-        this.modelSettingError = failureText(displayReason ?? '', translateSessionMessage);
+        this.modelSettingError = failureReason(displayReason ?? '')
+            ? failureText(displayReason ?? '', translateSessionMessage)
+            : translateSessionMessage('taskError.settingFailedRetry');
       });
       this._toastError('acpFailure.changeModel', error, displayReason);
       return rejection;
@@ -3152,16 +3156,21 @@ export class AcpChatStore {
     this.transcriptRevision += 1;
   }
 
-  /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
+  /** Input actions show repair copy; their complete causes stay in the existing diagnostic log. */
   private _toastError(title: AcpFailureTitle, error: unknown, displayReason?: string): void {
     const cause = describeFailureCause(error);
     const errorType = error && typeof error === 'object' && 'type' in error ? error.type : undefined;
     log.error('ACP chat action failed', { sessionId: this.sessionId, title, errorType, error: cause });
+    // Export/history/revert feedback is outside this input-surface batch.
+    const inputAction = title !== 'acpFailure.exportTranscript' && title !== 'acpFailure.refreshHistory' && title !== 'acpFailure.revert';
     toast({
+      key: inputAction ? `session-action:${this.sessionId}:${title}` : undefined,
       title: translateSessionMessage(title),
       description: errorType === 'conversation_not_found'
         ? translateSessionMessage('acpFailure.sessionUnavailable')
-        : failureText(displayReason ?? cause ?? '', translateSessionMessage),
+        : !inputAction || failureReason(displayReason ?? cause ?? '')
+          ? failureText(displayReason ?? cause ?? '', translateSessionMessage)
+          : translateSessionMessage('taskError.settingFailedRetry'),
       variant: 'destructive',
     });
   }

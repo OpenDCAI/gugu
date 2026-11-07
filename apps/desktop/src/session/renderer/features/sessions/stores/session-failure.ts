@@ -22,6 +22,7 @@ export type GitFetchFailure =
 
 export type SessionFailure =
   | { kind: 'project-not-found' }
+  | { kind: 'attachment-host-update-required'; detail: string }
   /**
    * 引擎此刻起不来,任务因此没有被创建。`reason` 决定指路,不是同一句话的两种说法:
    * `updating` 让用户稍后重试,`missing` 让用户去装。`detail` 是解析器诊断原文,逐字保留。
@@ -32,13 +33,14 @@ export type SessionFailure =
       providerId: string;
       harnessName: string;
       detail: string;
+      target?: { machineId: string | null; leg: 'acp' | 'tui' };
     }
   | { kind: 'provision-timeout'; timeoutMs: number }
   | { kind: 'workspace-no-intent' }
   | { kind: 'workspace-missing' }
   | { kind: 'setup-step-failed'; stepKind: string; stepErrorType: string; detail?: string }
   /** 未知失败：底层原始诊断，逐字保留、永不翻译。 */
-  | { kind: 'raw'; detail: string };
+  | { kind: 'raw'; detail: string; target?: { machineId: string | null; leg: 'acp' | 'tui' } };
 
 /**
  * @@@5173 建任务失败时抛给调用方的**类型化**错误。

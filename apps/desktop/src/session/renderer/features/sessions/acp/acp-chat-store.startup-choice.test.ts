@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { runInAction } from 'mobx';
+import { log } from '@renderer/utils/logger';
 import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 
 const setModelOption = vi.fn();
@@ -92,22 +93,31 @@ describe('#6552 choosing while the session starts', () => {
     expect(store.model).toBeNull();
     expect(toasts.some((t) => t.title === translateSessionMessage('acpFailure.changeSetting'))).toBe(true);
     expect(toasts).toEqual([{
+      key: `session-action:${store.sessionId}:acpFailure.changeSetting`,
       title: translateSessionMessage('acpFailure.changeSetting'),
-      description: 'session did not start',
+      description: translateSessionMessage('taskError.settingFailedRetry'),
       variant: 'destructive',
     }]);
   });
 
-  it('启动选择请求抛错也撤回所选,并保留具体原因', async () => {
-    setModelOption.mockRejectedValue(new Error('startup transport rejected'));
-    const store = makeStore({ starting: true });
-    expect(await store.setModel('model-b')).toBeNull();
-    expect(store.model).toBeNull();
-    expect(toasts).toEqual([{
-      title: translateSessionMessage('acpFailure.changeSetting'),
-      description: 'startup transport rejected',
-      variant: 'destructive',
-    }]);
+  it('rolls back a rejected startup choice and keeps its raw reason in diagnostics', async () => {
+    const logged = vi.spyOn(log, 'error').mockImplementation(() => {});
+    try {
+      setModelOption.mockRejectedValue(new Error('startup transport rejected'));
+      const store = makeStore({ starting: true });
+      expect(await store.setModel('model-b')).toBeNull();
+      expect(store.model).toBeNull();
+      expect(toasts).toEqual([{
+        key: `session-action:${store.sessionId}:acpFailure.changeSetting`,
+        title: translateSessionMessage('acpFailure.changeSetting'),
+        description: translateSessionMessage('taskError.settingFailedRetry'),
+        variant: 'destructive',
+      }]);
+      expect(logged).toHaveBeenCalledWith('ACP chat action failed', expect.objectContaining({
+        sessionId: store.sessionId,
+        error: 'startup transport rejected',
+      }));
+    } finally { logged.mockRestore(); }
   });
 
   it('不在起(没有开场在飞):❌ 不交给运行时,交回「按这个模型重开」(不拿 not connected 拦)', async () => {

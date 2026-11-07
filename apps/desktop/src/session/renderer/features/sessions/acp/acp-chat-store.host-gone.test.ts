@@ -246,7 +246,7 @@ describe('#6497 the host stopped the session', () => {
     const { store, session, boot } = attachedStore();
     (session as unknown as { setModelOption: unknown }).setModelOption = vi.fn().mockResolvedValue({ success: false, error: { type: 'set_config_failed', cause: { name: 'RequestError', message: 'unknown model: retired-model' } } });
     await store.setModel('retired-model');
-    expect(store.modelSettingError).toContain('unknown model: retired-model');
+    expect(store.modelSettingError).toBe(translateSessionMessage('taskError.settingFailedRetry'));
     session.sessionState.push(closedState);
     expect(store.session).toBeNull();
     const next = fakeSession().session;
@@ -279,10 +279,10 @@ describe('#6497 the host stopped the session', () => {
     });
     session.sessionState.push(readyState);
     await Promise.resolve();
-    expect(store.modelSettingError).toContain('model rejected');
+    expect(store.modelSettingError).toBe(translateSessionMessage('taskError.settingFailedRetry'));
     if (order === 'model-first') next.config.push({ modelOptions: { selected: 'replacement-model', available: [] } });
     else next.sessionState.push(readyState);
-    expect(store.modelSettingError).toContain('model rejected');
+    expect(store.modelSettingError).toBe(translateSessionMessage('taskError.settingFailedRetry'));
     if (order === 'model-first') next.sessionState.push(readyState);
     else next.config.push({ modelOptions: { selected: 'replacement-model', available: [] } });
     expect(store.modelSettingError).toBeNull();
@@ -341,7 +341,7 @@ describe('#7327 the runtime process restarted', () => {
       store.setDraftText('keep my words');
       await vi.advanceTimersByTimeAsync(400);
       expect(store.draftText).toBe('keep my words');
-      expect(toasts).toEqual([{ title: translateSessionMessage('acpFailure.syncDraft'), description: translateSessionMessage('acpFailure.sessionUnavailable'), variant: 'destructive' }]);
+      expect(toasts).toEqual([{ key: `session-action:${store.sessionId}:acpFailure.syncDraft`, title: translateSessionMessage('acpFailure.syncDraft'), description: translateSessionMessage('acpFailure.sessionUnavailable'), variant: 'destructive' }]);
     } finally { vi.useRealTimers(); }
   });
 
@@ -352,7 +352,8 @@ describe('#7327 the runtime process restarted', () => {
       session.setPromptDraft.mockRejectedValue(new Error('Access to the session was revoked'));
       store.setDraftText('keep my words');
       await vi.advanceTimersByTimeAsync(400);
-      expect(toasts[0]?.description).toContain('Access to the session was revoked');
+      expect(toasts[0]?.description).toBe(translateSessionMessage('taskError.settingFailedRetry'));
+      expect(JSON.stringify(toasts)).not.toContain('Access to the session was revoked');
       expect(store.draftText).toBe('keep my words');
     } finally { vi.useRealTimers(); }
   });

@@ -12,6 +12,7 @@
  * 这里判的是渲染层**什么时候**、**拿什么值**去写。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { installAcpChatStoreHost } from './acp-chat-store.test-host';
 
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
@@ -108,18 +109,18 @@ describe('model setting recovery stays beside the model control', () => {
     const store = makeStore({ success: false, error: { type: 'set_config_failed', cause: { name: 'RequestError', message: 'unknown model: retired-model', data } } });
     expect(await store.setModel('retired-model')).toEqual(data);
     expect(store.modelSettingError).not.toContain('kind=');
-    expect(store.modelSettingError).toContain('unknown model: retired-model');
+    expect(store.modelSettingError).toBe(translateSessionMessage('taskError.settingFailedRetry'));
   });
 
   it('preserves a specific model failure while saving an independent permission', async () => {
     const store = makeStore({ success: false, error: { type: 'set_config_failed', cause: { name: 'Error', message: 'unknown model: retired-model; local Codex offers model-a' } } });
     expect(await store.setModel('retired-model')).toBeNull();
-    expect(store.modelSettingError).toContain('unknown model: retired-model');
+    expect(store.modelSettingError).toBe(translateSessionMessage('taskError.settingFailedRetry'));
     const session = store.session!;
     vi.mocked(session.setModeOption).mockResolvedValue({ success: true, data: { status: 'applied', effectiveValue: 'default', channel: 'acp-mode' } });
     await store.setMode('default');
     expect(recorded()).toEqual([[store.sessionId, { dimension: 'permission', modeId: 'default' }]]);
-    expect(store.modelSettingError).toContain('unknown model: retired-model');
+    expect(store.modelSettingError).toBe(translateSessionMessage('taskError.settingFailedRetry'));
     vi.mocked(session.setModelOption).mockResolvedValue({ success: true, data: { status: 'applied', effectiveValue: 'model-a', channel: 'acp-config-option' } });
     expect(await store.setModel('model-a')).toEqual({ kind: 'applied', effectiveValue: 'model-a' });
     expect(store.modelSettingError).toBeNull();
@@ -129,6 +130,6 @@ describe('model setting recovery stays beside the model control', () => {
     const store = makeStore({ success: false, error: new Error('unused') });
     vi.mocked(store.session!.setModelOption).mockRejectedValue(new Error('Model catalog is unavailable on this device'));
     await store.setModel('model-a');
-    expect(store.modelSettingError).toContain('Model catalog is unavailable on this device');
+    expect(store.modelSettingError).toBe(translateSessionMessage('taskError.settingFailedRetry'));
   });
 });

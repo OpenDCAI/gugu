@@ -292,6 +292,21 @@ describe('session start with a first message', () => {
     expect(signIn).toHaveBeenCalledOnce()
   })
 
+  it('keeps the session condition row and action without exposing raw hover diagnostics', async () => {
+    const { state, host, view } = mount('double');
+    const retry = vi.fn();
+    view.setCommands({ onConditionAction: retry });
+    const label = 'Codex could not start. Update Codex, then retry.';
+    state.session.setCondition({ code: 'start-failed', label, detail: 'local Codex app-server exited (code=1 signal=null)', actions: [{ label: 'Retry' }] });
+    await until('condition mounts', () => Boolean(host.querySelector('[data-slot="session-condition"]')));
+    const row = host.querySelector<HTMLElement>('[data-slot="session-condition"]')!;
+    expect(row.textContent).toContain(label);
+    expect(row.title).toBe(label);
+    expect(row.outerHTML).not.toMatch(/app-server|code=1|signal=null/);
+    row.querySelector<HTMLButtonElement>('button')!.click();
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
   it('an action whose call is in flight is disabled: a second click does not repeat it', async () => {
     const { state, host, view } = mount('double')
     const restart = vi.fn()
