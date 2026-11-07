@@ -224,6 +224,7 @@ export async function watchWorkingCopy(place: WorkspacePlace, folder: string | u
   if (session && await sessionMachine(session).catch(() => null)) return hearElsewhere(session, { folder: folder ?? '' }, hear);
   const { workspaceRoot: root } = await localRootOf(place);
   await requireAgentFileTreeAccess(root);
+  if (folder && !resolvesInside(root, folder)) throw new AppFileError('invalid', `${folder} is outside this working copy`);
   const named = folderPath(root, folder) ?? root;
   const below = relOf(root, named);
   return watchFeed(root, named, (rel) => !below || rel === below || rel.startsWith(`${below}/`), (rel) => rel, hear);

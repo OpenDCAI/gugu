@@ -87,7 +87,7 @@ export function WorkspaceFileView({ root, tabId, projectId, workspaceId, session
     const kind = getFileKind(path);
     const editable = !!sessionId && (kind === 'html' || kind === 'csv' || kind === 'svg');
     const download = () => {
-      if (elsewhere && sessionId && inWorkspace) void downloadSessionFile(sessionId, path, fileName);
+      if (elsewhere && sessionId) void downloadSessionFile(sessionId, inWorkspace ? path : absolutePath, fileName);
       else void readBytes(projectId, workspaceId, path, inWorkspace).then((blob) => downloadBlob(blob, fileName)).catch((error: unknown) => toast({ title: translate('remoteFiles.downloadFailed', { name: fileName }), description: messageForUser(error), variant: 'destructive' }));
     };
     return {

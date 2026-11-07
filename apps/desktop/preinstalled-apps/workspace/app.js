@@ -1774,6 +1774,7 @@ function copyActions(entry) {
 
 // 「用 VS Code、访达、终端打开」: this computer's programs, as the project tab's menu lists them.
 let openInApps = []
+// Asked again with each context: settings can change the list, and main keeps the scan of what is installed.
 const hearOpenInApps = () => {
   if (!state.ctx?.workspace?.root || !gugu.files.openInApps) return
   gugu.files.openInApps().then((apps) => { openInApps = apps }, (error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error'))

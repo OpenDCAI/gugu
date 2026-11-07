@@ -120,6 +120,37 @@ describe('AppService.openIn', () => {
     }
   });
 
+  it('别的程序开文件:在文件所在目录里跑,拿到的是文件', async () => {
+    const dir = await makeTempDir();
+    const file = join(dir, 'notes.json');
+    mocks.exec.mockImplementation((_command: string, _options: unknown, done: (error: null) => void) => done(null));
+    try {
+      await writeFile(file, '{}');
+      await appService.openIn({ app: 'vscode', path: file });
+      const [command, options] = mocks.exec.mock.calls.at(-1) as [string, { cwd: string }];
+      expect(options.cwd).toBe(dir);
+      expect(command).toContain(file);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('终端开文件:拿到的是所在目录,❌ 文件(macOS 的 open -a Terminal <文件> 会运行它)', async () => {
+    const dir = await makeTempDir();
+    const file = join(dir, 'run-me.sh');
+    mocks.exec.mockImplementation((_command: string, _options: unknown, done: (error: null) => void) => done(null));
+    try {
+      await writeFile(file, 'echo hi');
+      await appService.openIn({ app: 'terminal', path: file });
+      const [command, options] = mocks.exec.mock.calls.at(-1) as [string, { cwd: string }];
+      expect(options.cwd).toBe(dir);
+      expect(command).toContain(dir);
+      expect(command).not.toContain('run-me.sh');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('文件 → 在所在目录里选中它,❌ 不用系统默认程序打开', async () => {
     // 这条是回归守卫。`shell.openPath(文件)` 的语义是「用系统默认程序打开这个文件」——
     // owner 实机点「用 Finder 打开」,macOS 按 .json 的默认程序把 Cursor 拉起来了。

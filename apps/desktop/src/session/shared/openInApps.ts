@@ -92,7 +92,7 @@ const _OPEN_IN_APPS = {
     autoInstall: true,
     platforms: {
       darwin: {
-        openCommands: ['command -v cursor >/dev/null 2>&1 && cursor .', 'open -a "Cursor" .'],
+        openCommands: ['command -v cursor >/dev/null 2>&1 && cursor {{path}}', 'open -a "Cursor" {{path}}'],
         checkCommands: ['cursor'],
         appNames: ['Cursor'],
       },
@@ -749,6 +749,19 @@ export function getAppById(id: string): OpenInAppConfig | undefined {
 
 export function isValidOpenInAppId(value: unknown): value is OpenInAppId {
   return typeof value === 'string' && value in OPEN_IN_APPS;
+}
+
+/** What 「Open in」 lists, the one rule of every menu that offers it: installed, not hidden in settings, the default first. */
+export function openInMenuApps(args: {
+  installed: Record<string, boolean>;
+  hidden?: readonly string[] | undefined;
+  terminalEnabled: boolean;
+  defaultApp?: string | null | undefined;
+}): OpenInAppConfig[] {
+  const apps = Object.values(OPEN_IN_APPS).filter(
+    (app) => args.installed[app.id] && !args.hidden?.includes(app.id) && (args.terminalEnabled || !TERMINAL_OPEN_IN_APP_IDS.has(app.id))
+  );
+  return [...apps.filter((app) => app.id === args.defaultApp), ...apps.filter((app) => app.id !== args.defaultApp)];
 }
 
 export function getResolvedLabel(app: OpenInAppConfigShape, platform: PlatformKey): string {

@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { SquareArrowRight } from '@/lib/icons'
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useOpenInApps } from '@renderer/lib/hooks/useOpenInApps';
@@ -10,12 +10,12 @@ import { MenuFold, MenuItem } from '@/components/ui/Menu';
 import { isValidOpenInAppId, type OpenInAppId } from '@shared/openInApps';
 
 /**
- * 「在哪里打开」这个路径能用的那几个 app,和打开它的那一下:项目页签右键菜单里那几行(gugu-dev#181)读它。`menuApps` 默认的那个排在最前。
+ * 「在哪里打开」这个路径能用的那几个 app,和打开它的那一下:项目页签右键菜单里那几行(gugu-dev#181)读它。
  */
 export function useOpenInTargets(path: string) {
   const { toast } = useToast();
   const { translate } = useSessionMessages();
-  const { icons, labels, installedApps, availability, loading } = useOpenInApps();
+  const { icons, labels, menuApps, loading } = useOpenInApps();
   const { value: openIn, update } = useAppSettingsKey('openIn');
 
   const defaultApp: OpenInAppId | null =
@@ -62,34 +62,19 @@ export function useOpenInTargets(path: string) {
     [persistPreferredApp, triggerOpenIn]
   );
 
-  const sortedApps = useMemo(() => {
-    if (!defaultApp) return installedApps;
-    return [...installedApps].sort((a, b) => {
-      if (a.id === defaultApp) return -1;
-      if (b.id === defaultApp) return 1;
-      return 0;
-    });
-  }, [defaultApp, installedApps]);
-
-  const menuApps = useMemo(
-    () => sortedApps.filter((app) => !app.hideIfUnavailable || availability[app.id]),
-    [availability, sortedApps]
-  );
-
-  return { icons, labels, availability, loading, defaultApp, menuApps, triggerOpenIn, selectAndOpenApp };
+  return { icons, labels, loading, defaultApp, menuApps, triggerOpenIn, selectAndOpenApp };
 }
 
 export function OpenInMenuItems({ targets }: { targets: ReturnType<typeof useOpenInTargets> }) {
   const { translate } = useSessionMessages();
-  const { icons, labels, availability, loading, menuApps, selectAndOpenApp } = targets;
+  const { icons, labels, loading, menuApps, selectAndOpenApp } = targets;
   if (loading) return null;
   return (
     <MenuFold icon={<SquareArrowRight />} label={translate('titlebar.openWith')}>
       {menuApps.map((app) => {
-        const isAvailable = availability[app.id] !== false;
         const label = labels[app.id] || app.label;
         return (
-          <MenuItem key={app.id} icon={icons[app.id] ? <OpenInAppIcon src={icons[app.id]} monochrome={app.monochrome} alt="" /> : <span />} disabled={!isAvailable} onClick={() => selectAndOpenApp(app.id)}>
+          <MenuItem key={app.id} icon={icons[app.id] ? <OpenInAppIcon src={icons[app.id]} monochrome={app.monochrome} alt="" /> : <span />} onClick={() => selectAndOpenApp(app.id)}>
             {translate('titlebar.openIn', { app: label })}
           </MenuItem>
         );

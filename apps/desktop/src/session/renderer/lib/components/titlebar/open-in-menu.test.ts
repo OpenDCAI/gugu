@@ -58,7 +58,7 @@ vi.mock('@renderer/lib/hooks/useOpenInApps', () => ({
       terminal: 'Terminal',
     },
     availability: mocks.openInApps.availability,
-    installedApps: [OPEN_IN_APPS.finder, OPEN_IN_APPS.cursor, OPEN_IN_APPS.terminal],
+    menuApps: [OPEN_IN_APPS.finder, OPEN_IN_APPS.cursor, OPEN_IN_APPS.terminal],
     platform: 'win32',
     loading: mocks.openInApps.loading,
   }),

@@ -1,3 +1,4 @@
+import { getMainWindow } from '@main/app/window';
 import type { ChatFileRef } from '@shared/extensions/app-files-core';
 import * as fs from 'node:fs';
 import { app } from 'electron';
@@ -447,7 +448,7 @@ export const extensionsController = createRPCController({
     const ref = { workspace: sessionWorkspace(args.sessionId), id: args.path };
     let target: string | null = null;
     try {
-      await downloadAppFile({ pageId: 0, extensionId: 'workspace', handed: ref }, { ref }, null, undefined, (filePath) => { target = filePath; });
+      await downloadAppFile({ pageId: 0, extensionId: 'workspace', handed: ref }, { ref }, getMainWindow()?.webContents ?? null, undefined, (filePath) => { target = filePath; });
       return { success: true as const, target };
     } catch (error) {
       return { success: false as const, error: error instanceof Error ? error.message : String(error), code: (error as { code?: string }).code };

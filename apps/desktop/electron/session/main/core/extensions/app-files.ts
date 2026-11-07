@@ -698,10 +698,10 @@ export async function revealAppFile(page: DesktopFilePage, args: { ref?: unknown
 }
 
 /** Where a working copy's file or folder is on this computer, for what hands it to another program; it passes what reading it does. */
-async function localPathOf(page: DesktopFilePage, ref: WorkspaceFileRef, what: string): Promise<string> {
+async function localPathOf(page: DesktopFilePage, ref: WorkspaceFileRef, what: string, follow = false): Promise<string> {
   if (await sessionElsewhere(ref)) throw new AppFileError('invalid', 'This file is on another computer');
   await mayRead(page, ref, what);
-  return local.localPath(await localFolder(page, ref), { ref });
+  return local.localPath(await localFolder(page, ref), { ref, follow });
 }
 
 /** The programs a working copy's file can be opened in on this computer. */
@@ -715,7 +715,7 @@ export async function openAppFileIn(page: DesktopFilePage, args: { ref?: unknown
   const ref = fileRefOf(args.ref);
   if (isChat(ref)) throw new AppFileError('invalid', "A chat's file is on no folder of this computer");
   if (!isValidOpenInAppId(args.app)) throw new AppFileError('invalid', 'Say which program, as files.openInApps lists it');
-  const target = await localPathOf(page, ref, 'opening');
+  const target = await localPathOf(page, ref, 'opening', true);
   const { appService } = await import('@main/core/app/service');
   await appService.openIn({ app: args.app, path: target }).catch((error: unknown) => {
     throw new AppFileError('failed', error instanceof Error ? error.message : String(error));
@@ -911,7 +911,7 @@ async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<
   if (isChat(ref)) return await files.downloadSource(chatSurface(page), { ref });
   // A working copy's file, wherever it is, one piece after another. Here a file that is not there is said before the save dialog.
   await mayRead(page, ref, 'saving');
-  if (!(await sessionElsewhere(ref))) await local.openTarget(await localFolder(page, ref), { ref });
+  if (!path.isAbsolute(pathOfRef(ref)) && !(await sessionElsewhere(ref))) await local.openTarget(await localFolder(page, ref), { ref });
   return { name: path.posix.basename(pathOfRef(ref)), ref, page, kind: 'pieces' as const };
 }
 

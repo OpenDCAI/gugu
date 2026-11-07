@@ -12,6 +12,7 @@ const f = vi.hoisted(() => ({
   shown: [] as string[],
   dialogDir: '',
   dialogFile: '',
+  openIn: vi.fn(async () => undefined),
 }));
 vi.mock('electron', () => ({
   BrowserWindow: { fromWebContents: () => null },
@@ -25,6 +26,7 @@ vi.mock('@main/lib/events', () => {
     emit: (channel: unknown, data: unknown) => { for (const handler of listeners.get(channel) ?? []) handler(data); },
   } };
 });
+vi.mock('@main/core/app/service', () => ({ appService: { openIn: f.openIn } }));
 vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () => ({ hasCapability: (_app: string, cap: string) => f.capabilities.has(cap), get: () => ({ manifest: { id: 'reader' } }) }) }));
 vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: vi.fn(), resolveAccountFile: vi.fn(), publishAccountFile: vi.fn() }));
 vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {}, localFileService: { removed() {}, renamed() {} }, fileServiceUrl: vi.fn() }));
@@ -42,7 +44,7 @@ vi.mock('@main/core/workspaces/workspace-runtime', () => ({
   },
 }));
 
-const { removeAppFile, forwardTargets, downloadAppFile, revealAppFile, listAppFiles, writeAppFileChunk, readAppFileText, watchAppFile, watchAppFolder, FORWARD_MAX_BYTES } = await import('./app-files');
+const { removeAppFile, forwardTargets, downloadAppFile, revealAppFile, listAppFiles, writeAppFileChunk, readAppFileText, openAppFileIn, watchAppFile, watchAppFolder, FORWARD_MAX_BYTES } = await import('./app-files');
 const { events } = await import('@main/lib/events');
 const { appFileWatchElsewhereChannel, workingCopyMovedChannel } = await import('@shared/events/appEvents');
 const { releaseWorkingCopies } = await import('./working-copy-files');
@@ -63,6 +65,7 @@ beforeEach(async () => {
   releaseWorkingCopies(7);
   f.capabilities.clear();
   f.shown.length = 0;
+  f.openIn.mockClear();
   f.machine.mockResolvedValue(null);
   f.root = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'gates-root-')));
   outside = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'gates-out-')));
@@ -309,5 +312,66 @@ describe('reveal', () => {
     f.capabilities.add('files:read');
     f.machine.mockResolvedValue({ deviceId: 'dev-b', projectId: 'p' });
     await expect(revealAppFile(page(), { ref: { workspace, id: 'a.txt' } })).rejects.toThrow(/another computer/);
+  });
+});
+
+describe('reveal and Open in, to a program of this computer', () => {
+  const handedPage = (id: string) => ({ pageId: 7, extensionId: 'reader', handed: { workspace, id } }) as never;
+
+  it('a page with no file capability reaches neither', async () => {
+    fs.writeFileSync(path.join(f.root, 'a.txt'), 'x');
+    await expect(revealAppFile(page(), { ref: { workspace, id: 'a.txt' } })).rejects.toThrow(DENIED);
+    await expect(openAppFileIn(page(), { ref: { workspace, id: 'a.txt' }, app: 'vscode' })).rejects.toThrow(DENIED);
+    expect(f.shown).toEqual([]);
+    expect(f.openIn).not.toHaveBeenCalled();
+  });
+
+  it('an absolute path is the one handed to the page, or refused', async () => {
+    f.capabilities.add('files:read');
+    const file = path.join(outside, 'mine.txt');
+    fs.writeFileSync(file, 'x');
+    await expect(revealAppFile(page(), { ref: { workspace, id: file } })).rejects.toThrow(/handed|Not permitted|absolute/i);
+    await expect(openAppFileIn(page(), { ref: { workspace, id: file }, app: 'vscode' })).rejects.toThrow(/handed|Not permitted|absolute/i);
+    expect(f.openIn).not.toHaveBeenCalled();
+    await openAppFileIn(handedPage(file), { ref: { workspace, id: file }, app: 'vscode' });
+    expect(f.openIn).toHaveBeenCalledWith({ app: 'vscode', path: file });
+  });
+
+  it('Open in does not pass through a link out of the working copy, or to protected storage', async () => {
+    f.capabilities.add('files:read');
+    fs.mkdirSync(privatePasswordVaultDirectory(), { recursive: true });
+    fs.writeFileSync(path.join(privatePasswordVaultDirectory(), 'key.bin'), 'canary');
+    fs.symlinkSync(path.join(privatePasswordVaultDirectory(), 'key.bin'), path.join(f.root, 'keylink'));
+    await expect(openAppFileIn(page(), { ref: { workspace, id: 'keylink' }, app: 'vscode' })).rejects.toThrow(/No file/);
+    expect(f.openIn).not.toHaveBeenCalled();
+  });
+
+  it('Open in takes a link inside to what it points at, and says which program it needs', async () => {
+    f.capabilities.add('files:read');
+    fs.writeFileSync(path.join(f.root, 'a.txt'), 'x');
+    fs.symlinkSync(path.join(f.root, 'a.txt'), path.join(f.root, 'alias'));
+    await openAppFileIn(page(), { ref: { workspace, id: 'alias' }, app: 'vscode' });
+    expect(f.openIn).toHaveBeenCalledWith({ app: 'vscode', path: path.join(f.root, 'a.txt') });
+    await expect(openAppFileIn(page(), { ref: { workspace, id: 'a.txt' }, app: 'nope' })).rejects.toMatchObject({ code: 'invalid' });
+  });
+});
+
+describe('saving a file', () => {
+  it('a file outside the working copy, handed to the page, saves with no capability', async () => {
+    const file = path.join(outside, 'mine.txt');
+    fs.writeFileSync(file, 'outside');
+    const handed = { pageId: 7, extensionId: 'reader', handed: { workspace, id: file } } as never;
+    let saved = '';
+    await downloadAppFile(handed, { ref: { workspace, id: file } }, null, undefined, (at) => { saved = at; });
+    expect(saved).toBe(f.dialogFile);
+    expect(fs.readFileSync(f.dialogFile, 'utf8')).toBe('outside');
+  });
+});
+
+describe('watching through a link', () => {
+  it('a folder link out of the working copy is not watched', async () => {
+    f.capabilities.add('files:read');
+    fs.symlinkSync(outside, path.join(f.root, 'outlink'));
+    await expect(watchAppFolder(page(), { workspace }, 'outlink', () => undefined)).rejects.toThrow(/outside this working copy/);
   });
 });

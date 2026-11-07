@@ -820,12 +820,16 @@ export function createLocalAppFiles(platform: {
       service.removed(found.abs);
     },
 
-    /** Where a file or folder of the working copy is on this computer, for a program of this computer. A file outside it is the one handed to the page. */
-    async localPath(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<string> {
+    /**
+     * Where a file or folder of the working copy is on this computer, for a program of this computer. A file outside it is
+     * the one handed to the page. `follow`: what opens it reads through a link, so the link must lead somewhere it may read.
+     */
+    async localPath(surface: LocalSurface, args: { ref: WorkspaceFileRef; follow?: boolean }): Promise<string> {
       const named = pathOf(surface, args.ref);
       if (path.isAbsolute(named)) return requireAgentFileAccess(named);
       await requireAgentFileTreeAccess(surface.workspaceRoot);
-      return entryAt(surface.workspaceRoot, named).abs;
+      if (!args.follow) return entryAt(surface.workspaceRoot, named).abs;
+      return requireAgentFileAccess(inside(surface.workspaceRoot, named, 'existing').abs);
     },
 
     /** 「用 X 打开」 and saving: which file of the working copy, gated as opening it read-only. Who opens it is the host's to work out. */
