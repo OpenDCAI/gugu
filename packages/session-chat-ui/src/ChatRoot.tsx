@@ -612,6 +612,15 @@ export function ChatRoot(props: ChatRootProps) {
       committedUnitsArr = appendActivityUnits(committedUnitsArr, newUnits);
     } else {
       // Full rebuild (seed, prepend, non-append structural change, or an append that joins the previous fold run).
+      if (prev.length > 0 && !next.some(turn => turn.id === prev[0].id)) {
+        // A replacement tail window evicted the old prefix. Numeric row indices
+        // now identify different units, including slots that used to be folded
+        // to zero. Preserve committed heights by unit id, then seed the new
+        // order through the same live/id-heightmap path used on model swaps.
+        snapshotInto(s);
+        virt.setCount(0, () => 0);
+        pendingSizeDeltas = [];
+      }
       committedUnitsArr = preserveActivityIds(committedUnitsArr, flattenTier(next, ctx, SEGMENTERS, UNIT_REGISTRY));
       committedDayKey = trailingDayKey(next, undefined, ctx.latestTurnId);
       committedIndexById.clear();
