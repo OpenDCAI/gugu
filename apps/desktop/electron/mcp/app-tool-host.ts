@@ -1,3 +1,4 @@
+import { requireAgentFileAccess } from '@gugu/core/local/state/agentFileBoundary'
 // app_* 在宿主这一侧的前后处理(App 体检 10-17 #15 第二步):主进程看到动作之前,宿主以这个 agent 的身份读卡片、
 // 判 chat / item;装完、打包之后,把卡片发进群、造数据文件并检测;`device` 指另一台机器时整趟交给那一台。
 // 从 acp-engine-utils.ts 搬来 —— 它们用的是宿主的社交上下文(gugu-im-server),所以留在宿主这个包里,❌ 进会话页的 core/extensions。
@@ -163,7 +164,7 @@ function agreeOnMachine(invoke: (consent: unknown) => Promise<unknown>, run: (ac
 
 /** #7290 A package app_pack made, sent to another machine in order, part by part (the chunks a remote save uses): its upload id. */
 async function sendPackage(packed: Packed, send: (part: Record<string, unknown>) => Promise<unknown>): Promise<string> {
-  const bytes = await readFile(packed.file_path)
+  const bytes = await readFile(await requireAgentFileAccess(packed.file_path))
   if (bytes.byteLength > FOLDER_PACKAGE_MAX_BYTES) {
     throw new Error(`app_install: the App package is ${bytes.byteLength} bytes; one goes to another machine up to ${FOLDER_PACKAGE_MAX_BYTES}`)
   }

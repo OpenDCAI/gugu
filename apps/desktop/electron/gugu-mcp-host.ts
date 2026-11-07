@@ -6,6 +6,9 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { onErrorEvent } from '@gugu/session-shared'
 import { createLogger } from './lib/logger'
 import { agentEndpointServer, listenStable, type EndpointLog, type EndpointPorts, type PersistedRecords } from './session/main/lib/stable-endpoint'
+import { defaultServicePermissionRuntime } from './permissions/default-runtime'
+import { permissionTransport } from './permissions/transport'
+import type { ServicePermissionRuntime } from './permissions/runtime'
 const MCP_PATH = '/mcp'
 const MCP_BODY_MAX_BYTES = 40 * 1024 * 1024
 const MCP_DRAIN_TIMEOUT_MS = 5_000
@@ -117,6 +120,7 @@ export class GuguMcpHost<TContext> {
     createMcpServer: GuguMcpServerFactory<TContext>,
     invariantOf: (context: TContext) => GuguMcpGrantInvariant,
     persistence?: GuguMcpHostPersistence,
+    private readonly permissions: ServicePermissionRuntime = defaultServicePermissionRuntime(),
   ) {
     this.createMcpServer = createMcpServer
     this.invariantOf = invariantOf
@@ -515,7 +519,9 @@ export class GuguMcpHost<TContext> {
     const runtime: ClientRuntime = { server, transport, closing: null }
     try {
       if (record.revoked) throw new Error('Gugu MCP grant is revoked')
-      await server.connect(transport)
+      await server.connect(permissionTransport(transport, this.permissions, {
+        ...record.invariant, sessionId: record.key,
+      }, record.abortController.signal))
       // SDK 拒掉请求(400/406/…)时只把原因交给 onerror,响应体里的那句客户端未必会报出来;接到日志里,
       // 否则只看得到「没有 session id」(#6264 实测:codex 的 initialize 被 400,原因一个字都没有)。
       const onerror = transport.onerror

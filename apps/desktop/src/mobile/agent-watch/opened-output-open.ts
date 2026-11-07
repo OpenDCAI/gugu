@@ -9,6 +9,7 @@ import { SessionpageRpcError } from './sessionpage-rpc'
 import { base64ToBytes } from '@renderer/lib/base64'
 import { classifyDocumentPreview, type DocumentPreviewKind } from '@/components/chat/documentPreview'
 import { isRenderableImage, mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs'
+import { isTransientNetworkError } from '@gugu/core/shared/networkError'
 
 /**
  * 手机上点开一张附件卡(#7193)怎么开 —— 纯逻辑,单测钉。
@@ -44,6 +45,40 @@ export class OpenedFileChangedError extends Error {
   }
 }
 
+function transientReadFailure(error: unknown): boolean {
+  const failure = error as { name?: string; code?: string; status?: number } | null
+  if (failure?.name === 'AbortError') return false
+  if (typeof failure?.status === 'number') return failure.status === 408 || failure.status === 429 || failure.status >= 500 && failure.status < 600
+  return ['unreachable', 'timeout', 'host_restarted', 'channel_resubscribed'].includes(failure?.code ?? '')
+    || failure?.name === 'TimeoutError' || isTransientNetworkError(error)
+    || error instanceof TypeError && /failed to fetch|load failed/i.test(error.message)
+}
+
+function waitForReadRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const aborted = () => { clearTimeout(timer); signal?.removeEventListener('abort', aborted); reject(signal?.reason) }
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', aborted); resolve() }, ms)
+    signal?.addEventListener('abort', aborted, { once: true })
+  })
+}
+
+/** Only replay a read-only interrupted chunk; never replay a save or restart verified progress. */
+async function readDownloadChunk(read: () => Promise<SessionpageOpenedFileChunk>, signal?: AbortSignal): Promise<SessionpageOpenedFileChunk> {
+  const deadline = Date.now() + 90_000
+  let delay = 500
+  for (;;) {
+    signal?.throwIfAborted()
+    try { return await read() } catch (error) {
+      signal?.throwIfAborted()
+      const remaining = deadline - Date.now()
+      if (!transientReadFailure(error) || remaining <= 0) throw error
+      await waitForReadRetry(Math.min(delay, remaining), signal)
+      delay = Math.min(delay * 2, 10_000)
+    }
+  }
+}
+
 /** 整份读下来:按块问那台机器,直到读满它报的大小。 */
 export async function readWholeOpenedFile({
   read,
@@ -51,11 +86,14 @@ export async function readWholeOpenedFile({
   path,
   signal,
   onProgress,
+  retryTransient = false,
 }: {
   read: (request: SessionpageOpenedFileReadRequest) => Promise<SessionpageOpenedFileChunk>
   conversationId: string
   path: string
   signal?: AbortSignal
+  /** User-initiated downloads may wait through a transient native/RPC read failure. */
+  retryTransient?: boolean
   /** 每读到一块报一次:已读字节、总大小(大文件经转发通道每秒只走零点几 MB,等的时候要看得到在动)。 */
   onProgress?: (read: number, size: number) => void
 }): Promise<Uint8Array<ArrayBuffer>> {
@@ -65,7 +103,9 @@ export async function readWholeOpenedFile({
   let etag: string | null = null
   do {
     signal?.throwIfAborted()
-    const chunk = await read({ conversationId, path, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES })
+    const request = { conversationId, path, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES }
+    const chunk = await (retryTransient ? readDownloadChunk(() => read(request), signal) : read(request))
+    signal?.throwIfAborted()
     if (chunk.size > OPENED_FILE_MAX_BYTES) throw new SessionpageRpcError('too_large', 'File exceeds the phone preview limit')
     if (etag !== null && chunk.etag !== etag) throw new OpenedFileChangedError()
     etag = chunk.etag

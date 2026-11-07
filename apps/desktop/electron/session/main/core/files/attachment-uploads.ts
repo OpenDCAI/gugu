@@ -1,3 +1,4 @@
+import { requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary';
 /** Durable task-attachment uploads. Editor saves keep their separate writeChunk contract. */
 import { constants } from 'node:fs';
 import { mkdir, open, readdir, lstat, link, unlink, rename, rm } from 'node:fs/promises';
@@ -68,7 +69,10 @@ export function createAttachmentUploads({ now = Date.now, maxAgeMs = MAX_AGE_MS 
   async function locked<T>(root: string, spec: AttachmentUploadSpec, action: () => Promise<T>): Promise<T> {
     validate(spec);
     const key = `${path.resolve(root)}\0${spec.uploadId}`;
-    const running = (locks.get(key) ?? Promise.resolve()).then(action);
+    const running = (locks.get(key) ?? Promise.resolve()).then(async () => {
+      await requireAgentFileTreeAccess(root);
+      return action();
+    });
     const settled = running.then(() => undefined, () => undefined);
     locks.set(key, settled);
     try { return await running; }
