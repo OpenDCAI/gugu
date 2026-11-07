@@ -8,6 +8,8 @@ import { MessageProvider } from '@gugu/session-ui/react/components'
 import { LocalizationProvider, setLocalePreference } from '@/i18n'
 import { registerSessionLocaleResources, translateSessionMessage } from '@renderer/localization/locale-store'
 import { sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus'
+import { PageShownContext } from '@renderer/app/recent-session-pages'
+import { requestComposerEntryFocus } from '@/lib/composerEntryFocus'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import '@renderer/index.css'
 
@@ -22,7 +24,7 @@ const active = vi.hoisted(() => ({ store: null as unknown }))
 vi.mock('@renderer/features/tabs/pane-context', () => ({
   PaneContext: React.createContext(null),
   PaneProvider: ({ children }: { children: React.ReactNode }) => children,
-  usePaneContext: () => ({ pane: { resolvedTabs: [{ isActive: true, kind: 'acp-chat', resource: { store: active.store } }] } }),
+  usePaneContext: () => ({ isFocusedPane: React.useContext(PageShownContext), pane: { resolvedTabs: [{ isActive: true, kind: 'acp-chat', resource: { store: active.store } }] } }),
 }))
 vi.mock('@renderer/lib/chat/use-session-chat-layout', () => ({ useSessionChatLayout: () => ({ preset: 'single', userGutter: 0 }) }))
 vi.mock('@renderer/features/integrations/use-connected-issue-providers', () => ({ useConnectedIssueProviders: () => ({ connectedProviders: [], isProviderUsable: () => false }) }))
@@ -79,7 +81,7 @@ async function mountChat() {
   document.body.appendChild(host)
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   root = createRoot(host)
-  root.render(<LocalizationProvider><QueryClientProvider client={client}><MessageProvider locale="en-US" translate={translateSessionMessage}><AcpChatPanel /></MessageProvider></QueryClientProvider></LocalizationProvider>)
+  renderChat(true)
   const composer = page.getByTestId('prompt-editor')
   await until('the real composer is mounted', () => composer.query() !== null)
   return {
@@ -87,6 +89,10 @@ async function mountChat() {
     fileEditor: page.getByTestId('file-editor').element() as HTMLElement,
     sessionRow: page.getByTestId('session-row').element() as HTMLElement,
   }
+}
+
+function renderChat(shown: boolean) {
+  root!.render(<PageShownContext.Provider value={shown}><LocalizationProvider><QueryClientProvider client={client!}><MessageProvider locale="en-US" translate={translateSessionMessage}><AcpChatPanel /></MessageProvider></QueryClientProvider></LocalizationProvider></PageShownContext.Provider>)
 }
 
 /** Focus lands on `element`, then the layer leaves nav (what the focusin listener / a row click does). */
@@ -113,5 +119,54 @@ describe('composer auto-focus answers the layer leaving nav only as a request', 
     expect(document.activeElement).not.toBe(composer)
     leaveNavWithFocusOn(sessionRow)
     await until('the composer takes the keyboard', () => document.activeElement === composer)
+  })
+
+  it('returning to the retained pane restores focus without remounting the composer or clearing its draft', async () => {
+    const { composer, sessionRow } = await mountChat()
+    leaveNavWithFocusOn(sessionRow)
+    await until('initial composer focus', () => document.activeElement === composer)
+    await page.getByTestId('prompt-editor').fill('Retained draft')
+    renderChat(false)
+    await frames(3)
+    sessionRow.focus()
+    expect(sessionNavigationFocus.focusLayer).toBe('composer')
+    renderChat(true)
+    await until('the retained composer takes focus on return', () => document.activeElement === composer)
+    expect(page.getByTestId('prompt-editor').element()).toBe(composer)
+    expect(composer.textContent).toBe('Retained draft')
+  })
+
+  it('returning in the navigation layer keeps the keyboard on the row', async () => {
+    const { composer, sessionRow } = await mountChat()
+    renderChat(false)
+    await frames(3)
+    sessionRow.focus()
+    renderChat(true)
+    await frames(5)
+    expect(document.activeElement).toBe(sessionRow)
+    expect(document.activeElement).not.toBe(composer)
+  })
+
+  it('an explicit entry into the same retained session focuses it even when its pane is already active', async () => {
+    const { composer, sessionRow } = await mountChat()
+    leaveNavWithFocusOn(sessionRow)
+    await until('initial composer focus', () => document.activeElement === composer)
+    sessionRow.focus()
+    requestComposerEntryFocus('session:editor-focus')
+    await until('the explicit same-session entry takes focus', () => document.activeElement === composer)
+    const file = page.getByTestId('file-editor').element() as HTMLElement
+    leaveNavWithFocusOn(file)
+    await frames(5)
+    expect(document.activeElement).toBe(file)
+  })
+
+  it('returning while the file editor holds focus does not take its keyboard', async () => {
+    const { fileEditor } = await mountChat()
+    renderChat(false)
+    await frames(3)
+    leaveNavWithFocusOn(fileEditor)
+    renderChat(true)
+    await frames(5)
+    expect(document.activeElement).toBe(fileEditor)
   })
 })

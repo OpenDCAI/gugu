@@ -491,6 +491,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       footer: '#7199 只有「助理」App 那个聊天面在消息流末尾接一个「它在处理」的打字气泡(取代运行条);分栏不传 = 运行条照旧,与对话页同形',
     },
     ChatMessageComposer: {
+      entryActive: '#1959 会话列表的具名进入意图只交给主输入框;分栏 surface=aside 沿既有规则不登记全局焦点落点,也不消费主线进入意图',
       beforeSend: 'agent 私聊专用(任务页会话恢复前置),话题是场所型会话',
       disabled: 'agent 私聊专用(引擎不可用时禁用输入)',
       disabledReason: '同上',

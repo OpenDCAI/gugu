@@ -58,6 +58,7 @@ import { useConnectedIssueProviders } from '@renderer/features/integrations/use-
 import { usePromptLibrary } from '@renderer/features/library/prompts/use-prompt-library';
 import { asMounted, getProjectStore, getProjectViewStore } from '@renderer/features/projects/stores/project-selectors';
 import { composerLayerHoldsFocus, sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus';
+import { useComposerEntryFocus } from '@/lib/composerEntryFocus';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
 // TODO(conversations-extraction): Inject task editor/file-opening behavior into ACP chat.
 import {
@@ -370,7 +371,12 @@ const ComposerForStore = observer(function ComposerForStore({
 
   // Autofocus when the slot becomes available — only while the session page is on screen. 宿主把它常驻挂载在
   // 对话页后面(隐藏);启动时恢复会话在后台挂上这里,抢走对话页输入框的焦点,用户打的字进了看不见的这一格。
-  const shouldAutoFocus = sessionNavigationFocus.focusLayer !== 'nav';
+  const { isFocusedPane } = usePaneContext();
+  useComposerEntryFocus('session:' + store.runtimeSessionId, isFocusedPane && isEmbedVisible(), () => {
+    sessionNavigationFocus.setFocusLayer('composer');
+    editorApiRef.current?.focus();
+  });
+  const shouldAutoFocus = isFocusedPane && sessionNavigationFocus.focusLayer !== 'nav';
   useEffect(() => {
     if (!shouldAutoFocus || !isEmbedVisible() || composerLayerHoldsFocus()) return;
     editorApiRef.current?.focus();

@@ -16,6 +16,7 @@ import { openTarget } from '@/lib/guguLinks'
 import { notify } from '@/lib/notices'
 import { messageForUser } from '@/lib/userFacingError'
 import { readSessionpageViewRequestBridge } from '@/lib/sessionpageViewRequestBridge'
+import { requestComposerEntryFocus } from '@/lib/composerEntryFocus'
 import type { GroupParticipantRequest } from '@/session/renderer/features/chats/group-participant-requests'
 
 /** Ownership is checked before looking up a private timeline. An async open cannot cross an account switch. */
@@ -85,6 +86,9 @@ export function useOwnedAgentConversationEntry(input: {
         await openTarget(target.kind === 'local'
           ? { kind: 'session', sessionId: target.sessionId, projectId: target.projectId }
           : { kind: 'session', sessionId: target.session.conversationId, projectId: target.session.projectId, deviceId: target.deviceId }, ...requestArgs)
+      }
+      if (!state.mobile && asked === generation.current && current.current.ownerId === state.ownerId) {
+        requestComposerEntryFocus(purpose ? null : 'session:' + (target.kind === 'local' ? target.sessionId : target.session.conversationId))
       }
       if (purpose && chatId && !state.mobile && asked === generation.current && current.current.ownerId === state.ownerId) {
         hostOwnedAgentResources(state.ownerId, chatId, target.kind === 'local' ? target : { projectId: target.session.projectId, sessionId: target.session.conversationId })

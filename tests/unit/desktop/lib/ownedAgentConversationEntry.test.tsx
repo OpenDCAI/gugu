@@ -9,7 +9,7 @@ import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { installSessionViewRequestBridge, SESSION_VIEW_REQUEST_BRIDGE_KEY } from '../../../../apps/desktop/src/session/renderer/features/sessions/stores/session-view-requests'
 const scope = vi.hoisted(() => ({
-  compose: vi.fn(), open: vi.fn(), lookup: vi.fn(), onOpen: vi.fn(), notify: vi.fn(),
+  compose: vi.fn(), open: vi.fn(), lookup: vi.fn(), onOpen: vi.fn(), notify: vi.fn(), focus: vi.fn(),
   drafts: {} as Record<string, string>, attachments: {} as Record<string, unknown[]>,
   write: vi.fn(), setFiles: vi.fn(), select: vi.fn(), assistant: null as string | null,
   identities: {} as Record<string, ContactUser>, mobile: false,
@@ -23,6 +23,7 @@ vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevices
 vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({ desktopIpc: () => scope.native ? ({ invoke: scope.lookup }) : null }))
 vi.mock('../../../../apps/desktop/src/lib/composeDraft', () => ({ composeTaskDraft: scope.compose }))
 vi.mock('../../../../apps/desktop/src/lib/guguLinks', () => ({ openTarget: scope.open }))
+vi.mock('../../../../apps/desktop/src/lib/composerEntryFocus', () => ({ requestComposerEntryFocus: scope.focus }))
 vi.mock('../../../../apps/desktop/src/lib/assistantShellBridge', () => ({ readAssistantShellBridge: () => ({ getSnapshot: () => ({ assistant: { id: scope.assistant } }) }) }))
 vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: scope.notify }))
 let harness: ReturnType<typeof createReactHarness>
@@ -43,6 +44,7 @@ it('opens the same task from the conversation bridge and leaves the assistant Ap
   await vi.waitFor(() => expect(scope.open).toHaveBeenCalledWith({ kind: 'session', projectId: 'project', sessionId: 'session' }))
   expect(scope.onOpen).toHaveBeenCalledOnce()
   expect(scope.select).toHaveBeenCalledWith('dm')
+  await vi.waitFor(() => expect(scope.focus).toHaveBeenCalledExactlyOnceWith('session:session'))
   scope.assistant = 'agent'
   expect(openOwnedAgentEntry('dm')).toBe(false)
 })
@@ -70,6 +72,7 @@ it('cold-opens the native phone task from committed ownership and the offline de
     await vi.waitFor(() => expect(shown).toHaveBeenCalled())
     expect((shown.mock.calls[0]![0] as CustomEvent).detail).toMatchObject({ deviceId: 'host', session: { conversationId: 'session', runtime: 'acp', nativeInputVersion: 1 } })
     expect(scope.select).not.toHaveBeenCalled()
+    expect(scope.focus).not.toHaveBeenCalled()
   } finally { window.removeEventListener(APP_SHOW_SESSION_EVENT, shown) }
 })
 it('does not override a newer foreign ownership snapshot with the cached identity', async () => {
@@ -211,6 +214,7 @@ it('acknowledges a resource only after native navigation can host the file', asy
   await opened
   expect(outcome).toBe('true')
   expect(canTakeOwnedAgentResource('owner', 'dm')).toBe(true)
+  expect(scope.focus).toHaveBeenCalledExactlyOnceWith(null)
 })
 
 it.each(['missing mapping', 'failed native navigation'])('rejects a file with %s and releases its suspended host', async reason => {

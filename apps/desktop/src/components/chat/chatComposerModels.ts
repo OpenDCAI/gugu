@@ -35,4 +35,5 @@ export interface ChatMessageComposerProps {
   whisperTarget?: { userId: string; displayName: string } | null
   onExitWhisper?: () => void
   surface?: 'main' | 'aside'; hidden?: boolean // @@@5856 主输入框还是副栏(话题分栏);只有主的登记全局聚焦落点,因果见 lib/focusComposer.ts
+  entryActive?: boolean
 }
