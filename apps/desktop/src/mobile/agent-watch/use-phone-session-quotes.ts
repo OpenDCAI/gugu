@@ -39,7 +39,7 @@ export function usePhoneSessionQuotes(input: {
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       return latest.current.timeline.turns.filter(turn => !before.has(turn.id))
     },
-  }), [deviceId, sessionId])
+  }), [deviceId, sessionId, view])
   const menus = useSessionMessageQuotes(owner, editor)
   const composer = useSessionPromptEditor(owner, editor)
   const bound = useBoundChatView(owner)
