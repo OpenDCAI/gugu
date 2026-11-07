@@ -1,4 +1,5 @@
 import { replaceEqualDeep } from '@tanstack/react-query'
+import { memoizeByReference } from './memoizeByReference'
 import type { CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import type { CreateTopicInput } from './topics'
 import type {
@@ -137,15 +138,8 @@ export interface AccountImRepository {
  * 订阅身份或会话列表的每个组件整页重渲染 —— 藏着的通讯录随之每秒重画几百行(Chole 10-20 实测,渲染进程内存一路涨)。
  */
 function fromTable<S extends ImStoreName, T>(store: S, derive: (rows: ImRepositorySnapshot[S]) => T): Selector<T> {
-  let rows: ImRepositorySnapshot[S] | undefined
-  let result: T
-  return (snapshot) => {
-    if (snapshot[store] !== rows) {
-      rows = snapshot[store]
-      result = derive(rows)
-    }
-    return result
-  }
+  const project = memoizeByReference(derive)
+  return snapshot => project(snapshot[store], undefined)
 }
 
 export const imSelectors = {
@@ -299,14 +293,13 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[], 
     putIdentity: (value) => {
       const id = value && typeof value === 'object' && 'id' in value ? value.id : undefined
       const previous = typeof id === 'string' ? imSelectors.identitiesById(stored)[id] : undefined
-      if (typeof id === 'string' && previous === value && !cleared && !identityWrites.has(id)) return
+      if (previous && !cleared && !identityWrites.has(previous.id) && replaceEqualDeep(previous, value) === previous) return
       // An identity the projection already parsed is kept as that object (parsing it again only makes an equal
       // copy, see @@@one-row-object); a raw row becomes its parsed form.
       const parsed = displayIdentityFromRow(value)
       const identity = replaceEqualDeep(value, parsed) === value ? value as DisplayIdentity : parsed
       // Removal is terminal on the server (a removed identity is immutable), so a row without
       // removed_at is an older observation and cannot bring a removed identity back.
-      // The very object already stored: nothing to write (the conversation list re-hands every identity it uses).
       if (!identity.removed_at && (previous?.removed_at || removed.has(identity.id))) return
       if (identity.removed_at) removed.add(identity.id)
       identityWrites.add(identity.id)
@@ -540,15 +533,7 @@ export async function replaceGroupRoster(
     }
     // 成员行和它们的身份写在同一个事务里 —— 与 replaceChatRowsAndIdentities 同构。分开写就会有一段
     // 「行已落库、身份还没有」的窗口,而那段窗口正是下游拿空名字当 @ 匹配 key 的时机。
-    // 名册在 agent 运行期间按 300ms 合并一次地反复刷新,身份多半没变:与已落库的值相同的行不再 put,
-    // 省的是每行的 zod 解析、structuredClone 与 IndexedDB 写(订阅者通知不省 —— 事务提交后一律 publish)。
-    const stored = new Map(repository.snapshot().identity.map((row) => [row.id, row.value]))
-    for (const identity of identities) {
-      const id = (identity as { id?: unknown }).id
-      const current = typeof id === 'string' ? stored.get(id) : undefined
-      if (current !== undefined && JSON.stringify(current) === JSON.stringify(identity)) continue
-      transaction.putIdentity(identity)
-    }
+    for (const identity of identities) transaction.putIdentity(identity)
   })
 }
 
