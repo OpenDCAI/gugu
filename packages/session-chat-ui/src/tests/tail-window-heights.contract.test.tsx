@@ -23,15 +23,15 @@ it.each([390, 1024].flatMap(width => [false, true].flatMap(pin => [false, true].
   const view = createChatView({ context, state, parent: host, pinUserMessages: pin, stickToBottom: true, padBottom: 140 });
   cleanup.push(() => { view.dispose(); state.dispose(); context.dispose(); host.remove(); });
   const old: TranscriptTurn = { id: 'old', seq: 59, initiator: 'user', outcome: { kind: 'done' }, items: [
-    { kind: 'message', id: 'old-user', role: 'user', text: 'Previous user input' },
-    { kind: 'message', id: 'old-reply', role: 'assistant', text: 'Previous reply.\n\n'.repeat(25) },
-    { kind: 'diff', id: 'old-file', status: 'done', patches: [textFilePatch('/fixture/old.md', null, 'ready')] },
+    { kind: 'message', id: 'old-user', seq: 0, role: 'user', text: 'Previous user input' },
+    { kind: 'message', id: 'old-reply', seq: 1, role: 'assistant', text: 'Previous reply.\n\n'.repeat(25) },
+    { kind: 'patch-tool-call', id: 'old-file', seq: 2, toolCallId: 'old-file', title: 'Edit old.md', status: 'done', contentBlocks: [textFilePatch('/fixture/old.md', null, 'ready')] },
   ] };
   const olderActivity = [1, 2].map((n): TranscriptTurn => ({ id: `old-a2a-${n}`, seq: n - 1, initiator: 'agent', outcome: { kind: 'done' }, items: [
-    { kind: 'message', id: `old-a2a-message-${n}`, role: 'user', text: `<gugu_delivery route="session-direct" from="Fixture peer" from_id="user:fixture-agent" from_type="agent" msg="msg:old-${n}"><![CDATA[Old activity ${n}]]></gugu_delivery>` },
+    { kind: 'message', id: `old-a2a-message-${n}`, seq: 0, role: 'user', text: `<gugu_delivery route="session-direct" from="Fixture peer" from_id="user:fixture-agent" from_type="agent" msg="msg:old-${n}"><![CDATA[Old activity ${n}]]></gugu_delivery>` },
   ] }));
   const middle = Array.from({ length: 57 }, (_, n): TranscriptTurn => ({ id: `middle-${n}`, seq: n + 2, initiator: 'user', outcome: { kind: 'done' }, items: [
-    { kind: 'message', id: `middle-reply-${n}`, role: 'assistant', text: `Earlier assistant reply ${n}` },
+    { kind: 'message', id: `middle-reply-${n}`, seq: 0, role: 'assistant', text: `Earlier assistant reply ${n}` },
   ] }));
   const initialHistory = [...olderActivity, ...middle, old];
   state.transcript.history.seed(initialHistory);
@@ -41,7 +41,7 @@ it.each([390, 1024].flatMap(width => [false, true].flatMap(pin => [false, true].
   await until('receiving A2A header visible before sending', () => !!host.querySelector('[data-agent-activity]'));
   await untilStable('receiving A2A geometry settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
   const own = { id: 'new-own-message', text: 'My new input after the pending Agent activity', held: true, delivery: { state: 'receiving' as const }, afterTurnId: old.id };
-  const attachments = image ? [1, 2].map(n => ({ id: `fixture-image-${n}`, name: `fixture-${n}.jpg`, kind: 'image' as const })) : undefined;
+  const attachments = image ? [1, 2].map(n => ({ id: `fixture-image-${n}`, name: `fixture-${n}.jpg`, kind: 'image' as const, mimeType: 'image/jpeg' as const })) : undefined;
   const sample = async (phase: string) => {
     const bubble = () => host.querySelector<HTMLElement>('[data-agent-conversation-message="new-own-message"], [data-agent-conversation-message="native-own"]');
     await until(`own input mounted after ${phase}`, () => !!bubble());
@@ -56,13 +56,13 @@ it.each([390, 1024].flatMap(width => [false, true].flatMap(pin => [false, true].
   state.session.setPendingPrompt({ ...own, attachments });
   await sample('own-send-before-prior-receipt');
   const committedActivity: TranscriptTurn = { id: 'committed-activity', seq: 60, initiator: 'agent', outcome: { kind: 'done' }, items: [
-    { kind: 'message', id: 'native-activity', role: 'user', text: activity.text },
+    { kind: 'message', id: 'native-activity', seq: 0, role: 'user', text: activity.text },
   ] };
   const longerHistory = [...initialHistory, committedActivity];
   batch(() => { state.transcript.history.seed(longerHistory); state.session.setPendingMessages([]); });
   await sample('prior-activity-commits');
   const native: TranscriptTurn = { id: 'own-live-turn', seq: 61, initiator: 'user', items: [
-    { kind: 'message', id: 'native-own', role: 'user', text: own.text, attachments, _meta: { guguClientMessageId: own.id } },
+    { kind: 'message', id: 'native-own', seq: 0, role: 'user', text: own.text, attachments, _meta: { guguClientMessageId: own.id } },
   ] };
   batch(() => { state.transcript.activeTurn.set(native); state.session.setPendingPrompt(null); });
   await sample('own-native-echo');
