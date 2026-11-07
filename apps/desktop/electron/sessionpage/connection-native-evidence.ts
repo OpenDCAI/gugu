@@ -45,5 +45,14 @@ export function createConnectionNativeEvidence(input:{ownerId:string;deviceId:st
     return JSON.parse(proof.publication) as {operationId:string;scopeKey:string;resourceKey:string|null;expectedRevision:string|null;
       operation:'save';data:Record<string,unknown>;document:string;deviceId:string;recreationId:string}
   }
-  return {begin,run,publication,read:(raw:unknown,owner:string)=>readProof(raw,owner,false),fence:(raw:unknown,owner:string)=>readProof(raw,owner,true)}
+  async function cancel(provider:string,operationId:string){
+    await input.assertCurrent()
+    const value=await input.cloud.inspectAttempt(input.instance(),operationId)
+    if(value===null)return
+    const original=parseNativeConnectionAttempt(value)
+    if(original.ownerId!==input.ownerId||original.deviceId!==input.deviceId||original.providerId!==provider||original.operationId!==operationId)
+      throw new ConnectionError('42501','CONNECTION_ATTEMPT_UNAVAILABLE')
+    await input.assertCurrent();(await input.store()).fence(original)
+  }
+  return {begin,run,publication,cancel,read:(raw:unknown,owner:string)=>readProof(raw,owner,false),fence:(raw:unknown,owner:string)=>readProof(raw,owner,true)}
 }

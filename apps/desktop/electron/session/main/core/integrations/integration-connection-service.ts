@@ -1,3 +1,4 @@
+import {currentManagedConnectionAttempt} from '../provider-accounts/connection-effect-evidence';
 import type { IntegrationCliTool, IntegrationCredentials, IntegrationError } from '@gugu/session-plugins/integrations';
 import {
   integrationPluginRegistry,
@@ -412,7 +413,12 @@ export class IntegrationConnectionService {
     if (!plugin) return { success: false, error: `Unknown integration: ${integrationId}` };
     // #921 凭据由平台保管:表单交给平台(它先向对方验过再存),本机只记一行,❌ 进本机凭据库。
     // 只有这个安装压根没有这项平台服务时(`keepHere`),才照下面的老路存在这台电脑上。
-    if (platformCredentials.isPlatformProvider(integrationId)) {
+    const managed=currentManagedConnectionAttempt();
+    if(managed&&platformCredentials.custody(integrationId)==='platform')throw new Error('CONNECTION_CUSTODY_CHANGED');
+    if(managed&&editAccountId&&managed.accountId!==editAccountId)throw Object.assign(new Error('CONNECTION_ACCOUNT_CHANGED'),{knownNoEffect:true,code:'CONNECTION_ACCOUNT_CHANGED'});
+    // A captured device attempt never calls an untracked platform save. Known
+    // local custody stays on its actual local store for the complete attempt.
+    if (platformCredentials.isPlatformProvider(integrationId)&&!managed) {
       const kept = await platformCredentials.connect(integrationId, input, { editing: !!editAccountId });
       if (!('keepHere' in kept)) return kept.success && includeAccountId ? { ...kept, accountId: DEFAULT_INTEGRATION_ACCOUNT_ID } : kept;
     }

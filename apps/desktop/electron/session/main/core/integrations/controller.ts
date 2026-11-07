@@ -30,6 +30,16 @@ const moveDeps: IntegrationMoveDeps = {
   setDefault: (integrationId, accountId) => integrationCredentialStore.setDefault(integrationId, accountId),
 };
 
+async function managedAuthorization<Result extends {success:boolean}>(providerId:string,operationId:string,epoch:string,action:()=>Promise<Result>){
+  return ownerConnectionControl().runAuthorization(providerId,operationId,epoch,async()=>{
+    if(cliMethodOf(providerId)!==null||platformCredentials.custody(providerId)==='platform')
+      throw Object.assign(new Error('CONNECTION_EFFECT_UNSUPPORTED'),{knownNoEffect:true,code:'CONNECTION_EFFECT_UNSUPPORTED'});
+    const result=await action();
+    if(!result.success)throw Object.assign(new Error('CONNECTION_AUTHORIZATION_FAILED'),{knownNoEffect:true,code:'CONNECTION_AUTHORIZATION_FAILED'});
+    return result;
+  });
+}
+
 export const integrationsController = createRPCController({
   /** Public metadata only, from the existing registry beside its secret store. */
   ownerAccounts: async (providerId: string) => {
@@ -45,15 +55,16 @@ export const integrationsController = createRPCController({
     await ownerConnectionControl().prepare(authorityEpoch);
     await ownerConnectionControl().hold(providerId,operationId,authorityEpoch);
   },
+  ownerAuthorizationPrepare:async(providerId:string,operationId:string,epoch:string)=>ownerConnectionControl().prepareAuthorization(providerId,operationId,epoch),
   ownerAuthorizationComplete: async (providerId: string,operationId: string) => ownerConnectionControl().release(providerId,operationId),
   ownerAuthorizationCommit: async (input: NativeConnectionAuthorization) => ownerConnectionControl().commitAuthorization(input),
   ownerAuthorizationCommitBatch: async (input: NativeConnectionAuthorizationBatch) => ownerConnectionControl().commitAuthorizationBatch(input),
   /** Managed calls carry the original operation explicitly; provider-only holds
    * are never used to guess which browser window owns a credential write. */
   ownerConnect:async(providerId:string,operationId:string,epoch:string,credentials:IntegrationCredentials,editAccountId?:string)=>
-    ownerConnectionControl().runAuthorization(providerId,operationId,epoch,()=>integrationConnectionService.connect(providerId,credentials,editAccountId,true)),
+    managedAuthorization(providerId,operationId,epoch,()=>integrationConnectionService.connect(providerId,credentials,editAccountId,true)),
   ownerAuthorize:async(providerId:string,operationId:string,epoch:string)=>
-    ownerConnectionControl().runAuthorization(providerId,operationId,epoch,()=>integrationConnectionService.authorize(providerId,true)),
+    managedAuthorization(providerId,operationId,epoch,()=>integrationConnectionService.authorize(providerId,true)),
   /** `locale` = 请求方的界面语言(插件的中英两份在这里解析成字符串);老桌面不传 ⇒ en。 */
   list: async (locale?: string) => {
     // #921 连接页要说凭据在哪保管:还不知道这个安装有没有平台服务就先问一次。

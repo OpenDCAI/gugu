@@ -19,6 +19,7 @@ const platform = vi.hoisted(() => ({
 }));
 const store = vi.hoisted(() => ({
   upsertAccount: vi.fn(async () => undefined),
+  compareAndSwapAccount:vi.fn(async()=>true),
   getAccount: vi.fn(async (): Promise<unknown> => null),
   delete: vi.fn(async () => undefined),
   listAccounts: vi.fn(async () => []),
@@ -120,5 +121,7 @@ describe('integrations whose credential the platform keeps (#921)', () => {
     network.mockImplementation(amapAnswers());
 
     expect(await new IntegrationConnectionService().checkConnection('amap', CAPABILITIES)).toMatchObject({ connected: true });
+    expect(store.compareAndSwapAccount).toHaveBeenCalledWith('amap',{accountId:'default',credentials:{apiKey:GOOD}},{apiKey:GOOD});
+    expect(store.upsertAccount).not.toHaveBeenCalled();
   });
 });

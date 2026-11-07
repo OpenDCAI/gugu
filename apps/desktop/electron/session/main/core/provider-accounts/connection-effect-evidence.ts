@@ -28,6 +28,35 @@ function write(tx: DrizzleTx, name: string, value: unknown): void {
   tx.insert(kv).values({ key:name,value:encoded,updatedAt:Date.now() })
     .onConflictDoUpdate({ target:kv.key,set:{ value:encoded,updatedAt:Date.now() } }).run();
 }
+// Compare original intent positions, not delivery/admission order. An explicit
+// authorization begun after revision N supersedes the remove at N, even when
+// that remove is admitted late and receives a larger attempt sequence number.
+const bindingKey=(provider:string,account:string)=>`connection-account-generation:${hash([provider,account])}`;
+function order(a: ManagedConnectionAttempt,b: ManagedConnectionAttempt): number {
+  const epoch=BigInt(a.authorityEpoch)-BigInt(b.authorityEpoch);
+  if(epoch!==0n)return epoch>0n?1:-1;
+  const position=(v:ManagedConnectionAttempt)=>BigInt(v.effectKind==='authorize'?v.expectedHeadRevision??v.expectedItemRevision??'0':v.operationRevision??'0');
+  const delta=position(a)-position(b);
+  if(delta!==0n)return delta>0n?1:-1;
+  if(a.effectKind==='authorize'&&b.effectKind!=='authorize')return 1;
+  if(b.effectKind==='authorize'&&a.effectKind!=='authorize')return -1;
+  const sequence=BigInt(a.attemptOrder)-BigInt(b.attemptOrder);
+  return sequence>0n?1:sequence<0n?-1:0;
+}
+function currentBinding(tx:AppDb|DrizzleTx,attempt:ManagedConnectionAttempt,account:string):ManagedConnectionAttempt|undefined {
+  const raw=read(tx,bindingKey(attempt.providerId,account));
+  if(!raw)return;
+  const binding=parseNativeConnectionAttempt(JSON.parse(raw));
+  if(binding.ownerId!==attempt.ownerId||binding.deviceId!==attempt.deviceId)throw Error('CONNECTION_ATTEMPT_FENCED');
+  return binding;
+}
+function revoke(tx:DrizzleTx,attempt:ManagedConnectionAttempt):void {
+  if(attempt.effectKind!=='remove'||!attempt.accountId)return;
+  const binding=currentBinding(tx,attempt,attempt.accountId);
+  if(binding&&order(binding,attempt)>0)return;
+  const old=read(tx,revokedKey(attempt.providerId,attempt.accountId));
+  if(!old||order(attempt,JSON.parse(old))>0)write(tx,revokedKey(attempt.providerId,attempt.accountId),attempt);
+}
 function same(actual: ManagedConnectionAttempt, expected: ManagedConnectionAttempt): boolean {
   return hash(actual) === hash(expected);
 }
@@ -55,11 +84,12 @@ export function createNativeConnectionEvidence(db: AppDb) {
         const prior=read(tx,key(attempt));
         if(prior){evidence(tx,attempt);return;}
         const latest=read(tx,providerKey(attempt));
-        if(latest && (BigInt((JSON.parse(latest) as ManagedConnectionAttempt).authorityEpoch)>BigInt(attempt.authorityEpoch)
-          ||BigInt((JSON.parse(latest) as ManagedConnectionAttempt).attemptOrder)>=BigInt(attempt.attemptOrder))) throw new Error('CONNECTION_AUTHORITY_CHANGED');
+        if(attempt.effectKind==='authorize'&&latest&&order(JSON.parse(latest),attempt)>=0)throw Error('CONNECTION_AUTHORITY_CHANGED');
+        const binding=attempt.accountId?currentBinding(tx,attempt,attempt.accountId):undefined;
+        if(binding&&order(binding,attempt)>0)throw Error('CONNECTION_ATTEMPT_FENCED');
         write(tx,key(attempt),{version:1,attempt,state:'prepared',fenced:false} satisfies Evidence);
-        write(tx,providerKey(attempt),attempt);
-        if(attempt.effectKind==='remove'&&attempt.accountId)write(tx,revokedKey(attempt.providerId,attempt.accountId),attempt);
+        if(attempt.effectKind==='authorize')write(tx,providerKey(attempt),attempt);
+        revoke(tx,attempt);
       });
     },
     async run<T>(attempt: ManagedConnectionAttempt, action:()=>Promise<T>): Promise<T> {
@@ -67,10 +97,19 @@ export function createNativeConnectionEvidence(db: AppDb) {
         const prior=evidence(tx,attempt);
         if(prior.fenced || prior.state!=='prepared') throw new Error('CONNECTION_ATTEMPT_ALREADY_STARTED');
         const latest=read(tx,providerKey(attempt));
-        if(Date.now()>=attempt.deadlineAt||!latest||!same(JSON.parse(latest),attempt))throw Error('CONNECTION_ATTEMPT_FENCED');
+        if(Date.now()>=attempt.deadlineAt||attempt.effectKind==='authorize'&&(!latest||!same(JSON.parse(latest),attempt)))throw Error('CONNECTION_ATTEMPT_FENCED');
         write(tx,key(attempt),{...prior,state:'started'});
       });
-      return attempts.run(attempt,action);
+      try{return await attempts.run(attempt,action);}
+      catch(error){
+        if((error as {knownNoEffect?:boolean})?.knownNoEffect){
+          db.transaction(tx=>{
+            const value=evidence(tx,attempt);
+            if(!value.fenced){value.fenced=true;value.fenceDigest=hash([attempt,value.state,value.digest??null,'fenced']);write(tx,key(attempt),value);}
+          });
+        }
+        throw error;
+      }
     },
     read(attempt: ManagedConnectionAttempt): Readonly<Evidence> {
       return evidence(db,attempt);
@@ -82,6 +121,7 @@ export function createNativeConnectionEvidence(db: AppDb) {
         // A late prepare cannot start it or supersede a newer authorization.
         if(!read(tx,key(attempt)))write(tx,key(attempt),{version:1,attempt,state:'prepared',fenced:false} satisfies Evidence);
         const value=evidence(tx,attempt);
+        revoke(tx,attempt);
         if(!value.fenced){value.fenced=true;value.fenceDigest=hash([attempt,value.state,value.digest??null,'fenced']);write(tx,key(attempt),value);}
         return value;
       });
@@ -101,19 +141,24 @@ export function writeManagedProviderAccount<T extends ProviderAccountRow | null>
     return value.result as T;
   }
   const latest=read(tx,providerKey(attempt));
-  if(value.state!=='started' || value.fenced || Date.now()>=attempt.deadlineAt || !latest || !same(JSON.parse(latest),attempt)
+  if(value.state!=='started' || value.fenced || Date.now()>=attempt.deadlineAt || attempt.effectKind==='authorize'&&(!latest||!same(JSON.parse(latest),attempt))
     || providerId!==attempt.providerId || attempt.accountId!==null && attempt.accountId!==accountId) throw new Error('CONNECTION_ATTEMPT_FENCED');
+  const binding=currentBinding(tx,attempt,accountId);
+  if(binding&&order(binding,attempt)>0)throw Error('CONNECTION_ATTEMPT_FENCED');
+  const gate=read(tx,revokedKey(providerId,accountId));
+  if(attempt.effectKind==='default'&&gate)throw Error('CONNECTION_ATTEMPT_FENCED');
   const result=action();
   if(attempt.effectKind==='authorize'){
     const revoked=read(tx,revokedKey(providerId,accountId));
     if(revoked){
       const prior=JSON.parse(revoked) as ManagedConnectionAttempt;
-      if(BigInt(prior.attemptOrder)>=BigInt(attempt.attemptOrder))throw Error('CONNECTION_ATTEMPT_FENCED');
+      if(order(prior,attempt)>=0)throw Error('CONNECTION_ATTEMPT_FENCED');
       // Only a later, explicitly bound authorization can release this account.
       // A failed disconnect may release the UI while the old credential stays unusable.
       tx.delete(kv).where(eq(kv.key,revokedKey(providerId,accountId))).run();
     }
   }
+  if(attempt.effectKind==='authorize')write(tx,bindingKey(providerId,accountId),attempt);
   const publication=attempt.effectKind==='authorize'&&result?connectionPublicationRequest(attempt,result):undefined;
   const completed: Evidence={...value,state:'applied',accountId,result,...(publication?{publication}:{}),
     digest:hash([attempt,accountId,'applied',result,publication??null])};

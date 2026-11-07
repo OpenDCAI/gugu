@@ -8,8 +8,8 @@ import { withContractDatabase } from './database'
 type Database = Parameters<Parameters<typeof withContractDatabase>[0]>[0]
 const rpc = {
   connection_authority: [],
-  connection_attempt_prepare:[['p_runtime_instance_id','text'],['p_operation_id','uuid'],['p_epoch','bigint']],
-  connection_attempt_inspect:[['p_runtime_instance_id','text'],['p_operation_id','uuid']],
+  connection_attempt_prepare:[['p_operation_id','uuid'],['p_epoch','bigint'],['p_runtime_instance_id','text']],
+  connection_attempt_inspect:[['p_operation_id','uuid'],['p_runtime_instance_id','text']],
   connection_snapshot: [['p_device_id','text']],
   connection_resource: [['p_scope_key','text'],['p_resource_key','text']],
   connection_commit: [['p_operation_id','uuid'],['p_scope_key','text'],['p_resource_key','text'],['p_expected_revision','bigint'],['p_operation','text'],

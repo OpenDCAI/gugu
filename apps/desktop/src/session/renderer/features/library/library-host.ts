@@ -79,6 +79,7 @@ export type LibraryIntegrationsRpc = Pick<
   ownerAccounts?: IntegrationsApi['ownerAccounts'];
   ownerConnect?:IntegrationsApi['ownerConnect'];
   ownerAuthorize?:IntegrationsApi['ownerAuthorize'];
+  ownerAuthorizationPrepare?:IntegrationsApi['ownerAuthorizationPrepare'];
   ownerAuthorizationBegin?: IntegrationsApi['ownerAuthorizationBegin'];
   ownerAuthorizationComplete?: IntegrationsApi['ownerAuthorizationComplete'];
   ownerAuthorizationCommit?: IntegrationsApi['ownerAuthorizationCommit'];
@@ -158,6 +159,7 @@ const localIntegrations: LibraryIntegrationsRpc = {
   ownerConnect:(...args)=>rpc.integrations.ownerConnect(...args),
   ownerAuthorize:(...args)=>rpc.integrations.ownerAuthorize(...args),
   ownerAuthorizationBegin: (...args) => rpc.integrations.ownerAuthorizationBegin(...args),
+  ownerAuthorizationPrepare:(...args)=>rpc.integrations.ownerAuthorizationPrepare(...args),
   ownerAuthorizationComplete: (...args) => rpc.integrations.ownerAuthorizationComplete(...args),
   ownerAuthorizationCommit: (...args) => rpc.integrations.ownerAuthorizationCommit(...args),
   ownerAuthorizationCommitBatch: (...args) => rpc.integrations.ownerAuthorizationCommitBatch(...args),
@@ -237,6 +239,7 @@ export function createRemoteLibraryHost(
     // Remote browser OAuth needs a durable cross-device claim before opening
     // the local browser. Do not expose it as a managed call before that adapter.
     ownerAuthorizationBegin: (...args) => there.integrations.ownerAuthorizationBegin(...args),
+    ownerAuthorizationPrepare:(...args)=>there.integrations.ownerAuthorizationPrepare(...args),
     ownerAuthorizationComplete: (...args) => there.integrations.ownerAuthorizationComplete(...args),
     ownerAuthorizationCommit: (...args) => there.integrations.ownerAuthorizationCommit(...args),
     ownerAuthorizationCommitBatch: (...args) => there.integrations.ownerAuthorizationCommitBatch(...args),

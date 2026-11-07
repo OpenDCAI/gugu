@@ -190,12 +190,22 @@ export function createConnectionRuntime(input: {
     }
     return { authority: routing.read,prepare,async hold(provider: string,id: string,expectedEpoch?: string) {
       if (!await selectOwner(expectedEpoch)) throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
-      if(route?.verificationProtocol===2)await native.begin(provider,id,route.epoch)
       return holds.begin(provider,id)
-    },release: holds.release,commitAuthorization,commitAuthorizationBatch,
+    },async release(provider:string,id:string){
+      const current=await routing.read()
+      if(current.verificationProtocol===2)await native.cancel(provider,id)
+      await holds.release(provider,id)
+    },commitAuthorization,commitAuthorizationBatch,
+      async prepareAuthorization(provider:string,id:string,epoch:string){
+        await selectOwner(epoch)
+        if(route?.verificationProtocol!==2)throw new ConnectionError('unsupported-device','CONNECTION_EVIDENCE_PROTOCOL_REQUIRED')
+        if((await holds.load())[provider]!==id)throw new ConnectionError('intent-changed','CONNECTION_AUTHORIZATION_CANCELLED')
+        await native.begin(provider,id,epoch)
+      },
       async runAuthorization<T>(provider:string,id:string,epoch:string,action:()=>Promise<T>){
         await selectOwner(epoch)
         if(route?.verificationProtocol!==2)throw new ConnectionError('unsupported-device','CONNECTION_EVIDENCE_PROTOCOL_REQUIRED')
+        if((await holds.load())[provider]!==id)throw new ConnectionError('intent-changed','CONNECTION_AUTHORIZATION_CANCELLED')
         return native.run(provider,id,epoch,action)
       },readEvidence:native.read,fenceEvidence:native.fence }
 
@@ -225,6 +235,7 @@ export function createConnectionRuntime(input: {
   return { prepare,authority: () => serial(worker => worker.authority()),
     hold: (provider: string,id: string,expectedEpoch?: string) => serial(worker => worker.hold(provider,id,expectedEpoch)),
     release: (provider: string,id: string) => serial(worker => worker.release(provider,id)),
+    prepareAuthorization:(provider:string,id:string,epoch:string)=>serial(worker=>worker.prepareAuthorization(provider,id,epoch)),
     // Long browser actions do not hold the worker queue: the verifier must be
     // able to inspect or fence the SQLite attempt while an upstream call waits.
     runAuthorization:async<T>(provider:string,id:string,epoch:string,action:()=>Promise<T>)=>{

@@ -3,6 +3,7 @@ export type OwnerConnectionControl = {
   runAuthorization<T>(providerId:string,operationId:string,epoch:string,action:()=>Promise<T>):Promise<T>
   readEvidence(input:unknown,ownerId:string):Promise<unknown>
   fenceEvidence(input:unknown,ownerId:string):Promise<unknown>
+  prepareAuthorization(providerId:string,operationId:string,epoch:string):Promise<void>
   prepare(expectedEpoch?: string): Promise<void>
   hold(providerId: string,operationId: string,expectedEpoch?: string): Promise<void>
   release(providerId: string,operationId: string): Promise<void>

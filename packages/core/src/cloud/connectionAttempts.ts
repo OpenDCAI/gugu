@@ -5,7 +5,7 @@ export type NativeConnectionAttempt = {
   scopeKey: string; resourceKey: string | null; providerId: string;
   accountId: string | null; credentialGeneration: string; authorityEpoch: string;
   requestHash: string; operationRevision: string | null; admissionId: string | null;
-  recreationId: string | null; expectedItemRevision: string | null;
+  recreationId: string | null; expectedItemRevision: string | null; expectedHeadRevision: string | null;
   deadlineAt: number; effectKind: 'authorize' | 'default' | 'remove';
 }
 export type NativeConnectionEvidenceQuery = Pick<NativeConnectionAttempt,'operationId' | 'attemptId' | 'ownerId' | 'deviceId'>
@@ -19,6 +19,7 @@ export function parseNativeConnectionAttempt(value:unknown,invalid:()=>never=()=
     ||!optionalString(value.resourceKey)||!optionalString(value.accountId)||typeof value.providerId!=='string'
     ||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.providerId)||!revision(value.authorityEpoch)
     ||value.recreationId!==null&&!uuid(value.recreationId)||value.expectedItemRevision!==null&&!revision(value.expectedItemRevision)
+    ||value.expectedHeadRevision!==null&&!revision(value.expectedHeadRevision)
     ||value.operationRevision!==null&&!revision(value.operationRevision)||value.admissionId!==null&&!uuid(value.admissionId)
     ||typeof value.requestHash!=='string'||!/^[0-9a-f]{64}$/.test(value.requestHash)
     ||!Number.isSafeInteger(value.deadlineAt)||(value.deadlineAt as number)<=0||!['authorize','default','remove'].includes(value.effectKind as string))return invalid()
@@ -29,5 +30,6 @@ export function parseNativeConnectionAttempt(value:unknown,invalid:()=>never=()=
     credentialGeneration:value.credentialGeneration,authorityEpoch:value.authorityEpoch,requestHash:value.requestHash,
     operationRevision:value.operationRevision as string|null,admissionId:value.admissionId as string|null,
     recreationId:value.recreationId as string|null,expectedItemRevision:value.expectedItemRevision as string|null,
+    expectedHeadRevision:value.expectedHeadRevision as string|null,
     deadlineAt:value.deadlineAt as number,effectKind:value.effectKind as NativeConnectionAttempt['effectKind']}
 }

@@ -16,7 +16,7 @@ describe('managed native effect custody transaction',()=>{
  afterEach(()=>fixture?.close());
  const attempt=():ManagedConnectionAttempt=>({operationId:randomUUID(),attemptId:randomUUID(),attemptOrder:String(++sequence),ownerId:randomUUID(),deviceId:'fixture-device',
   scopeKey:'device:fixture-device',resourceKey:null,providerId:'github',accountId:null,credentialGeneration:randomUUID(),
-  recreationId:randomUUID(),expectedItemRevision:null,effectKind:'authorize',authorityEpoch:'4',requestHash:'a'.repeat(64),operationRevision:null,admissionId:null,deadlineAt:Date.now()+600_000});
+  recreationId:randomUUID(),expectedItemRevision:null,expectedHeadRevision:'0',effectKind:'authorize',authorityEpoch:'4',requestHash:'a'.repeat(64),operationRevision:null,admissionId:null,deadlineAt:Date.now()+600_000});
  const registry=()=>new ProviderAccountRegistry(fixture.db,new EncryptedAppSecretsStore(fixture.db,secureStorage as never,'darwin'));
  const saved=()=>fixture.db.select().from(appSecrets).all();
  it('commits real encrypted storage, account and original UUID/generation evidence together',async()=>{
@@ -136,6 +136,29 @@ describe('managed native effect custody transaction',()=>{
   await service.run(fresh,()=>accounts.upsertAccount({providerId:'github',accountId:'first',secret:'fixture-explicit'}));
   expect(await accounts.resolveSecret('github','first')).toBe('fixture-explicit');
  });
+ it('preserves a newer explicit credential when an older remove is admitted after its commit',async()=>{
+  const service=createNativeConnectionEvidence(fixture.db),accounts=registry(),fresh={...attempt(),expectedHeadRevision:'12'};
+  service.begin(fresh);await service.run(fresh,()=>accounts.upsertAccount({providerId:'github',accountId:'first',secret:'fixture-new-consent'}));
+  const older={...fresh,operationId:randomUUID(),attemptId:randomUUID(),attemptOrder:'99',credentialGeneration:randomUUID(),
+   recreationId:null,expectedItemRevision:null,expectedHeadRevision:null,operationRevision:'12',admissionId:randomUUID(),accountId:'first',effectKind:'remove' as const};
+  expect(()=>service.begin(older)).toThrow('CONNECTION_ATTEMPT_FENCED');
+  service.fence(older);
+  expect(await accounts.resolveSecret('github','first')).toBe('fixture-new-consent');expect(saved()).toHaveLength(1);
+ })
+ it('fences credential use even when an admitted remove never reached native preparation',async()=>{
+  const service=createNativeConnectionEvidence(fixture.db),accounts=registry();
+  await accounts.upsertAccount({providerId:'github',accountId:'first',secret:'fixture-old'});
+  const a={...attempt(),accountId:'first',effectKind:'remove' as const,operationRevision:'1',recreationId:null,expectedHeadRevision:null};
+  service.fence(a);
+  expect(await accounts.resolveSecret('github','first')).toBeNull();expect(saved()).toHaveLength(1);
+ })
+ it('keeps the prior credential usable after a failed reauthorization and never clears a newer revoke',async()=>{
+  const service=createNativeConnectionEvidence(fixture.db),accounts=registry();
+  await accounts.upsertAccount({providerId:'github',accountId:'first',secret:'fixture-old'});
+  const a=attempt();service.begin(a);
+  await expect(service.run(a,async()=>{throw Object.assign(Error('fixture-cancel'),{knownNoEffect:true});})).rejects.toThrow('fixture-cancel');
+  expect(await accounts.resolveSecret('github','first')).toBe('fixture-old');
+ })
  it('serves only original device proof and refuses foreign or altered identities before touching the journal',async()=>{
   const store=createNativeConnectionEvidence(fixture.db),a=attempt(),accounts=registry();store.begin(a);
   await store.run(a,()=>accounts.upsertAccount({providerId:'github',accountId:'first',secret:'fixture-secret'}));
@@ -156,6 +179,31 @@ describe('managed native effect custody transaction',()=>{
   store.begin(a);await expect(store.run(a,async()=>{effects++;})).rejects.toThrow('CONNECTION_ATTEMPT_ALREADY_STARTED');
   expect(effects).toBe(0);const again=await native.fence(a,a.ownerId);expect(again.fenced).toBe(true);
  });
+ it('durably fences a known refusal without issuing a credential effect',async()=>{
+  const store=createNativeConnectionEvidence(fixture.db),a=attempt();store.begin(a);
+  await expect(store.run(a,async()=>{throw Object.assign(new Error('fixture-refusal'),{knownNoEffect:true});})).rejects.toThrow('fixture-refusal');
+  expect(store.read(a)).toMatchObject({state:'started',fenced:true});expect(saved()).toHaveLength(0);
+ });
+ it('retains authoritative applied evidence even if a later error is labelled as a refusal',async()=>{
+  const store=createNativeConnectionEvidence(fixture.db),a=attempt(),accounts=registry();store.begin(a);
+  await expect(store.run(a,async()=>{
+   await accounts.upsertAccount({providerId:'github',accountId:'actual',secret:'fixture-secret'});
+   throw Object.assign(new Error('fixture-after-commit'),{knownNoEffect:true});
+  })).rejects.toThrow('fixture-after-commit');
+  expect(store.read(a)).toMatchObject({state:'applied',fenced:true,accountId:'actual'});expect(saved()).toHaveLength(1);
+ });
+ it('cancels a prepared original authorization while its upstream action is paused, before credential custody',async()=>{
+  const store=createNativeConnectionEvidence(fixture.db),a=attempt(),accounts=registry();let prepared=0;
+  const native=createConnectionNativeEvidence({ownerId:a.ownerId,deviceId:a.deviceId,instance:()=> 'fixture-runtime',assertCurrent:async()=>{},
+   store:async()=>store,cloud:{prepareAttempt:async()=>{prepared++;return a},inspectAttempt:async()=>a}});
+  await native.begin('github',a.operationId,a.authorityEpoch);expect(prepared).toBe(1);
+  let enter!:()=>void,release!:()=>void;
+  const started=new Promise<void>(resolve=>{enter=resolve}),resume=new Promise<void>(resolve=>{release=resolve});
+  const effect=native.run('github',a.operationId,a.authorityEpoch,async()=>{enter();await resume;return accounts.upsertAccount({providerId:'github',accountId:'late',secret:'fixture-late'});});
+  await started;await native.cancel('github',a.operationId);release();
+  await expect(effect).rejects.toThrow('CONNECTION_ATTEMPT_FENCED');
+  expect(store.read(a)).toMatchObject({state:'started',fenced:true});expect(saved()).toHaveLength(0);
+ })
  it('reads evidence without a database mutation',async()=>{
   const service=createNativeConnectionEvidence(fixture.db),a=attempt();service.begin(a);
   const changes=()=>fixture.sqlite.prepare('SELECT total_changes() AS n').get();
