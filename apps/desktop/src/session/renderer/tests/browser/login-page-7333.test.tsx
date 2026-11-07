@@ -82,7 +82,7 @@ async function toCodeStep(address = 'lin@example.com') {
   auth.requestLoginOtp.mockResolvedValueOnce({ success: true });
   await userEvent.fill(email(), address);
   await userEvent.click(submit());
-  await until('the code step is up', () => otp() !== null && email() === null);
+  await until('the code step confirms sending succeeded', () => otp() !== null && email() === null && host.textContent?.includes(t('auth.otpSent', { email: address })) === true);
 }
 
 beforeAll(async () => {
@@ -93,6 +93,8 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   vi.clearAllMocks();
+  auth.requestLoginOtp.mockReset();
+  auth.verifyLoginOtp.mockReset();
   document.documentElement.removeAttribute('data-theme');
   await mount();
 });
@@ -178,23 +180,36 @@ describe('the login page keeps its real flow (母版补页 05: eight states)', (
     }
   });
 
-  it('正在发送 → 发送失败: the button waits on the real request, then the error stays in the form and offers a retry', async () => {
+  it('opens the code step while sending, preserves digits on failure, and immediately offers resend', async () => {
     const send = pending();
     auth.requestLoginOtp.mockReturnValueOnce(send.promise);
     await userEvent.fill(email(), 'lin@example.com');
     await userEvent.click(submit());
     expect(auth.requestLoginOtp).toHaveBeenCalledWith('lin@example.com');
-    await until('the button shows the loading state', () => submit().querySelector('[data-gg-loading="inline"]') !== null);
+    await until('the code step shows the pending send', () => otp() !== null && host.textContent?.includes(t('auth.otpSending', { email: 'lin@example.com' })) === true);
+    expect(email()).toBeNull();
+    await userEvent.fill(otp(), '123456');
     expect(submit().disabled).toBe(true);
-    expect(submit().querySelector('[data-gg-loading]')!.getAttribute('aria-label')).toBe(t('auth.continue'));
-    send.answer({ success: false, error: '发送太频繁' });
-    await until('the error is in the form', () => alertText() === '发送太频繁');
-    expect(email(), 'a failed send left the email step').not.toBeNull();
-    expect(submit().textContent).toBe(t('auth.retry'));
-    // Typing clears the error, as before.
-    await userEvent.fill(email(), 'lin@example.org');
-    await until('the error clears on input', () => alertText() === null);
-    expect(submit().textContent).toBe(t('auth.continue'));
+    expect(buttonNamed(t('auth.resend'))!.disabled).toBe(true);
+    expect(auth.verifyLoginOtp).not.toHaveBeenCalled();
+    send.answer({ success: false, error: 'Controlled network failure' });
+    await until('the send error is on the code form', () => alertText() === 'Controlled network failure');
+    expect(host.textContent).toContain(t('auth.otpNotSent', { email: 'lin@example.com' }));
+    expect(email()).toBeNull();
+    expect(otp().value).toBe('123456');
+    expect(submit().disabled).toBe(true);
+    expect(buttonNamed(t('auth.resend'))!.disabled).toBe(false);
+    await userEvent.fill(otp(), '654321');
+    expect(alertText()).toBe('Controlled network failure');
+    const retry = pending();
+    auth.requestLoginOtp.mockReturnValueOnce(retry.promise);
+    await userEvent.click(buttonNamed(t('auth.resend'))!);
+    await until('retry is in flight', () => auth.requestLoginOtp.mock.calls.length === 2);
+    expect(buttonNamed(t('auth.resend'))!.disabled).toBe(true);
+    retry.answer({ success: true });
+    await until('sending success permits verification', () => !submit().disabled);
+    expect(otp().value).toBe('654321');
+    expect(alertText()).toBeNull();
   });
 
   it('填验证码: names the address, takes six digits only, and does not submit short', async () => {
@@ -238,7 +253,7 @@ describe('the login page keeps its real flow (母版补页 05: eight states)', (
   });
 
   it('重发等待: 60 seconds after a successful send, no resend while waiting; a failed resend starts no countdown', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
     await toCodeStep();
     const resend = () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.startsWith(t('auth.resend')))!;
     expect(resend().textContent).toBe(t('auth.resendCountdown', { seconds: 60 }));
@@ -246,7 +261,7 @@ describe('the login page keeps its real flow (母版补页 05: eight states)', (
     await untilStable('the waiting resend settles', () => css(resend(), 'opacity'));
     expect(css(resend(), 'opacity')).toBe('0.58');
     for (let left = 59; left >= 0; left -= 1) {
-      // The next tick is scheduled by an effect after the render: advance only once it is there.
+      // Advance the wall clock and the interval together; the countdown uses an absolute deadline.
       await until(`the tick before ${left} is scheduled`, () => vi.getTimerCount() > 0);
       vi.advanceTimersByTime(1000);
       const label = left > 0 ? t('auth.resendCountdown', { seconds: left }) : t('auth.resend');

@@ -17,6 +17,7 @@ vi.mock('../../../../apps/desktop/src/lib/referral', () => ({
 }))
 
 import { authService } from '../../../../apps/desktop/src/lib/auth'
+import { observeLoginOtpFetch } from '../../../../apps/desktop/src/lib/loginOtpTransport'
 
 describe('OTP login network failure (#3383)', () => {
   beforeEach(() => {
@@ -38,6 +39,24 @@ describe('OTP login network failure (#3383)', () => {
     })
     expect(consoleError).toHaveBeenCalledWith('[auth/otp] request login OTP failed', {
       error: failure.message,
+    })
+  })
+
+  it('preserves rate limit status, code and the server wait from the SDK message', async () => {
+    mocks.signInWithOtp.mockResolvedValue({ error: { status: 429, code: 'over_email_send_rate_limit', message: 'For security purposes, you can only request this after 1 seconds.' } })
+    await expect(authService.requestLoginOtp('one@example.test')).resolves.toMatchObject({
+      success: false, status: 429, code: 'over_email_send_rate_limit', retryAfterSeconds: 1,
+      error: '操作过于频繁，请稍后再试',
+    })
+  })
+
+  it('uses observed HTTP status and Retry-After even when the SDK cannot decode a rate-limit body', async () => {
+    mocks.signInWithOtp.mockImplementationOnce(async () => {
+      await observeLoginOtpFetch('https://auth.example.test/auth/v1/otp', { body: JSON.stringify({ email: 'one@example.test' }) }, async () => new Response('Too many requests', { status: 429, headers: { 'Retry-After': '7' } }))
+      return { error: { name: 'AuthUnknownError', message: 'Unexpected token in JSON' } }
+    })
+    await expect(authService.requestLoginOtp('one@example.test')).resolves.toMatchObject({
+      success: false, status: 429, retryAfterSeconds: 7, error: '操作过于频繁，请稍后再试',
     })
   })
 

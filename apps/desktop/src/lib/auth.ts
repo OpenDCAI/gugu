@@ -6,6 +6,7 @@ import { userVisibleAuthError } from './authErrors'
 import { rendererLogger } from './log'
 import { i18n } from '@/i18n'
 import { readDisplayIdentities } from './identityReadAdapter'
+import { runLoginOtpRequest, type LoginOtpMetadata } from './loginOtpTransport'
 
 const authLog = rendererLogger('auth/otp')
 
@@ -24,6 +25,23 @@ export interface AuthResult {
   userId?: string
   session?: Session
   error?: string
+}
+
+export type LoginOtpResult = AuthResult & { status?: number; code?: string; retryAfterSeconds?: number }
+function loginOtpFailure(error: unknown, metadata: LoginOtpMetadata): LoginOtpResult {
+  const detail = error as { status?: number; code?: string; message?: string } | undefined
+  const status = metadata.status ?? detail?.status
+  const limited = status === 429 || detail?.code === 'over_email_send_rate_limit'
+  const bodyWait = detail?.message?.match(/(?:after|in)\s+(\d+)\s+seconds?/i)?.[1]
+  const cause = metadata.networkError ?? (status !== undefined && status !== detail?.status
+    ? { status, code: detail?.code, message: detail?.message ?? String(error) } : error)
+  return {
+    success: false,
+    error: userVisibleAuthError(cause, 'sendOtp'),
+    ...(status === undefined ? {} : { status }),
+    ...(detail?.code ? { code: detail.code } : {}),
+    ...(limited ? { retryAfterSeconds: Math.max(1, metadata.retryAfterSeconds ?? (bodyWait ? Number(bodyWait) : 30)) } : {}),
+  }
 }
 
 type IdentityUserProfilePatch = {
@@ -54,26 +72,28 @@ export async function hydrateIdentityAuthUser(user: User, signal: AbortSignal): 
 }
 
 export const authService = {
-  async requestLoginOtp(email: string): Promise<AuthResult> {
-    const nickname = email.split('@')[0] || 'User'
-    const data: Record<string, unknown> = { nickname, display_name: nickname }
-    const referrer = consumePendingReferrer()
-    if (referrer) data.referrer_gugu_number = referrer
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { shouldCreateUser: true, data }
-      })
-      if (error)
-        return { success: false, error: userVisibleAuthError(error) }
-      return { success: true }
-    } catch (error) {
-      authLog.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        'request login OTP failed',
-      )
-      return { success: false, error: userVisibleAuthError(error) }
-    }
+  requestLoginOtp(email: string): Promise<LoginOtpResult> {
+    return runLoginOtpRequest(email, async (metadata) => {
+      const nickname = email.split('@')[0] || 'User'
+      const data: Record<string, unknown> = { nickname, display_name: nickname }
+      const referrer = consumePendingReferrer()
+      if (referrer) data.referrer_gugu_number = referrer
+      try {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: true, data }
+        })
+        if (error)
+          return loginOtpFailure(error, metadata)
+        return { success: true }
+      } catch (error) {
+        authLog.error(
+          { error: error instanceof Error ? error.message : String(error) },
+          'request login OTP failed',
+        )
+        return loginOtpFailure(error, metadata)
+      }
+    })
   },
 
   async verifyLoginOtp(email: string, token: string): Promise<AuthResult> {
