@@ -37,15 +37,15 @@ describe('a session link on the phone', () => {
     const listen = (event: Event) => shown.push((event as CustomEvent).detail)
     window.addEventListener(APP_SHOW_SESSION_EVENT, listen)
     try {
-      await expect(openPhoneLink('gugu-session://s1')).resolves.toMatchObject({ kind: 'opened' })
+      await expect(openPhoneLink('gugu-session://s1?message=turn-1')).resolves.toMatchObject({ kind: 'opened' })
       expect(shown).toEqual([{ deviceId: 'mac-1', session }])
       expect(shell.notice).not.toHaveBeenCalled()
       shell.opened = 'own'
       await openPhoneLink('gugu://session/s1')
       expect(shown).toHaveLength(1)
       shell.opened = undefined
-      await expect(openPhoneLink('gugu-session://nowhere')).resolves.toMatchObject({ kind: 'failed', reason: 'no-session' })
-      expect(followLink('gugu-session://nowhere')).toBe(true)
+      await expect(openPhoneLink('gugu-session://nowhere?message=turn-1')).resolves.toMatchObject({ kind: 'failed', reason: 'no-session' })
+      expect(followLink('gugu-session://nowhere?message=turn-1')).toBe(true)
       await vi.waitFor(() => expect(shell.notice).toHaveBeenCalledExactlyOnceWith({ tier: 'error', title: 'session: no-session' }))
     } finally {
       window.removeEventListener(APP_SHOW_SESSION_EVENT, listen)
@@ -58,10 +58,10 @@ describe('a session link on the phone', () => {
     const shown = vi.fn()
     window.addEventListener(APP_SHOW_SESSION_EVENT, shown)
     try {
-      const result = await openPhoneLink('gugu-session://s1')
+      const result = await openPhoneLink('gugu-session://s1?message=turn-1')
       expect(result).toMatchObject({ kind: 'failed', reason: 'open-failed' })
       expect(shown).not.toHaveBeenCalled()
-      expect(followLink('gugu-session://s1')).toBe(true)
+      expect(followLink('gugu-session://s1?message=turn-1')).toBe(true)
       await vi.waitFor(() => expect(shell.notice).toHaveBeenCalledExactlyOnceWith({
         tier: 'error', title: expect.stringContaining(String(result.kind === 'failed' ? result.detail : 'missing failure')),
       }))
