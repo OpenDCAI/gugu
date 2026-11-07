@@ -43,6 +43,16 @@ afterEach(() => {
 })
 
 describe('default agent avatars', () => {
+  it.each(['offline', 'archived'] as const)('#1987 retains the existing muted %s avatar dot', async (agentStatus) => {
+    await render({ agentStatus })
+    const badge = harness.container.querySelector(`.av-status--${agentStatus}`)
+    expect(badge?.getAttribute('role')).toBe('img')
+    const dot = badge?.querySelector<HTMLElement>('span')
+    expect(dot?.style.background).toBe('var(--agent-tone-muted)')
+    expect(dot?.style.borderRadius).toBe('var(--radius-circle)')
+    expect(dot?.textContent).toBe('')
+  })
+
   it('renders a static beam SVG with the full agent id and its palette, plus the existing status badge', async () => {
     await render({ agentStatus: 'working' })
     expect(svg()?.getAttribute('data-agent-avatar-boring')).toBe(ID)
