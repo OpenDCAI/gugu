@@ -72,7 +72,8 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
         if (result && typeof result === 'object' && ('success' in result && result.success === false || 'status' in result && result.status === 'failed')) report(result)
         return result
       } catch (error) {
-        const forwarded = Object.assign(new Error(message(error,provider,failure),{ cause: error }),{ code: (error as { code?: string } | null)?.code })
+        const original = error as { code?: string; name?: string; cancelled?: boolean } | null
+        const forwarded = Object.assign(new Error(message(error,provider,failure),{ cause: error }),{ code: original?.code,cancelled: original?.name === 'AbortError' || original?.cancelled === true })
         report(error,forwarded)
         if (provider === 'github' && ['outcome-unknown','operation-pending'].includes(forwarded.code ?? ''))
           emitGithub(githubAuthErrorChannel.name,{ error: 'connection_application_busy',message: forwarded.message })
