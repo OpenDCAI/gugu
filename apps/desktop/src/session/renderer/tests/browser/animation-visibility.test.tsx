@@ -1,5 +1,5 @@
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { Avatar } from '@/components/Avatar';
 import { RunningTokenBar } from '@/components/RunningTokenBar';
 import { ANIMATION_WINDOW_SEEN_EVENT, isAnimationWindowVisible } from '@gugu/session-shared/animation-visibility';
@@ -111,6 +111,16 @@ it('pauses avatar pulses scrolled out of view and resumes the same clocks when t
   await until('the window pause still reaches the pulses', () => pulses.every((animation) => animation.playState === 'paused'));
   window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }));
   await until('they resume', () => pulses.every((animation) => animation.playState === 'running'));
+});
+
+it('leaves the style pass alone when watched motion goes away', async () => {
+  await mount();
+  // getAnimations({ subtree: true }) resolves the whole document's pending style on the spot.
+  const getAnimations = vi.spyOn(Element.prototype, 'getAnimations');
+  roots.splice(0).forEach((root) => root.unmount());
+  await new Promise(requestAnimationFrame);
+  expect(getAnimations).not.toHaveBeenCalled();
+  getAnimations.mockRestore();
 });
 
 it('keeps a visible portal animated while the opener hides and stops it when its own window hides', async () => {

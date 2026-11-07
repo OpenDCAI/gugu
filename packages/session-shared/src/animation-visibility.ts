@@ -99,5 +99,5 @@ export function pauseAnimationsOffscreen(element: HTMLElement, rootMargin?: stri
   }
   paused(true)
   const stop = observeAnimationViewport(element, (visible) => paused(!visible), rootMargin)
-  return () => { stop(); paused(false) }
+  return () => { stop(); element.style.removeProperty('--gugu-animation-viewport-paused') }
 }
