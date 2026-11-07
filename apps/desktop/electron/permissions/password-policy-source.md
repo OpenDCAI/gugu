@@ -27,6 +27,12 @@ Status callbacks are bound to the manager's authenticated subscription attempt.
 Pause, failure or replacement invalidates that attempt before any wait; a late
 old SUBSCRIBED cannot reopen reads, including after pause release. Only a fresh
 authenticated attempt can qualify. Nested pauses remain closed until all release.
+This strict failure fencing applies to callers with an onUnavailable observer.
+Persistent callers with a channel factory default to a new authenticated managed
+retry, preserving App rejoin notifications; explicit one-shot removal still wins
+when no reconnect policy is supplied. Legacy callers without a factory or an
+observer retain their SDK rejoin notifications. Neither that compatibility path
+nor an explicit SDK retry policy may reopen a password continuity observer.
 
 As approved on 2026-11-07, **Phase 1 does not promise a zero-length interval from
 a cloud policy commit to the local native action**. Disconnection detection and

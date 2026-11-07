@@ -49,6 +49,7 @@ export type SubscribeElectronRealtimeChannelOptions = {
   /** Synchronous loss of continuity, before authentication/replacement/removal can await. */
   onUnavailable?: () => void
   unsubscribeOnStatus?: (status: string, err?: Error) => boolean
+  /** A factory defaults to managed retry unless the caller requests one-shot removal. */
   reconnectOnStatus?: (status: string, err?: Error) => boolean
 }
 
@@ -62,8 +63,8 @@ type InternalElectronRealtimeChannelRegistryEntry = ElectronRealtimeChannelRegis
     attempt: number
     subscribedOnce: boolean
     onStatus: (status: string, err?: Error) => void
-    onUnavailable: () => void
-    reconnectOnStatus: (status: string, err?: Error) => boolean
+    onUnavailable: (() => void) | null
+    reconnectOnStatus: ((status: string, err?: Error) => boolean) | null
     unsubscribeOnStatus: (status: string, err?: Error) => boolean
   }
 
@@ -107,8 +108,8 @@ export async function subscribeAuthenticatedElectronRealtimeChannel(
     attempt: 0,
     subscribedOnce: false,
     onStatus: options.onStatus ?? (() => undefined),
-    onUnavailable: options.onUnavailable ?? (() => undefined),
-    reconnectOnStatus: options.reconnectOnStatus ?? (() => false),
+    onUnavailable: options.onUnavailable ?? null,
+    reconnectOnStatus: options.reconnectOnStatus ?? null,
     unsubscribeOnStatus: options.unsubscribeOnStatus ?? (() => false)
   })
 
@@ -201,7 +202,7 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
 
   const attempt = ++entry.attempt
   setRegistryStatus(id, reconnecting ? 'reconnecting' : 'authenticating')
-  entry.onUnavailable()
+  entry.onUnavailable?.()
   try {
     // 认证由账号客户端现取;频道重连不能拿创建时的旧令牌覆盖共享连接。
     await entry.client.realtime.setAuth()
@@ -226,7 +227,7 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
     if (!latest?.active || paused || latest.attempt !== attempt || latest.channel !== subscribedChannel) return
     const name = statusName(status)
     const joined = !err && (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED'))
-    if (!joined) withdrawContinuity(latest)
+    if (!joined && latest.onUnavailable) withdrawContinuity(latest)
     latest.onStatus(status, err)
     if (joined) {
       clearReconnectTimer(id)
@@ -238,7 +239,12 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
     // One-shot subscriptions may deliberately hand initial failures back to their owner.
     // Managed persistent channels must retry even when their very first join failed.
     const shouldUnsubscribe = latest.unsubscribeOnStatus(status, err)
-    if (latest.reconnectOnStatus(status, err) && (latest.subscribedOnce || !shouldUnsubscribe)) {
+    const shouldReconnect = latest.reconnectOnStatus?.(status, err) ?? (!!latest.createChannel && !shouldUnsubscribe)
+    // Legacy callers without a continuity observer may rely on SDK rejoin callbacks.
+    // Retire those attempts only when the manager owns replacement/removal; policy
+    // observers always retire immediately and require a fresh authenticated attempt.
+    if (!latest.onUnavailable && (shouldReconnect || shouldUnsubscribe)) withdrawContinuity(latest)
+    if (shouldReconnect && (latest.subscribedOnce || !shouldUnsubscribe)) {
       setRegistryStatus(id, name === 'CLOSED' ? 'closed' : 'error', name)
       scheduleReconnect(id)
       return
@@ -321,10 +327,10 @@ async function replacePhysicalChannel(id: string): Promise<void> {
   await subscribeRegistryEntry(id, true)
 }
 
-/** Old status callbacks cannot revive continuity after pause, failure or replacement starts. */
+/** Withdrawn continuity cannot be revived by callbacks from the retired attempt. */
 function withdrawContinuity(entry: InternalElectronRealtimeChannelRegistryEntry): void {
   entry.attempt++
-  entry.onUnavailable()
+  entry.onUnavailable?.()
 }
 
 function statusName(status: unknown): string {
