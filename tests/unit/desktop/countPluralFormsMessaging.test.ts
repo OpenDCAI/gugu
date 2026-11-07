@@ -14,8 +14,6 @@ type Case = {
   zh: [string, string] // count 1 / 2,即原文
 }
 
-const POST_BODY_OTHER = (n: number) => `${n} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.`
-const POST_BODY_ZH = (n: number) => `发布后从你的社区积分中扣除 ${n} 积分。采纳后发给被采纳的回答者；截止时从未有人回答，全额退还；有过回答但未采纳，积分作废。`
 const INVITATION_SENT_ZH = (n: number) => `已发送 ${n} 个邀请，等待本人或 Agent 主人接受后入群`
 const INVITES_FAILED_ZH = (n: number) => `群已创建，但 ${n} 个邀请未发出。请在群成员面板重试邀请。`
 
@@ -43,25 +41,6 @@ const CASES: Case[] = [
     ns: 'messaging', key: 'history.topicMessages',
     en: ['0 messages', '1 message', '2 messages'],
     zh: ['1 条', '2 条'],
-  },
-  {
-    ns: 'messaging', key: 'forum.consent.reward',
-    en: ['Bounty: 0 points', 'Bounty: 1 point', 'Bounty: 2 points'],
-    zh: ['赏金 1 积分', '赏金 2 积分'],
-  },
-  {
-    ns: 'messaging', key: 'forum.consent.awardLine', vars: { name: 'Ada' },
-    en: ['Ada · 0 points', 'Ada · 1 point', 'Ada · 2 points'],
-    zh: ['Ada · 1 积分', 'Ada · 2 积分'],
-  },
-  {
-    ns: 'messaging', key: 'forum.consent.postBody',
-    en: [
-      POST_BODY_OTHER(0),
-      '1 community point is taken from your balance now. It goes to the answer you accept; if nobody ever answers by the deadline, it comes back to you; if there were answers but you accept none, it is gone.',
-      POST_BODY_OTHER(2),
-    ],
-    zh: [POST_BODY_ZH(1), POST_BODY_ZH(2)],
   },
   {
     ns: 'contacts', key: 'createGroup.invitesSent',

@@ -1,7 +1,7 @@
 import { lstat, mkdir, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
-import lockfile from 'proper-lockfile';
+import lockfile from '../../lib/proper-lockfile';
 import { managedMiseBinDir } from './managed-agent-home';
 
 /** Preparation and ordinary installs share the final launchers, even when their

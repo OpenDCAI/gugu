@@ -1,3 +1,4 @@
+import { requireAgentFileAccess, requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary';
 import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -253,7 +254,14 @@ export function createLocalFileService(options: { warn: (message: string, data?:
    * not there (maybe being replaced); `unmergeable`: it cannot be read as this kind of file, or is over the size of an open
    * file (L11 R20) — left alone, nothing written over it.
    */
-  function pullDisk(l: Loaded): 'same' | 'merged' | 'missing' | 'unmergeable' {
+  async function pullDisk(l: Loaded): Promise<'same' | 'merged' | 'missing' | 'unmergeable'> {
+    try {
+      await requireAgentFileTreeAccess(l.reg.root);
+      await requireAgentFileAccess(l.reg.abs);
+    } catch {
+      markGone(l);
+      return 'unmergeable';
+    }
     let raw: Buffer;
     let mode: number;
     try {
@@ -294,9 +302,9 @@ export function createLocalFileService(options: { warn: (message: string, data?:
    * Write the open document to the disk: what the disk holds is merged in first (an outside write is never written
    * over), then the bytes go to a temporary file beside it, renamed over it. Nothing changed → nothing written.
    */
-  function writeOut(documentName: string, l: Loaded): void {
+  async function writeOut(documentName: string, l: Loaded): Promise<void> {
     const info = openFiles.docs.get(documentName)!;
-    const pulled = pullDisk(l);
+    const pulled = await pullDisk(l);
     if (pulled === 'missing' || pulled === 'unmergeable') {
       // Not written over: the next change on the disk (a watch) or in a page brings the write back.
       info.dirty = true;
@@ -316,7 +324,7 @@ export function createLocalFileService(options: { warn: (message: string, data?:
         if (sha(fs.readFileSync(l.reg.abs)) !== l.diskHash) {
           fs.rmSync(tmp, { force: true });
           info.dirty = true;
-          pullDisk(l);
+          await pullDisk(l);
           return;
         }
         fs.renameSync(tmp, l.reg.abs);
@@ -351,15 +359,15 @@ export function createLocalFileService(options: { warn: (message: string, data?:
     if (l.goneCheck || l.gone) return;
     l.goneCheck = setTimeout(() => {
       l.goneCheck = null;
-      if (fs.existsSync(l.reg.abs)) pullDisk(l);
+      if (fs.existsSync(l.reg.abs)) void pullDisk(l).catch(() => markGone(l));
       else markGone(l);
     }, GONE_AFTER_MS);
   }
 
   /** A file's path changed on the disk (or may have): its open document takes it in; pages waiting for it to come back are told. */
-  function look(reg: Registered): void {
+  async function look(reg: Registered): Promise<void> {
     const l = loadedAt(reg.abs);
-    if (l && pullDisk(l) === 'missing') suspectGone(l);
+    if (l && await pullDisk(l) === 'missing') suspectGone(l);
     if (reg.waiters.size === 0 || !isFileAt(reg.abs)) return;
     const waiters = [...reg.waiters];
     reg.waiters.clear();
@@ -385,6 +393,8 @@ export function createLocalFileService(options: { warn: (message: string, data?:
     async onLoadDocument({ documentName, document }) {
       const reg = parse(documentName)?.reg;
       if (!reg) throw refuse('not-found');
+      await requireAgentFileTreeAccess(reg.root);
+      await requireAgentFileAccess(reg.abs);
       let raw: Buffer;
       let mode: number;
       try {
@@ -410,7 +420,7 @@ export function createLocalFileService(options: { warn: (message: string, data?:
       loaded.set(documentName, l);
       // The file held a {"$text"} mark (made live text now): the disk gets the plain projection at once, as a group
       // file's text does — the mark is never read back. Anything else is left exactly as it was until a change.
-      if (!sameContent(reg.contentType, readText(document, reg.contentType), disk.text)) writeOut(documentName, l);
+      if (!sameContent(reg.contentType, readText(document, reg.contentType), disk.text)) await writeOut(documentName, l);
     },
 
     // Rate and size limits, presence stamps, `self`, the change mark: the shared package's, as in the group service.
@@ -421,7 +431,7 @@ export function createLocalFileService(options: { warn: (message: string, data?:
       const l = loaded.get(documentName);
       if (!info || !l || l.gone || !info.dirty) return;
       info.dirty = false;
-      writeOut(documentName, l);
+      await writeOut(documentName, l);
     },
 
     async afterUnloadDocument({ documentName }) {
@@ -517,7 +527,7 @@ export function createLocalFileService(options: { warn: (message: string, data?:
       const waiter = () => back();
       reg.waiters.add(waiter);
       // Back already, before anyone waited (the relay hears `deleted` a moment after it went).
-      setTimeout(() => look(reg), 0);
+      setTimeout(() => { void look(reg).catch(() => warn('Local files: protected file is unavailable')); }, 0);
       return () => {
         reg.waiters.delete(waiter);
       };
@@ -532,7 +542,7 @@ export function createLocalFileService(options: { warn: (message: string, data?:
       for (const reg of byKey.values()) {
         if (!loadedAt(reg.abs) && reg.waiters.size === 0) continue;
         const touched = update.kind === 'resync' || update.changes.some((change) => reg.abs === change.path || reg.abs.startsWith(change.path + path.sep));
-        if (touched) look(reg);
+        if (touched) void look(reg).catch(() => warn('Local files: protected file is unavailable'));
       }
     },
 
@@ -618,6 +628,7 @@ export function createLocalAppFiles(platform: {
   }
 
   async function open(surface: LocalSurface, args: { ref: WorkspaceFileRef; readOnly?: boolean }): Promise<AppFileOpened> {
+    await requireAgentFileTreeAccess(surface.workspaceRoot);
     // The gate before a byte is read, as for a chat's files: the one handed to the page, or files:read / files:write.
     const found = readable(surface, args.ref, 'opening');
     const stat = fs.statSync(found.abs);
@@ -665,7 +676,8 @@ export function createLocalAppFiles(platform: {
       sync.ungrant(surface.pageId, String(args.docName));
     },
 
-    create(surface: LocalSurface, args: { name: string; content: string }): AppFileEntry {
+    async create(surface: LocalSurface, args: { name: string; content: string }): Promise<AppFileEntry> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
       const name = String(args.name ?? '').trim();
       if (!name) throw new AppFileError('invalid', 'A file needs a name');
       const content = String(args.content ?? '');
@@ -687,7 +699,8 @@ export function createLocalAppFiles(platform: {
       return workingCopyEntry(surface.place, target.rel, fs.statSync(target.abs));
     },
 
-    rename(surface: LocalSurface, args: { ref: WorkspaceFileRef; name: string }): AppFileEntry {
+    async rename(surface: LocalSurface, args: { ref: WorkspaceFileRef; name: string }): Promise<AppFileEntry> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
       const from = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
       const name = String(args.name ?? '').trim();
       if (!name) throw new AppFileError('invalid', 'A file needs a name');
@@ -705,7 +718,8 @@ export function createLocalAppFiles(platform: {
      * G1 A stored file of the working copy written over with its next content — the bytes beside it, renamed over it.
      * Its history is the working copy's own (git). Gated like opening it read-write; a document changes through its open file.
      */
-    replace(surface: LocalSurface, args: { ref: WorkspaceFileRef; file: AppFileUpload }): AppFileEntry {
+    async replace(surface: LocalSurface, args: { ref: WorkspaceFileRef; file: AppFileUpload }): Promise<AppFileEntry> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
       const file = args.file;
       if (!file || !(file.bytes instanceof ArrayBuffer)) throw new AppFileError('invalid', 'files.replace(file, content) takes the new content: a Blob');
       const found = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
@@ -729,7 +743,8 @@ export function createLocalAppFiles(platform: {
       return workingCopyEntry(surface.place, found.rel, fs.statSync(found.abs));
     },
 
-    remove(surface: LocalSurface, args: { ref: WorkspaceFileRef }): void {
+    async remove(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<void> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
       const found = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
       if (!fs.statSync(found.abs).isFile()) throw new AppFileError('invalid', `${found.rel} is not a file`);
       fs.rmSync(found.abs);
@@ -741,7 +756,8 @@ export function createLocalAppFiles(platform: {
      * puts it in the chat. A new file only: one already there is not written over (`invalid`, said). Every size is
      * checked before the first byte goes; if one fails, the ones before it stay, and the rejection names what did not.
      */
-    upload(surface: LocalSurface, files: readonly AppFileUpload[]): AppFileEntry[] {
+    async upload(surface: LocalSurface, files: readonly AppFileUpload[]): Promise<AppFileEntry[]> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
       for (const file of files) {
         if (!file || typeof file.name !== 'string' || !file.name.trim() || !(file.bytes instanceof ArrayBuffer)) {
           throw new AppFileError('invalid', 'Each upload needs a name and its bytes');
@@ -767,13 +783,15 @@ export function createLocalAppFiles(platform: {
     },
 
     /** What saving a file of the working copy takes — gated like opening it read-only: its name and its bytes. */
-    downloadSource(surface: LocalSurface, args: { ref: WorkspaceFileRef }): { name: string; bytes: Uint8Array } {
+    async downloadSource(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<{ name: string; bytes: Uint8Array }> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
       const found = readable(surface, args.ref, 'saving');
       return { name: path.posix.basename(found.rel), bytes: fs.readFileSync(found.abs) };
     },
 
     /** 「用 X 打开」: which file of the working copy — gated like saving it. Who opens it is the host's to work out. */
-    openTarget(surface: LocalSurface, args: { ref: WorkspaceFileRef }): { place: WorkspacePlace; path: string; name: string } {
+    async openTarget(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<{ place: WorkspacePlace; path: string; name: string }> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
       const found = readable(surface, args.ref, 'opening');
       return { place: surface.place, path: found.rel, name: path.posix.basename(found.rel) };
     },

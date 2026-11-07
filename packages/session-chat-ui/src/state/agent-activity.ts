@@ -27,8 +27,9 @@ function actor(address: string, ctx: SegmentCtx, fallback?: string | null): Acti
 
 /** Identity comes from the authenticated envelope, never names or message prose. Mixed batches stay visible. */
 export function incomingActivity(item: ChatMessage, ctx: SegmentCtx, live = false): AgentActivityEvent | null {
-  if (item.role !== 'user' || item.sendStatus) return null;
-  const segments = readDeliveryEnvelope(item.text)?.segments;
+  // Host custody must not expose a proven Agent input before its native echo arrives.
+  if (item.role !== 'user' || (item.sendStatus && item.sendStatus.state !== 'receiving')) return null;
+  const segments = (item.guguDelivery ?? readDeliveryEnvelope(item.text))?.segments;
   if (!segments?.length || segments.some(part => {
     const facts = part.facts;
     if (!facts?.fromId) return true;
@@ -108,15 +109,16 @@ export function foldActivityUnits(units: readonly RenderUnit[], previous?: Agent
   };
   for (const unit of units) {
     const event = unit.activityEvent;
-    if (!event) { finish(); result.push(unit); continue; }
+    // The hover-only copy footer is part of this work, not a visible content boundary.
+    if (!event && !(current && unit.kind === 'turn-completion')) { finish(); result.push(unit); continue; }
     if (!current) {
-      current = { id: activityId(event.id), events: [] };
+      current = { id: activityId(event!.id), events: [] };
       header = { id: current.id, itemId: current.id, groupId: current.id, groupRole: 'solo', gapBefore: unit.gapBefore,
         kind: 'agent-activity', data: current };
       result.push(header);
     }
     // A pending send and its receipt use the call identity, so completion never double counts it.
-    events.set(event.id, event);
+    if (event) events.set(event.id, event);
     if (unit.kind === 'message' && (unit.data as ChatMessage).conversationPart !== 'head') messageIds.add(unit.itemId);
     const child = { ...unit, activityFold: current.id, activityGroup: current,
       folds: [{ id: current.id, stored: true }, ...(unit.folds ?? [])] };

@@ -137,7 +137,7 @@ export async function renderAndMeasureUnit<D, V extends Record<string, number>>(
       () => (
         <ThemeContext.Provider value={() => ctx.theme}>
           <CachesContext.Provider value={renderCaches}>
-            <ChatTranslationProvider value={{ translate: defaultChatTranslator, locale: () => 'en-US' }}>
+            <ChatTranslationProvider value={{ translate: ctx.translate ?? defaultChatTranslator, locale: () => 'en-US' }}>
               <CommandsContext.Provider value={() => commands}>
                 <Comp data={data} ctx={renderCtx} vars={defVars} />
               </CommandsContext.Provider>

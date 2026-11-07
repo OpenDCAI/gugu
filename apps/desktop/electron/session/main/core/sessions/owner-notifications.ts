@@ -53,7 +53,7 @@ export async function commitOwnerNotification(context: Context, input: OwnerNoti
   const row = db.select().from(sessions).where(and(eq(sessions.id, context.sessionId), eq(sessions.projectId, context.projectId))).get();
   if (!row || row.archivedAt || row.workspaceId !== context.workspaceId) throw new Error('The sending native session is missing, archived, or no longer bound to this workspace');
   if (row.runtime !== 'acp') throw new Error('This PTY session does not support native owner notifications. This message was not delivered to your owner.');
-  const workspace = input.file ? resolveWorkspace(context.projectId, context.workspaceId) : null;
+  const workspace = input.file ? await resolveWorkspace(context.projectId, context.workspaceId) : null;
   if (input.file && !workspace) throw new Error('The sending session workspace is not mounted');
   const sourceId = `owner-notify:${input.request_id}`;
   const requestHash = hash(Buffer.from(JSON.stringify([input.agent_user_id, input.text, input.file?.path, input.file?.name, input.file?.mime_type])));

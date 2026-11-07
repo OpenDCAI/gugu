@@ -2,12 +2,38 @@ import { execFileSync } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { activateClaudeAccount, claudeCredentialRoot, claudeLiveOwner, claudeSignInSaved, type ClaudeAuthSlotPaths } from './claude-auth-slot';
 import { createClaudeCredentialStore, type ClaudeCredentialLocation, type ClaudeCredentialStore } from './claude-credential-store';
 
 let dir = '';
+it('preserves signal-exit termination cleanup in an isolated module load', () => {
+  const wrapper = pathToFileURL(join(process.cwd(), 'apps/desktop/electron/session/main/lib/proper-lockfile.ts')).href;
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import lockfile from 'proper-lockfile';
+    const before = ['SIGINT', 'SIGTERM'].map(s => process.listenerCount(s));
+    await import(${JSON.stringify(wrapper)});
+    const after = ['SIGINT', 'SIGTERM'].map(s => process.listenerCount(s));
+    const fatal = ['SIGTRAP', 'SIGILL', 'SIGBUS', 'SIGFPE', 'SIGSEGV'].map(s => process.listenerCount(s));
+    console.log(JSON.stringify({ before, after, fatal }));
+  `], { encoding: 'utf8' });
+  const result = JSON.parse(output) as { before: number[]; after: number[]; fatal: number[] };
+  expect(result.before.every(count => count > 0)).toBe(true);
+  expect(result.after).toEqual(result.before);
+  expect(result.fatal).toEqual([0, 0, 0, 0, 0]);
+});
+
+it('leaves synchronous fatal signals native after claude-auth-slot loads', () => {
+  expect(process.listenerCount('SIGTRAP')).toBe(0);
+  for (const signal of ['SIGILL', 'SIGBUS', 'SIGFPE', 'SIGSEGV'] as const) {
+    expect(process.listenerCount(signal)).toBe(0);
+  }
+  expect(process.listenerCount('SIGINT')).toBeGreaterThan(0);
+  expect(process.listenerCount('SIGTERM')).toBeGreaterThan(0);
+});
+
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'gugu-claude-slot-'));
 });

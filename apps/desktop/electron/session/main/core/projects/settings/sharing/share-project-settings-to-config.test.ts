@@ -27,8 +27,8 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 
-vi.mock('../utils', () => ({
-  resolveWorkspace: vi.fn().mockReturnValue(null),
+vi.mock('../../utils', () => ({
+  resolveWorkspace: async (_projectId: string, workspaceId: string) => mocks.workspaceGet(workspaceId) ?? null,
 }));
 
 vi.mock('@main/lib/logger', () => ({

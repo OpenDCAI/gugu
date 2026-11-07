@@ -154,7 +154,7 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['navigationGo', 'appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
+    if (['navigationGo', 'appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'cloud', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onCloudHeard', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;
@@ -223,38 +223,46 @@ export function createGugu(
   // `gugu.projects` (`files:read`): this computer's projects — a phone has none, and no member.
   if (raw.projects) api.projects = Object.freeze({ list: coded(raw.projects.list) });
   if (raw.sessions) api.sessions = Object.freeze({ index: coded(raw.sessions.index), read: coded(raw.sessions.read) });
-  // `gugu.forum` (9): a page's. `onChanged(target, fn)`: one subscription per post (or 'feed') with the host, however many
+  // `gugu.cloud` (31): `on(topic, event, fn)` is a page's: one subscription per topic and event with the host, however many
   // handlers, as `files.onChanged` watches a place; one the host refuses is reported as the App's error.
-  if (raw.forum && raw.onForumChanged) {
-    const forum = raw.forum;
-    const listeners = new Map<string, Set<(change: { kind: string; seq?: number; entityId?: string }) => void>>();
-    let hearing: (() => void) | null = null;
-    const onForumChanged = raw.onForumChanged;
-    const onChanged = (target: unknown, handler: (change: { kind: string; seq?: number; entityId?: string }) => void): (() => void) => {
-      if (typeof target !== 'string' || !target) throw guguError('invalid', "forum.onChanged(target, fn) takes a post's id or 'feed'");
-      if (typeof handler !== 'function') throw guguError('invalid', 'forum.onChanged(target, fn) takes a function');
-      hearing ??= onForumChanged((changed, change) => {
-        for (const fn of listeners.get(changed) ?? []) fn(change);
-      });
-      let handlers = listeners.get(target);
-      if (!handlers) {
-        handlers = new Set();
-        listeners.set(target, handlers);
-        forum.subscribe(target).catch((error: unknown) => {
-          void host.reportError(`gugu.forum.onChanged(${target}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
+  if (raw.cloud) {
+    const cloud = raw.cloud;
+    const write = cloud.write ?? cloud.programWrite;
+    const on = cloud.subscribe && cloud.unsubscribe && raw.onCloudHeard ? (() => {
+      type Heard = { subscribed: true } | { payload: Record<string, unknown> };
+      const { subscribe, unsubscribe } = cloud as Required<typeof cloud>;
+      const onCloudHeard = raw.onCloudHeard!;
+      const listeners = new Map<string, Set<(heard: Heard) => void>>();
+      const keyOf = (topic: string, event: string) => `${topic}\n${event}`;
+      let hearing: (() => void) | null = null;
+      return (topic: unknown, event: unknown, handler: (heard: Heard) => void): (() => void) => {
+        if (typeof topic !== 'string' || !topic || typeof event !== 'string' || !event) throw guguError('invalid', 'cloud.on(topic, event, fn) names a topic and an event');
+        if (typeof handler !== 'function') throw guguError('invalid', 'cloud.on(topic, event, fn) takes a function');
+        hearing ??= onCloudHeard((heardTopic, heardEvent, heard) => {
+          for (const fn of listeners.get(keyOf(heardTopic, heardEvent)) ?? []) fn(heard);
         });
-      }
-      handlers.add(handler);
-      return () => {
-        const current = listeners.get(target);
-        if (!current?.delete(handler) || current.size > 0) return;
-        listeners.delete(target);
-        void forum.unsubscribe(target).catch(() => undefined);
+        const key = keyOf(topic, event);
+        let handlers = listeners.get(key);
+        if (!handlers) {
+          handlers = new Set();
+          listeners.set(key, handlers);
+          subscribe(topic, event).catch((error: unknown) => {
+            void host.reportError(`gugu.cloud.on(${topic}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
+          });
+        }
+        handlers.add(handler);
+        return () => {
+          const current = listeners.get(key);
+          if (!current?.delete(handler) || current.size > 0) return;
+          listeners.delete(key);
+          void unsubscribe(topic, event).catch(() => undefined);
+        };
       };
-    };
-    api.forum = Object.freeze({
-      list: coded(forum.list), read: coded(forum.read), post: coded(forum.post), reply: coded(forum.reply), react: coded(forum.react),
-      remove: coded(forum.remove), block: coded(forum.block), assign: coded(forum.assign), award: coded(forum.award), onChanged,
+    })() : undefined;
+    api.cloud = Object.freeze({
+      read: coded(cloud.read),
+      ...(write ? { write: coded(write) } : {}),
+      ...(on ? { on } : {}),
     });
   }
   // The host's markdown rendering for a page (markdown-entry.ts): links in it go through this very `gugu`.

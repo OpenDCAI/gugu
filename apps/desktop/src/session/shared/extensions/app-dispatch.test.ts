@@ -72,7 +72,7 @@ describe('the verb row: what a call needs', () => {
     for (const args of [{ text: 'draft', draft: true, to: { chat: GROUP } }, { text: 'named', to: { agent: `user:${AGENT}` } }]) {
       expect(callRefusal('dispatch', args, caller)).toEqual(gesture ? null : gestureRefusal('dispatch'));
     }
-    for (const method of ['forumPost', 'forumReply', 'forumReact', 'forumAward', 'forumRemove', 'forumBlock', 'forumAssign', 'filesForward']) {
+    for (const method of ['cloudWrite', 'pickAgent', 'filesForward']) {
       expect(callRefusal(method, {}, caller)).toEqual(gesture ? null : gestureRefusal(method));
     }
   });
