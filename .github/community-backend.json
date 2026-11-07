@@ -1,5 +1,5 @@
 {
-  "repository": "OpenDCAI/gugu-supabase",
-  "ref": "6898b8ea196a1a0e602cb5e095a861061e3accd6",
-  "status": "merged backend preserving archived-agent DM deletion, Agent self-listen permissions and project-group invite metadata, and allowing agent type dsh"
+  "repository": "GUYI-AI/gugu-supabase",
+  "ref": "899bac2dd276356ab5f4ee20e20cb99a34c8567e",
+  "status": "Draft support help RPC dependency; requires reviewed configuration, joining and isolation gates before release"
 }
