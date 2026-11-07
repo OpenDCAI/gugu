@@ -12,7 +12,7 @@ vi.mock('@gugu/core/cloud/attachmentsApi', async original => ({ ...await origina
 vi.mock('../../../../apps/desktop/src/lib/chatThreadGate', () => ({ requireThreadCapableChat: async (id: string) => { if (id === 'dm') throw new Error('private chats do not support threads') } }))
 function fixture() {
   const stageAttachment = vi.fn(async (_message: MessageItem) => {})
-  const commitAttachment = vi.fn(async () => {})
+  const commitAttachment = vi.fn(async (_message: MessageItem) => {})
   const failUpload = vi.fn(async () => {})
   const discard = vi.fn(async () => {})
   const outbox = { stageAttachment, commitAttachment, outbox: { delivered: () => new Promise<void>(() => {}), failUpload, discard } }
