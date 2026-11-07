@@ -133,7 +133,12 @@ export const pinBackdrop = style({
   background: vars.bg, opacity: 0,
   // The frame scheduler supplies this state from existing lane geometry. Older
   // Android WebViews cannot evaluate scroll-state container queries.
-  selectors: { '[data-pin-stuck="true"] &': { opacity: 1 } },
+  selectors: {
+    '[data-pin-stuck="true"] &': { opacity: 1 },
+    '[data-agent-conversation="true"] &': {
+      borderBottom: `1px solid color-mix(in srgb, ${vars.fgMuted} 16%, transparent)`,
+    },
+  },
 });
 
 /** Page-colored, square strip, including its seam so body text cannot peek between the two pins. */
