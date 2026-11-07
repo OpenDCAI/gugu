@@ -10,9 +10,10 @@ import type { CSSProperties } from 'react'
 //   每个 ResizeObserver 都抖一遍,切回时等于半次重挂。
 // absolute + inset:0:不占同级 flex 位置,尺寸仍与可见时一致(父容器要 position:relative 当 containing block)。
 //   已经自己定位的层(分栏格子、预览层)把自己的位置铺在它后面:`{ ...RETAINED_SURFACE_HIDDEN_STYLE, ...placement }`。
+//   四条边分开写,❌ inset 简写:铺上 placement 的 top/left 后,显示时 React 只摘掉 inset,这一下把没变的 top/left 也清了,贴锚点的层塌成 0×0。
 // pointer-events:none:被跳过的只是内容,面自己的盒子还在原位,不能挡住同一位置正在显示的那一面。
 // transform:scale(0):窗口拖拽区(-webkit-app-region)不认 content-visibility —— Blink 收集拖拽区时走整棵 layout 树、
 //   只看元素自己的 visibility,被跳过的子树又不重算样式,于是藏着的面按上次的布局照样交出它顶栏的 drag / no-drag 矩形,
 //   DOM 序靠后就盖掉正在显示那一面的 no-drag:页签、群头按钮点不动(OS 吃掉点击,elementFromPoint 看不出)。
 //   矩形按祖先的 transform 换算,scale(0) 把它们压成 0 面积;transform 不继承,不重算子树,也不动布局盒与 ResizeObserver。
-export const RETAINED_SURFACE_HIDDEN_STYLE: CSSProperties = { position: 'absolute', inset: 0, contentVisibility: 'hidden', pointerEvents: 'none', transform: 'scale(0)' }
+export const RETAINED_SURFACE_HIDDEN_STYLE: CSSProperties = { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, contentVisibility: 'hidden', pointerEvents: 'none', transform: 'scale(0)' }
