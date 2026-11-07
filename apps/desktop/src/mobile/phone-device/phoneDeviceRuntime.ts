@@ -491,10 +491,8 @@ export async function refreshPhoneDevice(): Promise<void> {
   await readLatestOs(() => session === null)
 }
 
-/** Stop the task host without changing the owner's device-action grants. */
-export async function stopPhoneAgentHost(userId: string): Promise<void> {
+async function stopPhoneAgentRuntime(userId: string): Promise<void> {
   const current = session
-  const deviceId = thisPhoneDeviceId(userId)
   setPhoneAgentHostEnabled(userId, false)
   current?.stop()
   if (current) await current.drain()
@@ -503,6 +501,12 @@ export async function stopPhoneAgentHost(userId: string): Promise<void> {
     previousSessionDrain = stopping
     await stopping
   }
+}
+
+/** Stop the task host without changing the owner's device-action grants. */
+export async function stopPhoneAgentHost(userId: string): Promise<void> {
+  const deviceId = thisPhoneDeviceId(userId)
+  await stopPhoneAgentRuntime(userId)
   if (!readPhoneDeviceSettings(userId).enabled && deviceId && !await retainPhoneAgentDevice(userId, deviceId)) await chatService.removeDevice(deviceId)
 }
 
@@ -529,7 +533,7 @@ async function retainPhoneAgentDevice(userId: string, deviceId: string): Promise
 }
 
 export async function restartPhoneAgentHost(userId: string): Promise<void> {
-  await stopPhoneAgentHost(userId)
+  await stopPhoneAgentRuntime(userId)
   setPhoneAgentHostEnabled(userId, true)
 }
 

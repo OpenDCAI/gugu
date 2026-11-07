@@ -3,7 +3,7 @@ import type { PhoneAgentHostState } from '../../../../apps/desktop/src/mobile/lo
 
 const test = vi.hoisted(() => ({
   ownerId: 'mode-owner', state: { ownerId: '', deviceId: '', status: 'ready', ready: true, sessions: [] } as PhoneAgentHostState,
-  configure: vi.fn(), stopHost: vi.fn(), grants: vi.fn(), upsert: vi.fn(), rpcHost: vi.fn(), subscribe: vi.fn(),
+  configure: vi.fn(), stopHost: vi.fn(), hostState: vi.fn(), grants: vi.fn(), upsert: vi.fn(), rpcHost: vi.fn(), subscribe: vi.fn(),
   select: vi.fn(), readEq: vi.fn(), read: vi.fn(), update: vi.fn(), updateEq: vi.fn(), updated: vi.fn(), remove: vi.fn(),
   deviceInfo: vi.fn(), checkPermissions: vi.fn(),
 }))
@@ -11,7 +11,7 @@ const test = vi.hoisted(() => ({
 vi.mock('react', () => ({ useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot() }))
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/nativeAgent', () => ({
   phoneAgentAvailable: () => true,
-  nativeAgent: { configure: test.configure, stopHost: test.stopHost, grants: test.grants, hostState: async () => test.state },
+  nativeAgent: { configure: test.configure, stopHost: test.stopHost, grants: test.grants, hostState: test.hostState },
 }))
 vi.mock('../../../../apps/desktop/src/lib/phoneHostAuth', () => ({ withPhoneHostAuthHandoff: (work: () => Promise<unknown>) => work(), phoneHostSessionForHandoff: (session: unknown) => session }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: test.ownerId }, access_token: 'test-access', refresh_token: 'test-refresh', expires_at: 123 }), observeRendererSession: () => () => {} }))
@@ -36,8 +36,8 @@ vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneActionCatalog', (
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneActionProvider', () => ({ createPhoneActionProvider: () => ({}), mergeCallRecord: () => [] }))
 vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDeviceRpcHost', () => ({ createPhoneDeviceRpcHost: test.rpcHost }))
 
-import { disconnectPhoneDevice, startPhoneDevice, stopPhoneAgentHost, refreshPhoneDevice, PHONE_HEARTBEAT_MS, usePhoneDevice as readSnapshot } from '../../../../apps/desktop/src/mobile/phone-device/phoneDeviceRuntime'
-import { phoneDeviceId, phoneInstallId, setPhoneAgentHostEnabled, setPhoneDeviceEnabled } from '../../../../apps/desktop/src/mobile/phone-device/phoneDeviceSettings'
+import { disconnectPhoneDevice, startPhoneDevice, stopPhoneAgentHost, restartPhoneAgentHost, refreshPhoneDevice, PHONE_HEARTBEAT_MS, usePhoneDevice as readSnapshot } from '../../../../apps/desktop/src/mobile/phone-device/phoneDeviceRuntime'
+import { phoneDeviceId, phoneInstallId, readPhoneDeviceSettings, setPhoneAgentHostEnabled, setPhoneDeviceEnabled } from '../../../../apps/desktop/src/mobile/phone-device/phoneDeviceSettings'
 
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done }); return { promise, resolve } }
 const start = (hostEnabled: boolean) => startPhoneDevice({ userId: test.ownerId, hostEnabled, noticeLabel: () => 'test', claimNotice: () => () => {} })
@@ -49,6 +49,7 @@ beforeEach(() => {
   phoneInstallId('owned-install', 'owned-registration')
   test.ownerId = crypto.randomUUID()
   test.state = { ownerId: test.ownerId, status: 'stopped', ready: false, sessions: [] }
+  test.hostState.mockReset().mockImplementation(async () => test.state)
   test.stopHost.mockResolvedValue(undefined)
   test.grants.mockResolvedValue(undefined)
   test.upsert.mockResolvedValue({ error: null })
@@ -68,6 +69,7 @@ beforeEach(() => {
   test.configure.mockImplementation(async (config) => { test.state = { ...test.state, ownerId: config.ownerId, deviceId: config.deviceId }; return test.state })
 })
 afterEach(async () => {
+  test.hostState.mockReset().mockImplementation(async () => test.state)
   stop?.(); stop = null
   await stopPhoneAgentHost(test.ownerId)
   vi.useRealTimers()
@@ -75,6 +77,42 @@ afterEach(async () => {
 })
 
 describe('one phone endpoint owns registration and RPC', () => {
+  it.each([false, true])('restarts after native exit without reading or removing the device row (snapshot unreadable: %s)', async (unreadable) => {
+    const exiting = deferred()
+    setPhoneAgentHostEnabled(test.ownerId, true)
+    if (unreadable) test.hostState.mockRejectedValue(new Error('Invalid host snapshot'))
+    test.stopHost.mockReturnValueOnce(exiting.promise)
+    const restarting = restartPhoneAgentHost(test.ownerId)
+    try {
+      expect(readPhoneDeviceSettings(test.ownerId).hostEnabled).toBe(false)
+      expect(test.stopHost).toHaveBeenCalledWith({ ownerId: test.ownerId, clearCredentials: true })
+      expect(test.remove).not.toHaveBeenCalled()
+      exiting.resolve()
+      await restarting
+      expect(readPhoneDeviceSettings(test.ownerId).hostEnabled).toBe(true)
+      expect(test.hostState).not.toHaveBeenCalled()
+      expect(test.select).not.toHaveBeenCalled()
+      expect(test.update).not.toHaveBeenCalled()
+      expect(test.remove).not.toHaveBeenCalled()
+    } finally { exiting.resolve(); await restarting.catch(() => undefined) }
+  })
+
+  it('reports unknown sessions after explicit stop without deleting the phone address', async () => {
+    test.hostState.mockRejectedValue(new Error('Invalid host snapshot'))
+    setPhoneAgentHostEnabled(test.ownerId, true)
+    await expect(stopPhoneAgentHost(test.ownerId)).rejects.toThrow('Invalid host snapshot')
+    expect(test.stopHost).toHaveBeenCalledWith({ ownerId: test.ownerId, clearCredentials: true })
+    expect(readPhoneDeviceSettings(test.ownerId).hostEnabled).toBe(false)
+    expect(test.remove).not.toHaveBeenCalled()
+  })
+
+  it('retains the phone address when disconnect cannot read its session snapshot', async () => {
+    test.hostState.mockRejectedValue(new Error('Invalid host snapshot'))
+    await expect(disconnectPhoneDevice(test.ownerId)).resolves.toEqual({ removed: false })
+    expect(test.stopHost).toHaveBeenCalledWith({ ownerId: test.ownerId, clearCredentials: true })
+    expect(test.remove).not.toHaveBeenCalled()
+  })
+
   it('does not register or subscribe the action-only endpoint until the native process actually exited', async () => {
     const exiting = deferred()
     test.stopHost.mockReturnValueOnce(exiting.promise)
