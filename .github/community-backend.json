@@ -1,5 +1,5 @@
 {
   "repository": "GUYI-AI/gugu-supabase",
-  "ref": "513d6a9a6a8b8dadc36d71d37a2efefd7426109c",
+  "ref": "63376843f0a804c120404f1ae1e80141a3e9de34",
   "status": "Requires #209, #210 and #217 before activation. Protocol-2 effects require matching custody/native evidence; owner writers remain closed and no authority is switched by this client."
 }
