@@ -55,6 +55,19 @@ describe('useComposerFileUploads', () => {
     vi.unstubAllGlobals();
   });
 
+  it('gives a picked image its thumbnail, and only an image', async () => {
+    prepare.mockImplementation(async (source: File) => ({ ...ref(source.name), name: source.name }));
+    place.mockImplementation(async (source: File) => ({ ...ref(source.name), name: source.name }));
+    // This project runs without a DOM FileReader.
+    vi.stubGlobal('FileReader', class { result = 'data:image/jpeg;base64,YWJj'; onload?: () => void; readAsDataURL() { queueMicrotask(() => this.onload?.()); } });
+    const photo = new File(['abc'], 'photo.jpg', { type: 'image/jpeg' });
+    await act(async () => {
+      await hook!.add({ id: 'photo', name: photo.name, kind: 'image' }, photo);
+      await hook!.add({ id: 'note', name: 'note.txt', kind: 'file' }, file('note.txt'));
+    });
+    expect(chips.find((chip) => chip.id === 'photo')?.previewUrl).toBe('data:image/jpeg;base64,YWJj');
+    expect(chips.find((chip) => chip.id === 'note')?.previewUrl).toBeUndefined();
+  });
   it('places on add, reports progress, asks for the DM once and hands back the refs in chip order', async () => {
     place.mockImplementation(async (f: File, _prepared: unknown, _to: unknown, onProgress: (sent: number, total: number) => void) => {
       onProgress(1, 3);

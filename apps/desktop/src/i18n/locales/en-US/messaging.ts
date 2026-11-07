@@ -435,11 +435,6 @@ export default {
     "file": "File",
     "photos": "Photos",
     "camera": "Camera",
-    "photoCaption": "Add a caption",
-    "originalPhoto": "Original",
-    "cancelPhotos": "Cancel",
-    "sendPhotos_one": "Send",
-    "sendPhotos_other": "Send ({{count}})",
     "memberType": {
       "agent": "Agent",
       "all": "Everyone",

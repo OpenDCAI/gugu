@@ -1,4 +1,4 @@
-/* 手机「+」面板:占键盘的位置,从下面升起;照片预览页和看图查看器一样,两套主题都是黑底白字(--image-bg / --image-fg)。 */
+/* 手机「+」面板:占键盘的位置,从下面升起。 */
 .gg-phone-attach {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -29,35 +29,6 @@
 .gg-phone-attach-icon > svg { width: 26px; height: 26px; }
 @keyframes gg-phone-attach-rise { from { transform: translateY(24px); opacity: 0; } }
 
-.gg-phone-photos {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-menu);
-  display: flex;
-  flex-direction: column;
-  background: var(--image-bg);
-  color: var(--image-fg);
-  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
-  animation: gg-phone-photos-in var(--dur-slow) var(--ease-pop) both;
-}
-.gg-phone-photos-top { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; color: var(--image-fg); }
-.gg-phone-photos-top > span { padding-right: 12px; }
-.gg-phone-photos-top button { color: var(--image-fg); }
-.gg-phone-photos-big { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
-.gg-phone-photos-strip { display: flex; gap: 8px; padding: 12px 16px; overflow-x: auto; }
-.gg-phone-photos-thumb { position: relative; flex: none; }
-.gg-phone-photos-pick.gg-phone-photos-pick { width: 56px; height: 56px; min-height: 0; padding: 0; border-radius: 6px; overflow: hidden; }
-.gg-phone-photos-pick img { width: 100%; height: 100%; object-fit: cover; }
-.gg-phone-photos-thumb[data-current] .gg-phone-photos-pick { outline: 2px solid var(--primary); outline-offset: 2px; }
-.gg-phone-photos-remove.gg-phone-photos-remove { position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; min-height: 0; min-width: 0; padding: 0; background: var(--bg-overlay-modal); color: var(--image-fg); }
-.gg-phone-photos-remove > svg { width: 14px; height: 14px; }
-.gg-phone-photos-bottom { display: flex; align-items: center; gap: 12px; padding: 8px 16px 12px; }
-.gg-phone-photos-caption { flex: 1; min-width: 0; height: 40px; border-radius: 20px; border: 0; padding: 0 14px; background: color-mix(in oklab, var(--image-fg) 14%, transparent); color: var(--image-fg); font-size: var(--font-body); }
-.gg-phone-photos-caption::placeholder { color: color-mix(in oklab, var(--image-fg) 55%, transparent); }
-.gg-phone-photos-send.gg-phone-photos-send { background: var(--image-fg); color: var(--image-bg); }
-.gg-phone-photos-original { display: flex; align-items: center; gap: 6px; font-size: var(--font-body); white-space: nowrap; }
-@keyframes gg-phone-photos-in { from { transform: translateY(100%); } }
-
 @media (prefers-reduced-motion: reduce) {
-  .gg-phone-attach, .gg-phone-photos { animation: none; }
+  .gg-phone-attach { animation: none; }
 }

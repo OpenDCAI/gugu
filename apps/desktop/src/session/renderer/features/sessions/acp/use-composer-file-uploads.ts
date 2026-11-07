@@ -37,6 +37,15 @@ type ComposerFileUploadArgs = {
 };
 
 /** One placement implementation, owned either by the live composer or a submitted request. */
+function readFileAsDataUrl(file: File): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : undefined);
+    reader.onerror = () => resolve(undefined);
+    reader.readAsDataURL(file);
+  });
+}
+
 export function createComposerFileUploads(readArgs: () => ComposerFileUploadArgs) {
   // 回调要稳定(输入框的 props 靠它们),参数每次渲染都新:取用时读最新的那份。
   const uploads = new Map<string, Upload>();
@@ -134,6 +143,8 @@ export function createComposerFileUploads(readArgs: () => ComposerFileUploadArgs
       readArgs().setAttachments((prev) => prev.some((att) => att.id === chip.id)
         ? prev.map((att) => (att.id === chip.id ? placing : att))
         : [...prev, placing]);
+      // 粘贴的截图由 start 按选中的那份出预览;其余还没有预览的图片在这里读一份缩略图。
+      if (chip.kind === 'image' && !chip.previewUrl && !screenshotQuality(file)) void readFileAsDataUrl(file).then((previewUrl) => { if (previewUrl) patch(chip.id, { previewUrl }); });
       return start(chip.id, file);
     }
   );

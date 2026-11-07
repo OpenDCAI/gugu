@@ -434,10 +434,6 @@ export default {
     "file": "文件",
     "photos": "照片",
     "camera": "拍摄",
-    "photoCaption": "添加说明",
-    "originalPhoto": "原图",
-    "cancelPhotos": "取消",
-    "sendPhotos_other": "发送({{count}})",
     "memberType": {
       "agent": "Agent",
       "all": "全员",

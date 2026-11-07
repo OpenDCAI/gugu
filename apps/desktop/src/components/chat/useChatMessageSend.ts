@@ -8,7 +8,7 @@ import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { rendererLogger } from '@/lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useToast } from '../toastContext'
-import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type MentionTarget, type PendingAttachment } from './useChatDraft'
+import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type MentionTarget } from './useChatDraft'
 import { contentWithQuote } from './messageQuoteContent'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { useChatStore } from '../../store/chatContext'
@@ -25,14 +25,12 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
   const activeChatIdRef = useRef(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
   const rosterNameIndex = useMemo(() => buildRosterNameIndex(props.groupMembers ?? []), [props.groupMembers])
-  // `picked`: files sent straight from a picker page (phone photos) together with the draft's own attachments.
-  const handleSend = useCallback(async (value?: string, picked: PendingAttachment[] = []) => {
+  const handleSend = useCallback(async (value?: string) => {
     // 回车走 handleKeyDown 直达这里、不看按钮的 disabled:在途时再进就会把同一批附件重发一遍。
     if (sendingRef.current) return
     const submittedAt = performance.now()
     const typed = (value ?? text).trim()
-    const batch = picked.length ? [...attachments, ...picked] : attachments
-    const pendingFiles = batch.map((a) => a.file)
+    const pendingFiles = attachments.map((a) => a.file)
     const multimodalImage = pendingFiles.some((file) => inferAttachmentKind(file) === 'image')
     if (disabled) {
       toast(disabledReason || t('composer.disabled'), 'info')
@@ -69,7 +67,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
         }
 
     // Snapshot current attachments so we can roll back on failure
-    const snapshotAttachments = batch
+    const snapshotAttachments = attachments
     // 按批内序号认领已提交件(同一个 File 对象可能被排进队两次,按对象认领会把两件都算成已发)。
     const committed = new Set<number>()
     // 带引用回复时文字单独走 onSend(它带 replyToMessageId),不挂成图片说明——否则引用关系丢失。
