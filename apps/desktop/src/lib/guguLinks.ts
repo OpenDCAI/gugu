@@ -4,6 +4,7 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { platform } from '../platform'
 import { notify } from './notices'
 import { readMobileShell } from '../hooks/useMobileShell'
+import { UI_EVENTS } from './uiEvents'
 
 /** One shell request for a resolved target, shared by the main and session renderer roots. */
 export const OPEN_LINK_TARGET = 'gugu:open-link-target'
@@ -37,6 +38,7 @@ export async function openTarget(target: OpenTarget, groupParticipantRequestId?:
       : await (await import('../components/appSlot/phoneAppHost')).openPhoneLink(target)
     if (outcome.kind === 'not-gugu-link') return false
     if (outcome.kind === 'failed') throw new Error(`${outcome.name}: ${outcome.detail ?? outcome.reason}`)
+    if (target.kind === 'session' && 'itemId' in target && target.itemId) window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
     return true
   } catch (error) {
     if (target.kind === 'session' && 'itemId' in target && target.itemId) {

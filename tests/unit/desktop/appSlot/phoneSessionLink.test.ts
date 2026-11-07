@@ -54,7 +54,7 @@ describe('a session link on the phone', () => {
 
   it('reports one visible failure for a listed task that the phone cannot open', async () => {
     device.is_online = false
-    device.session_digest = [{ ...session, supported: false }]
+    device.session_digest = [{ ...session, projectName: 'Project', supported: false }]
     const shown = vi.fn()
     window.addEventListener(APP_SHOW_SESSION_EVENT, shown)
     try {
