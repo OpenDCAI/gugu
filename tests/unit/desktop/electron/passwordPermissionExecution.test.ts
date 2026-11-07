@@ -111,7 +111,7 @@ describe('password permission execution port (synthetic host readers, no product
     expect(effect).not.toHaveBeenCalled()
   })
 
-  it.each(['before_fill', 'before_submit', 'before_handoff'] as const)('stops %s after policy changes during an await', async stage => {
+  it.each(['before_fill', 'before_submit', 'before_handoff'] as const)('stops %s after mode revocation while awaiting policy', async stage => {
     const f = fixture(), started = deferred<void>(), pending = deferred<typeof f.policy>(), effect = vi.fn()
     f.readers.readPolicy = async () => { started.resolve(); return pending.promise }
     const result = f.gate().revalidate(input(stage), new AbortController().signal).then(guard => { guard.assertCurrent(); effect() })
@@ -121,6 +121,22 @@ describe('password permission execution port (synthetic host readers, no product
     await expect(result).rejects.toMatchObject(unavailable)
     pending.resolve(f.policy)
     await Promise.resolve()
+    expect(effect).not.toHaveBeenCalled()
+  })
+
+  it.each(['before_fill', 'before_submit', 'before_handoff'] as const)('rejects a stale policy read completed after a rule change at %s', async stage => {
+    const f = fixture(), started = deferred<void>(), pending = deferred<typeof f.policy>(), effect = vi.fn()
+    let actualRevision = 1
+    f.policy.assertCurrent.mockImplementation(() => {
+      if (actualRevision !== 1) throw new Error('stale policy revision')
+    })
+    f.readers.readPolicy = async () => { started.resolve(); return pending.promise }
+    const result = f.gate().revalidate(input(stage), new AbortController().signal).then(guard => { guard.assertCurrent(); effect() })
+    await started.promise
+    actualRevision = 2
+    // A late successful read of the old policy must still check the host's actual revision.
+    pending.resolve(f.policy)
+    await expect(result).rejects.toMatchObject(unavailable)
     expect(effect).not.toHaveBeenCalled()
   })
 
