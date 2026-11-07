@@ -637,10 +637,10 @@ export interface AppShowMessageDetail {
  * document as its text is now. Where the files are is the chat the page leaves out of the list, as a message's forward does.
  */
 export const APP_FORWARD_FILES_EVENT = 'gugu:app-forward-files';
-export interface AppForwardFilesDetail {
-  chatId: string;
-  files: Array<{ itemId: string; version: number; name: string; document: boolean }>;
-}
+export type AppForwardFilesDetail =
+  | { chatId: string; files: Array<{ itemId: string; version: number; name: string; document: boolean }> }
+  /** A working copy's files, read from the machine that holds them: each chat picked gets them as attachments. */
+  | { copies: Array<{ name: string; bytes: Uint8Array<ArrayBuffer> }> };
 
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';

@@ -1,3 +1,4 @@
+import { openFolderInTab } from '@renderer/features/sessions/file-view/file-view-kinds';
 import { findSessionAnywhere } from '@renderer/features/sessions/stores/session-selectors';
 import { composeChatDraft } from '@/lib/composeDraft';
 import { followLink, openLinkTarget } from '@/lib/guguLinks';
@@ -267,9 +268,15 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
           const pane = findSessionView(sessionId)?.paneLayout.groups.find(({ pane }) => pane.entries.has(tabId))?.pane;
           pane?.setPageViewState(tabId, action.viewState);
         }
-        const opened = await openFileInSessionEditor(projectId, action.sessionId, action.path, { ask: action.ask, intent: action.intent, ...(sessionId === action.sessionId ? { from: tabId } : {}) });
-        if (opened === undefined) throw new Error('The person did not pick an App to open it with');
+        // The person cancelled 「用哪个打开」: nothing opens, and nothing went wrong.
+        await openFileInSessionEditor(projectId, action.sessionId, action.path, { ask: action.ask, intent: action.intent, ...(sessionId === action.sessionId ? { from: tabId } : {}) });
       })();
+    }
+    case 'openSessionFolder': {
+      const view = sessionId ? findSessionView(sessionId) : undefined;
+      if (!view) throw new Error('This session has no prepared pane');
+      openFolderInTab(view.paneLayout, tabId, action.folder);
+      return;
     }
     case 'forwardFiles':
       window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail: action.detail }));

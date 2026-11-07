@@ -2022,7 +2022,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const owner = shown.embedderId === null ? null : (webContents.fromId(shown.embedderId) ?? null);
       if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner, (transferId, done, total) => caller.hear({ type: 'downloadProgress', transferId, done, total }));
       // 「转发」: the window that shows chats draws its forward page for them (the chats picked are the person's, not the page's).
-      if (method === 'filesForward') return void (await deliver(shown, { kind: 'forwardFiles', detail: await files.forwardTargets(page, args) }));
+      if (method === 'filesForward') return void (await deliver(shown, { kind: 'forwardFiles', detail: await files.forwardTargets(page, args, (transferId, done, total) => caller.hear({ type: 'downloadProgress', transferId, done, total })) }));
       if (method === 'filesOpenWith') {
         // 「用 X 打开」 where the file lives: a working-copy file opens in its session's pane, here; a chat file — who
         // claims it (opensFiles.chat), the person's remembered choice among several — the window that shows the chat
@@ -2030,6 +2030,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         // place a pill in the page points at, told the App that opens it as a file link in the chat tells it (`groupFileOpener`).
         // `peek` (G1): beside the page, in its own slot — the page stays as it is; a chat file nobody here opens shows in
         // the host's preview there, so nothing is refused for want of an App.
+        // A folder of the page's own working copy: its list there, in this tab.
+        const folder = (args.ref as { folder?: unknown } | null)?.folder;
+        if (typeof folder === 'string') return void (await deliver(shown, { kind: 'openSessionFolder', folder: folderOf(folder) ?? '' }));
         const ask = (args as { ask?: unknown }).ask === true;
         const peek = (args as { peek?: unknown }).peek === true;
         const tab = openWithTabOf(args);

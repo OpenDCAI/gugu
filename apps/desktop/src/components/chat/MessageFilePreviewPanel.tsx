@@ -51,6 +51,8 @@ export interface MessageFilePreviewPanelProps {
   tabbed?: boolean
   /** An HTML document's preview with the files beside it (a chat folder's document). */
   registerHtml?: (documentHtml: string) => Promise<HtmlPreviewRegistration>
+  /** The folders above this file, outermost first; one with `open` goes to its list. */
+  folders?: readonly { name: string; open?: () => void }[]
   /** This file's source can be edited: the toolbar offers Edit. */
   onEdit?: () => void
   /** The next step under a file it cannot draw, or could not read. */
@@ -62,13 +64,18 @@ export interface MessageFilePreviewPanelProps {
 /** The reading zoom each kind of preview keeps (a video or an unsupported file has none). */
 const READING_ZOOM: Partial<Record<DocumentPreviewKind, FileZoomKind>> = { image: 'image', markdown: 'markdown', text: 'text-code', html: 'html', pdf: 'pdf', docx: 'docx' }
 
-export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, onClose, mobile = false, fill = false, tabbed = false, registerHtml, unreadableAction, onEdit, notice }: MessageFilePreviewPanelProps) {
+export function MessageFilePreviewPanel({ folders, viewerRef, file, videoUrl, onVideoError, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, onClose, mobile = false, fill = false, tabbed = false, registerHtml, unreadableAction, onEdit, notice }: MessageFilePreviewPanelProps) {
   const { t } = useTranslation('messaging')
   const { translate } = useSessionMessages()
   const pane = useContext(PaneContext)?.pane
   const tabId = pane?.resolvedActiveTabId
   const fileToolbar = tabbed && !mobile && pane && tabId
-    ? <FileToolbar host={pane} tabId={tabId} path={<span className="min-w-0 flex-1 truncate" title={file.fileName}>{file.fileName}</span>} mode={onEdit || kind === 'text' || kind === 'markdown' ? 'preview' : undefined} canEdit={!!onEdit} onModeChange={(next) => { if (next === 'source') onEdit?.() }} menu={<DropdownMenu>
+    ? <FileToolbar host={pane} tabId={tabId} path={<span className="flex min-w-0 flex-1 items-center justify-end overflow-hidden whitespace-nowrap">
+      <span className="flex min-w-0 flex-[0_2_auto] items-center justify-end overflow-hidden text-xs text-[var(--text-secondary)]">
+        {folders?.map(({ name, open }, index) => <span key={index} className="flex shrink-0 items-center">{open ? <ToolbarButton size="xs" variant="ghost" className="h-auto px-0 font-normal" onClick={open}>{name}</ToolbarButton> : name}<span className="px-1">/</span></span>)}
+      </span>
+      <span className="min-w-0 flex-1 truncate" title={file.fileName}>{file.fileName}</span>
+    </span>} mode={onEdit || kind === 'text' || kind === 'markdown' ? 'preview' : undefined} canEdit={!!onEdit} onModeChange={(next) => { if (next === 'source') onEdit?.() }} menu={<DropdownMenu>
       <DropdownMenuTrigger render={<ToolbarButton size="icon-sm" variant="ghost" aria-label={translate('tabs.more')} title={translate('tabs.more')} />}><MoreHorizontal className="size-3.5" /></DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {actions.map((item) => <DropdownMenuItem key={item.key} disabled={item.disabled} onClick={item.onSelect}><item.icon />{item.label}</DropdownMenuItem>)}

@@ -134,7 +134,8 @@ export function fileOpenersFor(
           tabKind: `${manifest.id}.${tab.name}`,
           tabTitle: tab.title,
           app: { name: manifest.name, defaultLocale: manifest.defaultLocale, ...(manifest.localized ? { localized: manifest.localized } : {}) },
-          onlyTab: manifest.contributes.tabs.length === 1,
+          // The App's name says enough when only this tab of it opens files here.
+          onlyTab: manifest.contributes.tabs.filter((other) => claimedSuffixes(other, context).length > 0).length === 1,
           suffix: claimed,
           state: context === 'chat' && tab.chatFile?.toLowerCase() === name,
         });

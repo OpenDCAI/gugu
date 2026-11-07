@@ -1,7 +1,7 @@
 /* ui.css supplies the host's typography, controls, lists and palette; only this App's layout lives here. */
 html, body { height: 100%; }
 :root { --em-icon-xl: 36px; }
-body { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+body { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
 body.no-list .files, body.show-doc .files { display: none; }
 body:not(.show-doc):not(.no-list) .doc { display: none; }
 
@@ -359,9 +359,6 @@ body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
 @container doc-head (max-width: 420px) {
   #page-back-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-@container doc-head (max-width: 340px) {
-  #page-forward { display: none; }
-}
 .host-opened .doc-title:not(:has(.rename-input)) { display: block; }
 .page-navigation { display: flex; align-items: center; flex: none; gap: 2px; }
 .page-navigation button { min-height: 28px; padding: 2px 4px; }
@@ -397,3 +394,10 @@ body[data-mode='edit'] .editor .cm-content { padding-top: 4px; }
 }
 body .editor .code-view .cm-content { max-width: none; margin: 0; padding: 16px 0; }
 .editor .code-view .cm-line { padding: 0 16px; }
+
+/* Where the open file is: the end of the path shows, a click on a folder of the working copy goes there. */
+.doc-path { display: flex; flex: 0 2 auto; justify-content: flex-end; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
+.doc-path[hidden] { display: none; }
+.doc-path > * { flex: none; }
+.doc-path button { border: 0; background: none; padding: 0 2px; color: inherit; font: inherit; min-height: 0; cursor: pointer; }
+.doc-path button:hover { color: var(--em-foreground); text-decoration: underline; }

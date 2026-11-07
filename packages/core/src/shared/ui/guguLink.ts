@@ -350,6 +350,7 @@ export function linkTargetOf(args: Record<string, unknown>, own: { id: string; c
     case 'chat': return { kind: 'chat', chatId: text(args.chat, 'chat'), ...(args.message ? { messageId: text(args.message, 'message') } : {}) }
     case 'file': {
       const file = typeof args.file === 'object' && args.file ? (args.file as { id?: unknown }).id : args.file
+      if (typeof file === 'string' && !MESSAGE_UUID.test(file)) throw new Error("file is a chat file's entry or id: a working copy's file has no link, it goes by its path")
       if (args.version !== undefined && (!Number.isInteger(args.version) || Number(args.version) < 1)) throw new Error('version must be a positive whole number')
       const at = args.at == null ? undefined : Object.fromEntries(Object.entries(args.at as object).map(([key, value]) => {
         if (typeof value !== 'string' && typeof value !== 'number') throw new Error('A file place has string or number values')

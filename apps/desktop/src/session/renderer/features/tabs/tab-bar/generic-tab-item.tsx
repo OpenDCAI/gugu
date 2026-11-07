@@ -2,7 +2,7 @@ import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Folder, Maximize2, Minimize2 } from '@/lib/icons';
+import { Maximize2, Minimize2 } from '@/lib/icons';
 import type { TabHost } from '@renderer/features/tabs/core/tab-host';
 import type { ResolvedTab, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -120,9 +120,6 @@ export const GenericTabItem = observer(function GenericTabItem({
     </button>
   ) : null;
 
-  const root = host.navigationOf(tab.tabId)?.pages[0];
-  const folderOrigin = root?.kind === 'workspace.main' || (root?.kind === 'chat-panel' && (root.state as { kind?: string; itemId?: string })?.kind === 'workspace.main' && !(root.state as { itemId?: string }).itemId);
-  if (folderOrigin) preSlot = <Folder className="size-3 text-foreground-muted" />;
   const base = tooltip ?? label;
   const fullTitle = base;
 

@@ -14,7 +14,7 @@ import {
   GenericTabDragPreview,
   GenericTabItem,
 } from '@renderer/features/tabs/tab-bar/generic-tab-item';
-import { extensionTabKind } from '@shared/extensions/manifest';
+import { extensionTabKind, parseExtensionTabKind } from '@shared/extensions/manifest';
 import { declaredMenuCommands, runExtensionCommand } from './extension-commands';
 import { ExtensionTabBadge } from './extension-tab-badge';
 import { ExtensionMark } from './extension-mark';
@@ -22,7 +22,7 @@ import { ExtensionTabPane } from './extension-tab-pane';
 import { ExtensionSharedSlot } from './extension-shared-slot';
 import { extensionViewStore, residentPageKey, residentPlace } from './extension-view-store';
 import { extensionSurfaceStore, extensionTabTitle } from './extension-surface-store';
-import { installedExtensionsStore } from './installed-extensions-store';
+import { installedExtensionsStore, WORKSPACE_APP_ID } from './installed-extensions-store';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { placeOnScreen } from '@renderer/app/screen-layout-actions';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -31,7 +31,7 @@ import { fileBaseName, filePathKey } from '@renderer/features/sessions/stores/wo
 import { showModal } from '@renderer/lib/modal/modal-provider';
 import { rpc } from '@renderer/lib/ipc';
 import { Folder } from '@/lib/icons';
-import { WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
+import { FileIcon } from '@renderer/lib/editor/file-icon';
 
 /**
  * What the host knows about one open extension tab, stored per tab entry.
@@ -126,7 +126,7 @@ function createExtensionTabContent(extensionId: string, kind: string) {
     const history = host.navigationOf(activeTab.tabId);
     const opener = pane?.openerOf(activeTab.tabId);
     const backToConversation = (history?.index ?? 0) === 0 && !!opener && pane!.registry.has(opener.kind) && pane!.registry.get(opener.kind).conversation === true;
-    const navigation = { canBack: (history?.index ?? 0) > 0 || backToConversation, canForward: !!history && history.index < history.pages.length - 1, backToConversation };
+    const navigation = { canBack: !!pane?.canGo(activeTab.tabId, -1), canForward: !!history && history.index < history.pages.length - 1, backToConversation };
     const place = ctx.place;
     const sessionId = place?.kind === 'session' ? place.sessionId : undefined;
     if (!resource.filePath) {
@@ -147,8 +147,11 @@ function createExtensionTabContent(extensionId: string, kind: string) {
 }
 
 /** The extension's own mark on its tab, read live so an upgrade swaps it in place. */
-const ExtensionTabIcon = observer(function ExtensionTabIcon({ kind }: { kind: string }) {
-  if (kind === WORKSPACE_APP_KIND) return <Folder className="size-3 text-foreground-muted" />;
+const ExtensionTabIcon = observer(function ExtensionTabIcon({ kind, file }: { kind: string; file?: string }) {
+  // The folder App's tabs say what they show: the list a folder, a file its type. Its own mark stays in the App lists.
+  if (parseExtensionTabKind(kind)?.extensionId === WORKSPACE_APP_ID) {
+    return file ? <span className="flex shrink-0 text-foreground-muted"><FileIcon filename={fileBaseName(file)} className="shrink-0" /></span> : <Folder className="size-3 text-foreground-muted" />;
+  }
   const iconDataUrl = installedExtensionsStore.allTabContributions.find(
     (entry) => entry.kind === kind
   )?.iconDataUrl;
@@ -282,7 +285,7 @@ export function createExtensionTabProvider(
           hint={presentation.hint}
           tooltip={presentation.tooltip}
           hasError={surface.error !== null}
-          preSlot={<ExtensionTabIcon kind={kind} />}
+          preSlot={<ExtensionTabIcon kind={kind} file={claimedFile} />}
           statusSlot={own.dirtyIn !== null
             ? <div className="size-2 rounded-full bg-foreground" title={translateSessionMessage('task.unsavedChanges')} />
             : <ExtensionTabBadge badge={surface.badge} />}

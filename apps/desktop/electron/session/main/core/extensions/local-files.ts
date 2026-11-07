@@ -219,7 +219,8 @@ export function workingCopyEntry(place: WorkspacePlace, rel: string, stat: fs.St
     appState: false,
     size: stat?.size ?? null,
     version: null,
-    createdAt: stat?.birthtime.toISOString() ?? null,
+    // A file system that keeps no creation time says 0: unknown, not 1970.
+    createdAt: stat && stat.birthtimeMs > 0 ? stat.birthtime.toISOString() : null,
     updatedAt: stat?.mtime.toISOString() ?? null,
     createdBy: null,
     updatedBy: null,
@@ -773,7 +774,8 @@ export function createLocalAppFiles(platform: {
     },
 
     /** Into `folder` ('' the top), under `name` when one is given. */
-    move(surface: LocalSurface, args: { ref: WorkspaceFileRef; folder?: string; name?: string }): AppFileEntry {
+    async move(surface: LocalSurface, args: { ref: WorkspaceFileRef; folder?: string; name?: string }): Promise<AppFileEntry> {
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
       const from = entryAt(surface.workspaceRoot, pathOf(surface, args.ref));
       const folder = args.folder ?? path.posix.dirname(from.rel);
       return moveEntry(surface, from, path.posix.join(folder, args.name ?? path.posix.basename(from.rel)));

@@ -74,7 +74,6 @@ const STRINGS = {
     openNewTab: '在新页签打开',
     back: '文件夹',
     backToConversation: '返回对话',
-    historyForward: '前进',
     openBeside: '在旁边打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
@@ -151,6 +150,8 @@ const STRINGS = {
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
     forward: '转发',
+    forwardReading: '正在读取 {name} · {done} / {total} · {speed}/s',
+    forwardFailedOn: '{name} 没转发出去：此刻连不上「{machine}」。',
     createdBy: '{who} 创建 · {time}',
     editedBy: '{who} 编辑 · {time}',
     editedAt: '已编辑 · {time}',
@@ -294,7 +295,6 @@ const STRINGS = {
     openNewTab: 'Open in new tab',
     back: 'Folder',
     backToConversation: 'Back to conversation',
-    historyForward: 'Forward',
     openBeside: 'Open beside',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
@@ -371,6 +371,8 @@ const STRINGS = {
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
     forward: 'Forward',
+    forwardReading: 'Reading {name} · {done} / {total} · {speed}/s',
+    forwardFailedOn: "{name} wasn't forwarded: {machine} can't be reached right now.",
     createdBy: 'Created by {who} · {time}',
     editedBy: 'Edited by {who} · {time}',
     editedAt: 'Edited · {time}',
@@ -489,6 +491,7 @@ const state = {
   root: null,
   folder: null, // the folder the list shows (子文件夹): a folder entry's id, null for the top
   listed: new Set(), // a working copy's folders listed so far ('' the top): it is read one folder at a time
+  rootOf: null, // a working copy's root once known, for the path of the file open here: { workspace, root }
   folderWatches: new Map(), // the listed folders below the top that are heard, each by its own watch
   dragging: null, // the entry being dragged onto a folder (desktop)
   mode: 'preview', // 阅读 first (owner 10-30, folder-docs)
@@ -604,7 +607,7 @@ function markdownSupport(cm) {
 async function applyContext(ctx) {
   const previous = state.ctx
   state.ctx = ctx
-  const restored = !previous || previous.file?.id !== ctx.file?.id || previous.tabId !== ctx.tabId ? ctx.viewState : undefined
+  const restored = !previous || previous.file?.id !== ctx.file?.id || previous.tabId !== ctx.tabId || previous.viewState?.folder !== ctx.viewState?.folder ? ctx.viewState : undefined
   if (restored) {
     if (['chat', 'workspace'].includes(restored.root)) state.root = restored.root
     state.folder = typeof restored.folder === 'string' ? restored.folder : null
@@ -687,10 +690,8 @@ function renderChrome() {
   $('page-back-label').textContent = back
   $('page-back').title = back
   $('page-back').setAttribute('aria-label', back)
-  $('page-back').disabled = !state.ctx?.navigation?.canBack
-  $('page-forward').disabled = !state.ctx?.navigation?.canForward
-  $('page-forward').title = t.historyForward
-  $('page-forward').setAttribute('aria-label', t.historyForward)
+  // Nothing to go back to on screen (the conversation is beside it): no button that does nothing.
+  $('page-back').hidden = !state.ctx?.navigation?.canBack
   $('select-files').textContent = state.selecting || state.picked.size ? t.pickDone : t.pick
   renderTools()
   $('new-label').textContent = t.new
@@ -1650,6 +1651,8 @@ function listItem(entry, now = new Date(Date.now())) {
   }
   if (folder) {
     if (canWriteHere() && !entry.systemRole) drag(entry.name, false)
+  } else if (inCopy(entry)) {
+    drag(entry.id, false)
   } else {
     // DataTransfer is writable only during dragstart, before any asynchronous host answer.
     void gugu.linkTo({ kind: 'file', file: entry }).then((link) => drag(link, true))
@@ -1726,8 +1729,9 @@ function fileActions(target, entry, canDelete = false) {
   const readOnly = state.current?.entry.id === entry.id && state.current.file.readOnly
   const writable = canWriteHere() && !entry.systemRole && !readOnly
   return [
+    // No link names a working copy's file: it goes by its path (copyActions).
     ...(canForward() ? [{ text: t.forward, run: () => forwardEntries([entry]) }] : []),
-    { text: t.copyLink, run: () => copyLink(entry) },
+    ...(inCopy(entry) ? [] : [{ text: t.copyLink, run: () => copyLink(entry) }]),
     { text: t.openWith, run: () => openInHost(entry, true) },
     { text: t.download, run: () => downloadEntry(entry) },
     ...(writable ? [
@@ -1744,7 +1748,7 @@ function copyActions(entry) {
   const copied = (text) => gugu.clipboard.writeText(text).then(() => showBanner(t.copied, 'info'), (error) => showBanner(fmt(t.failed, { e: error.message }), 'error'))
   return [
     ...(isFolder(entry) || entry.type === 'binary' ? [] : [{ text: t.copyContent, run: () => copyContent(entry, copied) }]),
-    ...(entry.absolutePath ? [{ text: t.copyPath, run: () => copied(entry.absolutePath) }] : []),
+    ...(absolutePathOf(entry) ? [{ text: t.copyPath, run: () => copied(absolutePathOf(entry)) }] : []),
     { text: t.copyRelativePath, run: () => copied(entry.id) },
     ...(state.ctx?.workspace?.root && gugu.files.reveal ? [{ text: t.revealFile, run: () => gugu.files.reveal(entry).catch((error) => showBanner(fmt(t.failed, { e: error.message }), 'error')) }] : []),
   ]
@@ -1893,11 +1897,17 @@ async function keepAs(entry, how) {
 // A host before it has no files.forward: the item is not offered rather than offered and refused.
 const canForward = () => typeof gugu.files.forward === 'function'
 async function forwardEntries(entries, then) {
+  // A working copy's file is read before the page opens, from a machine that may be far.
+  const row = entries.some(inCopy) ? transferRow(state.t.forwardReading, entries[0].name) : null
   try {
-    await gugu.files.forward(entries)
+    await (row ? gugu.files.forward(entries, { onProgress: row.progress, signal: row.signal }) : gugu.files.forward(entries))
     then?.()
   } catch (error) {
-    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+    if (row?.signal.aborted) return
+    const { machine } = error.detail ?? {}
+    showBanner(error.code === 'unavailable' && machine ? fmt(state.t.forwardFailedOn, { name: entries[0].name, machine }) : fmt(state.t.failed, { e: error.message }), 'error')
+  } finally {
+    row?.done()
   }
 }
 
@@ -2386,6 +2396,7 @@ function showDownloadOnly(entry) {
   document.body.classList.add('binary', 'show-doc')
   $('doc-title').textContent = entry.name
   showEntry(entry)
+  void showDocPath(entry)
 }
 
 /**
@@ -3228,7 +3239,7 @@ function blockMenu(box) {
 
 function blockLinks(current, pick) {
   return [
-    [state.t.copyBlockLink, blockAction(() => { const p = pick(); return copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) })],
+    ...(inCopy(current.entry) ? [] : [[state.t.copyBlockLink, blockAction(() => { const p = pick(); return copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) })]]),
     [state.t.cite, blockAction(() => cite(current, [pick()], state.held))],
   ]
 }
@@ -3461,10 +3472,53 @@ function showDoc(entry) {
   $('doc-title').textContent = entry.name
   $('doc-message').hidden = true
   showEntry(entry)
+  void showDocPath(entry)
+}
+
+// A working copy's root, from what its top lists: an entry says its path there and its path on the disk.
+async function workingCopyRoot(workspace) {
+  if (state.rootOf?.workspace === workspace) return state.rootOf.root
+  const listed = await gugu.files.list({ workspace, folder: '' }).catch(() => [])
+  const known = listed.find((entry) => entry.absolutePath?.endsWith(entry.id))
+  const root = known ? known.absolutePath.slice(0, -known.id.length - 1) : null
+  if (root) state.rootOf = { workspace, root }
+  return root
+}
+
+// A list's entry says where it is; a file a host opened says it by its id, or by the working copy's root as a list told it.
+function absolutePathOf(entry) {
+  if (entry.absolutePath) return entry.absolutePath
+  if (/^([/\\]|[A-Za-z]:[/\\])/.test(entry.id)) return entry.id
+  return state.rootOf?.workspace === entry.workspace ? `${state.rootOf.root}/${entry.id}` : null
+}
+
+// The real place of the file a host opened here: a folder inside its working copy is a way to that folder in the list.
+async function showDocPath(entry) {
+  const nav = $('doc-path')
+  nav.hidden = true
+  nav.replaceChildren()
+  if (!entry.workspace || !document.body.classList.contains('host-opened')) return
+  const root = await workingCopyRoot(entry.workspace)
+  const path = absolutePathOf(entry)
+  if (!path || state.current?.entry.id !== entry.id) return
+  const separator = path.includes('\\') && !path.includes('/') ? '\\' : '/'
+  const parts = path.split(separator)
+  parts.pop()
+  nav.title = path
+  parts.forEach((part, index) => {
+    const here = parts.slice(0, index + 1).join(separator)
+    const folder = root && (here === root || here.startsWith(root + separator)) ? here.slice(root.length + 1).split(separator).join('/') : null
+    const segment = folder === null
+      ? Object.assign(document.createElement('span'), { textContent: part })
+      : Object.assign(document.createElement('button'), { type: 'button', textContent: part, onclick: () => void gugu.files.openWith({ workspace: entry.workspace, folder }).catch((error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error', true)) })
+    nav.append(segment, Object.assign(document.createElement('span'), { textContent: separator }))
+  })
+  nav.hidden = false
 }
 
 function showDocMessage(message) {
   document.body.dataset.state = 'message'
+  $('doc-path').hidden = true
   document.body.classList.remove('json-dirty')
   $('doc-title').textContent = ''
   $('doc-status').textContent = ''
@@ -3878,7 +3932,7 @@ function showDetails(entry) {
   const dated = (iso) => (iso ? new Intl.DateTimeFormat(state.ctx?.locale || 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso)) : '')
   fact(t.d_size, [sizeOf(entry.size), entry.suffix ? entry.suffix.slice(1).toUpperCase() : ''].filter(Boolean).join(' · '))
   fact(t.d_by, [entry.createdBy && entry.createdBy.kind !== 'system' ? who(entry.createdBy) : '', dated(entry.createdAt)].filter(Boolean).join(' · '))
-  if (entry.updatedAt && entry.createdAt && Date.parse(entry.updatedAt) - Date.parse(entry.createdAt) > 60_000) {
+  if (entry.updatedAt && (!entry.createdAt || Date.parse(entry.updatedAt) - Date.parse(entry.createdAt) > 60_000)) {
     fact(t.d_edited, [entry.updatedBy ? who(entry.updatedBy) : '', dated(entry.updatedAt), entry.version ? fmt(t.d_version, { n: entry.version }) : ''].filter(Boolean).join(' · '))
   }
   const folders = []
@@ -3971,7 +4025,6 @@ function start() {
   }
   $('search-toggle').onclick = () => { const input = $('filter'); input.hidden = !input.hidden; $('search-toggle').setAttribute('aria-expanded', String(!input.hidden)); if (!input.hidden) input.focus() }
   $('page-back').onclick = () => navigate(-1)
-  $('page-forward').onclick = () => navigate(1)
   $('new-doc').onclick = () => toggleMenu($('new-doc'), inWorkspace()
     ? [[state.t.newFile, () => startCreate('file')], [state.t.newFolder, () => startCreate('folder')]]
     : [[state.t.newDoc, createDoc], [state.t.newFolder, createFolder]])
@@ -4000,7 +4053,7 @@ function start() {
     // 对照 (side by side) is the open text's third way to show itself: a checked item here, where the pane has room.
     const split = state.current?.file.type === 'text' && document.body.dataset.kind !== 'json' && !narrowPane?.matches
       ? [{ text: state.t.split, checked: state.mode === 'split', run: () => setMode(state.mode === 'split' ? 'preview' : 'split') }, { separator: true }] : []
-    if (entry) showFileMenu($('more'), entry, (yes) => [...split, ...fileActions($('doc-title'), entry, yes)])
+    if (entry) showFileMenu($('more'), entry, (yes) => [...split, ...fileActions($('doc-title'), entry, yes), ...(inCopy(entry) ? [{ separator: true }, ...copyActions(entry)] : [])])
   }
   document.addEventListener('pointerdown', (event) => {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()

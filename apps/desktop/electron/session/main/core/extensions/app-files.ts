@@ -592,7 +592,7 @@ export async function renameAppFile(page: DesktopFilePage, args: { ref?: unknown
   const ref = fileRefOf(args.ref);
   if (isChat(ref)) return files.rename(chatSurface(page), { ref, name: args.name });
   const there = await onItsMachine(page, ref, 'filesRename', { ref, name: args.name });
-  const entry = there.there ? there.value as AppFileEntry : local.rename(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, name: args.name });
+  const entry = there.there ? there.value as AppFileEntry : await local.rename(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, name: args.name });
   movedInWorkingCopy(ref, pathOfRef(ref), entry.id);
   return entry;
 }
@@ -619,7 +619,7 @@ export async function moveAppFile(page: DesktopFilePage, args: { ref?: unknown; 
   if (isChat(ref)) return files.move(chatSurface(page), { ref, folder: args.folder, name: args.name });
   const target = { ...(args.folder === undefined ? {} : { folder: folderOf(args.folder) }), ...(typeof args.name === 'string' ? { name: args.name } : {}) };
   const there = await onItsMachine(page, ref, 'filesMove', { ref, ...target });
-  const entry = there.there ? there.value as AppFileEntry : local.move(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, ...target });
+  const entry = there.there ? there.value as AppFileEntry : await local.move(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, ...target });
   movedInWorkingCopy(ref, pathOfRef(ref), entry.id);
   return entry;
 }
@@ -705,15 +705,31 @@ export async function uploadAppFiles(
 
 export const messageToShow = files.messageToShow;
 
-/** `files.forward`: a chat's files — a working copy's file is on a computer, in no chat to send it from. */
-export async function forwardTargets(page: DesktopFilePage, args: { refs?: unknown }): Promise<AppForwardFilesDetail> {
+/**
+ * `files.forward`: a chat's files go by reference. A working copy's file is in no chat to refer to, so what it holds goes:
+ * read here, on the machine it is on, so one that cannot be read is said before anyone picks a chat.
+ */
+export async function forwardTargets(page: DesktopFilePage, args: { refs?: unknown; transferId?: unknown }, report?: (transferId: string, done: number, total: number) => void): Promise<AppForwardFilesDetail> {
   if (!Array.isArray(args.refs)) throw new AppFileError('invalid', 'files.forward(files): give one file or more');
-  const refs = args.refs.map((given) => {
-    const ref = fileRefOf(given);
-    if (!isChat(ref)) throw new AppFileError('invalid', "files.forward: only a chat's files are forwarded");
-    return ref;
-  });
-  return files.forwardTargets(chatSurface(page), { refs });
+  const refs = args.refs.map(fileRefOf);
+  const chatRefs = refs.filter(isChat);
+  if (chatRefs.length === refs.length) return files.forwardTargets(chatSurface(page), { refs: chatRefs });
+  if (chatRefs.length > 0) throw new AppFileError('invalid', 'files.forward(files): the files are of one place');
+  // A transfer the page follows and can stop, as a download is.
+  const transferId = typeof args.transferId === 'string' ? args.transferId : null;
+  const stop = new AbortController();
+  const key = downloadKey(page, transferId);
+  if (transferId) downloads.set(key, stop);
+  try {
+    const copies: Array<{ name: string; bytes: Uint8Array<ArrayBuffer> }> = [];
+    for (const ref of refs) {
+      const bytes = await wholeWorkingCopyFile(page, ref as WorkspaceFileRef, { signal: stop.signal, saved: (done, size) => { if (transferId) report?.(transferId, done, size); } });
+      copies.push({ name: path.posix.basename(pathOfRef(ref as WorkspaceFileRef)), bytes });
+    }
+    return { copies };
+  } finally {
+    downloads.delete(key);
+  }
 }
 export const chatMembersOf = files.members;
 export const chatsOf = files.chats;
@@ -829,6 +845,29 @@ async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<
 /** What a download under way reports, and what stops it. */
 type Saving = { signal?: AbortSignal; saved?: (bytes: number, size: number) => void };
 const stopped = () => new AppFileError('invalid', 'The download was stopped');
+
+/** All of a working copy's file, wherever it is, in one buffer: pieces kept until the end would hold it twice. */
+async function wholeWorkingCopyFile(page: DesktopFilePage, ref: WorkspaceFileRef, saving: Saving = {}): Promise<Uint8Array<ArrayBuffer>> {
+  let whole = new Uint8Array(0);
+  let offset = 0;
+  for (let size = Infinity, part = SMALLEST_PART_BYTES; offset < size;) {
+    if (saving.signal?.aborted) throw stopped();
+    const started = Date.now();
+    const chunk = await readAppFile(page, { ref, offset, length: part });
+    part = nextPartBytes(part, Date.now() - started);
+    size = chunk.size;
+    if (chunk.data.byteLength === 0) break;
+    if (whole.byteLength < offset + chunk.data.byteLength) {
+      const grown = new Uint8Array(Math.max(size, offset + chunk.data.byteLength));
+      grown.set(whole.subarray(0, offset));
+      whole = grown;
+    }
+    whole.set(chunk.data, offset);
+    offset += chunk.data.byteLength;
+    saving.saved?.(offset, size);
+  }
+  return whole.subarray(0, offset);
+}
 
 /** A working copy's file: its pieces, each on the disk as it comes — half of one is not left behind. */
 async function savePieces(page: DesktopFilePage, ref: AppFileRef, filePath: string, saving: Saving = {}): Promise<void> {

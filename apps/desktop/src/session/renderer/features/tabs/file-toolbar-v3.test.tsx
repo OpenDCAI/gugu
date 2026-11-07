@@ -16,10 +16,11 @@ document.body.appendChild(host);
 const root = createRoot(host);
 let layout: PaneLayoutStore;
 afterEach(() => { act(() => root.render(null)); layout?.dispose(); });
-function mount(fromConversation: boolean) {
+function mount(fromConversation: boolean, narrow = true) {
   const provider = (kind: string, conversation = false) => createTabProvider({ kind, conversation, resourceKey: (s: { id: string }) => s.id, initialize: () => ({ dispose() {} }), dispose() {}, TabBarItem: () => null, TabBarItemDragPreview: () => null, TabContent: () => null });
   layout = new PaneLayoutStore(createTabRegistry([provider('conversation', true), provider('file')]), { viewId: 'file-toolbar' });
   layout.focusedPane.setDimensions(390, 620);
+  layout.setNarrow(narrow);
   const source = layout.open(fromConversation ? 'conversation' : 'file', { id: 'source' }, { from: null, intent: 'newTab' })!;
   const file = layout.open('file', { id: 'file' }, { from: source, intent: 'navigate' })!;
   // From a conversation the file is the side of a pair (kept even when narrow, owner 11-05); else it is in place.
@@ -38,13 +39,18 @@ it('returns to its own conversation from the file toolbar without changing tab i
   expect(pane.tabOrder).toEqual(ids);
   expect(JSON.stringify(layout.layout)).toBe(tree);
 });
+it('has no way back while the conversation it came from is beside it', () => {
+  mount(true, false);
+  expect(host.querySelector('[data-file-toolbar]')).not.toBeNull();
+  expect(host.querySelector('[data-testid="tab-return-conversation"]')).toBeNull();
+});
 it('uses the shared file toolbar for an unclaimed group file with read-only editing and navigation', async () => {
   const { pane } = mount(false);
   const toolbar = host.querySelector('[data-file-toolbar]');
   expect(toolbar).not.toBeNull();
   const labels = [...toolbar!.querySelectorAll('button')].map((button) => button.getAttribute('aria-label'));
   // One mode toggle (owner 11-06): reading, it is ✎ (edit) — disabled for a read-only file.
-  expect(labels).toEqual(['tabs.back', 'tabs.forward', 'tabs.edit', 'tabs.more']);
+  expect(labels).toEqual(['tabs.back', 'tabs.edit', 'tabs.more']);
   expect(toolbar!.querySelector<HTMLButtonElement>('[aria-label="tabs.edit"]')!.disabled).toBe(true);
   await act(async () => toolbar!.querySelector<HTMLButtonElement>('[aria-label="tabs.back"]')!.click());
   expect(pane.navigationOf(pane.resolvedActiveTabId!)?.index).toBe(0);

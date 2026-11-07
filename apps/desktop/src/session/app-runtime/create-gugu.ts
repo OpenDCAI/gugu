@@ -179,12 +179,26 @@ export function createGugu(
           // `{ ask: true }`: 「用别的 App 打开」 — every App that opens it, the person picks. `{ at }`: the place in it (a pill's).
           // `{ peek: true }`: beside this page, which stays as it is (G1).
           openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string; intent?: TabOpenIntent; viewState?: Record<string, unknown> }) =>
-            withRef(file, (ref) =>
+            // A folder of the working copy, not a file: `{ workspace, folder }`, its list in this tab.
+            typeof (file as { folder?: unknown } | null)?.folder === 'string'
+              ? openWith({ ref: file as never })
+              : withRef(file, (ref) =>
               openWith({ ref, ...(options?.viewState ? { viewState: options.viewState } : {}), ...(options?.ask === true ? { ask: true } : {}), ...(options?.at ? { at: options.at } : {}), ...(options?.peek === true ? { peek: true } : {}), ...(Object.hasOwn(options ?? {}, 'tab') ? { tab: options?.tab } : {}), ...(Object.hasOwn(options ?? {}, 'intent') ? { intent: options?.intent } : {}) })),
         }
       : {}),
     // API 23: 「转发」 — one file or several, the host's forward page; resolves once it is up (what is sent is the person's).
-    ...(forward ? { forward: (files: unknown) => withRefs(files, (refs) => forward({ refs })) } : {}),
+    // `{ onProgress, signal }`: a working copy's file is read first, and that can be followed and stopped as a download can.
+    ...(forward ? { forward: (files: unknown, options?: { onProgress?: (done: number, total: number) => void; signal?: AbortSignal }) => withRefs(files, (refs) => {
+      if (!options?.onProgress && !options?.signal) return forward({ refs });
+      const transferId = crypto.randomUUID();
+      const off = (raw.onDownloadProgress as ((hear: (id: string, done: number, total: number) => void) => () => void) | undefined)?.((id, done, total) => { if (id === transferId) options.onProgress?.(done, total); });
+      const stop = () => void host.appFiles.downloadStop?.({ transferId });
+      options.signal?.addEventListener('abort', stop);
+      return forward({ refs, transferId } as never).finally(() => {
+        off?.();
+        options.signal?.removeEventListener('abort', stop);
+      });
+    }) } : {}),
     ...(host.appFiles.reveal ? { reveal: (file: unknown) => withRef(file, (ref) => host.appFiles.reveal!({ ref })) } : {}),
   });
 

@@ -46,6 +46,7 @@ const gugu = {
     }),
     open: vi.fn(),
     openWith: vi.fn(async () => {}),
+    canDelete: vi.fn(async () => [false]),
   },
 }
 
@@ -121,5 +122,15 @@ describe('a session\'s tab: one folder, two roots', () => {
     contextChanged!({ ...context, chat: { ...context.chat, id: 'dm-2' } })
     await until('the context applied', () => gugu.files.onChanged.mock.calls.some(([place]) => (place as { chat?: string }).chat === 'dm-2'))
     expect([crumbs(), names().includes('main.md'), listed().length]).toEqual([['文件夹', '工作目录', 'src'], true, calls])
+  })
+
+  test('a working copy\'s file has no link: none is asked for, and its menu goes by the path', async () => {
+    expect(gugu.linkTo.mock.calls.filter((args: unknown[]) => (args[0] as { file?: Entry } | undefined)?.file?.workspace)).toEqual([])
+    const row = [...document.querySelectorAll('li')].find((li) => li.textContent?.includes('main.md'))!
+    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    const items = () => [...document.getElementById('menu')!.querySelectorAll('button')].map((item) => item.textContent)
+    await until('the menu open', () => items().length > 0)
+    expect(items()).not.toContain('复制链接')
+    expect(items()).toContain('复制相对路径')
   })
 })

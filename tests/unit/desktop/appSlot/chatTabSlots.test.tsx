@@ -32,6 +32,7 @@ describe('chat slots follow actual panes and navigation contexts', () => {
     const id = `native-toolbar-${origin}`
     const layout = chatLayoutOf(id)
     layout.focusedPane.setDimensions(390, 620)
+    layout.setNarrow(true)
     const from = origin === 'group-folder' ? openPanelItem(id, folderItem(), { intent: 'newTab' }) : undefined
     openPanelItem(id, { kind: null, title: 'notes.txt', itemId: `notes-${origin}` }, from ? { from } : undefined)
     await harness.render(<><Panels chatId={id} /><ChatTabPortals chatId={id} panel={tab => <MessageFilePreviewPanel fill tabbed file={{ fileName: tab.item.title, sizeBytes: 12, mimeType: 'text/plain' }} kind="text" content="notes" loading={false} onClose={() => closeChatTab(id, tab.tabId)} />} topic={() => null} info={() => null} /></>)

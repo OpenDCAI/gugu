@@ -41,18 +41,18 @@ afterEach(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-it.each(['open', 'download', 'create', 'rename', 'replace', 'remove', 'upload', 'open target'])('refuses App %s when the working copy contains a private root', async action => {
+it.each(['open', 'create', 'mkdir', 'rename', 'move', 'replace', 'remove', 'open target'])('refuses App %s when the working copy contains a private root', async action => {
   const id = path.relative(root, secret).split(path.sep).join('/');
   const ref = { workspace: surface.place.workspace, id };
   const upload = { name: 'new.bin', contentType: 'application/octet-stream', bytes: new Uint8Array([1, 2]).buffer };
   const attempt = (): unknown => {
     if (action === 'open') return files.open(surface, { ref });
-    if (action === 'download') return files.downloadSource(surface, { ref });
     if (action === 'create') return files.create(surface, { name: id + '.new', content: 'altered' });
     if (action === 'rename') return files.rename(surface, { ref, name: 'moved.bin' });
     if (action === 'replace') return files.replace(surface, { ref, file: upload });
     if (action === 'remove') return files.remove(surface, { ref });
-    if (action === 'upload') return files.upload(surface, [{ ...upload, name: id + '.new' }]);
+    if (action === 'mkdir') return files.mkdir(surface, { path: id + '.new' });
+    if (action === 'move') return files.move(surface, { ref, folder: '', name: 'moved.bin' });
     return files.openTarget(surface, { ref });
   };
   await expect(Promise.resolve().then(attempt)).rejects.toThrow();
@@ -76,7 +76,7 @@ it('refuses hard-link aliases in an otherwise ordinary App working copy', async 
   fs.mkdirSync(ordinary);
   fs.linkSync(secret, path.join(ordinary, 'alias.bin'));
   const fileSurface = { ...surface, workspaceRoot: ordinary };
-  await expect(files.downloadSource(fileSurface, { ref: { workspace: surface.place.workspace, id: 'alias.bin' } })).rejects.toThrow();
+  await expect(files.openTarget(fileSurface, { ref: { workspace: surface.place.workspace, id: 'alias.bin' } })).rejects.toThrow();
   await expect(readWorkspaceChunk(ordinary, { path: 'alias.bin', offset: 0, length: 100 })).rejects.toThrow();
 });
 

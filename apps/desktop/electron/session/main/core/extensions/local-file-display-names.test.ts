@@ -8,3 +8,8 @@ it.each(['群公告.md', 'group-meta.json', 'todo.txt', 'banner.png'])('a task w
     workspace: 'session:task',
   });
 });
+
+it('a file system that keeps no creation time leaves it unknown, not 1970', () => {
+  const stat = { size: 1, birthtimeMs: 0, birthtime: new Date(0), mtime: new Date(1000) } as never;
+  expect(workingCopyEntry({ workspace: 'session:task' }, 'a.md', stat)).toMatchObject({ createdAt: null, updatedAt: new Date(1000).toISOString() });
+});

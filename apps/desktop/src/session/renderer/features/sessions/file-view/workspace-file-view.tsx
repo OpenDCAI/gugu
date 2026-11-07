@@ -13,7 +13,7 @@ import { fileBaseName } from '../stores/workspace-path';
 import { getSessionView } from '../stores/session-selectors';
 import { EDITOR_CONFIRM_FILE_BYTES } from '@renderer/lib/editor/file-size-limits';
 import { getFileKind } from '@renderer/lib/editor/fileKind';
-import { FOLDER_APP_FILE_TAB } from './file-view-kinds';
+import { FOLDER_APP_FILE_TAB, openFolderInTab } from './file-view-kinds';
 import { OpenWithSystemButton } from './open-with-system-button';
 
 const isTextRead = (path: string) => ['text', 'markdown', 'html', 'csv'].includes(getFileKind(path));
@@ -38,7 +38,9 @@ async function readBytes(projectId: string, workspaceId: string, path: string, i
  * A file of a workspace in the preview a chat's file opens in: its bytes through that workspace (whichever machine it is
  * on), read again when the file changes there. A session's file tab and an App's peek both draw this.
  */
-export function WorkspaceFileView({ tabId, projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, onClose }: {
+export function WorkspaceFileView({ root, tabId, projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, onClose }: {
+  /** The working copy's root: a folder of it in the path is a way to its list. */
+  root?: string;
   /** The tab it is drawn in: editing goes to the folder App in this tab, and reading comes back to it. */
   tabId?: string;
   projectId: string;
@@ -87,10 +89,15 @@ export function WorkspaceFileView({ tabId, projectId, workspaceId, sessionId, pa
         unreadableAction: tree.download
           ? <Button size="sm" variant="outline" className="mt-4" onClick={download}>{translate('file.downloadInstead')}</Button>
           : <OpenWithSystemButton absolutePath={absolutePath} {...(inWorkspace ? { workspace: { projectId, workspaceId } } : {})} />,
+        folders: absolutePath.split(/[\\/]/).slice(0, -1).map((name, index, parts) => {
+          const here = parts.slice(0, index + 1).join('/');
+          const inside = root !== undefined && sessionId && tabId && inWorkspace && (here === root || here.startsWith(`${root}/`));
+          return inside ? { name, open: () => { const view = getSessionView(projectId, sessionId!); if (view) openFolderInTab(view.paneLayout, tabId, here.slice(root.length + 1)); } } : { name };
+        }),
         ...(editable ? { edit: () => getSessionView(projectId, sessionId!)?.paneLayout.open(FOLDER_APP_FILE_TAB, { filePath: absolutePath }, { from: tabId ?? null, intent: 'navigate' }) } : {}),
         download,
       },
     };
-  }, [tabId, projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, revision, translate]);
+  }, [root, tabId, projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, revision, translate]);
   return <MessageFilePreview fill tabbed readOnly={!sessionId} file={file} onClose={onClose} />;
 }
