@@ -46,8 +46,8 @@ function isSingleSegmentName(name: string): boolean {
   return trimmed.length > 0 && trimmed === name && name !== '.' && name !== '..' && !/[\\/\0]/.test(name);
 }
 
-function resolveWorkspaceFiles(projectId: string, workspaceId: string) {
-  const env = resolveWorkspace(projectId, workspaceId);
+async function resolveWorkspaceFiles(projectId: string, workspaceId: string) {
+  const env = await resolveWorkspace(projectId, workspaceId);
   if (!env)
     return err({ type: 'not_found' as const, entity: 'filesystem' as const, detail: undefined });
 
@@ -68,7 +68,7 @@ export const workspaceFileSystemController = createRPCController({
     filePath: string,
     maxBytes?: number
   ) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     if (!isAbsoluteMachinePath(filePath)) {
       return err({ type: 'fs_error' as const, message: 'External file path must be absolute' });
@@ -95,7 +95,7 @@ export const workspaceFileSystemController = createRPCController({
     filePath: string,
     content: string
   ) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     if (!isAbsoluteMachinePath(filePath)) {
       return err({ type: 'fs_error' as const, message: 'External file path must be absolute' });
@@ -119,9 +119,9 @@ export const workspaceFileSystemController = createRPCController({
     filePath: string,
     documentHtml?: string
   ) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
-    const preview = createPreview(projectId, workspaceId, filePath, documentHtml);
+    const preview = await createPreview(projectId, workspaceId, filePath, documentHtml);
     if (!preview) {
       return err({ type: 'fs_error' as const, message: 'Could not resolve a preview URL' });
     }
@@ -170,50 +170,50 @@ export const workspaceFileSystemController = createRPCController({
    * 路径可以是工作区里的相对路径,也可以是落在工作区里的绝对路径。
    */
   readChunk: async (projectId: string, workspaceId: string, request: { path: string; offset: number; length: number }) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => readWorkspaceChunk(resolved.data.env.path, request));
   },
 
   attachmentUploadBegin: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => attachmentUploads.begin(resolved.data.env.path, request));
   },
 
   attachmentUploadStatus: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => attachmentUploads.status(resolved.data.env.path, request));
   },
 
   attachmentUploadWrite: async (projectId: string, workspaceId: string, request: AttachmentUploadChunk) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => attachmentUploads.write(resolved.data.env.path, request));
   },
 
   attachmentUploadCommit: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => attachmentUploads.commit(resolved.data.env.path, request));
   },
 
   attachmentUploadAbort: async (projectId: string, workspaceId: string, request: AttachmentUploadSpec) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => attachmentUploads.abort(resolved.data.env.path, request));
   },
 
   /** #6264 按块写一份文件(从别的电脑上传 / 在别的电脑上存大文件),最后一段落盘并核版本。 */
   writeChunk: async (projectId: string, workspaceId: string, request: WorkspaceWriteChunk) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     return transfer(() => uploads.write(resolved.data.env.path, request));
   },
 
   readFile: async (projectId: string, workspaceId: string, filePath: string, maxBytes?: number) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
 
@@ -230,7 +230,7 @@ export const workspaceFileSystemController = createRPCController({
   },
 
   writeFile: async (projectId: string, workspaceId: string, filePath: string, content: string) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
 
@@ -260,7 +260,7 @@ export const workspaceFileSystemController = createRPCController({
     filePath: string,
     options?: { recursive?: boolean }
   ) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
 
@@ -295,7 +295,7 @@ export const workspaceFileSystemController = createRPCController({
    * 产品甚至允许用户改写并保存那张图。拦住「看」而放行「改」不是边界,是漏掉的旧管道。
    */
   readImage: async (projectId: string, workspaceId: string, filePath: string) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
 
@@ -318,7 +318,7 @@ export const workspaceFileSystemController = createRPCController({
    * 与 `readExternalFile` / `readFile` 那一对是同一条分岔,❌ 不另立第三种寻址方式。
    */
   readInlineBinary: async (projectId: string, workspaceId: string, filePath: string) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
 
@@ -337,7 +337,7 @@ export const workspaceFileSystemController = createRPCController({
    * 页签关掉时 `releaseDirectoryWatch`;工作区 dispose 时没撤的一并撤掉。
    */
   watchDirectory: async (projectId: string, workspaceId: string, dirPath: string) => {
-    const env = resolveWorkspace(projectId, workspaceId);
+    const env = await resolveWorkspace(projectId, workspaceId);
     if (!env) return err({ type: 'not_found' as const, entity: 'filesystem' as const, detail: undefined });
     const watched = env.watchDirectory(dirPath);
     if (!watched.success) return err({ type: 'fs_error' as const, message: fileErrorToMessage(watched.error) });
@@ -358,7 +358,7 @@ export const workspaceFileSystemController = createRPCController({
    * —— 没人盯着的目录里新建的文件靠这一步进索引,界面据此把搜索再查一次。
    */
   nudgeWorkspace: async (projectId: string, workspaceId: string, options?: { reindex?: boolean }) => {
-    const env = resolveWorkspace(projectId, workspaceId);
+    const env = await resolveWorkspace(projectId, workspaceId);
     if (!env) return err({ type: 'not_found' as const, entity: 'filesystem' as const, detail: undefined });
     const honored = await env.nudge();
     // 只有这一下真的兑现了(一个目录一个 watch 的平台),索引才可能缺东西;否则它由变化流实时维护,❌ 白扫。
@@ -368,7 +368,7 @@ export const workspaceFileSystemController = createRPCController({
   },
 
   fileExists: async (projectId: string, workspaceId: string, filePath: string) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
 
@@ -395,7 +395,7 @@ export const workspaceFileSystemController = createRPCController({
    * 点开路由判断(缺失 toast、目录→系统文件管理器)也问它,❌ 不另立第三种寻址方式。
    */
   statExternalFile: async (projectId: string, workspaceId: string, filePath: string) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     if (!isAbsoluteMachinePath(filePath)) {
       return err({ type: 'fs_error' as const, message: 'External file path must be absolute' });
@@ -416,7 +416,7 @@ export const workspaceFileSystemController = createRPCController({
    * (#6264 别的机器上的会话问「这条会话的工作目录在那台机器上是哪儿」就靠它;「不许为空」那道闸是给写/删用的)。
    */
   getAbsolutePath: async (projectId: string, workspaceId: string, filePath: string) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
 
@@ -444,7 +444,7 @@ export const workspaceFileSystemController = createRPCController({
     name: string,
     kind: 'file' | 'folder'
   ) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
     if (!isSingleSegmentName(name)) return err({ type: 'invalid_name' as const, message: 'Invalid name' });
@@ -462,7 +462,7 @@ export const workspaceFileSystemController = createRPCController({
 
   /** 文件树里「重命名」(同一个目录里换名字)。同名已有 = `exists`。 */
   renameEntry: async (projectId: string, workspaceId: string, filePath: string, name: string) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
     if (!isSingleSegmentName(name)) return err({ type: 'invalid_name' as const, message: 'Invalid name' });
@@ -491,7 +491,7 @@ export const workspaceFileSystemController = createRPCController({
     destDirPath: string,
     options?: { overwrite?: boolean }
   ) => {
-    const resolved = resolveWorkspaceFiles(projectId, workspaceId);
+    const resolved = await resolveWorkspaceFiles(projectId, workspaceId);
     if (!resolved.success) return resolved;
     const { env, fileSystem } = resolved.data;
 

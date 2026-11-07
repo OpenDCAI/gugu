@@ -24,7 +24,12 @@ export default {
     "projectFolderSessions_one": "{{count}} 个会话",
     "projectFolderSessions_other": "{{count}} 个会话"
   },
-  "links": { "task": "查看工作：{{title}}", "unavailable": "这条关联消息已删除或当前无法访问" },
+  "links": {
+    "task": "查看工作：{{title}}", "unavailable": "这条关联消息已删除或当前无法访问",
+    "fileHostOffline": "存放这个文件的电脑当前离线，请等电脑上线后再试",
+    "fileMissing": "这个文件已删除或无法访问",
+    "fileOpenFailed": "暂时打不开这个文件，请稍后重试"
+  },
   "question": {
     "title": "需要你确认", "other": "自己填写", "later": "稍后回答", "resume": "继续回答",
     "previous": "上一题", "next": "下一题", "submit": "提交回答", "submitting": "发送中…",

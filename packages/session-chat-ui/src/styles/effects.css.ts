@@ -22,6 +22,19 @@ const shimmerInk = keyframes({
   to: { transform: 'translateX(var(--text-shimmer-ink-end, -200%))' },
 });
 
+// The running bar loops without a timer: the sweep takes the first half of each cycle at the same
+// 20 steps as above, then the value stays still until the next cycle.
+const shimmerSweepHeld = keyframes({
+  '0%': { transform: 'translateX(0)' },
+  '50%': { transform: 'translateX(var(--text-shimmer-sweep-end, 50%))' },
+  '100%': { transform: 'translateX(var(--text-shimmer-sweep-end, 50%))' },
+});
+const shimmerInkHeld = keyframes({
+  '0%': { transform: 'translateX(0)' },
+  '50%': { transform: 'translateX(var(--text-shimmer-ink-end, -200%))' },
+  '100%': { transform: 'translateX(var(--text-shimmer-ink-end, -200%))' },
+});
+
 const planSpin = keyframes({
   to: { transform: 'rotate(360deg)' },
 });
@@ -67,6 +80,16 @@ export const textShimmer = style({
   '@media': { '(prefers-reduced-motion: reduce)': { color: vars.fgPassive, WebkitTextFillColor: vars.fgPassive } },
 });
 
+/** Same sweep and hold as ShimmerText, as one looping animation: a label that has no row lifecycle to rewind it. */
+export const textShimmerLoop = style({
+  vars: {
+    '--text-shimmer-sweep-name': shimmerSweepHeld,
+    '--text-shimmer-ink-name': shimmerInkHeld,
+    '--text-shimmer-duration': '2s',
+    '--text-shimmer-iterations': 'infinite',
+  },
+});
+
 export const textShimmerClip = style({
   position: 'absolute',
   inset: 0,
@@ -101,7 +124,7 @@ export const textShimmerSweep = style({
   maskImage: 'var(--text-shimmer-light-mask, linear-gradient(90deg, transparent 30%, white 50%, transparent 70%))',
   maskSize: 'var(--text-shimmer-mask-size, 50% 100%)',
   maskRepeat: 'repeat',
-  animation: `${shimmerSweep} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
+  animation: `var(--text-shimmer-sweep-name, ${shimmerSweep}) var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
   animationDelay: 'inherit',
 });
 
@@ -121,7 +144,7 @@ export const textShimmerInk = style({
 export const textShimmerLightInk = style({
   color: `var(--text-shimmer-light, ${vars.fgMuted})`,
   WebkitTextFillColor: `var(--text-shimmer-light, ${vars.fgMuted})`,
-  animation: `${shimmerInk} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
+  animation: `var(--text-shimmer-ink-name, ${shimmerInk}) var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
   animationDelay: 'inherit',
 });
 

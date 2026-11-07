@@ -12,11 +12,12 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionTimeline } from './contract';
 import { createClaudeJsonlSource } from './sources/claude-jsonl';
 import { createSessionTimeline, TIMELINE_ARCHIVE_VERSION, type TimelineArchive } from './timeline';
+import { TailReader } from './sources/tail-reader';
 
 const FIXTURE = fileURLToPath(new URL('./__fixtures__/claude-session.jsonl', import.meta.url));
 const PROVIDER_SESSION_ID = 'f1b2c3d4-0000-4000-8000-000000000001';
@@ -74,6 +75,23 @@ function shape(timeline: SessionTimeline): string {
 }
 
 describe('时间线存档', () => {
+  it('rejects 600 MiB of consumed source bytes before copying resume state or encoding', async () => {
+    const staged = await stage(await fixtureLines());
+    const source = createClaudeJsonlSource(
+      { harness: 'claude', providerSessionId: PROVIDER_SESSION_ID, roots: [staged.root] },
+      { pollIntervalMs: 100_000 },
+    );
+    const timeline = await createSessionTimeline(source, { sessionId: SESSION_ID });
+    try {
+      vi.spyOn(TailReader.prototype, 'consumedBytes', 'get').mockReturnValue(600 * 1024 * 1024);
+      const encode = vi.spyOn(JSON, 'stringify');
+      const clone = vi.spyOn(globalThis, 'structuredClone');
+      expect(await timeline.archive!()).toBeNull();
+      expect(encode).not.toHaveBeenCalled();
+      expect(clone).not.toHaveBeenCalled();
+    } finally { timeline.dispose(); vi.restoreAllMocks(); }
+  });
+
   it('publishes client custody beside native queue ids in both snapshots and incremental batches', async () => {
     const source = await stage(await fixtureLines());
     const timeline = await open(source.root);
