@@ -40,7 +40,7 @@ it('keeps a failed bootstrap action in one unified notice and waits for an expli
   await render(startup, 'Missing record')
   await render(startup, 'Missing record')
   expect(notify).toHaveBeenCalledOnce()
-  expect(notify.mock.calls[0]![0]).toMatchObject({ title: 'Agent bootstrap failed', tier: 'error', action: { label: expect.stringMatching(/^(Try again|再试一次)$/) } })
+  expect(notify.mock.calls[0]![0]).toMatchObject({ title: 'Agent bootstrap failed', tier: 'error', action: { label: expect.stringMatching(/^(Restart|重新启动)$/) } })
   expect(retry).not.toHaveBeenCalled()
   notify.mock.calls[0]![0].action!.onClick()
   expect(retry).toHaveBeenCalledOnce()

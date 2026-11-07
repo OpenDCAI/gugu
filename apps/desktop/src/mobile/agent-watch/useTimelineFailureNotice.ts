@@ -38,7 +38,7 @@ export function useTimelineFailureNotice(key: string, readError: string | null, 
     notice.current = null
     if (kind === 'startup') {
       notice.current = notify({ title: messageForUser(error), tier: 'error', action: {
-        label: translateSessionMessage('transcript.condition.retry'),
+        label: translateSessionMessage('transcript.condition.restartAgent'),
         onClick: () => { if (active.current === key) void latest.current?.() },
       } })
     } else toast(messageForUser(error), 'error')
