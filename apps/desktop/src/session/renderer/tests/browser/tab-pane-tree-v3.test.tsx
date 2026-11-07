@@ -10,6 +10,7 @@ import { PaneTreeView } from '@renderer/features/tabs/pane-tree-view';
 import { PaneContent } from '@renderer/features/tabs/pane-content';
 import { PaneContext } from '@renderer/features/tabs/pane-context';
 import { tabFullscreen, WORKSPACE_ANCHOR } from '@renderer/features/tabs/tab-fullscreen';
+import { WINDOW_CONTROL_BAR_HEIGHT_PX } from '@/lib/window-chrome';
 import '@renderer/index.css';
 import '@/styles/tokens.css';
 
@@ -74,6 +75,25 @@ it('narrowing and widening only change visibility, preserving both panes, tabs a
   harness.container.style.width = '1000px';
   await until('the same tree widens again', () => !harness.container.querySelector('[data-pane-tree-narrow]'));
   expect(JSON.stringify(layout.snapshot)).toBe(before);
+});
+
+it('a page shown again after being hidden in a narrow window fills its cell, and both do once widened', async () => {
+  await mount();
+  const box = (paneId: string) => harness.container.querySelector(`iframe[title="${paneId}"]`)!.parentElement!.getBoundingClientRect();
+  const [first, second] = layout.groups.map(({ paneId }) => paneId);
+  const pageHeight = 600 - WINDOW_CONTROL_BAR_HEIGHT_PX;
+  const fills = (paneId: string, width: number) => { expect(box(paneId).width).toBe(width); expect(box(paneId).height).toBe(pageHeight); };
+  harness.container.style.width = '300px';
+  await until('the real tree narrows', () => !!harness.container.querySelector('[data-pane-tree-narrow]'));
+  for (const paneId of [first, second, first]) {
+    await act(async () => layout.setActiveGroup(paneId));
+    fills(paneId, 300);
+  }
+  harness.container.style.width = '1000px';
+  await until('the same tree widens again', () => !harness.container.querySelector('[data-pane-tree-narrow]') && box(first).width > 0 && box(second).width > 0);
+  expect(box(first).width + box(second).width).toBeGreaterThan(990);
+  expect(box(first).height).toBe(pageHeight);
+  expect(box(second).height).toBe(pageHeight);
 });
 
 it('splitting and closing a pane keep the pane that stays mounted, its page the same node', async () => {
