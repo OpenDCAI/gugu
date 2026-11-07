@@ -40,7 +40,8 @@ describe('one-conversation unread permission boundary', () => {
       [{ name: 'main', kind: 'conversation', actions: ['unread'] }, { name: 'other', kind: 'conversation', actions: ['unread'] }],
     ]) expect(() => parseExtensionManifest({ ...good, permissions: { capabilities: ['chat:unread'], bindings } })).toThrow();
     expect(() => parseExtensionManifest({ ...good, permissions: { capabilities: ['chat:unread'] } })).toThrow();
-    expect(() => parseExtensionManifest({ ...good, apiVersion: 30 })).toThrow();
+    for (const apiVersion of [30, 31]) expect(() => parseExtensionManifest({ ...good, apiVersion })).toThrow();
+    expect(() => parseExtensionManifest({ ...good, apiVersion: 31, permissions: {} })).not.toThrow();
   });
 
   it('persists a selection across host restart, partitioned by actual account and installed publisher', () => {

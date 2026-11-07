@@ -67,13 +67,18 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
       ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
     }
   }
+  // The desktop keeps background throttling off, so a minimised window still looks visible in here: the host says so.
+  let windowVisible = true, drawnAt = 0;
+  const unseen = () => document.hidden || !windowVisible;
   function tick(now) {
     raf = 0;
-    if (document.hidden || reduced.matches || held) return;
-    draw(now); raf = requestAnimationFrame(tick);
+    if (unseen() || reduced.matches || held) return;
+    // The wave resting on the settled logo is as smooth at 30 fps as the login flock, and leaves frames in between empty.
+    if (!settled || now - drawnAt >= 1000 / 30) { drawnAt = now; draw(now); }
+    raf = requestAnimationFrame(tick);
   }
   function resume() {
-    if (initialized && !document.hidden && !reduced.matches && !held && !raf) raf = requestAnimationFrame(tick);
+    if (initialized && !unseen() && !reduced.matches && !held && !raf) raf = requestAnimationFrame(tick);
   }
   function sizeReady() {
     if (!fontReady || !build()) return;
@@ -98,6 +103,10 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
       held = false;
       const now = performance.now();
       finishEntrance(now); draw(now); resume();
+    }
+    if (event.data.type === 'gugu-startup-window') {
+      windowVisible = event.data.visible;
+      if (unseen() && raf) { cancelAnimationFrame(raf); raf = 0; } else resume();
     }
     if (event.data.type === 'gugu-startup-palette') {
       RGB = event.data.foregroundRgb;

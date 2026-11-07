@@ -14,6 +14,7 @@ import '../../i18n/registerMainCatalog'
 import { rendererLogger } from '../../lib/log'
 import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
 import { GuguSubscriptionRow } from '../../session/renderer/features/settings/subscriptions/GuguSubscriptionRow'
+import { AccountLoginMethods } from './AccountLoginMethods'
 
 const log = rendererLogger('settings/account')
 
@@ -168,13 +169,9 @@ export function AccountSection({ user, updateUser, logout, mobile = false }: Acc
           )}
         />
         <SettingsRow
-          layout="field"
-          title={t('account.email')}
-          control={<span className="gg-settings-row-value">{user?.email ?? ''}</span>}
-        />
-        <SettingsRow
           stack
           layout="field"
+          className="col-start-1"
           title={<label htmlFor="settings-account-bio">{t('account.bio')}</label>}
           control={(
             <input
@@ -243,6 +240,8 @@ export function AccountSection({ user, updateUser, logout, mobile = false }: Acc
           {saving ? t('account.saving') : t('account.save')}
         </Button>
       </div>
+
+      {user && <AccountLoginMethods key={user.id} userId={user.id} onEmailChanged={email => updateUser({ ...user, email })} />}
 
       {mobile && officialServicesEnabled() && (
         <SettingsGroup presentation="summary"><GuguSubscriptionRow /></SettingsGroup>

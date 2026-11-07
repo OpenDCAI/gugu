@@ -15,6 +15,8 @@
  * failing) product reading.
  */
 
+import { createComputed, createRoot } from 'solid-js';
+import { applyTranscriptSnapshot } from '../../../../apps/desktop/src/components/assistant-ui/transcript-sync';
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { STICK_THRESHOLD_PX } from '@session-chat/core/stick-to-bottom';
@@ -334,6 +336,48 @@ describe('transcript scroll behaviour across the P3 row redraw', () => {
     ).toBeGreaterThan(STICK_THRESHOLD_PX);
   });
 
+  it.each(['new-turn', 'composer-resize'] as const)(
+    'keeps a small upward reading gesture detached through %s, until the reader returns to the end',
+    async change => {
+      const { scrollEl, view, appendCycle, state } = await mountTranscript(120, { composer: 'slot', turns: shortTurns('near', 80) });
+      view.scrollToBottom();
+      await settled(scrollEl);
+      const before = scrollEl.scrollTop;
+      scrollEl.scrollTop -= 24;
+      expect(scrollEl.scrollTop).toBeLessThan(before - 20);
+      await settled(scrollEl);
+      expect(state.scroll.get().kind, 'a deliberate upward scroll inside the old 48px zone still follows the tail').toBe('anchor');
+      const seen = readerRow(scrollEl);
+      expect(seen).not.toBeNull();
+      if (change === 'new-turn') appendCycle();
+      else view.composerSlot!.style.height = '180px';
+      await settled(scrollEl);
+      expect(state.scroll.get().kind).toBe('anchor');
+      expect(rowOffset(scrollEl, seen!.itemId)).toBeCloseTo(seen!.offset, 0);
+
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+      await settled(scrollEl);
+      expect(state.scroll.get().kind, 'manually returning to the actual bottom restores follow').toBe('tail');
+      appendCycle();
+      await settled(scrollEl);
+      expect(distanceToBottom(scrollEl)).toBeLessThanOrEqual(1);
+    }
+  );
+
+  it('detaches even a one-pixel upward reading gesture from the end', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('one-pixel', 80) });
+    m.view.scrollToBottom();
+    await settled(m.scrollEl);
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.scrollTop -= 1;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 0.5);
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+  });
+
   // #6401:视口之上的行长高,读者看着的那一行**任意一帧**都不动(±1px)—— 包括手指还在拖(落定窗口开着)的时候。
   it('keeps the reader\'s row still on every frame while a row above grows mid-drag', async () => {
     const { scrollEl, view, state } = await mountTranscript(120, { turns: growingRowHistory() });
@@ -644,6 +688,42 @@ describe('the first projection onto a (re)attached conversation uses the geometr
     }
   });
 
+  it('keeps following after a late browser step at the end of a smooth return', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('smooth-end', 80), height: 600 });
+    m.scrollEl.scrollTop = 0;
+    await settled(m.scrollEl);
+    m.view.scrollToBottom({ behavior: 'smooth' });
+    await until('the smooth return reaches the end', () => distanceToBottom(m.scrollEl) <= 1);
+    await settled(m.scrollEl);
+    // A queued fractional animation step is not another reader gesture.
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.scrollTop -= 2;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 1);
+    await settled(m.scrollEl);
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('tail');
+    expect(distanceToBottom(m.scrollEl)).toBeLessThanOrEqual(1);
+  });
+
+  it('lets an upward reader gesture interrupt a smooth return to latest', async () => {
+    const m = await mountTranscript(0, { turns: shortTurns('smooth-reader', 80), height: 600 });
+    m.scrollEl.scrollTop = 0;
+    await settled(m.scrollEl);
+    m.view.scrollToBottom({ behavior: 'smooth' });
+    await until('the smooth return is actually moving', () => m.scrollEl.scrollTop > 50 && distanceToBottom(m.scrollEl) > 50);
+    const before = m.scrollEl.scrollTop;
+    m.scrollEl.dispatchEvent(new WheelEvent('wheel', { deltaY: -24, bubbles: true }));
+    m.scrollEl.scrollTop = before - 24;
+    expect(m.scrollEl.scrollTop).toBeLessThan(before - 20);
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    const seen = readerRow(m.scrollEl)!;
+    m.appendCycle();
+    await settled(m.scrollEl);
+    expect(rowOffset(m.scrollEl, seen.itemId)).toBeCloseTo(seen.offset, 0);
+  });
+
   // 平滑滚动还在路上就换会话:那段动画属于上一条会话,换进来的一条照样落在它自己的意图上(锚在顶部)。
   // `stray`:中止之后浏览器仍可能落下动画在途的那一步(CI 负载下实测 11px)。它在哪一帧落下由浏览器与机器负载决定,
   // 所以两端都钉住:'sync' 紧跟换会话,'settled' 在换进来的一条已经落在自己意图上之后 —— 哪一帧落下都不是读者手势。
@@ -714,5 +794,61 @@ describe('the first projection onto a (re)attached conversation uses the geometr
       await settled(m.scrollEl);
       expect(m.scrollEl.scrollTop, 'the reader\'s own scroll was undone by a re-projection').toBeCloseTo(before + 200, 0);
     });
+  });
+});
+
+
+describe('native snapshots cannot authorize following the reader', () => {
+  const running = (): TranscriptTurn => ({ id: 'native-live', seq: 100, initiator: 'user', items: [
+    { kind: 'message', id: 'native-input', seq: 0, role: 'user', text: 'Existing local question' },
+    { kind: 'message', id: 'native-answer', seq: 1, role: 'assistant', text: 'Streaming answer paragraph.\n\n'.repeat(160) },
+  ] });
+
+  it('publishes the active turn atomically with a reseeded history snapshot', async () => {
+    const history = shortTurns('snapshot', 40), active = running();
+    const m = await mountTranscript(0, { turns: history, height: 600, agentConversation: true });
+    m.state.transcript.activeTurn.set(active, 'generating');
+    await settled(m.scrollEl);
+    const observed: Array<string | null> = [];
+    const dispose = createRoot(dispose => {
+      createComputed(() => { observed.push(m.state.transcript.state.activeTurnSnapshot?.id ?? null); });
+      return dispose;
+    });
+    try {
+      observed.length = 0;
+      applyTranscriptSnapshot(m.state.transcript, { op: 'seed', turns: structuredClone(history) }, structuredClone(active));
+      expect(observed, 'one network snapshot must not publish an artificial idle interval').not.toContain(null);
+    } finally { dispose(); }
+  });
+
+  it('keeps a large upward reading anchor across native history and active replacement', async () => {
+    const history = shortTurns('native-reader', 40), active = running();
+    const m = await mountTranscript(0, { turns: history, height: 600, agentConversation: true });
+    m.state.transcript.activeTurn.set(active, 'generating');
+    await settled(m.scrollEl); m.view.scrollToBottom(); await settled(m.scrollEl);
+    m.scrollEl.scrollTop -= 1400; await settled(m.scrollEl);
+    expect(distanceToBottom(m.scrollEl)).toBeGreaterThan(900);
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    const seen = readerRow(m.scrollEl)!;
+    applyTranscriptSnapshot(m.state.transcript, { op: 'seed', turns: structuredClone(history) }, structuredClone(active));
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind, 'history polling is not a new send').toBe('anchor');
+    expect(rowOffset(m.scrollEl, seen.itemId)).toBeCloseTo(seen.offset, 0);
+  });
+
+  it.each(['another-viewer', 'same-viewer-other-device'])('does not follow an incoming input from %s', async source => {
+    const m = await mountTranscript(0, { turns: shortTurns('incoming', 80), height: 600, agentConversation: true });
+    m.view.scrollToBottom(); await settled(m.scrollEl); m.scrollEl.scrollTop -= 1400; await settled(m.scrollEl);
+    const seen = readerRow(m.scrollEl)!;
+    expect(m.state.scroll.get().kind).toBe('anchor');
+    const text = source === 'another-viewer'
+      ? '<gugu_delivery from_id="user:11111111-1111-4111-8111-111111111111" from_type="human" msg="msg:22222222-2222-4222-8222-222222222222"><![CDATA[Remote message]]></gugu_delivery>'
+      : 'A user input received from a different device';
+    m.state.transcript.history.append([{ id: 'remote-new', seq: 100, initiator: 'user', outcome: { kind: 'done' }, items: [
+      { kind: 'message', id: 'remote-new-input', seq: 0, role: 'user', text },
+    ] }]);
+    await settled(m.scrollEl);
+    expect(m.state.scroll.get().kind, 'only an explicit local send or latest action may restore following').toBe('anchor');
+    expect(rowOffset(m.scrollEl, seen.itemId)).toBeCloseTo(seen.offset, 0);
   });
 });

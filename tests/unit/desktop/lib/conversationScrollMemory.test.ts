@@ -44,7 +44,8 @@ describe('conversation scroll memory', () => {
       })
       vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 900 } as DOMRect)
       vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({ top: 84, bottom: 160 } as DOMRect)
-      await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
+      // The scroll is read after the frame is painted (lib/afterPaint); the slot goes away in a later frame.
+      await act(async () => { scroller.dispatchEvent(new Event('scroll')); await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))) })
       await act(async () => { slotRoot.render(null) })
       expect(scroller.isConnected).toBe(false)
       expect(scroller.scrollHeight, 'the slot root has already removed the live geometry').toBe(0)

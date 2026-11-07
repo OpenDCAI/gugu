@@ -33,11 +33,12 @@ export class WorkspaceRegistry {
   async acquire(
     key: string,
     projectId: string,
-    factory: () => Promise<WorkspaceFactoryResult>
+    factory: () => Promise<WorkspaceFactoryResult>,
+    { retain = true }: { retain?: boolean } = {}
   ): Promise<WorkspaceAcquireResult> {
     const existing = this.entries.get(key);
     if (existing) {
-      existing.refCount += 1;
+      if (retain) existing.refCount += 1;
       return { workspace: existing.workspace };
     }
 
@@ -45,7 +46,7 @@ export class WorkspaceRegistry {
     if (inFlight) {
       const acquired = await inFlight;
       const current = this.entries.get(key);
-      if (current) current.refCount += 1;
+      if (current && retain) current.refCount += 1;
       return acquired;
     }
 
@@ -54,7 +55,9 @@ export class WorkspaceRegistry {
         const workspace = result.workspace;
         this.entries.set(key, {
           workspace,
-          refCount: 1,
+          // A lookup can populate the cache without owning a session/draft lease.
+          // Its resources live until the normal project or process teardown.
+          refCount: retain ? 1 : 0,
           projectId,
           onDestroy: result.onDestroy,
           onDetach: result.onDetach,
