@@ -8,9 +8,13 @@ import zhMessaging from '../../../../../apps/desktop/src/i18n/locales/zh-CN/mess
 import { UI_EVENTS } from '../../../../../apps/desktop/src/lib/uiEvents'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem, GroupChatSettings, GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
-import { chat as topicFixture, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
+import { chat, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
 import type { groupAgentStatusIndicatorProps } from '../../../../../apps/desktop/src/lib/groupAgentStatus'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
+
+/** Topic chatter: unread, none of it addressed to you. */
+const topicFixture = (patch: Partial<ChatItem>) => chat({ ...patch, unread_locator: { stream_id: 'main', stream_kind: 'main', thread_root_id: null, message_id: 'first', message_seq: 1,
+  unread_count: patch.unread_count ?? 0, addressed_count: 0, cursor_seq: 0, version: 1, is_marked_unread: false } })
 
 let harness: ReturnType<typeof createReactHarness>
 const pinChat = vi.fn(async () => {})

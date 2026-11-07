@@ -119,13 +119,8 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
   dispatch: { text: 'picked' },
   clipboardWriteText: { text: 'hi' },
   openLink: { url: 'gugu://ext/radar/radar' },
-  forumPost: { title: 't', body: 'b' },
-  forumReply: { postId: '0b000000-0000-4000-8000-000000000002', text: 'hi' },
-  forumReact: { kind: 'post', id: '0b000000-0000-4000-8000-000000000002', emoji: '👍', on: true },
-  forumRemove: { reply: '0d000000-0000-4000-8000-000000000004' },
-  forumBlock: { userId: 'user:0c000000-0000-4000-8000-000000000003', on: true },
-  forumAssign: { postId: '0b000000-0000-4000-8000-000000000002', agentId: 'user:0a000000-0000-4000-8000-000000000001' },
-  forumAward: { postId: '0b000000-0000-4000-8000-000000000002', awards: [] },
+  cloudWrite: { name: 'radar_save', args: {} },
+  pickAgent: {},
 }
 
 describe('the phone refuses a verb outside the gesture it needs, in the same sentence as the desktop (L11 B4)', () => {

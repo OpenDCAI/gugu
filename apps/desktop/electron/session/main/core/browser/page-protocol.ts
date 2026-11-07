@@ -1,3 +1,5 @@
+import { isAbsolute } from 'node:path';
+import { requireAgentFileTreeAccess } from '@gugu/core/local/state/agentFileBoundary';
 import type { WebContents } from 'electron';
 import { isSupportedBrowserNavigationUrl } from './browser-navigation';
 import { pageNetworkEvent } from './page-network-events';
@@ -153,6 +155,12 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
       }
       if (method === 'Input.dispatchDragEvent' && [params.files, (params.data as { files?: unknown } | undefined)?.files].some(files => Array.isArray(files) && files.length > 0)) {
         throw new Error('page protocol: dragging local files is not available');
+      }
+      if (method === 'DOM.setFileInputFiles' && Array.isArray(params.files)) {
+        for (const file of params.files) {
+          if (typeof file !== 'string' || !isAbsolute(file)) throw new Error('page protocol: invalid upload path');
+          await requireAgentFileTreeAccess(file, { followLinks: true });
+        }
       }
       await bounded(ready, signal);
       assertLive();

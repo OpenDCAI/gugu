@@ -90,6 +90,10 @@
 }
 .gg-settings-detail:not([data-mobile]) [data-settings-group='editor'] .gg-settings-row { padding-block: 0; }
 .gg-settings-detail:not([data-mobile]) [data-settings-group='danger'] { padding-top: var(--spacing-lg); border-top: 1px solid var(--border-color); }
+/* Without feedback below the sign-in rows, keep their normal bottom inset up to the divider. */
+.gg-settings-detail:not([data-mobile]) .gg-account-login-methods:has(> .gg-settings-card:last-child) + [data-settings-group='danger'] {
+  margin-top: calc(-1 * var(--spacing-2xl));
+}
 @container gg-settings (max-width: 540px) {
   .gg-settings-detail:not([data-mobile]) [data-settings-group='editor'] > .gg-settings-card { grid-template-columns: minmax(0, 1fr); }
 }

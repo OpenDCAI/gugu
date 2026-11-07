@@ -7,8 +7,11 @@
 //
 // 所以:让挂钩本身发生在 import 期,并在 main.tsx 里作为**第一个** import 出现。
 // 与主进程那边同一个教训 —— 启动早期才是最需要日志的一段(见 logger.ts 的 LateFileSink)。
+import { installErrorSummaryReporting } from './errorSummaryReporting'
 import { installErrorRingBuffer } from './errorRingBuffer'
 import { installLocalRendererDiagnostics } from './localRendererDiagnostics'
 
 installErrorRingBuffer()
 installLocalRendererDiagnostics()
+
+installErrorSummaryReporting()

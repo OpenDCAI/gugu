@@ -1,0 +1,53 @@
+# Protected private storage and Agent file gateways
+
+This is a security boundary for Gugu-provided Agent file actions. It does not enable a credential vault or provide OS isolation. Common permission observation, disabled enforcement, policy-read failure, broad folder grants and ordinary confirmation cannot waive this boundary.
+
+## Trusted registration and readiness
+
+`packages/core/src/local/state/protectedPrivateStorage.ts` declares the permission-record root and `GUGU_HOME/private/password-vault/v1/` before either feature creates files. The latter includes ciphertext, key envelopes, metadata, audit, controls, backups and atomic-write temporary files. It remains excluded on restart and before vault initialization.
+
+Other trusted host components can call `registerProtectedPrivateStorage({ id, paths })` during startup. Paths are absolute files or directory trees and may not exist yet. Input is copied and frozen. IDs cannot replace defaults or previous registrations, and registrations cannot be removed. There is no tool, IPC or App API for registration.
+
+The first file-boundary construction seals the registration set before asynchronous path checks begin. A later registration fails; its feature must remain unavailable. This prevents an in-flight operation authorized under an older set from reading newly declared private material. Additional locations must be declared at host startup before serving file gateways; phase 1 uses the predeclared vault root and offers no recovery-material file export.
+
+Trusted vault callers use `privatePasswordVaultDirectory()`, `PASSWORD_VAULT_STORAGE` and `await protectedPrivateStorageStatus(PASSWORD_VAULT_STORAGE)` immediately before accessing private material. The result is `{ status: 'ready' }` or `{ status: 'unavailable', reason: 'not_registered' | 'protection_unavailable' }`. Registration/readiness does not grant Agent access. `ready` describes the current file boundary only; person approval, effective password-policy enforcement, safe observation and reliable encrypted audit are separate release requirements. Trusted storage writers use their own person-only APIs.
+
+## Shared mechanism
+
+All gateways reuse `agentFileBoundary.ts`; there is no second path resolver. Its existing component-by-component `lstat`/`readlink` resolution, lexical and canonical roots, case handling, fresh `dev`/`ino` identity index, link counts and bounded tree checks apply to every registered root, including single files and future destinations. Root-resolution/index failures produce a fixed unavailable error rather than an allow or raw private filenames.
+
+`requireAgentFileAccess` checks an individual path. `requireAgentFileTreeAccess` additionally refuses a delegated directory containing protected descendants and checks external hard-link aliases before archive/workspace/upload delegation. Native listing filters protected entries; ripgrep exclusions are installed before its process reads files, with an additional hard-link tree check. A working copy containing a private root is refused by App file operations, including live document loading/saving.
+
+Browser directory uploads and automatic output directories opt into `followLinks` on the same tree checker: their downstream enumeration cannot assume cp/rg's treatment of nested links. Each link target uses the existing canonical resolver and root/identity checks; ordinary linked files/directories remain usable, while cycles and unbounded traversal fail closed. Native cp/rg and working-copy checks retain their existing traversal behavior.
+
+## Host-entry inventory
+
+| Host entry | Boundary or classification | Verification |
+| --- | --- | --- |
+| Native `fs.*`: list/read/stat/preview/OCR/search/write/patch/mkdir/copy/move/trash/tags/xattr | `device-actions/paths.ts` and `families/files.ts`; parent operations and rg use the shared tree checks | Actual native-action negatives, filesystem state checks, real rg stdout, ordinary-file positives |
+| Mail and Messages local attachments; host-read app metadata | Mail/Messages use the same native path resolver; host plist/include reads and dictionary source selection check the same boundary | Native path regressions and existing family suites; OS application scripting remains arbitrary-native-program risk below |
+| IM files, avatar upload, owner notification and project publication | `gugu-im-server.mjs` validates paths before byte reads/delegation; project import/publication validates source/destination paths | Chat byte-reader negatives; authenticated direct/catalog calls; controlled upload receiver |
+| Session-message attachments and handoff | `sessionFileHandoff.ts` excludes protected sources before upload/commit | Actual attachment upload functions; symlink/hard-link negatives and zero receiver deliveries |
+| Downloads, cache chunks, snapshots, file export/save | `fileSnapshots.ts` validates cache, staging, final destinations and export paths; recursive cleanup is checked | Real cache/export negatives, existing file-resolver tests; ordinary persisted transcript upload remains usable |
+| Workspace chunk read/write; project-file import/publication; durable attachment ingress | `workspace-transfer.ts` checks individual targets; bulk attachment ingress checks its workspace before effects | Actual chunk/read/write and private-source-copy negatives; ordinary transfer regressions |
+| App working-copy open/read/download/create/rename/replace/delete/upload/open-with and live documents | `local-files.ts` and `working-copy-files.ts` reuse the boundary before delegation and live reads/writes; no exemption for a selected ancestor | Real local App service negatives, working-copy read negatives, live sync regressions and ordinary positives |
+| App create/fork/install/bump/check/pack; installed-App export and received bundles | `extension-agent-actions.ts` and `app-forks.ts` check source/output/manifest paths; `extension-archive.ts` checks before inspection, archive reads, copies and extraction; `app-tool-host.ts` checks package sending | Archive pre-inspection negative and existing App action/archive suites |
+| Agent `session_open_in_tab` local path | Shared path check before file stat or pane open; App targets also pass the App boundary | Entry-point review; existing orchestration suite in CI |
+| Browser file chooser/upload/drop | Browser App checks input paths before Playwright; `DOM.setFileInputFiles` checks before native debugger dispatch. Directory delegation checks nested link targets through the same boundary | Browser host-wrapper and page-protocol negatives for direct/linked/ancestor and nested-link paths; ordinary file/directory/link positives |
+| Browser snapshots/screenshots/console/network/evaluate saved to a named file; automatic downloads/artifacts | Named output paths use the cached Playwright workspace; generated output uses the checked session output directory. No Agent-selected download destination bypass | Output-filename negatives and existing browser bridge tests; full sensitive-observation coordination is a separate vault dependency |
+| Browser local-file navigation, native back/forward and file dragging | Existing page-protocol URL/history policy refuses local-file pages; local-file drag payloads are refused. Upload bytes still have the explicit path gates above | Existing page-protocol unit and CI Electron fixtures; no relaxed URL policy |
+| History/context/export/upload | Protected bytes are withheld at their file source, independently of result redaction or policy reads. Safe MCP results are persisted and exported through the normal attachment uploader | Actual authenticated MCP calls, disk JSONL, actual loopback object-store receiver; canary absent in received transcript bytes |
+| Diagnostics and application database backups | Feedback log-tail reads the fixed ordinary application log, not a recursive home bundle. Renderer diagnostics have a separate local sink. Existing migration backups copy the application database; the vault is a separate excluded tree. These are not Agent-selected vault export APIs | Source inventory; this PR does not claim end-to-end vault/audit/log acceptance. The vault implementation must not write secrets into ordinary logs/database/transcripts |
+| Terminal, arbitrary scripts, external native/stdio programs, OS application scripting and compromised local account | **Terminal-class residual risk**: these execute outside Gugu's file gateways and can access the same OS account. Native App programs/third-party executable MCP servers do not become sandboxed by registering storage | Explicit accepted boundary; no claim of OS isolation or protection against a malicious native program |
+
+## Evidence and remaining acceptance
+
+Regression fixtures use disposable local canaries only. The initial new native/MCP/history/upload suite produced 17 failing tests before registration was connected. Extended App/browser/cache/archive probes produced 20 baseline failures, including resolved private bytes, persisted transcript content, actual modified files and unguarded debugger/Playwright dispatch. The final baseline inventory reproduced 39 failures in three suites, plus a separate binary-replacement failure (the text replacement path already refused live documents). Ordinary positive cases distinguish a denial from a broken test fixture.
+
+A subsequent browser directory-enumeration check reproduced three additional failures for nested file/directory links at the host wrapper and page protocol. Those consumers now opt into linked-tree checks; ordinary internal/external links still pass and cyclic directory delegation is refused.
+
+Independent review found two additional App reads: retained template `app.js` content and the repository-root fork receipt for a nested bundle. Each now has a failing-before-fix regression. Retained templates are checked before scaffolding and immediately before readback; the receipt reader itself checks the exact repository-root path before reading or parsing it.
+
+An additional parent-scope regression covers delegation of a filesystem root: the shared containment comparison preserves an existing trailing separator, so `/` (or a drive root) is recognized as an ancestor of protected storage.
+
+Unit fixtures exercise real file actions, authenticated MCP, persistence and actual loopback uploads. Browser tests exercise the real host wrapper and page-protocol gate with a controlled transport; they are not a real browser login or full vault acceptance. No UI, credential storage, unlock, browser filling, approval or sensitive-observation implementation is added. Saving/use stays unavailable until the complete feature and independent security acceptance are ready.

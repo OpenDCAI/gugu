@@ -742,7 +742,7 @@ export function ChatRoot(props: ChatRootProps) {
 
   const committedActivityLanes = createMemo(() => { committedUnitsVersion(); return activityLanes(committedUnitsArr); });
   const activityLaneRanges = createMemo(() => joinedActivityLanes(committedActivityLanes(), activeUnits(), committedUnitsArr.length));
-  const activityLaneByIndex = createMemo(() => new Map(activityLaneRanges().map(lane => [lane.index, lane])));
+  const activityLaneByIndex = createMemo(() => new Map(activityLaneRanges().filter(lane => viewState().isCollapsed(lane.id)).map(lane => [lane.index, lane])));
 
   const latestConversationMessageId = createMemo(() => latestConversationBubbleId(units(), { theme: theme() }));
   const pendingBubbleMeasures = new Set<string>();
@@ -901,7 +901,7 @@ export function ChatRoot(props: ChatRootProps) {
     committedUnitsVersion();
     return collectUserTurnUnits(
       state().transcript.state.committedTurns,
-      makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS)
+      makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { viewerId: props.context.selfIdentity()?.userId }
     );
   });
 
@@ -1022,7 +1022,7 @@ export function ChatRoot(props: ChatRootProps) {
       const base = committedUnitsArr.length;
       const inActive = collectUserTurnUnits(
         [active],
-        makeUnitsView(activeUnits(), NO_ACTIVE_UNITS)
+        makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { viewerId: props.context.selfIdentity()?.userId }
       ).map((i) => base + i);
       return [...userTurns(), ...inActive];
     },
@@ -1057,18 +1057,16 @@ export function ChatRoot(props: ChatRootProps) {
       let ends = active
         ? [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)]
         : committed;
-      // The first, standalone process header has the same boundary as reply
-      // heads. Otherwise a zero-gap input sticks 8px into it and its backdrop
-      // plus fade cover the no-tool first frame (#1129).
+      // Replies and process metadata still belong to the viewer's reading lane.
+      // Only another visible input, or the end of an opened activity, releases it.
       const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
       ends = ends.filter(index => !all.at(index)?.activityFold);
+      // A separately delivered panel reply starts its own reading boundary.
       for (let i = 0; i < all.length; i++) {
-        const unit = all.at(i)!;
-        if (unit.activityFold) continue;
-        const data = unit.data as ChatMessage;
-        if (unit.kind === 'turn-process' || data.role === 'assistant' && (data.conversationPart === 'head'
-          || data.conversationPart === 'body' && unit.itemId.includes(':sent:'))) ends.push(i);
+        const row = all.at(i)!, data = row.data as ChatMessage;
+        if (!row.activityFold && data.role === 'assistant' && data.conversationPart === 'body' && row.itemId.includes(':sent:')) ends.push(i);
       }
+      for (const lane of activityLaneByIndex().values()) ends.push(lane.end);
       return [...new Set(ends)].sort((a, b) => a - b);
     },
     [],
@@ -1081,7 +1079,7 @@ export function ChatRoot(props: ChatRootProps) {
     if (activity) return (activity.end < units().length ? virt.top(activity.end) : virt.total()) - virt.top(idx);
     const next = pinEnds().find((end) => end > idx);
     // Both sticky rows leave together: reserve the activity header below the own-message lane's end.
-    const tail = activityLaneRanges().find(lane => lane.index > idx && lane.end === (next ?? units().length));
+    const tail = [...activityLaneByIndex().values()].find(lane => lane.index > idx && lane.end === (next ?? units().length));
     return Math.max(virt.size(idx), (next !== undefined ? virt.top(next) : virt.total()) - virt.top(idx) - (tail ? virt.size(tail.index) + userTopGap : 0));
   }
 
@@ -1260,9 +1258,9 @@ export function ChatRoot(props: ChatRootProps) {
         writeScrollTop(next);
         return;
       }
-      // Anchor item not found (transcript not yet loaded); fall through to tail.
+      return; // Reconciliation can temporarily hide a reading anchor; it cannot authorize following.
     }
-    // tail mode (or anchor item not found yet): re-pin to end.
+    // Tail intent alone authorizes following content growth.
     if (props.stickToBottom !== false) {
       writeScrollTop(maxScrollTop());
     }
@@ -1766,8 +1764,8 @@ export function ChatRoot(props: ChatRootProps) {
     const input = turn ? latestViewerInput([turn], props.context.selfIdentity()?.userId, committedViewerInput()) : committedViewerInput();
     untrack(() => {
       if (resetActivityOnInput(state(), input, viewState())) {
-        abortSmoothScroll();
-        setAnchor({ kind: 'tail' });
+        // Received/reconciled inputs may update folds, never the reader's scroll intent.
+        // The host's local send action selects its scroll mode before asynchronous work.
         needsProject = true;
         scheduler.request();
       }
@@ -2260,7 +2258,7 @@ export function ChatRoot(props: ChatRootProps) {
                               >
                               <Show when={isPinAnchor()}><div class={pinBackdrop}
                                 classList={{ [activityPinBackdrop]: activityLaneByIndex().has(unitIndex) }}
-                                style={activityLaneByIndex().has(unitIndex) && activityPinOffset(unitIndex) > 0 ? { top: `${-userTopGap}px` } : undefined}
+                                style={{ top: `${-userTopGap}px` }}
                                 data-chat-pin-backdrop="" aria-hidden="true" /></Show>
                               <UnitRow
                                 unit={u()!}

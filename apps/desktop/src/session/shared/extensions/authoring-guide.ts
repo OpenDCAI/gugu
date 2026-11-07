@@ -768,41 +768,34 @@ rule announced beforehand, never by what only the judge knows (citing a seer's c
 No file is for one person's eyes only.
 `;
 
-export const EXTENSION_GUIDE_FORUM = `# gugu.forum — the forum: posts, replies, bounties
+export const EXTENSION_GUIDE_CLOUD = `# gugu.cloud — your App's own part of the cloud
 
-The 咕咕 forum, read and written as the person signed in (manifest \`apiVersion\` 9). Free: no capability; every
-signed-in person may read it. Writing is a page's, inside the person's click. Who may see and do what is the
-database's: a new account (under 3 days, or never signed in on a device) cannot post or reply; a poster's block list;
-3 identities per owner in one post; 10 replies per identity per post in 10 minutes. A refusal's \`error.message\` holds
-the reason word (\`account_too_new\`, \`blocked_by_poster\`, \`owner_identity_limit\`, \`rate-limited\`, \`post_closed\`,
-\`bounty_insufficient_points\`, \`bounty_active_limit\`, \`bounty_award_too_early\`, \`bounty_past_grace\`,
-\`bounty_award_to_self\`, \`forum_post_has_open_bounty\`, \`forum_agent_not_assigned\`): say it in your own words.
+For an App with its own tables behind \`public.<App id>_*\` functions (\`-\` in the id is \`_\`), reached as the person signed in
+(manifest \`apiVersion\` 31; \`typeof gugu.cloud\` tells an older gugu). No capability. Only an App installed from the market
+has it: a folder, a chat's bundle or a fork is \`denied\`, since any of them could name itself anything. Any other function
+or topic is \`denied\`. Who may see and do what is the database's; a refusal's \`error.message\` is its reason word: say it in
+your own words.
 
-- \`gugu.forum.list({ query?, sort?, filter?, mine?, limit?, offset? })\` → \`{ me: { id, points }, posts }\`. \`sort\`
-  \`active\` | \`new\` | \`amount\` | \`deadline\`; \`filter\` \`all\` | \`bounty_open\` | \`bounty_settled\`; \`mine\`
-  \`posted\` | \`answered\`. A post: \`{ id, title, excerpt, author: { id, name, avatar, points }, createdAt,
-  lastActivityAt, replyCount, bounty }\`; \`bounty\` null, or \`{ amount, visibility, deadlineAt, status, awards }\`.
-- \`gugu.forum.read(postId)\` → \`{ seq, me, post, bounty, replies, reactions, assignments }\`: the replies this person
-  can see (a poster-only bounty's answers are the poster's and each answerer's own until it settles), each \`{ id, body,
-  createdAt, toPosterOnly, replyTo, author: { id, name, avatar, isAgent }, owner: { id, name, points } }\`;
-  \`assignments\` the person's own agents on this post, with \`deliveryState\` (\`pending\` \`delivered\` \`undelivered\`
-  \`turn_failed\`) and \`lastError\`.
-- \`gugu.forum.post({ title, body, bounty? })\` → \`{ post }\`. With \`bounty: { amount (1–100), days (1|3|7),
-  visibility ('public'|'poster_only') }\` the host draws the confirmation and answers \`{ confirming: true }\`; the
-  new post arrives on \`gugu.forum.onChanged('feed', …)\`.
-- \`gugu.forum.reply(postId, text, { replyTo? })\` → \`{ reply }\` · \`gugu.forum.react({ kind: 'post'|'reply', id, emoji, on })\`
-  · \`gugu.forum.remove({ reply } | { post })\` · \`gugu.forum.block(userId, on)\`.
-- \`gugu.forum.assign(postId, agentId?)\`: gugu's sheet lists the person's own agents and they pick one (\`agentId\` only
-  preselects; you never list them), answering \`{ assigned: { agent } }\` or \`{ cancelled: true }\`. The agent is
-  woken with the post and answers with its own \`forum_reply\`.
-- \`gugu.forum.award(postId, [{ reply, amount }])\`: 1–3 answers adding up to the bounty, from 24 hours after posting
-  to 24 hours after the deadline; \`[]\` ends it without accepting. The host draws the confirmation, answers
-  \`{ confirming: true }\`, and the post's \`onChanged\` says \`settled\`.
-- \`gugu.forum.onChanged(postId | 'feed', fn)\` → unsubscribe. the handler gets \`{ kind, seq?, entityId? }\`: what moved, never
-  the thing: read again. The first one is \`{ kind: 'subscribed' }\`. ❌ Poll.
+Free:
 
-Community points move only behind the host's own sheet; an App never draws one. People and agents are \`user:<id>\`;
-posts and replies their bare id.
+- \`gugu.cloud.read(name, args?)\` → what the function returns. Over GET, so it cannot write; it must be STABLE or IMMUTABLE.
+  An argument null or absent is the function's default. Pages, the background page and programs.
+- \`gugu.cloud.write(name, args?)\`: on a page, inside the person's click; on a page an agent works it is not done and answers
+  \`null\`. In a program, for the agent the call is stamped with (\`apps-programs\`): pass that \`agent\` to the function, never one
+  from the arguments. What moves something of the person's: draw your own confirmation first.
+- \`gugu.cloud.on(topic, event, fn)\` → unsubscribe. A page's, on \`gugu:<App id>:…\` (the database broadcasts; a policy on
+  \`realtime.messages\` says who hears). \`fn\` gets \`{ payload }\`, or \`{ subscribed: true }\` each time it is (re)subscribed: read
+  again then, since a broadcast missed while away is not kept. ❌ Poll.
+- \`pickAgent({ title, subject, body, action, search, empty, preselect?, write? })\`: from a click, gugu's sheet in your words offers
+  the person's own agents (no capability: you never list them); → \`{ agent, written? }\` | \`{ cancelled: true }\`. Their press was in the
+  sheet, not your page, so \`write: { name, args, agent }\` goes with the ask: that press does \`cloud.write(name, { ...args, [agent]: <bare id> })\`.
+
+Your agents, woken from the cloud (\`agent.deliver\` with \`source\` = your App's id): a \`tools.js\` (\`apps-programs\`) that exports
+\`inbox_pull({ agent })\` → \`[{ key, seq, actor_user_id, actor_name, actor_is_agent, created_at, ref, context, arrival, content }]\`,
+\`inbox_ack({ agent, key, seq })\` and \`inbox_failed({ agent, key?, command?, state, error })\`, each
+\`_meta: { ui: { visibility: ['app'] } }\`, is asked what to hand an agent then and on later pulls. \`arrival\` says how to answer: your
+tools by their full name. Not installed, off or without \`agents:tools\` on that computer: the owner sees it on the agent's task page
+only (no chat to say it in), and retries once it is there.
 `;
 
 export const EXTENSION_GUIDE_MESSAGES = `# gugu.chats, gugu.messages — the chats you are in, and what was said
@@ -980,7 +973,7 @@ A tab with \`"widget": { "height": 240 }\` (API26; integer ${WIDGET_HEIGHT_MIN}�
 It cannot also declare hostPage, perSession, opensFiles or chatFile. \`ctx.widget\` is present in a message and its hidden check:
 \`{ messageId, data, sender }\`. Data is untrusted, immutable input from any chat member; never execute it. Persist personal
 state in App data and shared state in chat files. Every dispatch from a widget requires a gesture in that App, even with a target,
-on both desktop and phones. Forum and file calls retain their ordinary permission and gesture checks.
+on both desktop and phones. Cloud and file calls retain their ordinary permission and gesture checks.
 Normal App pages keep their existing behavior.
 Check your sent card with \`app_check { message_id: "msg:…" }\` (legacy alias: \`widget_id\`); the host infers its tab
 and binds its original input. Steps are real operations as the calling agent; shared writes change what everyone sees,
@@ -1147,8 +1140,8 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     text: EXTENSION_GUIDE_SESSIONS,
   },
   {
-    topic: 'apps-forum',
-    about: 'gugu.forum (9): the forum\'s list and posts, replies, reactions, bounties behind the host\'s confirmation, assigning your agents, and its change events.',
-    text: EXTENSION_GUIDE_FORUM,
+    topic: 'apps-cloud',
+    about: 'gugu.cloud (31): your App\'s own functions and broadcasts in the cloud as the person; gugu.pickAgent: the person picks one of their agents.',
+    text: EXTENSION_GUIDE_CLOUD,
   },
 ];

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -86,6 +86,22 @@ it('rejects an id change instead of replacing another App', async () => {
   writeFileSync(manifestFile, JSON.stringify(manifest));
   await expect(prepareForkVariant(fork.source_dir)).rejects.toThrow('Keep the upstream App id demo');
   expect(state.service.variants('demo').active).toBe('upstream');
+});
+
+it('checks the repository-root receipt for a nested fork source before parsing its bytes', async () => {
+  vi.stubEnv('GUGU_HOME', path.join(state.work, 'host-state'));
+  try {
+    const fork = await createAppFork('demo');
+    const privateRoot = path.join(state.work, 'host-state', 'private', 'password-vault', 'v1');
+    mkdirSync(privateRoot, { recursive: true });
+    const secret = path.join(privateRoot, 'ciphertext.bin');
+    writeFileSync(secret, 'synthetic-fork-receipt-canary');
+    const receipt = path.join(fork.git_dir, '.git', 'gugu-fork.json');
+    rmSync(receipt);
+    symlinkSync(secret, receipt);
+    await expect(prepareForkVariant(fork.source_dir)).rejects.toThrow('protected private storage');
+    expect(readFileSync(secret, 'utf8')).toBe('synthetic-fork-receipt-canary');
+  } finally { vi.unstubAllEnvs(); }
 });
 
 

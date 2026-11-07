@@ -37,7 +37,6 @@ vi.mock('../../../apps/desktop/src/lib/chat', () => ({
 vi.mock('../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../apps/desktop/src/lib/identityReadAdapter', () => ({
   readRequiredDisplayIdentities: vi.fn(async (ids: string[]) => ids.map((id) => ({ id, type: 'human', display_name: `申请人-${id}` }))),
-  readCommunityPoints: vi.fn(async () => 0),
 }))
 
 const { chatService } = await import('../../../apps/desktop/src/lib/chat')
