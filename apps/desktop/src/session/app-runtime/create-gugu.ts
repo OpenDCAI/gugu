@@ -200,6 +200,7 @@ export function createGugu(
       });
     }) } : {}),
     ...(host.appFiles.reveal ? { reveal: (file: unknown) => withRef(file, (ref) => host.appFiles.reveal!({ ref })) } : {}),
+    ...(host.appFiles.openIn ? { openInApps: () => host.appFiles.openInApps!({}), openIn: (file: unknown, app: string) => withRef(file, (ref) => host.appFiles.openIn!({ ref, app })) } : {}),
   });
 
   // Every v1 member; `appFiles`, `chats`, `checkPage`, `clipboard`, `messages`, `projects`, `theme` and `onFilesChanged` (it is

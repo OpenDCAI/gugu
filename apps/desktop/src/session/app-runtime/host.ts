@@ -64,6 +64,8 @@ export interface GuguHost extends ProjectionHost {
     writeChunk(args: WorkingCopyPart): Promise<{ received: number; entry?: AppFileEntry }>;
     /** A working copy's file or folder in this computer's file manager: a page's. */
     reveal?(args: { ref: AppFileRef }): Promise<void>;
+    openInApps?(args: Record<string, never>): Promise<Array<{ id: string; label: string }>>;
+    openIn?(args: { ref: AppFileRef; app: string }): Promise<void>;
     /** 「设为临时 / 一直保留」: the cloud copy of a chat file this person uploaded, cleared after their temporary period or kept. */
     keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
     watch(args: { watchId: string; place: AppPlace & { folder?: string; id?: string }; on: boolean }): Promise<void>;

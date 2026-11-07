@@ -209,6 +209,9 @@ img.details-picture { object-fit: contain; }
 .crumb[aria-current='page'] { color: var(--em-foreground); font-weight: 600; cursor: default; }
 .crumb-sep { opacity: .6; }
 .back { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; color: var(--em-foreground-muted); }
+.file[data-dotfile] .file-open { opacity: 0.6; }
+.file-link { color: var(--em-foreground-muted); }
+.file-title:has(.file-link) .file-name { flex: 0 1 auto; }
 .file[data-system] .file-mark { color: var(--em-accent-11); }
 .file.drop-target, .crumb.drop-target { background: var(--em-selected); }
 .file[data-git='added'] .file-name { color: var(--em-foreground-success); }

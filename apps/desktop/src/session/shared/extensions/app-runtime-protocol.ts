@@ -438,6 +438,8 @@ export interface AppFileEntry {
    * `null`: no cloud copy (a project file kept on its machine, a document, a folder). Absent where the read does not say.
    */
   keep?: { expiresAt: string | null; mine: boolean } | null;
+  /** A working copy's entry that is a symbolic link (`files.list`'s answer): it may point nowhere, or outside. */
+  symlink?: true;
   /** A chat file's version (G1: `files.replace` makes the next one); `null` for a working copy's file. */
   version: number | null;
   createdAt: string | null;

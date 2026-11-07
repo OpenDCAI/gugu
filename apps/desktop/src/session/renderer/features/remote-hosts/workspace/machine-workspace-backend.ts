@@ -21,7 +21,6 @@ import {
   type WorkspaceRpc,
 } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { setWorkspaceReachResolver } from '@renderer/features/sessions/workspace-backend/workspace-surface';
-import type { WorkspaceTreeBackend } from '@renderer/features/sessions/workspace-backend/workspace-tree-backend';
 import { events, onMachineEvent, rpc, rpcOn } from '@renderer/lib/ipc';
 import type { EventDefinition } from '@shared/lib/ipc/events';
 import { fileChangesChannel, fileTreeProjectionChannel } from '@shared/core/fs/fsEvents';
@@ -34,11 +33,9 @@ import type { SshPrompt } from '@shared/ssh-prompt';
 import { remoteErrorCode } from '../remote-failure-copy';
 import { hostStatusLabel, machineNoticeLabel } from '../connection-status';
 import { remoteHostsStore } from '../remote-hosts-store';
-import { downloadEntry } from './remote-file-actions';
 import { remoteForLocalPort, watchRemoteForwards } from './remote-forward-cache';
 import { remotePageFailureCopy, remotePortFailureText } from './remote-page-copy';
 import { RemotePageSession } from './remote-page-session';
-import { transfersFor } from './remote-transfer-wiring';
 import {
   forwardedUrl,
   presentForwardedUrl,
@@ -104,19 +101,6 @@ function machineRpc(deviceId: string): WorkspaceRpc {
   return new Proxy(rpc.workspace, {
     get: (target, ns, receiver) => (ns === 'files' ? files : Reflect.get(target, ns, receiver)),
   }) as WorkspaceRpc;
-}
-
-// ── 文件树:增删改名与本机同一套;拖进来 / 上传 / 下载要把字节搬过线 ──────────────────
-
-function machineTree(deviceId: string): WorkspaceTreeBackend {
-  return {
-    download(scope, entry) {
-      return downloadEntry(
-        transfersFor(deviceId, scope.projectId, scope.workspaceId),
-        { name: entry.name, path: entry.path, isDirectory: entry.kind === 'directory', size: entry.size ?? 0 }
-      );
-    },
-  };
 }
 
 // ── 浏览器:localhost 转到那台机器,`file:` 从那台机器取 ─────────────────────────────
@@ -278,7 +262,7 @@ function backendFor(deviceId: string): WorkspaceBackend {
       machine: { kind: 'remote', deviceId, label: () => deviceLabel(deviceId) },
       rpc: machineRpc(deviceId),
       browseDirectory: (_workspaceId, path) => rpcOn(deviceId).files.browseDirectory({ type: 'local', path }),
-      tree: machineTree(deviceId),
+      elsewhere: true,
       browser: machineBrowser(deviceId),
       // 终端与本机同一套(那台机器上的 pty,经 rpc 路由过去);只经咕咕云连着的机器不给(❌ 走消息额度)。
       terminal: {

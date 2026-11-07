@@ -147,7 +147,6 @@ export const enUSRemoteHostMessages = {
   // ── 文件树的增删改名、上传下载、跟着改动走(#6264,照 VS Code 远程资源管理器) ──────────
   'remoteFiles.downloaded': 'Downloaded {name}',
   'remoteFiles.downloadFailed': '{name} wasn’t downloaded.',
-  'remoteFiles.tooManyFiles': 'Over {count} files. Pick a smaller folder.',
   'remoteFiles.keptChanging': 'It kept changing while copying. Retry once the agent is done.',
   // ── 资源库 / 已安排 / 存储切到别的机器(#6264)────────────────────────────────
   'deviceScope.offlineSinceCached': '{device} is offline · last online {ago}. Showing the last copy; editable once it’s back.',
@@ -316,7 +315,6 @@ export const zhCNRemoteHostMessages: Record<RemoteHostMessageKey, string> = {
   // ── 文件树的增删改名、上传下载、跟着改动走(#6264,照 VS Code 远程资源管理器) ──────────
   'remoteFiles.downloaded': '已下载 {name}',
   'remoteFiles.downloadFailed': '{name} 没下载下来。',
-  'remoteFiles.tooManyFiles': '超过 {count} 个文件，请选小一点的文件夹。',
   'remoteFiles.keptChanging': '文件在复制中持续变化，请等 agent 完成后重试。',
   'deviceScope.offlineSinceCached': '「{device}」离线 · 上次在线 {ago}。显示的是缓存，上线后可修改。',
   'deviceScope.offlineSinceEmpty': '「{device}」离线 · 上次在线 {ago}。上线后显示内容。',

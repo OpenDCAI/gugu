@@ -855,6 +855,9 @@ export const BRIDGE_VERBS = {
   filesWriteChunk: { needs: 'files:write', machine: 'place' },
   /** A working copy's file or folder shown in this computer's file manager. */
   filesReveal: { needs: 'files:read', only: 'page' },
+  /** 「用 VS Code 打开」: the programs of this computer a file can be opened in, and opening it in one. */
+  filesOpenInApps: { needs: 'files:read', only: 'page' },
+  filesOpenIn: { needs: 'files:read', gesture: true, only: 'page' },
   /** A `files.download` under way stopped: what it had saved goes. */
   filesDownloadStop: { needs: null, only: 'page' },
   /**

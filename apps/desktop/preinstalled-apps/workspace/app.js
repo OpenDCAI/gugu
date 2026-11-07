@@ -38,6 +38,11 @@ const STRINGS = {
     copyRelativePath: '复制相对路径',
     tooLargeToCopy: '文件太大，不能复制内容',
     revealFile: '在文件管理器中显示',
+    openIn: '打开方式',
+    symlink: '符号链接',
+    savedSkipped: '已保存 {name}，有 {n} 个链接没存：{names}',
+    forwardTooLarge: '{name} 没转发出去：一次最多转发 512 MB，可以先下载。',
+    forwardChanging: '{name} 没转发出去：它正在被改动，等它写完再转发。',
     confirmRemoveCopy: '永久删除「{name}」？',
     uploading: '正在上传 {name} · {done} / {total} · {speed}/s',
     uploaded: '已上传 {name}',
@@ -259,6 +264,11 @@ const STRINGS = {
     copyRelativePath: 'Copy relative path',
     tooLargeToCopy: 'Too large to copy its contents',
     revealFile: 'Show in file manager',
+    openIn: 'Open in',
+    symlink: 'Symbolic link',
+    savedSkipped: 'Saved {name}; {n} links left out: {names}',
+    forwardTooLarge: "{name} wasn't forwarded: at most 512 MB go at once. Download it instead.",
+    forwardChanging: "{name} wasn't forwarded: it is being changed. Forward it once it settles.",
     confirmRemoveCopy: 'Permanently delete "{name}"?',
     uploading: 'Uploading {name} · {done} / {total} · {speed}/s',
     uploaded: 'Uploaded {name}',
@@ -607,6 +617,7 @@ function markdownSupport(cm) {
 async function applyContext(ctx) {
   const previous = state.ctx
   state.ctx = ctx
+  hearOpenInApps()
   const restored = !previous || previous.file?.id !== ctx.file?.id || previous.tabId !== ctx.tabId || previous.viewState?.folder !== ctx.viewState?.folder ? ctx.viewState : undefined
   if (restored) {
     if (['chat', 'workspace'].includes(restored.root)) state.root = restored.root
@@ -1616,6 +1627,12 @@ function listItem(entry, now = new Date(Date.now())) {
     open.append(fileMark(entry))
   }
   title.append(name)
+  if (entry.symlink) {
+    const link = Object.assign(document.createElement('span'), { className: 'file-link', textContent: '↗', title: state.t.symlink })
+    link.setAttribute('aria-label', state.t.symlink)
+    title.append(link)
+  }
+  if (inCopy(entry) && entry.name.startsWith('.')) li.dataset.dotfile = ''
   // The whole name — suffix included — stays one hover (and the details) away; where it is, when the list is a search.
   open.title = folder ? pathOf(entry) : fileTip(entry)
   const meta = document.createElement('span')
@@ -1751,7 +1768,20 @@ function copyActions(entry) {
     ...(absolutePathOf(entry) ? [{ text: t.copyPath, run: () => copied(absolutePathOf(entry)) }] : []),
     { text: t.copyRelativePath, run: () => copied(entry.id) },
     ...(state.ctx?.workspace?.root && gugu.files.reveal ? [{ text: t.revealFile, run: () => gugu.files.reveal(entry).catch((error) => showBanner(fmt(t.failed, { e: error.message }), 'error')) }] : []),
+    ...openInActions(entry),
   ]
+}
+
+// 「用 VS Code、访达、终端打开」: this computer's programs, as the project tab's menu lists them.
+let openInApps = []
+const hearOpenInApps = () => {
+  if (!state.ctx?.workspace?.root || !gugu.files.openInApps) return
+  gugu.files.openInApps().then((apps) => { openInApps = apps }, (error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error'))
+}
+function openInActions(entry) {
+  if (!state.ctx?.workspace?.root || !openInApps.length) return []
+  const failed = (error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  return [{ text: state.t.openIn, children: openInApps.map((app) => ({ text: app.label, run: () => gugu.files.openIn(entry, app.id).catch(failed) })) }]
 }
 
 const COPY_CONTENT_MAX_BYTES = 10 * 1024 * 1024
@@ -1905,7 +1935,8 @@ async function forwardEntries(entries, then) {
   } catch (error) {
     if (row?.signal.aborted) return
     const { machine } = error.detail ?? {}
-    showBanner(error.code === 'unavailable' && machine ? fmt(state.t.forwardFailedOn, { name: entries[0].name, machine }) : fmt(state.t.failed, { e: error.message }), 'error')
+    const name = entries[0].name
+    showBanner(error.code === 'unavailable' && machine ? fmt(state.t.forwardFailedOn, { name, machine }) : error.code === 'too-large' ? fmt(state.t.forwardTooLarge, { name }) : error.code === 'content-changed' ? fmt(state.t.forwardChanging, { name }) : fmt(state.t.failed, { e: error.message }), 'error')
   } finally {
     row?.done()
   }
@@ -1916,7 +1947,8 @@ async function downloadEntry(entry) {
   const row = inCopy(entry) ? transferRow(state.t.downloading, entry.name) : null
   try {
     const saved = await (row ? gugu.files.download(entry, { onProgress: row.progress, signal: row.signal }) : gugu.files.download(entry)) // false: the person cancelled the save dialog, nothing to say
-    if (row && saved) showBanner(fmt(state.t.saved, { name: entry.name }), 'info')
+    if (saved?.skipped) showBanner(fmt(state.t.savedSkipped, { name: entry.name, n: saved.skipped.length, names: saved.skipped.join(', ') }), 'info')
+    else if (row && saved) showBanner(fmt(state.t.saved, { name: entry.name }), 'info')
   } catch (error) {
     if (!row?.signal.aborted) showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   } finally {

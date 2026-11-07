@@ -483,13 +483,13 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
   let disk: { stop: () => void } | null = null;
   if (isWorkspace(place)) {
     // The working copy's change feed, the one the file panel hears, under the folder named: the same native watch.
-    const { watchWorkingCopy } = await import('@main/core/extensions/working-copy-files');
+    const { watchAppFolder, watchAppFile } = await import('@main/core/extensions/app-files');
     const heard = (change: ExtensionFileChangeBatch) => {
       if (extensionsService().hasCapability(caller.extensionId, 'files:read')) caller.hear({ type: 'filesChanged', watchId, place, change });
     };
     const stop = file === undefined
-      ? await watchWorkingCopy(place, folder, heard)
-      : await (await import('@main/core/extensions/app-files')).watchAppFile(caller.filePage({ ref: { ...place, id: file } }), { ...place, id: file }, heard);
+      ? await watchAppFolder(caller.filePage({ place: resource }, true), place, folder, heard)
+      : await watchAppFile(caller.filePage({ ref: { ...place, id: file } }), { ...place, id: file }, heard);
     if (pageWatches.get(caller.pageId) !== watching) return stop();
     disk = { stop };
   }
@@ -1933,6 +1933,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesMove':
     case 'filesWriteChunk':
     case 'filesReveal':
+    case 'filesOpenIn':
+    case 'filesOpenInApps':
     case 'filesDownloadStop': {
       const files = await import('@main/core/extensions/app-files');
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
@@ -1970,6 +1972,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesMove: 'moveAppFile',
         filesWriteChunk: 'writeAppFileChunk',
         filesReveal: 'revealAppFile',
+        filesOpenIn: 'openAppFileIn',
+        filesOpenInApps: 'appOpenInApps',
         filesDownloadStop: 'stopAppFileDownload',
         filesReplace: 'replaceAppFile',
         filesCanDelete: 'appFilesCanDelete',

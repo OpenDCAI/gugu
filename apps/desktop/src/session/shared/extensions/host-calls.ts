@@ -97,6 +97,8 @@ export const HOST_CALLS = {
   'appFiles.move': { verb: 'filesMove' },
   'appFiles.writeChunk': { verb: 'filesWriteChunk' },
   'appFiles.reveal': { verb: 'filesReveal' },
+  'appFiles.openInApps': { verb: 'filesOpenInApps' },
+  'appFiles.openIn': { verb: 'filesOpenIn' },
   'appFiles.downloadStop': { verb: 'filesDownloadStop' },
   'appFiles.watch': { verb: 'filesWatch' },
   'appFiles.replace': { verb: 'filesReplace' },

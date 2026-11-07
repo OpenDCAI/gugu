@@ -12,6 +12,7 @@ import {
   AppFileError,
   contentTypeOf,
   createAppFiles,
+  requireHandedOr,
   sourceMessageIdsOf,
   tooLargeError,
   type ChatFileRef,
@@ -62,6 +63,7 @@ import { appFileHeardElsewhereChannel, appFileWatchElsewhereChannel, workingCopy
 import type { ExtensionFileChangeBatch, PlaceVerb } from '@shared/extensions/bridge-protocol';
 import { nextPartBytes, SMALLEST_PART_BYTES, uploadInParts } from '@shared/extensions/working-copy-upload';
 import { log } from '@main/lib/logger';
+import { isValidOpenInAppId } from '@shared/openInApps';
 
 /**
  * The enabled Apps, read once per listing: a list of a hundred files asks for each of its rows in one synchronous pass.
@@ -360,15 +362,64 @@ async function workingCopyPiece(page: DesktopFilePage, ref: WorkspaceFileRef, of
   return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length);
 }
 
+/** What a page may do to a working copy's file, and that it names no absolute path it was not handed. */
+function mayTouch(page: DesktopFilePage, ref: WorkspaceFileRef, capabilities: readonly ('files:read' | 'files:write')[], what: string): void {
+  checkAbsolute(page, ref);
+  requireHandedOr(isHanded(page, ref), (capability) => extensionsService().hasCapability(page.extensionId, capability), capabilities, what);
+}
+
+/**
+ * What every way of reading a working copy's file or folder passes: the file the page may read, on a machine it may reach.
+ * A call whose door says `needs: null` (it may be a chat's file) has no other gate, and what runs behind it reads unchecked.
+ */
+async function mayRead(page: DesktopFilePage, ref: WorkspaceFileRef, what: string): Promise<void> {
+  mayTouch(page, ref, ['files:read', 'files:write'], what);
+  await elsewhereGated(page, ref);
+}
+
 /** The file a whole-file call names, and that it may: the one handed to the page needs nothing, any other `capability`. */
 function wholeFileRef(page: DesktopFilePage, value: unknown, capability: 'files:read' | 'files:write', what: string): WorkspaceFileRef & { id: string } {
   const ref = withId(fileRefOf(value), what);
   if (isChat(ref)) throw new AppFileError('invalid', `${what} takes a working copy's file: a chat's opens live (files.open)`);
-  checkAbsolute(page, ref);
-  if (!isHanded(page, ref) && !extensionsService().hasCapability(page.extensionId, capability)) {
-    throw new AppFileError('denied', `Not permitted: ${what} on a file other than the one this page was opened for needs "${capability}"`);
-  }
+  mayTouch(page, ref, [capability], `${what} on`);
   return ref as WorkspaceFileRef & { id: string };
+}
+
+/**
+ * One version of a working copy's file, piece after piece, on the machine it is on: the one reading of a whole file. Changed
+ * while it is read, pieces of two versions are neither: `begin` hears it read once more from the start, and still moving is said.
+ */
+async function readOneVersion(page: DesktopFilePage, ref: WorkspaceFileRef, reader: {
+  /** Before the first piece of each try. `false`: not read at all. */
+  begin(size: number): boolean | void | Promise<boolean | void>;
+  piece(bytes: Uint8Array<ArrayBuffer>, at: number, size: number): void | Promise<void>;
+  signal?: AbortSignal;
+}): Promise<{ size: number; etag: string } | null> {
+  for (let attempt = 0; ; attempt++) {
+    let at = 0;
+    let part = SMALLEST_PART_BYTES;
+    let started = Date.now();
+    if (reader.signal?.aborted) throw stopped();
+    let next = await workingCopyPiece(page, ref, 0, part);
+    const { size, etag } = next;
+    if (await reader.begin(size) === false) return null;
+    let moved = false;
+    for (;;) {
+      const bytes = workspaceAppFileChunk(next).data;
+      if (bytes.byteLength > 0) {
+        at += bytes.byteLength;
+        await reader.piece(bytes, at, size);
+      }
+      if (at >= size || bytes.byteLength === 0) break;
+      if (reader.signal?.aborted) throw stopped();
+      part = nextPartBytes(part, Date.now() - started);
+      started = Date.now();
+      next = await workingCopyPiece(page, ref, at, part);
+      if (next.etag !== etag) { moved = true; break; }
+    }
+    if (!moved) return { size, etag };
+    if (attempt > 0) throw new AppFileError('content-changed', `${pathOfRef(ref)} keeps changing on its computer while it is read`);
+  }
 }
 
 const versionKey = (ref: WorkspaceFileRef & { id: string }) => `${ref.workspace}\0${ref.id}`;
@@ -382,36 +433,25 @@ export async function readAppFileText(page: DesktopFilePage, args: { ref?: unkno
   const { readVersions } = await import('./working-copy-files');
   const maxBytes = typeof args.maxBytes === 'number' ? Math.min(args.maxBytes, REMOTE_WORKSPACE_MAX_FILE_BYTES) : DEFAULT_TEXT_MAX_BYTES;
   const entry = workingCopyEntry({ workspace: ref.workspace }, ref.id, null);
-  for (let attempt = 0; ; attempt++) {
-    const pieces: Uint8Array[] = [];
-    let at = 0;
-    let part = SMALLEST_PART_BYTES;
-    let started = Date.now();
-    let first = await workingCopyPiece(page, ref, 0, part);
-    const { size, etag } = first;
-    if (size > maxBytes) return { entry: { ...entry, size }, content: '', truncated: true, totalSize: size };
-    let moved = false;
-    for (;;) {
-      const bytes = workspaceAppFileChunk(first).data;
+  let pieces: Uint8Array[] = [];
+  let tooLarge = 0;
+  const read = await readOneVersion(page, ref, {
+    begin(size) {
+      pieces = [];
+      if (size <= maxBytes) return;
+      tooLarge = size;
+      return false;
+    },
+    piece(bytes, at, size) {
       pieces.push(bytes);
-      at += bytes.byteLength;
       if (typeof args.transferId === 'string') onProgress?.(args.transferId, at, size);
-      if (at >= size || bytes.byteLength === 0) break;
-      part = nextPartBytes(part, Date.now() - started);
-      started = Date.now();
-      first = await workingCopyPiece(page, ref, at, part);
-      if (first.etag !== etag) { moved = true; break; }
-    }
-    // Changed while it was read: pieces of two versions are neither. Once more; still moving, say so.
-    if (moved) {
-      if (attempt === 0) continue;
-      throw new AppFileError('content-changed', `${ref.id} keeps changing on its computer while it is read`);
-    }
-    if (!readVersions.has(page.pageId)) readVersions.set(page.pageId, new Map());
-    readVersions.get(page.pageId)!.set(versionKey(ref), etag);
-    const text = workspaceFileText(ref.id, Buffer.concat(pieces));
-    return { entry: { ...entry, size }, content: text?.text ?? '', ...(text ? { exact: text.exact } : { binary: true as const }), truncated: false, totalSize: size };
-  }
+    },
+  });
+  if (!read) return { entry: { ...entry, size: tooLarge }, content: '', truncated: true, totalSize: tooLarge };
+  if (!readVersions.has(page.pageId)) readVersions.set(page.pageId, new Map());
+  readVersions.get(page.pageId)!.set(versionKey(ref), read.etag);
+  const text = workspaceFileText(ref.id, Buffer.concat(pieces));
+  return { entry: { ...entry, size: read.size }, content: text?.text ?? '', ...(text ? { exact: text.exact } : { binary: true as const }), truncated: false, totalSize: read.size };
 }
 
 /**
@@ -452,11 +492,18 @@ let hearingElsewhere = false;
  */
 export async function watchAppFile(page: DesktopFilePage, value: unknown, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
   const ref = wholeFileRef(page, value, 'files:read', 'onChanged');
-  if (!(await sessionElsewhere(ref))) {
+  if (!(await elsewhereGated(page, ref))) {
     const { watchWorkingCopyFile } = await import('./working-copy-files');
     return watchWorkingCopyFile(ref, ref.id, hear);
   }
   return hearElsewhere(workspaceSession(ref)!, { file: ref.id }, hear);
+}
+
+/** `files.onChanged({ workspace, folder }, fn)`: what changed below a folder, on a machine the page may reach. */
+export async function watchAppFolder(page: DesktopFilePage, place: WorkspacePlace, folder: string | undefined, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
+  await elsewhereGated(page, place);
+  const { watchWorkingCopy } = await import('./working-copy-files');
+  return watchWorkingCopy(place, folder, hear);
 }
 
 /** A file or folder of a session on another machine: its changes reach the window only, so main asks the window to tell it. */
@@ -628,7 +675,7 @@ export async function removeAppFile(page: DesktopFilePage, args: { ref?: unknown
   const ref = fileRefOf(args.ref);
   if (isChat(ref)) return files.remove(chatSurface(page), { ref });
   const there = await onItsMachine(page, ref, 'filesRemove', { ref });
-  if (!there.there) local.remove(await localFolder(page, ref), { ref: ref as WorkspaceFileRef });
+  if (!there.there) await local.remove(await localFolder(page, ref), { ref: ref as WorkspaceFileRef });
   movedInWorkingCopy(ref, pathOfRef(ref), null);
 }
 
@@ -647,9 +694,32 @@ export async function writeAppFileChunk(page: DesktopFilePage, args: Record<stri
 export async function revealAppFile(page: DesktopFilePage, args: { ref?: unknown }): Promise<void> {
   const ref = fileRefOf(args.ref);
   if (isChat(ref)) throw new AppFileError('invalid', "A chat's file is on no folder of this computer");
+  shell.showItemInFolder(await localPathOf(page, ref, 'revealing'));
+}
+
+/** Where a working copy's file or folder is on this computer, for what hands it to another program; it passes what reading it does. */
+async function localPathOf(page: DesktopFilePage, ref: WorkspaceFileRef, what: string): Promise<string> {
   if (await sessionElsewhere(ref)) throw new AppFileError('invalid', 'This file is on another computer');
-  const { workspaceRoot } = await localFolder(page, ref);
-  shell.showItemInFolder(path.join(workspaceRoot, pathOfRef(ref)));
+  await mayRead(page, ref, what);
+  return local.localPath(await localFolder(page, ref), { ref });
+}
+
+/** The programs a working copy's file can be opened in on this computer. */
+export async function appOpenInApps(): Promise<Array<{ id: string; label: string }>> {
+  const { appService } = await import('@main/core/app/service');
+  return appService.openInMenu();
+}
+
+/** 「用 VS Code 打开」: a working copy's file or folder in a program of this computer, as the project's tab menu opens the project. */
+export async function openAppFileIn(page: DesktopFilePage, args: { ref?: unknown; app?: unknown }): Promise<void> {
+  const ref = fileRefOf(args.ref);
+  if (isChat(ref)) throw new AppFileError('invalid', "A chat's file is on no folder of this computer");
+  if (!isValidOpenInAppId(args.app)) throw new AppFileError('invalid', 'Say which program, as files.openInApps lists it');
+  const target = await localPathOf(page, ref, 'opening');
+  const { appService } = await import('@main/core/app/service');
+  await appService.openIn({ app: args.app, path: target }).catch((error: unknown) => {
+    throw new AppFileError('failed', error instanceof Error ? error.message : String(error));
+  });
 }
 
 /** A file's next content (G1): a chat's stored file becomes its next version; a working copy's file is written over. */
@@ -705,6 +775,9 @@ export async function uploadAppFiles(
 
 export const messageToShow = files.messageToShow;
 
+/** What a forward holds in memory at once, with a File and a copy for the send on top of it. Past it: said, before it is read. */
+export const FORWARD_MAX_BYTES = 512 * 1024 * 1024;
+
 /**
  * `files.forward`: a chat's files go by reference. A working copy's file is in no chat to refer to, so what it holds goes:
  * read here, on the machine it is on, so one that cannot be read is said before anyone picks a chat.
@@ -715,6 +788,7 @@ export async function forwardTargets(page: DesktopFilePage, args: { refs?: unkno
   const chatRefs = refs.filter(isChat);
   if (chatRefs.length === refs.length) return files.forwardTargets(chatSurface(page), { refs: chatRefs });
   if (chatRefs.length > 0) throw new AppFileError('invalid', 'files.forward(files): the files are of one place');
+  for (const ref of refs) await mayRead(page, ref as WorkspaceFileRef, 'forwarding');
   // A transfer the page follows and can stop, as a download is.
   const transferId = typeof args.transferId === 'string' ? args.transferId : null;
   const stop = new AbortController();
@@ -722,8 +796,10 @@ export async function forwardTargets(page: DesktopFilePage, args: { refs?: unkno
   if (transferId) downloads.set(key, stop);
   try {
     const copies: Array<{ name: string; bytes: Uint8Array<ArrayBuffer> }> = [];
+    let held = 0;
     for (const ref of refs) {
-      const bytes = await wholeWorkingCopyFile(page, ref as WorkspaceFileRef, { signal: stop.signal, saved: (done, size) => { if (transferId) report?.(transferId, done, size); } });
+      const bytes = await wholeWorkingCopyFile(page, ref as WorkspaceFileRef, FORWARD_MAX_BYTES - held, stop.signal, (done, size) => { if (transferId) report?.(transferId, done, size); });
+      held += bytes.byteLength;
       copies.push({ name: path.posix.basename(pathOfRef(ref as WorkspaceFileRef)), bytes });
     }
     return { copies };
@@ -785,11 +861,7 @@ export async function openWithTarget(
   // A session's working copy on another machine: gated as opening it read-only (the file the page was handed needs nothing).
   const elsewhere = await sessionElsewhere(ref);
   if (elsewhere) {
-    const handed = page.handed && isWorkspace(page.handed) && page.handed.workspace === ref.workspace && page.handed.id === name;
-    const service = extensionsService();
-    if (!handed && !service.hasCapability(page.extensionId, 'files:read') && !service.hasCapability(page.extensionId, 'files:write')) {
-      throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
-    }
+    mayTouch(page, ref, ['files:read', 'files:write'], 'opening');
     return { kind: 'session', target: { sessionId: elsewhere.sessionId, projectId: elsewhere.projectId, deviceId: elsewhere.deviceId, path: name, ask } };
   }
   const copy = await localFolder(page, ref);
@@ -832,13 +904,14 @@ export async function pickFilesToUpload(owner: WebContents | null): Promise<AppF
  * copy's, as the call names it. Gated like opening it read-only — checked before the dialog shows. Cancelled is `false`,
  * not an error.
  */
-type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: string; ref: AppFileRef; page: DesktopFilePage; kind: 'pieces' };
+type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: string; ref: WorkspaceFileRef; page: DesktopFilePage; kind: 'pieces' };
 
 async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<SaveSource> {
   const ref = fileRefOf(given);
   if (isChat(ref)) return await files.downloadSource(chatSurface(page), { ref });
-  // A working copy's file, wherever it is, one piece after another. Gated like opening it (this computer's), or by `elsewhereGated`.
-  if (!(await elsewhereGated(page, ref))) await local.openTarget(await localFolder(page, ref), { ref: ref as WorkspaceFileRef });
+  // A working copy's file, wherever it is, one piece after another. Here a file that is not there is said before the save dialog.
+  await mayRead(page, ref, 'saving');
+  if (!(await sessionElsewhere(ref))) await local.openTarget(await localFolder(page, ref), { ref });
   return { name: path.posix.basename(pathOfRef(ref)), ref, page, kind: 'pieces' as const };
 }
 
@@ -846,44 +919,41 @@ async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<
 type Saving = { signal?: AbortSignal; saved?: (bytes: number, size: number) => void };
 const stopped = () => new AppFileError('invalid', 'The download was stopped');
 
-/** All of a working copy's file, wherever it is, in one buffer: pieces kept until the end would hold it twice. */
-async function wholeWorkingCopyFile(page: DesktopFilePage, ref: WorkspaceFileRef, saving: Saving = {}): Promise<Uint8Array<ArrayBuffer>> {
+/** All of a working copy's file in one buffer, up to `max`: pieces kept until the end would hold it twice. */
+async function wholeWorkingCopyFile(page: DesktopFilePage, ref: WorkspaceFileRef, max: number, signal: AbortSignal, heard: (done: number, size: number) => void): Promise<Uint8Array<ArrayBuffer>> {
   let whole = new Uint8Array(0);
-  let offset = 0;
-  for (let size = Infinity, part = SMALLEST_PART_BYTES; offset < size;) {
-    if (saving.signal?.aborted) throw stopped();
-    const started = Date.now();
-    const chunk = await readAppFile(page, { ref, offset, length: part });
-    part = nextPartBytes(part, Date.now() - started);
-    size = chunk.size;
-    if (chunk.data.byteLength === 0) break;
-    if (whole.byteLength < offset + chunk.data.byteLength) {
-      const grown = new Uint8Array(Math.max(size, offset + chunk.data.byteLength));
-      grown.set(whole.subarray(0, offset));
-      whole = grown;
-    }
-    whole.set(chunk.data, offset);
-    offset += chunk.data.byteLength;
-    saving.saved?.(offset, size);
-  }
-  return whole.subarray(0, offset);
+  await readOneVersion(page, ref, {
+    signal,
+    begin(size) {
+      if (size > max) throw new AppFileError('too-large', `${pathOfRef(ref)} is ${size} bytes; at most ${FORWARD_MAX_BYTES} are forwarded at once`);
+      whole = new Uint8Array(size);
+    },
+    piece(bytes, at, size) {
+      whole.set(bytes, at - bytes.byteLength);
+      heard(at, size);
+    },
+  });
+  return whole;
 }
 
-/** A working copy's file: its pieces, each on the disk as it comes — half of one is not left behind. */
-async function savePieces(page: DesktopFilePage, ref: AppFileRef, filePath: string, saving: Saving = {}): Promise<void> {
+/** A working copy's file on the disk, each piece as it comes: half of one, or pieces of two versions, are not left behind. */
+async function savePieces(page: DesktopFilePage, ref: WorkspaceFileRef, filePath: string, saving: Saving = {}): Promise<void> {
   const out = await fs.open(filePath, 'w');
   try {
-    for (let offset = 0, size = Infinity, part = SMALLEST_PART_BYTES; offset < size;) {
-      if (saving.signal?.aborted) throw stopped();
-      const started = Date.now();
-      const chunk = await readAppFile(page, { ref, offset, length: part });
-      part = nextPartBytes(part, Date.now() - started);
-      size = chunk.size;
-      if (chunk.data.byteLength === 0) break;
-      await out.write(chunk.data);
-      offset += chunk.data.byteLength;
-      saving.saved?.(chunk.data.byteLength, size);
-    }
+    let told = 0;
+    await readOneVersion(page, ref, {
+      ...(saving.signal ? { signal: saving.signal } : {}),
+      async begin(size) {
+        await out.truncate(0);
+        if (told) saving.saved?.(-told, size);
+        told = 0;
+      },
+      async piece(bytes, at, size) {
+        await out.write(bytes, 0, bytes.byteLength, at - bytes.byteLength);
+        told += bytes.byteLength;
+        saving.saved?.(bytes.byteLength, size);
+      },
+    });
   } catch (error) {
     await out.close();
     await fs.rm(filePath, { force: true });
@@ -896,14 +966,21 @@ async function savePieces(page: DesktopFilePage, ref: AppFileRef, filePath: stri
 const FOLDER_DOWNLOAD_MAX_FILES = 10_000;
 
 /** A working copy's folder saved under `target`, wherever the working copy is: listed first (how much there is), then one piece at a time. */
-async function saveFolder(page: DesktopFilePage, place: WorkspacePlace, folder: string, target: string, report: (done: number, total: number) => void, signal: AbortSignal): Promise<void> {
-  const found: { id: string; to: string; size: number }[] = [];
+async function saveFolder(page: DesktopFilePage, place: WorkspacePlace, folder: string, target: string, report: (done: number, total: number) => void, signal: AbortSignal): Promise<string[]> {
+  const found: { id: string; to: string; size: number; link: boolean }[] = [];
+  // What a link points at may be nowhere, or outside: it is not the folder's. Those are left out and said, never the reason the rest is lost.
+  const skipped: string[] = [];
   const walk = async (from: string, to: string): Promise<void> => {
     if (signal.aborted) throw stopped();
     await fs.mkdir(to, { recursive: true });
     for (const entry of await listAppFiles(page, { place, folder: from })) {
-      if (entry.type === 'folder') { await walk(entry.id, path.join(to, entry.name)); continue; }
-      found.push({ id: entry.id, to: path.join(to, entry.name), size: entry.size ?? 0 });
+      if (entry.type === 'folder') {
+        // Followed, a link to a folder above it never ends.
+        if (entry.symlink) skipped.push(entry.id);
+        else await walk(entry.id, path.join(to, entry.name));
+        continue;
+      }
+      found.push({ id: entry.id, to: path.join(to, entry.name), size: entry.size ?? 0, link: !!entry.symlink });
       if (found.length > FOLDER_DOWNLOAD_MAX_FILES) throw new AppFileError('too-large', `More than ${FOLDER_DOWNLOAD_MAX_FILES} files in this folder`);
     }
   };
@@ -912,12 +989,18 @@ async function saveFolder(page: DesktopFilePage, place: WorkspacePlace, folder: 
     const total = found.reduce((sum, file) => sum + file.size, 0);
     let done = 0;
     for (const file of found) {
-      await savePieces(page, { workspace: place.workspace, id: file.id }, file.to, { signal, saved: (bytes) => report(done += bytes, total) });
+      try {
+        await savePieces(page, { workspace: place.workspace, id: file.id }, file.to, { signal, saved: (bytes) => report(done += bytes, total) });
+      } catch (error) {
+        if (!file.link || signal.aborted) throw error;
+        skipped.push(file.id);
+      }
     }
   } catch (error) {
     await fs.rm(target, { recursive: true, force: true });
     throw error;
   }
+  return skipped;
 }
 
 const downloads = new Map<string, AbortController>();
@@ -947,7 +1030,7 @@ async function freePath(folder: string, name: string): Promise<string> {
  * One file: where to save it, asked (`true` saved). Several (API 20): one folder asked for them all, each saved there under
  * its own name — how many were saved; `0` when the person cancelled.
  */
-export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unknown; refs?: unknown; folder?: unknown; transferId?: unknown }, owner: WebContents | null, report?: (transferId: string, done: number, total: number) => void): Promise<boolean | number> {
+export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unknown; refs?: unknown; folder?: unknown; transferId?: unknown }, owner: WebContents | null, report?: (transferId: string, done: number, total: number) => void, savedAt?: (filePath: string) => void): Promise<boolean | number | { skipped: string[] }> {
   const window = owner ? BrowserWindow.fromWebContents(owner) : null;
   // A transfer the page follows: what stops it is kept for as long as it runs.
   const transferId = typeof args.transferId === 'string' ? args.transferId : null;
@@ -965,13 +1048,14 @@ export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unkno
   if (args.folder === true) {
     const ref = fileRefOf(args.ref);
     if (isChat(ref)) throw new AppFileError('invalid', "Only a working copy's folder is saved whole");
+    await mayRead(page, ref, 'saving');
     const options = { properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'> };
     const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
     const into = picked.canceled ? null : picked.filePaths[0];
     if (!into) return false;
     const target = await freePath(into, path.posix.basename(pathOfRef(ref)));
-    await following(() => saveFolder(page, ref as WorkspacePlace, pathOfRef(ref), target, told, stop.signal));
-    return true;
+    const skipped = await following(() => saveFolder(page, ref as WorkspacePlace, pathOfRef(ref), target, told, stop.signal));
+    return skipped.length > 0 ? { skipped } : true;
   }
   if (Array.isArray(args.refs)) {
     if (args.refs.length === 0) throw new AppFileError('invalid', 'files.download(files): give one file or more');
@@ -993,5 +1077,6 @@ export async function downloadAppFile(page: DesktopFilePage, args: { ref?: unkno
   if (target.canceled || !target.filePath) { if (source.kind === 'file') await source.file.dispose(); return false; }
   let done = 0;
   await following(() => saveTo(source, target.filePath as string, { signal: stop.signal, saved: (bytes, size) => told(done += bytes, size) }));
+  savedAt?.(target.filePath);
   return true;
 }

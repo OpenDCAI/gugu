@@ -17,10 +17,12 @@ import {
   terminalContextMenuActionChannel,
   type TerminalContextMenuAction,
 } from '@shared/events/appEvents';
+import { appSettingsService } from '@main/core/settings/settings-service';
 import {
   getAppById,
   getResolvedLabel,
   OPEN_IN_APPS,
+  TERMINAL_OPEN_IN_APP_IDS,
   type OpenInAppId,
   type PlatformConfig,
   type PlatformKey,
@@ -165,6 +167,14 @@ class AppService implements IInitializable, IDisposable {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /** What 「Open in」 lists for a file, in the order of the project tab's menu: installed, not hidden in settings, the default first. */
+  async openInMenu(): Promise<Array<{ id: OpenInAppId; label: string }>> {
+    const [installed, openIn, terminal] = await Promise.all([this.checkInstalledApps(), appSettingsService.get('openIn'), appSettingsService.get('terminal')]);
+    const platform = process.platform as PlatformKey;
+    const apps = Object.values(OPEN_IN_APPS).filter((app) => installed[app.id] && !openIn.hidden?.includes(app.id) && (terminal.enabled || !TERMINAL_OPEN_IN_APP_IDS.has(app.id)));
+    return [...apps.filter((app) => app.id === openIn.default), ...apps.filter((app) => app.id !== openIn.default)].map((app) => ({ id: app.id, label: getResolvedLabel(app, platform) }));
   }
 
   async checkInstalledApps(): Promise<Record<string, boolean>> {
@@ -512,24 +522,10 @@ class AppService implements IInitializable, IDisposable {
     return result.filePath;
   }
 
-  /** 下载别的机器上的文件 / 文件夹时的两个对话框(见 remote-downloads.ts)。 */
   async showDownloadSaveDialog(defaultPath: string): Promise<string | undefined> {
     const result = await dialog.showSaveDialog(getMainWindow()!, { defaultPath });
     return result.canceled || !result.filePath ? undefined : result.filePath;
   }
-
-  async showDownloadDirectoryDialog(defaultPath: string): Promise<string | undefined> {
-    const result = await dialog.showOpenDialog(getMainWindow()!, {
-      defaultPath,
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    return result.canceled ? undefined : result.filePaths[0];
-  }
-
-  downloadsDir(): string {
-    return app.getPath('downloads');
-  }
-
 
 }
 

@@ -9,7 +9,7 @@ import { applyJson, buildDoc, InvalidJson, isJson, parseJsonObject, readText, sa
 import { createOpenFiles } from '@gugu/files-core/open-files';
 import { colorFor } from '@gugu/files-core/presence';
 import { WORKSPACE_TEXT_MAX_BYTES, opensAsStoredText, workspaceStoredText, workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
-import { AppFileError, contentTypeOf, tooLargeError, type FilesPlatform } from '@shared/extensions/app-files-core';
+import { AppFileError, contentTypeOf, requireHandedOr, tooLargeError, type FilesPlatform } from '@shared/extensions/app-files-core';
 import {
   APP_FILE_MAX_BYTES,
   fileSuffixOf,
@@ -668,9 +668,7 @@ export function createLocalAppFiles(platform: {
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
   function readable(surface: LocalSurface, ref: WorkspaceFileRef, what: 'saving' | 'opening'): { abs: string; rel: string } {
     const found = inside(surface.workspaceRoot, pathOf(surface, ref), 'existing');
-    if (found.rel !== surface.filePath && !has(surface, 'files:read') && !has(surface, 'files:write')) {
-      throw new AppFileError('denied', `Not permitted: ${what} a file other than the one this page was opened for needs "files:read" or "files:write"`);
-    }
+    requireHandedOr(found.rel === surface.filePath, (capability) => has(surface, capability), ['files:read', 'files:write'], what);
     if (!fs.statSync(found.abs).isFile()) throw new AppFileError('invalid', `${found.rel} is not a file`);
     return found;
   }
@@ -820,6 +818,14 @@ export function createLocalAppFiles(platform: {
         throw new AppFileError('failed', `${found.rel} was not deleted: ${messageOf(error)}`);
       }
       service.removed(found.abs);
+    },
+
+    /** Where a file or folder of the working copy is on this computer, for a program of this computer. A file outside it is the one handed to the page. */
+    async localPath(surface: LocalSurface, args: { ref: WorkspaceFileRef }): Promise<string> {
+      const named = pathOf(surface, args.ref);
+      if (path.isAbsolute(named)) return requireAgentFileAccess(named);
+      await requireAgentFileTreeAccess(surface.workspaceRoot);
+      return entryAt(surface.workspaceRoot, named).abs;
     },
 
     /** 「用 X 打开」 and saving: which file of the working copy, gated as opening it read-only. Who opens it is the host's to work out. */

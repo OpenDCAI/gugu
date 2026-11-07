@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MessageFilePreview, type HostedPreviewFile } from '@/components/chat/MessageFilePreview';
 import { downloadBlob } from '@/lib/download';
+import { messageForUser } from '@/lib/userFacingError';
+import { rpc } from '@renderer/lib/ipc';
+import { log } from '@renderer/utils/logger';
+import type { OpenInAppId } from '@shared/openInApps';
+import { useToast } from '@renderer/lib/hooks/use-toast';
+import { downloadSessionFile } from '@renderer/features/remote-hosts/workspace/remote-file-actions';
 import { Button } from '@renderer/lib/ui/button';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { registerHtmlPreview } from '@/components/preview/html-preview-registration';
@@ -54,6 +60,18 @@ export function WorkspaceFileView({ root, tabId, projectId, workspaceId, session
   onClose: () => void;
 }) {
   const { translate } = useSessionMessages();
+  const { toast } = useToast();
+  // Asked of main: this view is drawn in the shell too, where the session page's settings queries are not.
+  const [openInApps, setOpenInApps] = useState<{ id: OpenInAppId; label: string }[]>([]);
+  useEffect(() => {
+    if (workspaceBackend(projectId).elsewhere) return;
+    let current = true;
+    void (async () => {
+      const apps = await rpc.app.openInMenu();
+      if (current) setOpenInApps(apps);
+    })().catch((error: unknown) => log.error('[file-view] open-in list', { error: String(error) }));
+    return () => { current = false; };
+  }, [projectId]);
   const [revision, setRevision] = useState(0);
   useEffect(
     () =>
@@ -65,12 +83,12 @@ export function WorkspaceFileView({ root, tabId, projectId, workspaceId, session
   );
   const file = useMemo<HostedPreviewFile>(() => {
     const fileName = fileBaseName(path);
-    const tree = workspaceBackend(projectId).tree;
+    const { elsewhere } = workspaceBackend(projectId);
     const kind = getFileKind(path);
     const editable = !!sessionId && (kind === 'html' || kind === 'csv' || kind === 'svg');
     const download = () => {
-      if (tree.download && inWorkspace) void tree.download({ projectId, workspaceId }, { path, name: fileName, kind: 'file' });
-      else void readBytes(projectId, workspaceId, path, inWorkspace).then((blob) => downloadBlob(blob, fileName));
+      if (elsewhere && sessionId && inWorkspace) void downloadSessionFile(sessionId, path, fileName);
+      else void readBytes(projectId, workspaceId, path, inWorkspace).then((blob) => downloadBlob(blob, fileName)).catch((error: unknown) => toast({ title: translate('remoteFiles.downloadFailed', { name: fileName }), description: messageForUser(error), variant: 'destructive' }));
     };
     return {
       kind: 'file',
@@ -84,9 +102,17 @@ export function WorkspaceFileView({ root, tabId, projectId, workspaceId, session
         registerHtml: (documentHtml) => registerHtmlPreview(documentHtml, (content) => workspaceRpc(projectId).files.createPreview(projectId, workspaceId, absolutePath, content)),
         quote: (selection) => sessionId ? quoteWorkspaceFile(projectId, sessionId, path, selection) : Promise.resolve(),
         // On another machine this computer's programs cannot reach it: it is downloaded instead.
-        ...(tree.download ? {} : { openExternal: () => void openPathWithFailureToast(absolutePath, inWorkspace ? { projectId, workspaceId } : undefined) }),
+        ...(elsewhere ? {} : {
+          openExternal: () => void openPathWithFailureToast(absolutePath, inWorkspace ? { projectId, workspaceId } : undefined),
+          // 「用 VS Code、访达、终端打开」: this computer's programs, as the project tab's menu lists them.
+          openIn: openInApps.map(({ id, label }) => ({
+            key: id,
+            label: translate('titlebar.openIn', { app: label }),
+            open: () => void rpc.app.openIn({ app: id, path: absolutePath }).then((result) => { if (!result?.success) toast({ title: translate('titlebar.openInFailed', { app: label }), description: messageForUser(result?.error), variant: 'destructive' }); }),
+          })),
+        }),
         // On this computer the system's program takes it; from another machine it is downloaded (outside the workspace there: read back here).
-        unreadableAction: tree.download
+        unreadableAction: elsewhere
           ? <Button size="sm" variant="outline" className="mt-4" onClick={download}>{translate('file.downloadInstead')}</Button>
           : <OpenWithSystemButton absolutePath={absolutePath} {...(inWorkspace ? { workspace: { projectId, workspaceId } } : {})} />,
         folders: absolutePath.split(/[\\/]/).slice(0, -1).map((name, index, parts) => {
@@ -98,6 +124,6 @@ export function WorkspaceFileView({ root, tabId, projectId, workspaceId, session
         download,
       },
     };
-  }, [root, tabId, projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, revision, translate]);
+  }, [root, tabId, projectId, workspaceId, sessionId, path, absolutePath, inWorkspace, revision, translate, toast, openInApps]);
   return <MessageFilePreview fill tabbed readOnly={!sessionId} file={file} onClose={onClose} />;
 }

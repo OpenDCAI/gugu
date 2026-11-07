@@ -19,7 +19,7 @@ export const localWorkspaceBackend: WorkspaceBackend = {
   machine: { kind: 'local' },
   rpc: rpc.workspace,
   browseDirectory: (_workspaceId, path) => rpc.files.browseDirectory({ type: 'local', path }),
-  tree: {},
+  elsewhere: false,
   browser: { available: true, persistent: true, attach: () => null },
   terminal: {
     available: true,

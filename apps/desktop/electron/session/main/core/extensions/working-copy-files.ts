@@ -11,6 +11,7 @@ import { log } from '@main/lib/logger';
 import type { FileTreeProjector } from '@main/core/files/file-tree/projector';
 import { createWorkspaceUploads, inWorkspace, WorkspaceTransferError, type WorkspaceWriteChunk } from '@main/core/files/workspace-transfer';
 import { workingCopyEntry, workingCopyFolder } from './local-files';
+import { resolvesInside } from './path-containment';
 
 /**
  * A working copy's files as an App reads them, on the machine it is on — the file panel's own chain: the file tree
@@ -90,7 +91,8 @@ async function entriesOf(view: View, dir: string): Promise<AppFileEntry[]> {
     const rel = relOf(view.root, node.path);
     if (rel.endsWith(UPLOADING_SUFFIX)) return null;
     const parentId = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
-    const facts = { parentId, absolutePath: node.path, ...(view.workspaceId ? { workspaceId: view.workspaceId } : {}), ...(gitStatus.has(node.path) ? { gitStatus: gitStatus.get(node.path) } : {}) };
+    const link = await fsp.lstat(node.path).then((found) => found.isSymbolicLink(), () => false);
+    const facts = { parentId, absolutePath: node.path, ...(link ? { symlink: true as const } : {}), ...(view.workspaceId ? { workspaceId: view.workspaceId } : {}), ...(gitStatus.has(node.path) ? { gitStatus: gitStatus.get(node.path) } : {}) };
     const stat = await fsp.stat(node.path).catch(() => null);
     if (stat?.isDirectory()) return { ...workingCopyFolder(view.place, rel), ...facts };
     // A link that points nowhere still stands in the folder: to be seen, and deleted.
@@ -108,10 +110,16 @@ export async function listWorkingCopy(place: WorkspacePlace, folder: string | un
   const key = `${pageId}/${placeKey(place)}`;
   const kept = pageId === null ? null : views.get(key);
   const opening = kept ?? openView(place);
-  if (pageId !== null && !kept) views.set(key, opening.catch((error: unknown) => { views.delete(key); throw error; }));
+  if (pageId !== null && !kept) {
+    views.set(key, opening);
+    // Refused or failed: said to this caller below; the next one opens it again.
+    opening.catch(() => views.delete(key));
+  }
   const view = await opening;
   try {
     await requireAgentFileTreeAccess(view.root);
+    // A link to a folder out of the working copy lists as a name; what is in that folder is not this working copy's.
+    if (folder && !resolvesInside(view.root, folder)) throw new AppFileError('invalid', `${folder} is outside this working copy`);
     const listed = await view.projector.listDir(view.subscriptionId, folderPath(view.root, folder));
     if (!listed.success) throw new AppFileError('not-found', `No folder ${JSON.stringify(folder ?? '')} in this working copy`);
     return await entriesOf(view, folderPath(view.root, folder) ?? view.root);
@@ -183,10 +191,12 @@ export async function writeWorkingCopyChunk(place: WorkspacePlace, chunk: Worksp
   const taken = () => new AppFileError('name-taken', `${chunk.path} already exists`);
   try {
     if (chunk.offset === 0) {
-      // Its folders are made once the path is known to be inside; one already there is said before any bytes go.
+      // Its folders are made once the path is known to be inside, a link in the chain followed; one already there is said before any bytes go.
+      const inside = path.isAbsolute(found.path) ? null : resolvesInside(found.root, found.path);
+      if (!inside) throw new AppFileError('invalid', `${chunk.path} is outside this working copy`);
       const file = await inWorkspace(found.root, found.path);
       if (chunk.expectedEtag === null && await fsp.lstat(file).then(() => true, () => false)) throw taken();
-      await fsp.mkdir(path.dirname(file), { recursive: true });
+      await fsp.mkdir(path.dirname(inside), { recursive: true });
     }
     const { received, committed } = await uploads.write(found.root, { ...chunk, path: found.path });
     if (!committed) return { received };

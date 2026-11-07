@@ -5,7 +5,7 @@
  *
  * 判据:留白是一格独立的位置,宽度读 `--titlebar-controls-width`(不写死 138 / 146),贴条的右端;
  * 右端那一排在剩下的地方排,任何宽度下都不伸进留白;放不下时「在 X 中打开」那半颗收起,「其他打开方式」与关闭还在;
- * 宽回来再放出来。真 Chromium、真 CSS、真页签条(TabStripShell + TabBarActionRow);「在 X 中打开」照 OpenInMenu 的形状搭。
+ * 宽回来再放出来。真 Chromium、真 CSS、真页签条(TabStripShell + TabBarActionRow);「在 X 中打开」照那颗分裂按钮的形状搭。
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it } from 'vitest';

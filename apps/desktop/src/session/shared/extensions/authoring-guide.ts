@@ -558,8 +558,8 @@ The place is \`{ workspace: ctx.workspace.id }\`. An entry's \`id\` is its path 
 - Another machine's working copy needs \`files:read:all-machines\` as well; every call below is done on that machine.
 - With \`files:write\`: \`gugu.files.create\`, \`gugu.files.rename\` (a path moves it), \`gugu.files.mkdir({ workspace, path })\`, \`gugu.files.move(entry, { folder, name })\`, \`gugu.files.remove\` (a folder with all in it; a link, not what it points at). A name already there: \`name-taken\`, nothing changed.
 - \`gugu.files.upload({ workspace, folder }, file, { replace, onProgress, signal })\`: a File or a list of them, in parts, of any size, folders made as needed. A name already there is \`name-taken\` until \`replace: true\`. \`onProgress\` is told the bytes sent and the total; an aborted \`signal\` leaves nothing.
-- \`gugu.files.download(entry, { onProgress, signal })\` (a click or key): a file, or a folder with all in it; \`onProgress\` is told the bytes saved and the total; an aborted \`signal\` leaves nothing.
-- \`gugu.files.reveal(entry)\` (a page, this computer's working copy): shows it in the file manager.
+- \`gugu.files.download(entry, { onProgress, signal })\` (a click or key): a file, or a folder with all in it (\`{ skipped }\`: its links that were left out); \`onProgress\` is told the bytes saved and the total; an aborted \`signal\` leaves nothing.
+- \`gugu.files.reveal(entry)\` / \`gugu.files.openInApps()\` / \`gugu.files.openIn(entry, id)\` (a page, this computer's working copy): the file manager; the programs it opens in.
 
 A text no live document holds (over 1 MiB, JSON that is no object, on another machine, outside the working copy) is read and saved whole. Nothing is needed for \`ctx.file\`, which may be an absolute path; any other file needs \`files:read\` / \`files:write\`, and no capability opens another absolute path (\`denied\`).
 - \`gugu.files.readText(file, { maxBytes, onProgress })\` (\`onProgress\`, a page's: told the bytes done and the total) → \`{ entry, content, truncated, totalSize, binary?, exact? }\`. Up to 20 MiB unless told, at most 100 MiB; over that, \`truncated\` and no content. \`binary\`: it is not text. \`exact: false\`: another encoding, which saving would change: show it read-only.
@@ -620,7 +620,7 @@ Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\
   \`invalid\`. Gesture/read permissions remain. Old hosts ignore \`tab\` (ordinary opener); no feature detection.
 - \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
   a File: uploaded (≤ 25 MB, else \`too-large\`). \`gugu.files.download(entry)\` (a click or key) asks where
-  to save → \`true\` saved; \`gugu.files.forward(entry|[…])\`: the forward page.
+  to save → \`true\` saved; \`gugu.files.forward(entry|[…])\`: the forward page (working copy ≤ 512 MiB, else \`too-large\`).
 - Media opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
