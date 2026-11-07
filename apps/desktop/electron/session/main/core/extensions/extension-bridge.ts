@@ -1785,6 +1785,10 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       );
     }
 
+    case 'bindingsGet': {
+      const { appUnreadBinding } = await import('./app-unread-bindings');
+      return await appUnreadBinding(caller.extensionId, args);
+    }
     case 'messagesHistory':
     case 'messagesSearch': {
       const { messagesForApp } = await import('@main/core/extensions/extension-send');

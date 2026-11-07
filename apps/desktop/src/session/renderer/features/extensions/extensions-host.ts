@@ -25,6 +25,8 @@ export type ExtensionsApi = Pick<
   | 'setDisclosure'
   | 'appPlaces'
   | 'changeAppPlaces'
+  | 'unreadBindingChoices'
+  | 'setUnreadBinding'
   | 'uninstall'
   | 'agentStatus'
   | 'agentTools'

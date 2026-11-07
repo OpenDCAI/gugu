@@ -16,6 +16,7 @@ export const PHONE_CAPABILITY_SUPPORT = {
   'files:write': 'available',
   'chat:relay': 'available',
   'chat:read': 'available',
+  'chat:unread': 'desktop-only',
   'agents:read': 'available',
   'agents:read:all': 'agent',
   'agents:read:all-machines': 'available',

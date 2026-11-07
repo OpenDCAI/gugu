@@ -334,6 +334,8 @@ export const EXTENSION_CAPABILITIES = [
   // Which chats the person is in, who is in them, and their messages — only the ones they can see there: `gugu.chats`,
   // `gugu.messages`.
   'chat:read',
+  // Only the unread signal of the one conversation selected in the host's App permissions.
+  'chat:unread',
   /*
    * Seeing the agents at work (behavior tab-extensions:「agent 的可见与可控」).
    *
@@ -435,6 +437,12 @@ const permissionsSchema = z.strictObject({
     .array(z.enum(EXTENSION_CAPABILITIES))
     .max(12)
     .optional(),
+  /** Object declarations are permission requests, never caller-selected account or chat IDs. */
+  bindings: z.array(z.strictObject({
+    name: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/),
+    kind: z.literal('conversation'),
+    actions: z.tuple([z.literal('unread')]),
+  })).length(1).optional(),
   /** Hostnames its pages and host-confined tools may reach. Anything else is blocked. */
   network: z
     .array(
@@ -668,6 +676,16 @@ export const extensionManifestSchema = z
     // 同时声明窄的和宽的是自相矛盾的:安装清单要照哪一条写给用户看?默默取宽的
     // 那个,等于让「默认最小」在一个笔误上悄悄失效。当场判错。
     const declared = manifest.permissions?.capabilities ?? [];
+    const unreadBinding = manifest.permissions?.bindings?.[0];
+    if (Boolean(unreadBinding) !== declared.includes('chat:unread')) {
+      ctx.addIssue({ code: 'custom', path: ['permissions', 'bindings'], message: 'chat:unread requires exactly one conversation binding with only the unread action' });
+    }
+    if (unreadBinding && manifest.platforms?.includes('phone')) {
+      ctx.addIssue({ code: 'custom', path: ['platforms'], message: 'conversation unread bindings currently require a desktop-only App' });
+    }
+    if (unreadBinding && manifest.apiVersion < 32) {
+      ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'conversation unread bindings require apiVersion 32' });
+    }
     const byFamily = new Map<string, string>();
     for (const word of declared) {
       const { family } = capabilityReach(word);

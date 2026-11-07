@@ -747,6 +747,23 @@ export const extensionsController = createRPCController({
     }
   },
 
+  unreadBindingChoices: async (args: { extensionId: string; name: string }) => {
+    try {
+      const { unreadBindingChoices } = await import('./app-unread-bindings');
+      return { success: true as const, data: await unreadBindingChoices(args.extensionId, args.name) };
+    } catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
+
+  setUnreadBinding: async (args: { extensionId: string; name: string; ownerId: string; authority: string; chatId: string | null }) => {
+    try {
+      const { setUnreadBinding } = await import('./app-unread-bindings');
+      await setUnreadBinding(args);
+      events.emit(extensionsInventoryChangedChannel, { extensionId: args.extensionId });
+      void notifyInstalledAppsChanged();
+      return { success: true as const };
+    } catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
+
   /** D-30 「给哪些 agent」 on an App's row in 「App」: the places it can be given at, ticked where it is now. */
   appPlaces: async (args: { extensionId: string }) => {
     try {
@@ -817,6 +834,7 @@ export const extensionsController = createRPCController({
       // Capabilities need no reload: the bridge asks for the granted set on every
       // call, so a withdrawn capability stops working on the next call either way.
       reloadExtensionSurfaces(installed.manifest.id);
+      if (args.permission === 'chat:unread') events.emit(extensionsInventoryChangedChannel, { extensionId: args.extensionId });
       void notifyInstalledAppsChanged();
       return { success: true, data: { revoked: service.revokedPermissions(args.extensionId) } };
     } catch (error) {
@@ -855,6 +873,9 @@ export const extensionsController = createRPCController({
       // Switched back on, it is brought up to date at once, as VS Code checks on an enablement change
       // (https://github.com/microsoft/vscode/blob/af18ca5130bd7164867b2784b3aba68b4de38116/src/vs/workbench/contrib/extensions/browser/extensionsWorkbenchService.ts#L1157-L1161 ).
       if (args.enabled) void autoUpdateApps();
+      if (service.get(args.extensionId).manifest.permissions?.capabilities?.includes('chat:unread')) {
+        events.emit(extensionsInventoryChangedChannel, { extensionId: args.extensionId });
+      }
       // 摩擦单 F87: who opens which group file changed with it — open group pages list again.
       void notifyInstalledAppsChanged();
       return { success: true, data: { disabled: service.disabledIds() } };
