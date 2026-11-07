@@ -196,6 +196,10 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
   }, []);
 
   useLayoutEffect(() => {
+    viewRef.current?.setPinUserMessages(!!props.pinUserMessages);
+  }, [props.pinUserMessages]);
+
+  useLayoutEffect(() => {
     viewRef.current?.setShown(shown);
   }, [shown]);
 

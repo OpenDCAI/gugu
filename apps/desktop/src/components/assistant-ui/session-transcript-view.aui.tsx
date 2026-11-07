@@ -8,6 +8,7 @@ import { createSessionChatContext } from '@renderer/lib/chat/shared-chat-context
 import { applyTranscriptSnapshot, planHistorySync, splitActiveTurn } from './transcript-sync'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@renderer/lib/query-client'
+import { useMobileShell } from '@/hooks/useMobileShell'
 
 export type SessionBackgroundTasks = Parameters<ChatState['session']['setBackgroundTasks']>[0]
 
@@ -69,6 +70,7 @@ function SessionTranscriptContent({
   style?: CSSProperties
 }): ReactElement | null {
   const defaultLayout = useSessionChatLayout()
+  const mobileShell = useMobileShell()
   const [model, setModel] = useState<Model | null>(null)
   const written = useRef<readonly TranscriptTurn[]>([])
 
@@ -114,6 +116,7 @@ function SessionTranscriptContent({
     <AgentConversationView
       context={model.context}
       state={model.state}
+      pinUserMessages={!mobileShell}
       commands={commands}
       composerContent={composerContent}
       shown={shown}

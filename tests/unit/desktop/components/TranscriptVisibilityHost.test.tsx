@@ -11,7 +11,7 @@ import { setEmbedVisible } from '@renderer/lib/portal-container'
 const scope = vi.hoisted(() => ({ shown: undefined as boolean | undefined, creates: 0, change: vi.fn() }))
 vi.mock('@gugu/session-chat-ui', () => ({ createChatView: (options: ChatViewOptions) => {
   scope.shown = options.shown; scope.creates++
-  return { setShown: scope.change, setCommands: () => {}, setModel: () => {}, setContentPadding: () => {}, dispose: () => {} }
+  return { setShown: scope.change, setCommands: () => {}, setPinUserMessages: () => {}, setModel: () => {}, setContentPadding: () => {}, dispose: () => {} }
 } }))
 const harness = createReactHarness()
 afterEach(() => { harness.cleanup(); scope.change.mockClear(); scope.creates = 0; setEmbedVisible(true) })
