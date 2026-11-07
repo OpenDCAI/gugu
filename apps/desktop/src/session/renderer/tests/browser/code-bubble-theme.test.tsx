@@ -37,6 +37,8 @@ async function mount(theme: 'light' | 'dark', role: 'user' | 'assistant', surfac
   ] }]);
   const root = createRoot(surfaceHost);
   cleanups.push(() => { root.unmount(); state.dispose(); context.dispose(); host.remove(); });
+  // Use Code's synchronous cache-hit path for these palette assertions.
+  expect(await context.sharedCaches.highlightWhenReady(SQL, 'sql')).not.toBeNull();
   root.render(<AgentConversationView context={context} state={state} />);
   await until('code tokens rendered in the actual message bubble', () => host.querySelectorAll(`.${codeWrapper} span[style*="--shiki-light"]`).length > 5);
   await until('nested code grammar loaded', () => !!host.querySelector('.gg-md pre code span[style*="--shiki-light"]'));
