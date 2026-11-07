@@ -40,7 +40,7 @@ describe('one cloud provider and verified raw chunk cache', () => {
     expect(await cloud.metadata(context)).toEqual({ status: 'missing', sha256: null })
     a.fetcher.mockResolvedValueOnce(Response.json({ status: 'missing', code: 'failed' }))
     await expect(cloud.metadata(context)).rejects.toThrow('Invalid file metadata')
-    for (const status of [403, 500, 503]) {
+    for (const status of [400, 401, 403, 404]) {
       a.fetcher.mockResolvedValueOnce(Response.json({ error: 'failed' }, { status }))
       await expect(cloud.metadata(context)).rejects.toMatchObject({ status, code: 'failed' })
     }
@@ -131,10 +131,15 @@ describe('one cloud provider and verified raw chunk cache', () => {
   })
 
   it('keeps the object response HTTP status in the download failure reason', async () => {
-    const a = api(), c = cache()
-    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(),
-      fetch: vi.fn(async () => new Response('unavailable', { status: 503 })) as typeof fetch })
-    await expect(cloud.managed(revision, context)).rejects.toThrow('HTTP 503')
+    vi.useFakeTimers()
+    try {
+      const a = api(), c = cache()
+      const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(),
+        fetch: vi.fn(async () => new Response('unavailable', { status: 503 })) as typeof fetch })
+      const result = cloud.managed(revision, context).catch(error => error)
+      await vi.runAllTimersAsync()
+      expect(await result).toMatchObject({ status: 503, message: expect.stringContaining('HTTP 503') })
+    } finally { vi.useRealTimers() }
   })
   it('uses and caches only the existing CDN thumbnail for managed previews; full downloads still verify the original', async () => {
     const thumbnail = 'https://objects.invalid/file?auth_key=lease&x-oss-process=image/resize,w_560/format,webp'
