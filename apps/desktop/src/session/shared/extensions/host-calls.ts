@@ -30,6 +30,7 @@ export const HOST_CALLS = {
   'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
   getContext: { verb: 'getContext' },
   navigationGo: { verb: 'navigationGo' },
+  navigationClaimBack: { verb: 'navigationClaimBack', pack: (claimed: boolean) => ({ claimed }) },
   showContextMenu: { verb: 'showContextMenu' },
   getAppState: { verb: 'getAppState' },
   openBrowserTab: { verb: 'openBrowserTab', pack: (url: string) => ({ url }) },
@@ -152,6 +153,7 @@ export const HOST_EVENTS = {
   },
   onLink: { event: 'link', pick: (event: Event<'link'>) => [{ tab: event.tab, path: event.path, query: event.query, file: event.file }] },
   onCommand: { event: 'command', only: 'page', pick: (event: Event<'command'>) => [event.commandId] },
+  onBack: { event: 'back', only: 'page', pick: () => [] },
   onBackgroundMessage: { event: 'from-background', only: 'page', pick: (event: Event<'from-background'>) => [event.message] },
   onViewMessage: { event: 'from-view', only: 'background', pick: (event: Event<'from-view'>) => [event.message, event.from] },
 } satisfies Record<string, HostEvent>;

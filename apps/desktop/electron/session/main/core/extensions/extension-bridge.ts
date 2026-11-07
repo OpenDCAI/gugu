@@ -1676,6 +1676,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const result = await deliver(thePage(caller), { kind: 'navigateTab', delta: args.delta });
       return !!result && typeof result === 'object' && 'navigated' in result && result.navigated;
     }
+    // A desktop tab has no system Back to hand over: its back is the tab's page history (navigationGo). Not claimed.
+    case 'navigationClaimBack':
+      return false;
     case 'getContext':
       if (!binding) return contextOutside(extensionId);
       // Through API 26, the members come with the first answer. Newer Apps ask for them explicitly. An unread chat is said (the

@@ -513,6 +513,8 @@ export type ExtensionHostEvent =
    * the same capability checks as anything else.
    */
   | { type: 'command'; commandId: string }
+  /** The host's Back, given to the page that claimed it (`navigationClaimBack`). */
+  | { type: 'back' }
   /**
    * 后台实例发给视图的一条消息。
    *
@@ -692,6 +694,8 @@ export const BRIDGE_VERBS = {
   /** Facts about where this surface sits. */
   getContext: { needs: null },
   navigationGo: { needs: null, only: 'page' },
+  /** The page holds a Back step of its own (a folder inside the App): the host's Back goes to it first (`onBack`). */
+  navigationClaimBack: { needs: null, only: 'page' },
   showContextMenu: { needs: null, only: 'page' },
   /**
    * What the app is showing right now.

@@ -21,6 +21,7 @@ import { phoneApps } from './phoneApps'
 import type { SessionpageOpenedFileChunk, SessionpageOpenedFileReadRequest } from '@gugu/session-core/session-record/contract'
 import { composeChatDraft } from '../../lib/composeDraft'
 import { peekStore } from '../../session/renderer/features/extensions/peek-store'
+import { useBackLayer } from '../ui/sheetStack'
 
 const OpenedFilePreview = lazy(() => import('../../mobile/agent-watch/opened-file-preview').then((m) => ({ default: m.OpenedFilePreview })))
 
@@ -91,6 +92,10 @@ export function PhoneAppFrame({
   devicesRef.current = devices
   const [app, setApp] = useState<FramedPage | null>(null)
   const [missing, setMissing] = useState(false)
+  // The App holds a Back step of its own (a folder it is in, `navigation.onBack`): the back key goes there first, as to a sheet
+  // over the page; let go (at its top), the page's own back takes it again. A page kept hidden under a later one holds nothing.
+  const [backClaimed, setBackClaimed] = useState(false)
+  useBackLayer(() => hostRef.current?.back(), backClaimed && !hidden)
   const { theme } = useTheme()
   const { i18n } = useTranslation()
   const { t } = useTranslation('messaging')
@@ -155,6 +160,7 @@ export function PhoneAppFrame({
         return { shown: true }
       },
       navigate: (delta) => navigateRef.current?.(delta) ?? Promise.resolve(false),
+      claimBack: setBackClaimed,
       openWith: (detail) => onOpenWithRef.current(detail),
       openWorkingCopy: (path, read) => setWorkingCopy({ path, readFileChunk: ({ offset, length }) => read(offset, length) }),
       // The slot this frame is in draws it (AppPeekSlot), as main's peek on the desktop.
@@ -182,6 +188,7 @@ export function PhoneAppFrame({
       off()
       hostRef.current = null
       host.dispose()
+      setBackClaimed(false)
     }
   }, [app, deviceId, extensionId])
 
