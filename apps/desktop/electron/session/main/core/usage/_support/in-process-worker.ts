@@ -1,3 +1,5 @@
+import Database from 'better-sqlite3';
+import { openTokenCachePager } from '../token-scan-worker/sqlite-cache';
 import type { TokenScanWorkerLike } from '../token-scan-client';
 import type { FromWorker, ToWorker } from '../token-scan-worker/protocol';
 import { createTokenScanService } from '../token-scan-worker/service';
@@ -6,17 +8,18 @@ import { createTokenScanService } from '../token-scan-worker/service';
  * 单测用:把 worker 那一半(service)跑在本线程里,消息照真 worker 的形状走 —— 异步投递、
  * 结构化克隆(不共享引用)、按收到的顺序串行处理。`crash()` 模拟线程崩掉。
  */
-export function createInProcessTokenScanWorker(): TokenScanWorkerLike & {
+export function createInProcessTokenScanWorker(cacheDbPath?: string): TokenScanWorkerLike & {
   crash(error: Error): void;
   received: ToWorker[];
   terminated: boolean;
 } {
   const listeners = { message: [] as Array<(m: FromWorker) => void>, error: [] as Array<(e: Error) => void>, exit: [] as Array<(c: number) => void> };
   let alive = true;
+  const cache = cacheDbPath ? openTokenCachePager(cacheDbPath, Database) : undefined;
   const service = createTokenScanService((message) => {
     const copy = structuredClone(message);
     setImmediate(() => alive && listeners.message.forEach((listener) => listener(copy)));
-  });
+  }, undefined, cache);
   let queue: Promise<void> = Promise.resolve();
   const worker = {
     received: [] as ToWorker[],
@@ -34,6 +37,7 @@ export function createInProcessTokenScanWorker(): TokenScanWorkerLike & {
     terminate() {
       if (!alive) return Promise.resolve(0);
       alive = false;
+      cache?.close();
       worker.terminated = true;
       listeners.exit.forEach((listener) => listener(1));
       return Promise.resolve(1);
@@ -41,6 +45,7 @@ export function createInProcessTokenScanWorker(): TokenScanWorkerLike & {
     crash(error: Error) {
       if (!alive) return;
       alive = false;
+      cache?.close();
       listeners.error.forEach((listener) => listener(error));
       listeners.exit.forEach((listener) => listener(1));
     },

@@ -91,7 +91,7 @@ describe('token-scan-client(进程内 worker)', () => {
       { provider: 'claude', day: expect.any(String), model: 'claude-opus-5-5', source: null, input: 2, output: 4, cacheRead: 6, cacheWrite: 8 },
     ]);
     // 落库的消息是在 result 之前发的,到这里已经写完。
-    expect(cache.rows.size).toBe(2);
+    expect(cache.rows.size).toBe(4);
 
     await client.dispose();
     const second = await client.scan(request);

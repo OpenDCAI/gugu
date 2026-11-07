@@ -11,6 +11,13 @@ export function plain(value: number, fractionDigits = 0): string {
   return formatNumber(value, { maximumFractionDigits: fractionDigits })
 }
 
+/** Keep a rounded nonzero rate distinct from an exactly measured zero. */
+export function cacheHitPercent(rate: number | null): string {
+  if (rate === null) return '—'
+  const minimumFractionDigits = rate > 0 && rate < 0.01 ? 1 : 0
+  return formatNumber(rate * 100, { minimumFractionDigits, maximumFractionDigits: 1 }) + '%'
+}
+
 /** 秒 → 「45 分钟」「3.2 小时」「60 小时」。不到 10 小时留一位小数,再多就取整。 */
 export function duration(seconds: number, t: TFunction<'settings'>): string {
   if (seconds < 3600) return t('usage.minutes', { count: Math.round(seconds / 60), value: plain(Math.round(seconds / 60)) })

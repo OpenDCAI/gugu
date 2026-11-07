@@ -14,13 +14,16 @@ export type TokenScanWorkerLike = {
 };
 
 /**
- * 库缓存(`usage_token_file_cache`)的主线程读写口。**分页**:整张表单机约 11 MB,
- * 一口气 SELECT 出来就是主线程上的一整块。
+ * 库缓存(`usage_token_file_cache`)的分页读写口。生产在 usage worker 执行,
+ * legacy 客户端注入只供兼容与进程内测试。
  */
 export type TokenCachePager = {
   /** path 严格大于 `afterPath` 的前 `limit` 行,按 path 升序。 */
   loadPage(afterPath: string, limit: number): CachedLogFileRow[];
   save(row: CachedLogFileSave): void;
+  checkpoint?(persist: () => void): void;
+  /** Remove superseded generations after a new checkpoint has been saved. */
+  prune?(path: string, generation: string): void;
 };
 
 export type TokenScanRequest = {
@@ -44,7 +47,7 @@ const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resol
  */
 export function createTokenScanClient(options: {
   spawn: () => TokenScanWorkerLike;
-  cache: TokenCachePager;
+  cache?: TokenCachePager;
   onFileError?: (path: string, error: string) => void;
   onSaveError?: (path: string, error: unknown) => void;
   idleMs?: number;
@@ -74,12 +77,19 @@ export function createTokenScanClient(options: {
     const target: Live = { worker, hydrated: Promise.resolve(), pending: new Map(), dead: null };
     worker.on('message', (message) => {
       switch (message.type) {
+        case 'prune-cache':
+          try { options.cache?.prune?.(message.path, message.generation); }
+          catch (error) { options.onSaveError?.(message.path, error); }
+          return;
         case 'save':
           try {
-            options.cache.save(message.row);
+            options.cache?.save(message.row);
           } catch (error) {
             options.onSaveError?.(message.row.path, error);
           }
+          return;
+        case 'cache-error':
+          options.onSaveError?.(message.path, message.error);
           return;
         case 'file-error':
           options.onFileError?.(message.path, message.error);
@@ -97,10 +107,12 @@ export function createTokenScanClient(options: {
     worker.on('error', (error) => fail(target, error));
     worker.on('exit', (code) => fail(target, new Error(`usage token scan worker exited (code ${code})`)));
     target.hydrated = (async () => {
+      const cache = options.cache;
+      if (!cache) return;
       let after = '';
       for (;;) {
         if (target.dead) return;
-        const rows = options.cache.loadPage(after, HYDRATE_PAGE_ROWS);
+        const rows = cache.loadPage(after, HYDRATE_PAGE_ROWS);
         if (rows.length === 0) break;
         worker.postMessage({ type: 'hydrate', rows });
         after = rows[rows.length - 1].path;

@@ -1,3 +1,4 @@
+import { createUsagePrefilter } from './usage-prefilter';
 import type { Dirent } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -70,11 +71,7 @@ export const claudeTokenReader: TokenLogReader = {
     return null;
   },
 
-  mayCarryUsage(line) {
-    // 找**未转义**的结构标记:同样的字眼出现在对话正文 / 工具结果里时是转义过的(\"type\"),
-    // 于是动辄几 MB 的工具结果行一律不进 JSON.parse。claude 写的是紧凑 JSON(无空格)。
-    return line.includes('"type":"assistant"') && line.includes('"usage":{');
-  },
+  ...createUsagePrefilter([["\"type\":\"assistant\"", "\"usage\":{"]]),
 
   readLine(entry): TokenEntry | null {
     if (entry.type !== 'assistant') return null;
@@ -102,6 +99,11 @@ export const claudeTokenReader: TokenLogReader = {
       output,
       cacheRead,
       cacheWrite,
+      quality: {
+        complete: typeof message.stop_reason === 'string' && message.stop_reason.trim().length > 0,
+        fields: ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']
+          .filter((field) => typeof usage[field] === 'number' && Number.isFinite(usage[field]) && (usage[field] as number) >= 0).length,
+      },
     };
   },
 };

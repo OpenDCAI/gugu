@@ -1,3 +1,4 @@
+import { preferSnapshot } from './token-snapshot';
 import { localDayOf } from './local-day';
 import { sourceAt, type ModelSource, type SourceSpans } from './model-source';
 import type { ProviderTokenEntry } from './token-scan';
@@ -44,17 +45,19 @@ export function foldTokenEntries(
     return day;
   };
 
-  const seenByProvider = new Map<string, Set<string>>();
-  const rows = new Map<string, TokenDayRow>();
+  const selectedByProvider = new Map<string, Map<string, ProviderTokenEntry>>();
   for (const entry of entries) {
-    let seen = seenByProvider.get(entry.provider);
-    if (!seen) {
-      seen = new Set();
-      seenByProvider.set(entry.provider, seen);
+    let selected = selectedByProvider.get(entry.provider);
+    if (!selected) {
+      selected = new Map();
+      selectedByProvider.set(entry.provider, selected);
     }
-    if (seen.has(entry.key)) continue;
-    seen.add(entry.key);
+    const current = selected.get(entry.key);
+    if (!current || preferSnapshot(entry.provider, entry, current)) selected.set(entry.key, entry);
+  }
 
+  const rows = new Map<string, TokenDayRow>();
+  for (const selected of selectedByProvider.values()) for (const entry of selected.values()) {
     const day = dayOf(entry.ts);
     const source = sourceAt(sourcesByProviderSession[entry.providerSessionId], entry.ts);
     const key = `${entry.provider}\u0000${day}\u0000${entry.model}\u0000${source ?? ''}`;

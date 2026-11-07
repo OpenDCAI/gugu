@@ -1,4 +1,5 @@
-import { foldTokenEntries } from '../token-fold';
+import type { TokenCachePager } from '../token-scan-client';
+import { createIncrementalTokenFold } from '../incremental-token-fold';
 import { TOKEN_LOG_READERS } from '../token-readers/registry';
 import type { TokenLogReader } from '../token-readers/types';
 import { collectTokenEntries, createParsedFileMemory, hydrateParsedFileMemory } from '../token-scan';
@@ -13,9 +14,12 @@ import type { FromWorker, ToWorker } from './protocol';
  */
 export function createTokenScanService(
   send: (message: FromWorker) => void,
-  readers: readonly TokenLogReader[] = TOKEN_LOG_READERS
+  readers: readonly TokenLogReader[] = TOKEN_LOG_READERS,
+  cache?: TokenCachePager
 ): { handle(message: ToWorker): Promise<void> } {
   const memory = createParsedFileMemory();
+  let fold = createIncrementalTokenFold();
+  let hydrated = false;
   return {
     async handle(message) {
       if (message.type === 'hydrate') {
@@ -29,16 +33,49 @@ export function createTokenScanService(
         return;
       }
       try {
-        const { entries, stats } = await collectTokenEntries({
+        if (cache && !hydrated) {
+          hydrated = true;
+          try {
+            let after = '';
+            for (;;) {
+              const rows = cache.loadPage(after, 40);
+              if (!rows.length) break;
+              hydrateParsedFileMemory(memory, rows);
+              after = rows[rows.length - 1].path;
+            }
+          } catch (error) { send({ type: 'cache-error', path: '<token cache>', error: String(error) }); }
+        }
+        let writable = true;
+        fold.begin(message.sourcesByProviderSession);
+        const { stats } = await collectTokenEntries({
           providerSessions: message.providerSessions,
           readers,
           rootsByProvider: message.rootsByProvider,
           memory,
-          onSave: (row) => send({ type: 'save', row }),
+          onFile: (file) => fold.visit(file),
+          onPrune: (path, generation) => cache ? cache.prune?.(path, generation) : send({ type: 'prune-cache', path, generation }),
+          onSave: (row) => cache ? cache.save(row) : send({ type: 'save', row }),
+          cacheCheckpoint: cache ? (persist) => {
+            if (!writable) return false;
+            try {
+              if (cache.checkpoint) cache.checkpoint(persist);
+              else persist();
+              return true;
+            } catch (error) {
+              writable = false;
+              send({ type: 'cache-error', path: '<token cache>', error: String(error) });
+              return false;
+            }
+          } : undefined,
           onFileError: (path, error) => send({ type: 'file-error', path, error: String(error) }),
         });
-        send({ type: 'result', id: message.id, rows: foldTokenEntries(entries, message.sourcesByProviderSession), stats });
+        const result = fold.finish();
+        stats.foldedEntries = result.processed;
+        send({ type: 'result', id: message.id, rows: result.rows, stats });
       } catch (error) {
+        // A failed collection may have applied only some file deltas. Rebuild the index
+        // from parsed memory on retry rather than exposing a partial aggregate.
+        fold = createIncrementalTokenFold();
         send({ type: 'failed', id: message.id, error: error instanceof Error ? error.stack ?? error.message : String(error) });
       }
     },

@@ -106,6 +106,7 @@ describe('claude 读取器', () => {
       output: 2633,
       cacheRead: 35676,
       cacheWrite: 64478,
+      quality: { complete: false, fields: 4 },
     });
     expect(claudeTokenReader.readLine(JSON.parse(claudeUser('x')), null)).toBeNull();
     const zero = claudeAssistant({
@@ -184,7 +185,7 @@ describe('codex 读取器', () => {
       ].join('\n')
     );
     const { entries } = await parseLogFile(path, codexTokenReader);
-    expect(entries.map(({ key: _key, ts: _ts, ...rest }) => rest)).toEqual([
+    expect(entries.map(({ key: _key, legacyKey: _legacyKey, ts: _ts, ...rest }) => rest)).toEqual([
       { model: 'gpt-5.6-terra', input: 3, output: 266, cacheRead: 0, cacheWrite: 19927 },
       { model: 'gpt-5.5', input: 20706 - 20473 - 230, output: 217, cacheRead: 20473, cacheWrite: 230 },
     ]);
@@ -285,12 +286,12 @@ describe('日志文件的增量读取与缓存', () => {
     const first = await collectTokenEntries(options);
     expect(first.stats).toMatchObject({ files: 1, fullParses: 1, cacheHits: 0 });
     expect(first.entries).toHaveLength(1);
-    expect(saved).toHaveLength(1);
+    expect(saved).toHaveLength(2);
 
     const second = await collectTokenEntries(options);
     expect(second.stats).toMatchObject({ files: 1, cacheHits: 1, bytesRead: 0 });
     expect(second.entries).toEqual(first.entries);
-    expect(saved).toHaveLength(1); // 命中不写库
+    expect(saved).toHaveLength(2); // 命中不写库
 
     // 新的内存层(线程被收过、重起)从库缓存灌回来,照样命中,不重读文件。
     const rehydrated = createParsedFileMemory();

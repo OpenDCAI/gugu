@@ -90,6 +90,54 @@ describe('#6334「活跃」页', () => {
       expect(document.querySelector('[data-testid="usage-tile-credits"]')).toBeNull()
     } finally { harness.cleanup() }
   })
+
+  it('shows per-engine cache reads and a token-weighted combined rate', async () => {
+    state.activity = activity({ usage: { status: 'ready', value: [
+      usageDay({ engine: 'claude', inputTokens: 90, cacheReadTokens: 10 }),
+      usageDay({ engine: 'codex', cacheReadTokens: 900 }),
+      usageDay({ engine: 'opencode', inputTokens: 90_000 }),
+    ] } })
+    const harness = await render(renderActivity)
+    try {
+      const cacheCell = (engine: string) => document.querySelector(`[data-testid="usage-engine-${engine}"] [data-label="缓存命中率"]`)
+      expect(cacheCell('claude')?.textContent).toBe('10%')
+      expect(cacheCell('codex')?.textContent).toBe('100%')
+      expect(cacheCell('opencode')?.textContent).toBe('未统计')
+      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合计：91% 的输入来自缓存')
+      expect(document.querySelector('[data-testid="usage-cache-hit-scope"]')?.textContent).toBe('Claude / Codex 已统计日志，含咕咕模型与自带账号。')
+    } finally { harness.cleanup() }
+  })
+
+  it('distinguishes no input from a measured zero and an unsupported engine', async () => {
+    state.activity = activity({ usage: { status: 'ready', value: [
+      usageDay({ engine: 'claude', outputTokens: 900 }),
+      usageDay({ engine: 'codex', inputTokens: 100 }),
+      usageDay({ engine: 'gemini', sessions: 1 }),
+    ] } })
+    const harness = await render(renderActivity)
+    try {
+      const cacheCell = (engine: string) => document.querySelector(`[data-testid="usage-engine-${engine}"] [data-label="缓存命中率"]`)
+      expect(cacheCell('claude')?.textContent).toBe('—')
+      expect(cacheCell('codex')?.textContent).toBe('0%')
+      expect(cacheCell('gemini')?.textContent).toBe('未统计')
+      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合计：0% 的输入来自缓存')
+    } finally { harness.cleanup() }
+  })
+})
+
+describe('small cache hit percentages', () => {
+  it('preserves one decimal below one percent while an exact zero stays 0%', async () => {
+    state.activity = activity({ usage: { status: 'ready', value: [
+      usageDay({ engine: 'claude', inputTokens: 996, cacheReadTokens: 4 }),
+      usageDay({ engine: 'codex', inputTokens: 1000 }),
+    ] } })
+    const harness = await render(renderActivity)
+    try {
+      expect(document.querySelector('[data-testid="usage-engine-claude"] [data-label="缓存命中率"]')?.textContent).toBe('0.4%')
+      expect(document.querySelector('[data-testid="usage-engine-codex"] [data-label="缓存命中率"]')?.textContent).toBe('0%')
+      expect(document.querySelector('[data-testid="usage-cache-hit-combined"]')?.textContent).toBe('合计：0.2% 的输入来自缓存')
+    } finally { harness.cleanup() }
+  })
 })
 
 describe('#6334「用量」页', () => {

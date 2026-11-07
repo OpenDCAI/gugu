@@ -7,6 +7,6 @@ import type { TokenScanWorkerLike } from '../token-scan-client';
  * (与 acp-runtime.js 等同一次 lib 构建的入口,登记在 worker-manifest.ts 与 emdash-aliases.mjs)。
  * 单独一个文件,单测据此把它换成进程内实现。
  */
-export function spawnTokenScanWorker(): TokenScanWorkerLike {
-  return new Worker(desktopWorkerPath('usage-token-scan'), { name: 'usage-token-scan' }) as unknown as TokenScanWorkerLike;
+export function spawnTokenScanWorker(cacheDbPath: string): TokenScanWorkerLike {
+  return new Worker(desktopWorkerPath('usage-token-scan'), { name: 'usage-token-scan', workerData: { cacheDbPath } }) as unknown as TokenScanWorkerLike;
 }

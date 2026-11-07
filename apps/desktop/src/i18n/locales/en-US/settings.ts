@@ -1068,6 +1068,13 @@ export default {
     },
     "busiest_one": "Busiest day: {{date}}, {{count}} task",
     "busiest_other": "Busiest day: {{date}}, {{count}} tasks",
+    "cacheHitRate": {
+      "combined": "Total: {{value}} of input came from cache",
+      "label": "Cache hit rate",
+      "meaning": "Reads as a share of all input",
+      "scope": "Recorded Claude / Codex logs, including Gugu models and personal accounts.",
+      "untracked": "Not tracked"
+    },
     "changeDown": "↓ {{percent}}% vs previous",
     "changeUp": "↑ {{percent}}% vs previous",
     "compareUnavailable": "Comparison unavailable",

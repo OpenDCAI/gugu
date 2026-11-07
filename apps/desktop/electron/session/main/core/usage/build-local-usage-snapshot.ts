@@ -1,59 +1,25 @@
-import { and, asc, gt, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, gt, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import type { LocalUsageRequest, LocalUsageSnapshot } from '@gugu/core/shared/usage/dailyUsage';
 import { resolveAgentHomeEnv, resolveAgentHomeRoot } from '@main/core/agents/agent-home';
-import { db } from '@main/db/client';
-import { sessionRunIntervals, sessions, usageTokenFileCache } from '@main/db/schema';
+import { db, sqlite } from '@main/db/client';
+import { sessionRunIntervals, sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { UNKNOWN_ENGINE, combineLocalUsage } from './combine-local-usage';
 import { sqliteTextToMs } from './local-day';
 import { rangeBoundsMs, type RunInterval } from './run-interval-math';
 import { readSourceSpansByProviderSession } from './model-source-recorder';
 import { runIntervalRecorder } from './run-interval-recorder';
-import { createTokenScanClient, type TokenCachePager, type TokenScanResult } from './token-scan-client';
+import { createTokenScanClient, type TokenScanResult } from './token-scan-client';
 import { spawnTokenScanWorker } from './token-scan-worker/spawn';
 import { TOKEN_LOG_READERS } from './token-readers/registry';
 import { configRootsFor } from './token-scan';
 import { requireNativeHome } from '@gugu/session-plugins/agents';
 
-/** `usage_token_file_cache` 的库实现(分页读,逐行写)。 */
-export const dbTokenCachePager: TokenCachePager = {
-  loadPage(afterPath, limit) {
-    return db
-      .select({
-        path: usageTokenFileCache.path,
-        size: usageTokenFileCache.size,
-        mtimeMs: usageTokenFileCache.mtimeMs,
-        data: usageTokenFileCache.data,
-      })
-      .from(usageTokenFileCache)
-      .where(gt(usageTokenFileCache.path, afterPath))
-      .orderBy(asc(usageTokenFileCache.path))
-      .limit(limit)
-      .all();
-  },
-  save(row) {
-    db.insert(usageTokenFileCache)
-      .values(row)
-      .onConflictDoUpdate({
-        target: usageTokenFileCache.path,
-        set: {
-          size: row.size,
-          mtimeMs: row.mtimeMs,
-          provider: row.provider,
-          providerSessionId: row.providerSessionId,
-          data: row.data,
-        },
-      })
-      .run();
-  },
-};
-
 let tokenScanClient: ReturnType<typeof createTokenScanClient> | null = null;
 
 function getTokenScanClient(): ReturnType<typeof createTokenScanClient> {
   tokenScanClient ??= createTokenScanClient({
-    spawn: spawnTokenScanWorker,
-    cache: dbTokenCachePager,
+    spawn: () => spawnTokenScanWorker(sqlite.name),
     onFileError: (path, error) => log.warn('usage: failed to read a token log file', { path, error }),
     onSaveError: (path, error) =>
       log.warn('usage: failed to persist a token log cache row', { path, error: String(error) }),

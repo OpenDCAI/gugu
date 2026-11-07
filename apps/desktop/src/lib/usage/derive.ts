@@ -3,6 +3,7 @@
 // 输入是云端已跨设备合并好的 UsageDay[](会话/运行时长/token,按天×引擎;token 另按来源分咕咕模型 / 自己账号)。
 // 积分那一页的推导在 charts.ts。页面上每一个数字都从这里出来,组件只管画。
 import { DEVICE_ROW_ENGINE, type UsageDay } from '@gugu/core/shared/usage/dailyUsage'
+import type { InputTokenBuckets } from './cacheHitRate'
 
 export type RangePreset = '7d' | '30d' | '90d' | '1y'
 export const RANGE_PRESETS: readonly RangePreset[] = ['7d', '30d', '90d', '1y']
@@ -163,15 +164,21 @@ export function busiestDay(days: readonly UsageDay[], range: { from: string; to:
 
 // ── 按引擎 / 模型 / 钟点 ──
 
-export type EngineRow = { engine: string; sessions: number; tokens: number; guguTokens: number; byokTokens: number; runSeconds: number; share: number }
+export type EngineRow = InputTokenBuckets & { engine: string; sessions: number; tokens: number; guguTokens: number; byokTokens: number; runSeconds: number; share: number }
 
 export function engineRows(days: readonly UsageDay[], range: { from: string; to: string }): EngineRow[] {
   const byEngine = new Map<string, EngineRow>()
   for (const row of days) {
     if (row.engine === DEVICE_ROW_ENGINE || !inRange(row.day, range)) continue
-    const entry = byEngine.get(row.engine) ?? { engine: row.engine, sessions: 0, tokens: 0, guguTokens: 0, byokTokens: 0, runSeconds: 0, share: 0 }
+    const entry = byEngine.get(row.engine) ?? {
+      engine: row.engine, sessions: 0, tokens: 0, guguTokens: 0, byokTokens: 0, runSeconds: 0, share: 0,
+      inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+    }
     entry.sessions += row.sessions
     entry.tokens += tokensOf(row)
+    entry.inputTokens += row.inputTokens
+    entry.cacheReadTokens += row.cacheReadTokens
+    entry.cacheWriteTokens += row.cacheWriteTokens
     entry.guguTokens += sumValues(row.guguModels)
     entry.byokTokens += sumValues(row.byokModels)
     entry.runSeconds += row.runSeconds

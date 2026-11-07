@@ -10,10 +10,13 @@ import type { AppDb } from '@main/db/client';
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
   home: '' as string,
+  sqlite: undefined as { name: string } | undefined,
   warnings: [] as unknown[][],
+  workers: [] as Array<{ terminate(): unknown }>,
 }));
 
 vi.mock('@main/db/client', () => ({
+  get sqlite() { return mocks.sqlite; },
   get db() {
     if (!mocks.db) throw new Error('Test database not initialized');
     return mocks.db;
@@ -24,9 +27,12 @@ vi.mock('@main/core/agents/agent-home', () => ({
   resolveAgentHomeEnv: async () => ({}),
 }));
 // worker 线程换成进程内实现(真线程那条在 token-scan-client.test.ts 里单独测)。
-vi.mock('./token-scan-worker/spawn', async () => ({
-  spawnTokenScanWorker: (await import('./_support/in-process-worker')).createInProcessTokenScanWorker,
-}));
+vi.mock('./token-scan-worker/spawn', async () => {
+  const { createInProcessTokenScanWorker } = await import('./_support/in-process-worker');
+  return { spawnTokenScanWorker: (path: string) => {
+    const worker = createInProcessTokenScanWorker(path); mocks.workers.push(worker); return worker;
+  } };
+});
 vi.mock('@main/lib/logger', () => ({
   log: {
     info: () => {},
@@ -66,6 +72,7 @@ describe('run-interval-recorder', () => {
   beforeEach(async () => {
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
+    mocks.sqlite = fixture.sqlite;
     mocks.warnings = [];
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
@@ -79,6 +86,7 @@ describe('run-interval-recorder', () => {
   });
 
   afterEach(() => {
+    for (const worker of mocks.workers.splice(0)) worker.terminate();
     fixture?.close();
   });
 
@@ -270,11 +278,13 @@ describe('buildLocalUsageSnapshot / usage.localDaily', () => {
   beforeEach(async () => {
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
+    mocks.sqlite = fixture.sqlite;
     mocks.warnings = [];
-    home = mkdtempSync(join(tmpdir(), 'gugu-usage-home-'));
+    home = mkdtempSync(join(tmpdir(), 'gugu-usage-home-%_-'));
     mocks.home = home;
   });
   afterEach(() => {
+    for (const worker of mocks.workers.splice(0)) worker.terminate();
     fixture?.close();
     rmSync(home, { recursive: true, force: true });
   });
@@ -314,7 +324,8 @@ describe('buildLocalUsageSnapshot / usage.localDaily', () => {
         requestId: `r-${id}`,
         message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 } },
       });
-    writeFileSync(join(claudeDir, 'sid-claude.jsonl'), `${assistant('m1', at(23, 10, 5))}\n${assistant('m1', at(23, 10, 5))}\n`);
+    const claudePath = join(claudeDir, 'sid-claude.jsonl');
+    writeFileSync(claudePath, `${assistant('m1', at(23, 10, 5))}\n${assistant('m1', at(23, 10, 5))}\n`);
     // 同目录下一份**不属于咕咕**的会话 —— 不许算进来。
     writeFileSync(join(claudeDir, 'not-gugu.jsonl'), `${assistant('m9', at(23, 10, 5))}\n`);
     const codexDay = join(home, '.codex', 'sessions', '2026', '09', '23');
@@ -364,9 +375,21 @@ describe('buildLocalUsageSnapshot / usage.localDaily', () => {
 
     // 第二次:日志没变,全部走缓存,结果逐字相同。
     const cachedRows = fixture.sqlite.prepare('SELECT count(*) AS n FROM usage_token_file_cache').get() as { n: number };
-    expect(cachedRows.n).toBe(2);
+    expect(cachedRows.n).toBe(4); // two checkpoints plus two bounded data parts
+    const cachePaths = () => (fixture.sqlite.prepare('SELECT path FROM usage_token_file_cache ORDER BY path').all() as { path: string }[]).map(row => row.path);
+    const oldPaths = cachePaths();
     const again = await buildLocalUsageSnapshot({ from: '2026-09-23', to: '2026-09-23' });
     expect(again).toEqual(snapshot);
+
+    // Replace one transcript: the actual SQLite adapter must prune only its old generation,
+    // including when its path contains LIKE wildcards. The other file's parts survive.
+    writeFileSync(claudePath, `${assistant('replacement', at(23, 10, 5))}\n`);
+    expect(await buildLocalUsageSnapshot({ from: '2026-09-23', to: '2026-09-23' })).toEqual(snapshot);
+    const newPaths = cachePaths();
+    expect(newPaths).toHaveLength(4);
+    expect(newPaths.filter(path => !oldPaths.includes(path))).toHaveLength(1);
+    expect(oldPaths.filter(path => !newPaths.includes(path))).toHaveLength(1);
+    expect(mocks.warnings).toEqual([]);
   });
 
   it('还开着的区间算到 now 为止', async () => {

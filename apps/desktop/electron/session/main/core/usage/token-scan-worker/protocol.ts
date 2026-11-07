@@ -7,9 +7,9 @@ import type { CachedLogFileRow, CachedLogFileSave, TokenScanStats } from '../tok
  *
  * 为什么在 worker 里:读几 GB 的日志、单行几十 MB 的 JSON.parse、十万级条目去重,任何一块都是
  * 不可切分的同步 CPU 活 —— 放在 electron 主线程上,用户界面会整段冻住(2026-09-23 本机实测冷扫单块 438 ms)。
- * 主线程只做:分页读写 SQLite 缓存、收发消息、汇总几百条会话与区间。
+ * 生产缓存的分页读取和分片写入都由 worker 执行，主线程仅接收汇总结果。
  *
- * 顺序约定:同一个 worker 按收到的顺序处理;主进程把全部 `hydrate` 页发完才发第一条 `scan`。
+ * 顺序约定:同一个 worker 按收到的顺序处理；生产在首次 scan 前自行读取缓存，hydrate 保留兼容。
  */
 export type ToWorker =
   /** 库缓存的一页,灌进 worker 的内存层。 */
@@ -24,6 +24,8 @@ export type ToWorker =
     };
 
 export type FromWorker =
+  | { type: 'cache-error'; path: string; error: string }
+  | { type: 'prune-cache'; path: string; generation: string }
   /** 一份文件新解析完,要写回库缓存。每份单独一条消息 —— ❌ 攒成一大条,主线程反序列化会是一整块。 */
   | { type: 'save'; row: CachedLogFileSave }
   | { type: 'file-error'; path: string; error: string }
