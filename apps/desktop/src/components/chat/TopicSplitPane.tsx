@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
 import { X } from '@/lib/icons'
-import type { MessageItem } from '@gugu/core/shared/types/chat'
+import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
 import { useDeliveryWaits } from '../../hooks/useDeliveryWaits'
@@ -41,6 +41,7 @@ import type { ChatConversation } from '@/store/useChatConversation'
 import { useFollowingTail, useTailPinning } from './useFollowingTail'
 import { useChatHistoryPagination } from './useChatHistoryPagination'
 import { useConversationScrollMemory } from './useConversationScrollMemory'
+import { unreadAboveCount } from '../../lib/chatUnreadLocatorWindow'
 import { ChatTailNotice } from './ChatTailNotice'
 import { MessageLoadFailure } from './MessageLoadFailure'
 import { MessageListSkeleton } from './MessageListSkeleton'
@@ -69,7 +70,7 @@ export type TopicSplitPaneProps = {
   messages: MessageItem[]
   loading: boolean
   memberProfiles: Record<string, MemberProfileCardModel>
-  visibleChats: readonly { id: string; name: string; member_user_ids?: string[] }[]
+  visibleChats: readonly (Pick<ChatItem, 'id' | 'unread_locator'> & { name: string; member_user_ids?: string[] })[]
   /**
    * 这条话题引自哪一句。四种值分开(见 TopicBreadcrumb):'pending' 还没读到 / 'unreadable' 读到了
    * 但这个人看不到 / null 来源消息确实被删了 / 有字 = 预览。从会话列表点进来的人,
@@ -270,10 +271,23 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
   const chatResetKey = `${topic.chatId}#${messageWindow.viewVersion}`
+  // Read once per opened topic: what you read from here on must not move where this opening landed.
+  const landing = useRef<{ chatId: string; messageId: string | null } | null>(null)
+  if (landing.current?.chatId !== topic.chatId) {
+    landing.current = { chatId: topic.chatId, messageId: visibleChats.find((chat) => chat.id === topic.chatId)?.unread_locator?.first_addressed_message_id ?? null }
+  }
+  const landingMessageId = landing.current.messageId
   const { scrollerEl, scrollerRef, setScrollerRef, isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
-    chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false, discardSaved: !!history.unreadEntry,
+    chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false, discardSaved: !!history.unreadEntry, landOn: landingMessageId,
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
+  useEffect(() => {
+    if (!landingMessageId || !rows.some((row) => row.message.id === landingMessageId)) return
+    landing.current = { chatId: topic.chatId, messageId: null }
+    setFlashMessageId(landingMessageId)
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+    flashTimerRef.current = setTimeout(() => setFlashMessageId(null), 1400)
+  }, [landingMessageId, rows, topic.chatId])
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
   const unreadNavigationPending = useUnreadLocatorNavigation({ revealMessage, activeChatId: topic.chatId, enabled: visible !== false, scrollerRef, setFlashMessageId, flashTimerRef })
   const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending,
@@ -390,7 +404,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
               initialTopMostItemIndex={openLocation()}
               followTail={!unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
               unreadAbove={history.unreadEntry ? { messageId: history.unreadEntry.locator.message_id, messageSeq: history.unreadEntry.locator.message_seq,
-                label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onSeen: history.unreadEntry.onSeen, onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
+                label: t('chatArea.unreadAbove', { count: unreadAboveCount(history.unreadEntry.locator, messages) }), onSeen: history.unreadEntry.onSeen, onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
               onAtBottomChange={onAtBottomChange}
               onTotalListHeightChanged={onTotalListHeightChanged}
               style={MESSAGE_LIST_STYLE}

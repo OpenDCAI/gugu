@@ -632,6 +632,8 @@ export function mergeUnreadRows(
       message_seq: Number.isFinite(Number(row.message_seq)) ? Number(row.message_seq) : null,
       unread_count: Number(row.unread_count),
       addressed_count: addressedCount(row),
+      first_addressed_message_id: typeof row.first_addressed_message_id === 'string' ? row.first_addressed_message_id : null,
+      first_addressed_seq: row.first_addressed_seq == null ? null : Number(row.first_addressed_seq),
       cursor_seq: Number(row.cursor_seq),
       version: Number(row.version),
       is_marked_unread: row.is_marked_unread === true,
@@ -640,7 +642,9 @@ export function mergeUnreadRows(
     if (!previous) { byChat.set(row.chat_id, locator); continue }
     const first = (locator.message_seq ?? Number.MAX_SAFE_INTEGER) < (previous.message_seq ?? Number.MAX_SAFE_INTEGER)
       ? locator : previous
-    byChat.set(row.chat_id, { ...first, unread_count: previous.unread_count + locator.unread_count, addressed_count: previous.addressed_count + locator.addressed_count })
+    const addressed = (locator.first_addressed_seq ?? Number.MAX_SAFE_INTEGER) < (previous.first_addressed_seq ?? Number.MAX_SAFE_INTEGER) ? locator : previous
+    byChat.set(row.chat_id, { ...first, unread_count: previous.unread_count + locator.unread_count, addressed_count: previous.addressed_count + locator.addressed_count,
+      first_addressed_message_id: addressed.first_addressed_message_id, first_addressed_seq: addressed.first_addressed_seq })
   }
   return byChat
 }

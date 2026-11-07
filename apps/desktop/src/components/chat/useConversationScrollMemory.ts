@@ -57,6 +57,8 @@ interface UseConversationScrollMemoryOptions {
   setFollowingTail: (following: boolean) => void
   loadMessageAnchor?: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
   discardSaved?: boolean // @@@6530 因为有新消息才点开的这一次停在最新处,不回上次读到一半的位置(微信同款)
+  /** 这次打开落在这条消息上(话题里第一条叫到你的),走和「回到上次位置」同一条恢复路:列表藏着等它就位,不先在最新处露一帧。 */
+  landOn?: string | null
 }
 
 const RESTORE_TIMEOUT_MS = 5_000
@@ -65,6 +67,8 @@ const RESTORE_OFFSET_TOLERANCE = 1
 const AT_BOTTOM_THRESHOLD = 80
 // A revealed message lands this far down the viewport (its top edge), so it reads as "here", not glued to the top.
 const REVEAL_VIEWPORT_FRACTION = 0.35
+// The scroller does not exist yet when a conversation opens onto a message, so this one is a fixed distance.
+const LAND_ON_OFFSET = 120
 
 export function useConversationScrollMemory({
   chatId,
@@ -76,6 +80,7 @@ export function useConversationScrollMemory({
   setFollowingTail,
   loadMessageAnchor,
   discardSaved,
+  landOn,
 }: UseConversationScrollMemoryOptions): {
   scrollerEl: HTMLElement | null
   scrollerRef: RefObject<HTMLElement | null>
@@ -123,7 +128,8 @@ export function useConversationScrollMemory({
 
   if (lastActivationRef.current !== activationKey) {
     lastActivationRef.current = activationKey
-    if (discardSaved && chatId) positions.delete(positionKey)
+    if (landOn && chatId) positions.set(positionKey, { atBottom: false, messageId: landOn, offset: LAND_ON_OFFSET })
+    else if (discardSaved && chatId) positions.delete(positionKey)
     completedActivationRef.current = null
     restoreDeadlineRef.current = null
     requestedAnchorRef.current = null

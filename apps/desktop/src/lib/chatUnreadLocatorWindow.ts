@@ -89,3 +89,15 @@ export function selectRetainedStreamRows(
     belongsToUnreadStream(locator, message) && (commit.reachedTail || message.seq < 0)
   ))
 }
+
+/**
+ * 「↑ N 条新消息」的 N:落在第一条最新处时是这次打开的全部未读;落在叫到你的消息上时只算它上面的,从当前窗口数,
+ * 窗口没够到第一条未读就写成「N+」。只活在这次打开里:水位越过之后没有服务端数字可读,重载就没有了。
+ */
+export function unreadAboveCount(locator: ChatUnreadLocator, messages: readonly MessageItem[]): number | string {
+  const firstUnread = locator.message_seq
+  const landedAt = locator.first_addressed_seq
+  if (firstUnread == null || landedAt == null) return locator.unread_count
+  const above = messages.filter((message) => message.seq >= firstUnread && message.seq < landedAt && !message.is_mine).length
+  return messages.some((message) => message.seq > 0 && message.seq <= firstUnread) ? above : `${above}+`
+}
