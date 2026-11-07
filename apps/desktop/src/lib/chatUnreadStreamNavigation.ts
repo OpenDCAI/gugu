@@ -137,7 +137,9 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           // A confirmed entry is consumed before the read RPC: it must not discard a later reading anchor.
           if (saved) consumeUnreadEntry(chatId, saved)
         },
-        markRead: async (currentTarget, commit) => { assertCurrent(); await writeRead(cloudReadTarget(currentTarget.chatId, currentTarget.locator.thread_root_id, commit.readSeq)) },
+        // An opening that landed on a message addressed to you reads as it is seen: going back up to its first
+        // unread must not read past what is still below.
+        markRead: async (currentTarget, commit) => { assertCurrent(); if (!saved?.first_addressed_message_id) await writeRead(cloudReadTarget(currentTarget.chatId, currentTarget.locator.thread_root_id, commit.readSeq)) },
         refreshChats: () => { assertCurrent(); return deps.loadChats({ acceptEmpty: true }) },
       })
     } catch (error) {

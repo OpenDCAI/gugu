@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
-import type { ChatItem, ChatUnreadLocator } from '@gugu/core/shared/types/chat'
+import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatAttention, mergeFetchedChatsPreservingActiveLocal } from '@gugu/core/shared/ui/chatModels'
 import { mergeUnreadRows } from '../../../../apps/desktop/src/lib/chatProjection'
+import { unreadAboveCount } from '../../../../apps/desktop/src/lib/chatUnreadLocatorWindow'
 import { openLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { sidebarChatSignals } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { phoneChatUnread } from '../../../../apps/desktop/src/mobile/chat/phoneChatUnread'
@@ -99,9 +100,32 @@ describe('an open chat does not grow an unread badge', () => {
   })
 })
 
+describe('unreadAboveCount', () => {
+  const locator = (message_seq: number, first_addressed_seq: number | null) => ({ message_seq, first_addressed_seq, unread_count: 43 }) as ChatUnreadLocator
+  const rows = (...seqs: number[]) => seqs.map(seq => ({ seq, is_mine: false })) as MessageItem[]
+  it('is the opening total when the topic opened at its latest message', () => {
+    expect(unreadAboveCount(locator(1, null), rows(1, 2))).toBe(43)
+  })
+  it('counts only what is above the landing, without your own messages', () => {
+    expect(unreadAboveCount(locator(1, 6), [...rows(1, 2, 3, 4, 5, 6, 7), { seq: 4, is_mine: true } as MessageItem])).toBe(5)
+  })
+  it('says N+ when the window does not reach the first unread', () => {
+    expect(unreadAboveCount(locator(1, 90), rows(30, 31, 90))).toBe('2+')
+  })
+})
+
 describe('addressed_count is a required column of list_unread_locators', () => {
   it('is summed across the streams of one chat', () => {
     expect(mergeUnreadRows([row('main:topic', 4, 1), row('thread:root', 2, 1)]).get('topic')).toMatchObject({ unread_count: 6, addressed_count: 2 })
+  })
+
+  it('keeps the earliest addressed message across streams, and no message when the backend names none', () => {
+    const addressed = (id: string, seq: number | string) => ({ first_addressed_message_id: id, first_addressed_seq: seq })
+    expect(mergeUnreadRows([{ ...row('main:topic', 4, 1), ...addressed('later', 9) }, { ...row('thread:root', 2, 1), ...addressed('earlier', '3') }]).get('topic'))
+      .toMatchObject({ first_addressed_message_id: 'earlier', first_addressed_seq: 3 })
+    expect(mergeUnreadRows([row('main:topic', 4, 1), { ...row('thread:root', 2, 1), ...addressed('only', 5) }]).get('topic'))
+      .toMatchObject({ first_addressed_message_id: 'only', first_addressed_seq: 5 })
+    expect(mergeUnreadRows([row('main:topic', 4, 1)]).get('topic')).toMatchObject({ first_addressed_message_id: null, first_addressed_seq: null })
   })
 
   it('a row without it is a protocol error, not the full unread count', () => {

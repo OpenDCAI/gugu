@@ -89,6 +89,19 @@ describe('MessageList 文档流', () => {
   })
 
   // 恢复位置的锚点还在载入(null):先按最新处放但整块藏着,不露出与终态无关的最新几行;锚点那段换进窗口时整列表重挂。
+  it('藏着等落点时不算看见:这一帧最新处的行不许把已读水位推到底', async () => {
+    vi.stubGlobal('IntersectionObserver', undefined)
+    try {
+      const onVisible = vi.fn()
+      const props = listProps('chat-1', 5)
+      await harness.render(createElement(MessageList, { ...props, rowProps: { ...props.rowProps, onVisible }, initialTopMostItemIndex: null }))
+      expect(onVisible).not.toHaveBeenCalled()
+      harness.cleanup(); harness = createReactHarness()
+      await harness.render(createElement(MessageList, { ...props, rowProps: { ...props.rowProps, onVisible }, initialTopMostItemIndex: { index: 'LAST', align: 'end' } }))
+      expect(onVisible).toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('落点还没定(null)时整块藏着;调用方放弃等待、落点变回最新处就露出来', async () => {
     const props = listProps('chat-1', 5)
     const frame = () => harness.container.querySelector<HTMLElement>('[data-testid="chat-message-list"]')!.parentElement!

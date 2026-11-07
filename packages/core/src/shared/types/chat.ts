@@ -40,6 +40,9 @@ export type ChatUnreadLocator = {
    * 必有:缺这一列是协议错误(chatProjection 读到就抛);本机缓存里缺它的行按无效缓存重建(localSyncDb)。
    */
   addressed_count: number
+  /** 第一条未读里叫到你的消息:打开话题落在这里。手动标未读、老后端没有这一条(null/缺席),照常落在最新处。 */
+  first_addressed_message_id?: string | null
+  first_addressed_seq?: number | null
   cursor_seq: number
   version: number
   is_marked_unread: boolean
