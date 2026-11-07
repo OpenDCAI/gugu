@@ -22,6 +22,7 @@ export function parseConnectionOperationStatus(v:unknown,operationId:string):Con
   ||!object(v.confirmation)||!['pending','resolved'].includes(v.confirmation.state as string)||!text(v.confirmation.deadlineAt))return invalid()
  const resolution=v.resolution
  if(resolution!==null&&(!object(resolution)||!['applied','failed'].includes(resolution.outcome as string)||typeof resolution.resolvedAt!=='string'||!error(resolution.errorCode)))return invalid()
+ if(v.original.errorCode==='CONNECTION_OUTCOME_UNKNOWN'&&v.effective.state!=='confirming'&&resolution===null)return invalid()
  // Reconstruct rather than returning the transport object: extra private fields
  // cannot enter a renderer cache even if a broken service accidentally adds them.
  return {version:1,operationId,scopeKey:v.scopeKey,resourceKey:v.resourceKey,deviceId:v.deviceId,revision:v.revision,operation:v.operation as ConnectionOperationStatus['operation'],

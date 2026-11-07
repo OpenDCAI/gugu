@@ -1,9 +1,11 @@
 import type { ConnectionMetadataSnapshot } from './connection-metadata'
+import { connectionVerificationPresentation } from './connection-verification-presentation'
 
 /** Join the encoded owner/scope/resource identity, including retained tombstones. */
 export function connectionApplicationStatus(snapshot: ConnectionMetadataSnapshot | undefined, provider: string,
   application: ConnectionMetadataSnapshot['application'] = snapshot?.application ?? []) {
   if (!snapshot) return undefined
+  if (snapshot.verificationProtocol === 2) return connectionVerificationPresentation(snapshot,provider,application)
   const keys = new Set(snapshot.items.filter(row => row.data.providerId === provider).map(row => row.resource_key))
   // The read adapter can supply effective receipt states without rewriting the original journal.
   // A removed operation alone never certifies the account: its published metadata still supplies health.

@@ -9,6 +9,8 @@ import type { ConnectionMetadataSnapshot, ConnectionMetadataStore } from './conn
 import { CONNECTIONS_CHANGED } from './owner-connection-metadata'
 import { rendererPlatformIntegrationsClient } from '@/lib/platformIntegrations'
 import { createConnectionRouting,connectionClientForRoute,type ConnectionRoute } from '@gugu/core/cloud/connectionRouting'
+import { createConnectionVerification,type ConnectionVerificationStore } from './connection-verification'
+import { createConnectionVerificationReader } from './connection-verification-read'
 
 const accountId = () => getRendererSession()?.user.id ?? null
 export const ownerConnectionClient = createConnectionClient(async (name,args) => {
@@ -16,8 +18,21 @@ export const ownerConnectionClient = createConnectionClient(async (name,args) =>
   return { data,error,status }
 },accountId)
 const stores = new Map<string,ConnectionMetadataStore>()
+const verifications = new Map<string,ConnectionVerificationStore>()
 const routing = createConnectionRouting({ accountId,read: () => ownerConnectionClient.authority(),
   changed: ownerId => window.dispatchEvent(new CustomEvent(CONNECTIONS_CHANGED,{ detail: { ownerId } })) })
+function verification(ownerId: string,route: ConnectionRoute) {
+  if (accountId() !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
+  if (route.mode !== 'owner' || route.verificationProtocol !== 2) throw new ConnectionError('unsupported-device','CONNECTION_VERIFICATION_PROTOCOL_REQUIRED')
+  const key = JSON.stringify([ownerId,route.epoch])
+  let ledger = verifications.get(key)
+  if (!ledger) {
+    ledger = createConnectionVerification({ ownerId,epoch: route.epoch,accountId,storage: localStorage,
+      changed: () => window.dispatchEvent(new CustomEvent(CONNECTIONS_CHANGED,{ detail: { ownerId } })) })
+    verifications.set(key,ledger)
+  }
+  return ledger
+}
 async function executePlatformOperation(operationId: string,route: ConnectionRoute) {
   await routing.assert(route,true)
   const owner = accountId()
@@ -42,22 +57,34 @@ const bridge: ConnectionBridge = {
   subscribeAccount: listener => observeRendererSession(() => listener()),
   client: ownerConnectionClient,
   routing,
+  verification,
   metadata(ownerId,deviceId = null,route = routing.peek()) {
     if (accountId() !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
     if (route?.mode !== 'owner') throw new ConnectionError('route-changed','CONNECTION_ROUTE_CHANGED')
-    const key = JSON.stringify([ownerId,route.mode,route.epoch,deviceId])
+    const key = JSON.stringify([ownerId,route.mode,route.epoch,deviceId,route.verificationProtocol ?? 1])
     let store = stores.get(key)
     if (!store) {
-      const cache = assistantPanelCacheStore().accountState<ConnectionMetadataSnapshot>(ownerId,`owner-connections.v1:${route.epoch}:${deviceId ?? 'all'}`,
+      const cache = assistantPanelCacheStore().accountState<ConnectionMetadataSnapshot>(ownerId,`owner-connections.v${route.verificationProtocol === 2 ? 2 : 1}:${route.epoch}:${deviceId ?? 'all'}`,
         (value): value is ConnectionMetadataSnapshot => isOwnerConnectionMetadataCache(value,ownerId))
       store = createOwnerConnectionStore({ ownerId,deviceId,accountId,client: connectionClientForRoute(ownerConnectionClient,routing,route),cache,
+        verificationProtocol: route.verificationProtocol,verification: route.verificationProtocol === 2 ? verification(ownerId,route) : undefined,
         executePlatformOperation: id => executePlatformOperation(id,route),
         changed: () => window.dispatchEvent(new CustomEvent(CONNECTIONS_CHANGED,{ detail: { ownerId } })),
       })
-      store = { ...store,authorityEpoch: route.epoch,assertCurrent: async () => {
+      store = { ...store,authorityEpoch: route.epoch,verificationProtocol: route.verificationProtocol ?? 1,assertCurrent: async () => {
         if (accountId() !== ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
         await routing.assert(route)
       } }
+      if (route.verificationProtocol === 2) {
+        const base = store,ledger = verification(ownerId,route)
+        const reader = createConnectionVerificationReader({ ledger,deviceId,snapshot: () => base.peekSnapshot?.(),
+          client: connectionClientForRoute(ownerConnectionClient,routing,route),assertCurrent: base.assertCurrent,changed: base.invalidate })
+        store = { ...base,verification: ledger,
+          snapshot: async () => reader.project(await base.snapshot()),
+          peekSnapshot: () => { const snapshot = base.peekSnapshot?.(); return snapshot ? reader.project(snapshot) : undefined },
+          refreshVerification: reader.refresh,
+        }
+      }
       stores.set(key,store)
     }
     return store
@@ -74,7 +101,9 @@ const bridge: ConnectionBridge = {
     const handle = subscribePrivateUserEventBus(ownerId,'connection_changed',listener,{ onSubscribed: listener })
     const changed = (event: Event) => { if ((event as CustomEvent).detail?.ownerId === ownerId) listener() }
     window.addEventListener(CONNECTIONS_CHANGED,changed)
-    return () => { window.removeEventListener(CONNECTIONS_CHANGED,changed); unsubscribePrivateUserEventBus(handle) }
+    const storage = (event: StorageEvent) => { if (accountId() === ownerId && event.key?.startsWith('gugu.connection-verification.v1:')) listener() }
+    window.addEventListener('storage',storage)
+    return () => { window.removeEventListener(CONNECTIONS_CHANGED,changed); window.removeEventListener('storage',storage); unsubscribePrivateUserEventBus(handle) }
   },
 }
 

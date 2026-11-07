@@ -36,3 +36,13 @@ it('does not start recovery during a transition or after an account switch',asyn
   await act(async () => { await vi.advanceTimersByTimeAsync(60000) })
   expect(fixture.retry).not.toHaveBeenCalled()
 })
+it('keeps protocol-2 status observation read-only during quiescence and stops after an owner switch',async () => {
+  const observe = vi.fn(async () => {}),current = { ...store,verificationProtocol: 2 as const,refreshVerification: observe }
+  function ReadOnly() { useConnectionRecovery(current,false); return null }
+  await harness.render(createElement(ReadOnly))
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+  expect(observe).toHaveBeenCalledOnce(); expect(fixture.retry).not.toHaveBeenCalled()
+  fixture.owner = 'other'
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000) })
+  expect(observe).toHaveBeenCalledOnce(); expect(fixture.retry).not.toHaveBeenCalled()
+})

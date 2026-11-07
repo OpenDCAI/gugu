@@ -1,18 +1,28 @@
 import { ConnectionError,type ConnectionClient } from '@gugu/core/cloud/connections'
+import type { ConnectionVerificationStore } from './connection-verification'
 
 /** Check the latest owner data, including callbacks retained by an old dialog. */
 export async function assertConnectionApplicationAvailable(input: {
   ownerId: string; accountId(): string | null; client: Pick<ConnectionClient,'snapshot'>
   provider: string; scopeKey: string; requireReady?: boolean; operationIds?: readonly string[]; changed(): void
+  verificationProtocol?: 1 | 2; verification?: ConnectionVerificationStore
 }) {
   const current = () => {
     if (input.accountId() !== input.ownerId) throw new ConnectionError('account-changed','CONNECTION_ACCOUNT_CHANGED')
   }
   current()
+  if (input.verificationProtocol === 2) for (const row of input.verification?.list() ?? []) {
+    if (row.providerId !== input.provider || row.scopeKey !== input.scopeKey || row.status?.effective.blocksNewOperations === false) continue
+    const unknown = row.status?.original.errorCode === 'CONNECTION_OUTCOME_UNKNOWN'
+    if (!unknown && !row.cancelRequested && input.operationIds?.includes(row.operationId)) continue
+    input.changed()
+    throw new ConnectionError(unknown ? 'outcome-unknown' : 'operation-pending','CONNECTION_APPLICATION_BUSY')
+  }
   const snapshot = await input.client.snapshot()
   current()
   for (const operation of snapshot.application ?? []) {
     if (operation.scopeKey !== input.scopeKey) continue
+    if (input.verificationProtocol === 2 && operation.effective?.blocksNewOperations === false) continue
     if (operation.errorCode !== 'CONNECTION_OUTCOME_UNKNOWN' && !['pending','started'].includes(operation.status)) continue
     const item = snapshot.items?.find(item => item.scopeKey === operation.scopeKey && item.resourceKey === operation.resourceKey)
     if (!item) throw new ConnectionError('invalid-response','CONNECTION_OPERATION_RESOURCE_MISSING')

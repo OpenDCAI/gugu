@@ -111,6 +111,7 @@ export type LibraryHost = {
   connectionMetadata?: ConnectionMetadataStore;
   connectionMetadataExpected?: boolean;
   connectionMetadataError?: unknown;
+  canAuthorizeConnection?: (providerId: string) => boolean;
   assistantPanel?: AssistantPanelFiles;
   assistantPanelExpected?: boolean;
   assistantPanelError?: unknown;

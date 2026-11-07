@@ -26,7 +26,7 @@ export function OwnerConnectorDetail({ host,app,deviceId,panelNavigation,onBack 
   const { t } = useTranslation('assistant'),copy = useTranslation('connections').t
   const devices = useDevicesStore(),data = useIntegrationsContext()
   const canMutate = useConnectionMutationAllowed()
-  const allowed = canMutate && !(app.connectionStatus && app.state === 'checking')
+  const allowed = canMutate && !app.connectionBusy && !(app.connectionStatus && app.state === 'checking')
   const [busy,setBusy] = useState<string | null>(null)
   const showSetup = useShowModal('integrationSetupModal'),showGithub = useShowModal('githubConnectModal'),showConfirm = useShowModal('confirmActionModal')
   const accounts = useQuery({ queryKey: ['owner-connection-accounts',host.key,app.id],enabled: !!host.connectionMetadata,
@@ -55,7 +55,7 @@ export function OwnerConnectorDetail({ host,app,deviceId,panelNavigation,onBack 
     {!panelNavigation ? <div><Button size="sm" variant="ghost" onClick={onBack}><ChevronLeft size={16} />{t('connectors.title')}</Button></div> : null}
     <PageHead title={app.name} />
     {app.integration ? <AppConnectionHero icon={<IntegrationIcon provider={app.id} icon={app.integration.icon} size={56} />}
-      description={app.description} label={t(app.saved ? 'connectors.reconnect' : 'connectors.connect')} onConnect={connect} disabled={!allowed} /> : null}
+      description={app.description} label={t(app.saved ? 'connectors.reconnect' : 'connectors.connect')} onConnect={connect} disabled={!allowed || host.canAuthorizeConnection?.(app.id) === false} /> : null}
     {app.id === 'wechat' ? <fieldset className="contents" disabled={!allowed}><WechatAppConnection /></fieldset> : null}
     {app.connectionStatus ? <p role="status">{app.name} · {app.connectionStatus}</p> : null}
     {!accounts.data ? <AppConnectionListPlaceholder /> : null}

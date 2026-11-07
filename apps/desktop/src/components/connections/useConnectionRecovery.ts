@@ -7,10 +7,18 @@ import { connectionReadDelay } from './connection-read-policy'
 /** Retry the original durable UUID, never recreate an intent or replay an unknown effect. */
 export function useConnectionRecovery(store: ConnectionMetadataStore | undefined,allowed: boolean) {
   useEffect(() => {
-    if (!store || !allowed) return
+    if (!store || !allowed && store.verificationProtocol !== 2) return
     let stopped = false,failures = 0,timer: ReturnType<typeof setTimeout> | undefined
     const run = async () => {
       let failed = false
+      if (stopped || connectionBridge().accountId() !== store.ownerId) return
+      if (store.verificationProtocol === 2) {
+        try { await store.refreshVerification?.() }
+        catch (error) { failed = true; rendererLogger('connections').warn({ code: (error as { code?: string } | null)?.code },'Operation status will retry without executing the effect') }
+        failures = failed ? failures + 1 : 0
+        if (!stopped) timer = setTimeout(() => void run(),failed ? connectionReadDelay(failures) : 3000)
+        return
+      }
       const snapshot = store.peekSnapshot?.()
       for (const operation of snapshot?.application ?? []) {
         if (stopped || connectionBridge().accountId() !== store.ownerId) return

@@ -21,11 +21,16 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
   const bridge = connectionBridge(),store = host.connectionMetadata!
   const client = connectionClientForRoute(bridge.client,bridge.routing,route)
   const assertRoute = () => bridge.routing.assert(route,true)
+  // Protocol 2 stays read-only until the B cancellation adapter and signed
+  // managed producers are frozen. Plain predecessor effects are never a fallback.
+  const requirePredecessorAuthorization = () => {
+    if (route.verificationProtocol === 2) throw new ConnectionError('unsupported-device','CONNECTION_MANAGED_AUTHORIZATION_UNAVAILABLE')
+  }
   const assertApplicationAvailable = (provider: string,requireReady = false,operationIds?: readonly string[]) => {
     const scopeKey = keptOnPlatform(provider) ? 'platform' : deviceId ? `device:${deviceId}` : null
     if (!scopeKey) throw new ConnectionError('device-required','CONNECTION_DEVICE_REQUIRED')
     return assertConnectionApplicationAvailable({ ownerId: store.ownerId,accountId: bridge.accountId,client,provider,scopeKey,
-      requireReady,operationIds,changed: () => store.invalidate() })
+      requireReady,operationIds,verificationProtocol: route.verificationProtocol,verification: store.verification,changed: () => store.invalidate() })
   }
   const intents = createConnectionAuthorization({ client: { ...client,
     commit: change => {
@@ -88,6 +93,7 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
   const keptOnPlatform = (provider: string) => builtinConnectionCatalog('en-US').find(row => row.id === provider)?.auth.methods
     .some(method => (method.kind === 'form' || method.kind === 'mcp-oauth') && method.custody === 'platform') ?? false
   async function beginNative(provider: string,accountId: string | null = null) {
+    requirePredecessorAuthorization()
     if (!deviceId) throw new ConnectionError('device-required','CONNECTION_DEVICE_REQUIRED')
     cancel(provider)
     const generation = generations.get(provider)
@@ -126,6 +132,7 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
     { version: 1,providerId: intent.providerId,accountId: row.accountId,isDefault: true,credentialSource: 'platform',connectedAt: updatedAt,updatedAt })
   }
   async function connect(provider: string,credentials: IntegrationCredentials,editAccountId?: string) {
+    requirePredecessorAuthorization()
     if (keptOnPlatform(provider)) {
       const intent = await intents.begin(provider,'platform',null,editAccountId ?? null)
       const fields = Object.fromEntries(Object.entries(credentials).filter((entry): entry is [string,string] => typeof entry[1] === 'string'))
@@ -141,6 +148,7 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
     return result
   }
   async function authorize(provider: string) {
+    requirePredecessorAuthorization()
     if (!keptOnPlatform(provider)) {
       const intent = await beginNative(provider)
       await assertApplicationAvailable(provider,true)
@@ -177,8 +185,9 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
       await client.cancelOAuth!(provider,attempt.attemptId).catch(() => rendererLogger('connections').warn({ provider },'Authorization cleanup did not reach the platform'))
     }
   }
-  return { ...host,integrations: { ...host.integrations,connect: safe(connect),authorize: safe(authorize),
+  return { ...host,...(route.verificationProtocol === 2 ? { canAuthorizeConnection: () => false } : {}),integrations: { ...host.integrations,connect: safe(connect),authorize: safe(authorize),
     cliToolPrepare: async (provider,signal) => {
+      requirePredecessorAuthorization()
       signal?.throwIfAborted()
       await assertRoute(); await assertApplicationAvailable(provider)
       signal?.throwIfAborted()
@@ -199,10 +208,10 @@ export function ownerConnectionActions(base: LibraryHost, host: LibraryHost,devi
       if (result.status === 'connected') { await completeNative(intent,result.accountId); cli.delete(provider) }
       return result
     }),
-    async cancelAuthorization(provider) { cancel(provider); cli.delete(provider); browsers.get(provider)?.abort(); await host.integrations.cancelAuthorization(provider) },
+    async cancelAuthorization(provider) { cancel(provider); cli.delete(provider); browsers.get(provider)?.abort(); if (route.verificationProtocol !== 2) await host.integrations.cancelAuthorization(provider) },
   },github: { ...host.github,onEvent,
     setDefaultAccount: safe(host.github.setDefaultAccount,'github','defaultFailed'),removeAccount: safe(host.github.removeAccount,'github','disconnectFailed'),
-    authCancel: async () => { cancel('github'); return host.github.authCancel() },
+    authCancel: async () => { cancel('github'); return route.verificationProtocol === 2 ? { success: true as const } : host.github.authCancel() },
     importCliAccounts: safe(async () => {
       const intent = await beginNative('github')
       await assertApplicationAvailable('github',true)

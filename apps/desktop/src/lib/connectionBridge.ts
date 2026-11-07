@@ -6,6 +6,7 @@ import type { ConnectionClient } from '@gugu/core/cloud/connections'
 import { ConnectionError } from '@gugu/core/cloud/connections'
 import type { ConnectionMetadataStore } from '@/components/connections/connection-metadata'
 import type { ConnectionRoute,createConnectionRouting } from '@gugu/core/cloud/connectionRouting'
+import type { ConnectionVerificationStore } from '@/components/connections/connection-verification'
 
 /** Installed by the authenticated shell, before either settings bundle mounts. */
 export interface ConnectionBridge {
@@ -16,6 +17,7 @@ export interface ConnectionBridge {
   routing: ReturnType<typeof createConnectionRouting>
   subscribeChanges(ownerId: string, listener: () => void): () => void
   retryOperation(operationId: string): Promise<void>
+  verification?(ownerId: string,route: ConnectionRoute): ConnectionVerificationStore
 }
 const KEY = '__GUGU_CONNECTIONS__' as const
 export type ConnectionWindow = Window & { [KEY]?: ConnectionBridge }

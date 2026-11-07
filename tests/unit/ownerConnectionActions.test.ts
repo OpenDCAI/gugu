@@ -163,3 +163,23 @@ it('keeps a same-named application on another device outside the selected action
   await expect(assertConnectionApplicationAvailable({ownerId:'owner',accountId:()=> 'owner',client:{snapshot:test.snapshot},
     provider:'github',scopeKey:'device:other',requireReady:true,changed:vi.fn()})).resolves.toBeUndefined()
 })
+
+it.each(['platform-form','native-form','native-cli','github-auth'] as const)('refuses protocol-2 %s when its managed consumer is unavailable instead of using a plain effect',async kind => {
+  route = { ...route,verificationProtocol: 2 }
+  const test = setup(); test.authorization.resolve(authorized); test.completion.resolve(receipt)
+  expect(test.actions.canAuthorizeConnection?.('asana')).toBe(false)
+  const action = kind === 'platform-form' ? () => test.actions.integrations.connect('amap',{ apiKey: 'synthetic' })
+    : kind === 'native-form' ? () => test.actions.integrations.connect('asana',{ apiKey: 'synthetic' })
+      : kind === 'native-cli' ? () => test.actions.integrations.cliLoginStart('feishu') : () => test.actions.github.auth()
+  await expect(action()).rejects.toMatchObject({ code: 'unsupported-device' })
+  expect(test.recreateBegin).not.toHaveBeenCalled(); expect(test.native.ownerAuthorizationBegin).not.toHaveBeenCalled()
+  for (const effect of [fixture.platform.saveCredential,test.native.connect,test.native.cliLoginStart,test.github.auth]) expect(effect).not.toHaveBeenCalled()
+})
+
+it('does not use a provider-only cancellation call in the read-only protocol-2 stage',async () => {
+  route = { ...route,verificationProtocol: 2 }
+  const test = setup()
+  await test.actions.integrations.cancelAuthorization('feishu'); await test.actions.github.authCancel()
+  expect(test.native.cancelAuthorization).not.toHaveBeenCalled(); expect(test.github.authCancel).not.toHaveBeenCalled()
+  expect(test.recreateBegin).not.toHaveBeenCalled(); expect(fixture.notify).not.toHaveBeenCalled()
+})
