@@ -18,6 +18,8 @@ export interface TabCommand {
   shortcut?: CommandId | (() => string | undefined);
   /** Hides the command when false (default: always visible). */
   isAvailable?(): boolean;
+  /** The menu holding this command just opened: for what is only worth reading then. */
+  onMenuOpen?(): void;
   /** 摆着但灰着(暂时用不了,照 VS Code / Chrome 的页签右键);默认可点。 */
   isEnabled?(): boolean;
   /** 收进这一组的二级菜单(低频,悬浮再展开)。 */

@@ -230,6 +230,7 @@ import {
 import { connectionConfigRoot } from '@main/core/agents/harness-connections'
 import { setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
+import { loadAcpForkHandshakes } from '@main/core/agents/fork-legs'
 import { hasPendingTaskNames, loadTaskNames, setTaskNamer, setTaskNameOwner } from '@main/core/sessions/task-name'
 import { adoptLegacyTaskNames } from '@main/core/sessions/renameSession'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
@@ -587,6 +588,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // Task names: a bound task is named by its roster identity (task-name.ts). The roster keys were just
   // renamed above, and every reader of a name below (search backfill first) needs the projection.
   await loadTaskNames()
+  await loadAcpForkHandshakes()
   // #6892 起任何 agent / worker 之前问一次系统代理,只补给 agent 与安装器(utils/systemProxyEnv.ts)。
   log.info('[session-host] system proxy for agent processes', await resolveSystemProxy((url) => electronSession.defaultSession.resolveProxy(url)))
 

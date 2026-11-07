@@ -117,7 +117,7 @@ export const TabContextMenu = observer(function TabContextMenu({
   );
 
   return (
-    <ContextMenu.Root>
+    <ContextMenu.Root onOpenChange={(open) => { if (open) kindCommands.forEach((cmd) => cmd.onMenuOpen?.()); }}>
       {/* 这层 trigger 长在 .session-tab-slot **里面**(见 generic-tab-item.tsx 的说明),所以它必须
           把 slot 填满并允许自己被压缩:`w-full` 撑满分到的宽度,`min-w-0` 解除 flex 的自动最小尺寸
           —— 少了 min-w-0,页签标题的 min-content 会变成一道压不下去的地板,slot 缩了它也不缩,

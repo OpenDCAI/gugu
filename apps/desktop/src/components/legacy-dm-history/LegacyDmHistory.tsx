@@ -7,7 +7,6 @@ import { useDebounce } from '@/session/renderer/lib/hooks/useDebounce';
 import { messageForUser } from '@/lib/userFacingError';
 import { rendererLogger } from '@/lib/log';
 import { ChevronLeft, X } from '@/lib/icons';
-import { rpc } from '@/session/renderer/lib/ipc';
 import { useSessionMessages } from '@/session/renderer/localization/use-session-messages';
 import { formatCalendarDate } from '@/i18n/format';
 import { Sheet } from '../ui/Sheet';
@@ -23,7 +22,7 @@ import { ReadOnlyMessageBubble } from '../chat/ReadOnlyMessageBubble';
 import { useMessageFilePreview } from '../chat/useMessageFilePreview';
 import { notify } from '@/lib/notices';
 import { useLegacyDmOwner } from './useLegacyDmOwner';
-import { readLegacyDmList, readLegacyDmMessages, mergeLegacyMessages, type LegacyDm, type LegacyDmScope } from './data';
+import { readLegacyDmList, readLegacyDmMessages, readSessionLegacyScope, mergeLegacyMessages, type LegacyDm, type LegacyDmScope } from './data';
 import { legacyMessageBody } from './message-body';
 
 const log = rendererLogger('legacy-dm-history');
@@ -54,17 +53,14 @@ function LegacyDmReader({ scope: owner, sessionId, mobile, onClose }: {
   const search = useDebounce(query, 200);
   const [selected, setSelected] = useState<LegacyDm | null>(null);
   const [loading, setLoading] = useState(true);
-  const [unbound, setUnbound] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
-    setRows([]); setAfter(null); setSelected(null); setLoading(true); setError(null); setUnbound(false); setScope(null);
+    setRows([]); setAfter(null); setSelected(null); setLoading(true); setError(null); setScope(null);
     void (async () => {
-      const binding = sessionId ? await rpc.sessionHistory.legacyDmBinding({ ownerUserId, sessionId }) : null;
-      if (!active) return;
-      if (sessionId && !binding) { setUnbound(true); return; }
-      const nextScope = { ownerUserId, ...(binding ? { agentUserId: binding.agentUserId } : {}) };
+      const nextScope = sessionId ? await readSessionLegacyScope(ownerUserId, sessionId) : { ownerUserId };
+      if (!active || !nextScope) return;
       const page = await readLegacyDmList(nextScope, undefined, search);
       if (!active) return;
       setScope(nextScope); setRows(page.rows); setAfter(page.after);
@@ -94,11 +90,10 @@ function LegacyDmReader({ scope: owner, sessionId, mobile, onClose }: {
     {selected && scope ? <LegacyDmTranscript key={selected.id} scope={scope} chat={selected} mobile={mobile} /> : <>
       <div className="px-4 py-3"><SearchField value={query} onChange={event => setQuery(event.target.value)} placeholder={translate('legacyDm.search')} /></div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        {unbound && <PaneEmptyState caption={translate('legacyDm.unbound')} />}
         {rows.map(row => <ListRow key={row.id} title={row.name ?? translate('legacyDm.chatNumber', { number: row.publicId })}
           subtitle={<time dateTime={row.updatedAt}>{formatCalendarDate(Date.parse(row.updatedAt), locale)}</time>}
           trailing={<Button size="sm" variant="secondary" onClick={() => setSelected(row)}>{translate('sessionHistory.open')}</Button>} />)}
-        {!loading && !unbound && !error && rows.length === 0 && !after && <PaneEmptyState caption={translate('legacyDm.empty')} />}
+        {!loading && !error && rows.length === 0 && !after && <PaneEmptyState caption={translate('legacyDm.empty')} />}
         {error != null && <><PaneEmptyState caption={translate('legacyDm.failed')} hint={messageForUser(error)} /><Button variant="ghost" onClick={() => setRetry(value => value + 1)}>{translate('common.retry')}</Button></>}
         {loading && <LoadingIndicator size="panel" ariaLabel={translate('sessionImport.previewLoading')} />}
         {after && <Button variant="ghost" disabled={loading} onClick={() => void more()}>{translate('legacyDm.more')}</Button>}

@@ -4,6 +4,8 @@ import { chatDb, identityDb } from '@/lib/supabase';
 import { getRendererSession } from '@/lib/sessionPublication';
 import { currentAuthSessionSignal } from '@/lib/authSessionLoss';
 import { readDisplayIdentities } from '@/lib/identityReadAdapter';
+import { rpcOn } from '@/session/renderer/lib/ipc';
+import { machineRegistry } from '@/session/renderer/lib/machine-routing';
 import type { DisplayIdentity } from '@/lib/displayIdentity';
 
 const PAGE_SIZE = 60;
@@ -50,19 +52,35 @@ async function identify(rows: readonly DmRow[], scope: LegacyDmScope): Promise<L
 
 const DM_SELECT = 'id,public_id,name,created_at,last_message_at,members:chat_members(user_id)';
 
-/** The archive is a separate paginated read, never a conversation-store entry. */
+/** The archive is a separate paginated read, never a conversation-store entry. A chat without a message is no history. */
 export async function readLegacyDmList(scope: LegacyDmScope, after?: string, query = '') {
   const signal = ownerSignal(scope.ownerUserId);
-  let request = chatDb.from('chats').select(DM_SELECT).eq('kind', 'dm').order('id').limit(PAGE_SIZE);
-  if (after) request = request.gt('id', after);
-  if (query.trim()) {
-    if (/^\d+$/.test(query.trim())) request = request.eq('public_id', Number(query.trim()));
-    else request = request.ilike('name', `%${query.trim().replace(/[\\%_]/g, '\\$&')}%`);
+  for (;;) {
+    let request = chatDb.from('chats').select(DM_SELECT).eq('kind', 'dm').not('last_message_at', 'is', null).order('id').limit(PAGE_SIZE);
+    if (after) request = request.gt('id', after);
+    if (query.trim()) {
+      if (/^\d+$/.test(query.trim())) request = request.eq('public_id', Number(query.trim()));
+      else request = request.ilike('name', `%${query.trim().replace(/[\\%_]/g, '\\$&')}%`);
+    }
+    const { data, error } = await request.abortSignal(signal);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as DmRow[];
+    const identified = await identify(rows, scope);
+    after = rows.length === PAGE_SIZE ? rows.at(-1)!.id : undefined;
+    // Ownership is decided after the read, so a page can hold none of this scope's chats without being the last.
+    if (identified.length > 0 || !after) return { rows: identified, after: after ?? null };
   }
-  const { data, error } = await request.abortSignal(signal);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as unknown as DmRow[];
-  return { rows: await identify(rows, scope), after: rows.length === PAGE_SIZE ? rows.at(-1)!.id : null };
+}
+
+/** The scope of a session's own agent, on the machine that holds it; a session with no verifiable identity has no history to read. */
+export async function readSessionLegacyScope(ownerUserId: string, sessionId: string): Promise<LegacyDmScope | null> {
+  const binding = await rpcOn(machineRegistry.machineOf(sessionId)).sessionHistory.legacyDmBinding({ ownerUserId, sessionId });
+  return binding && { ownerUserId, agentUserId: binding.agentUserId };
+}
+
+export async function hasLegacyDmHistory(ownerUserId: string, sessionId: string): Promise<boolean> {
+  const scope = await readSessionLegacyScope(ownerUserId, sessionId);
+  return scope !== null && (await readLegacyDmList(scope)).rows.length > 0;
 }
 
 export async function readLegacyDmMessages(scope: LegacyDmScope, chatId: string, beforeSeq?: number) {
