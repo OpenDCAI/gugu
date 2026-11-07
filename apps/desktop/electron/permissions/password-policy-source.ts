@@ -13,6 +13,7 @@ type SettingsChannel = ElectronManagedRealtimeChannel & {
 }
 type RealtimeClient<T> = {
   realtime: { setAuth(): unknown | Promise<unknown> }
+  getChannels(): readonly { topic: string }[]
   channel(topic: string, options: { config: { private: boolean } }): T
   removeChannel(channel: T): unknown
 }
@@ -28,9 +29,10 @@ export async function createPasswordPolicySource<T>({ ownerId, store, supabase, 
   ownerId: string; store: ServicePermissionPolicyStore; supabase: RealtimeClient<T>; lifetime: AbortSignal
 }) {
   if (!/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(ownerId)
-    || !(lifetime instanceof AbortSignal) || lifetime.aborted) throw passwordUnavailable()
+    || !(lifetime instanceof AbortSignal) || lifetime.aborted || typeof supabase.getChannels !== 'function') throw passwordUnavailable()
   const read = store.read.bind(store), channel = supabase.channel.bind(supabase)
   const removeChannel = supabase.removeChannel.bind(supabase), setAuth = supabase.realtime.setAuth.bind(supabase.realtime)
+  const getChannels = supabase.getChannels.bind(supabase), topic = `gugu:user:${ownerId}:events`
   let joined = false, writing = false, disposed = false, unreliable = false
   let generation = randomUUID(), revision = new AbortController(), physical = 0
   let unsubscribe: (() => Promise<void>) | undefined
@@ -53,8 +55,13 @@ export async function createPasswordPolicySource<T>({ ownerId, store, supabase, 
   lifetime.addEventListener('abort', stop, { once: true })
   const createChannel = () => {
     joined = false; invalidate()
+    // realtime-js reuses an existing same-topic object. Never attach to or retire another owner.
+    // The native factory must provide an account-authenticated client with an unclaimed bus.
+    const existing = getChannels()
+    if (!Array.isArray(existing) || existing.some(value => !value || typeof value.topic !== 'string'
+      || value.topic === topic || value.topic === `realtime:${topic}`)) throw passwordUnavailable()
     const attempt = ++physical
-    const value = channel(`gugu:user:${ownerId}:events`, { config: { private: true } }) as T & SettingsChannel
+    const value = channel(topic, { config: { private: true } }) as T & SettingsChannel
     value.on('broadcast', { event: 'setting_changed' }, event => {
       if (disposed || attempt !== physical) return
       const payload = object(object(event)?.payload), setting = object(payload?.setting)

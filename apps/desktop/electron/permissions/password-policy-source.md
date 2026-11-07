@@ -7,6 +7,11 @@ the community backend pinned by `.github/community-backend.json`: foundation
 No database migration, additional policy store, approval ledger or transport is
 introduced here.
 
+The native factory must supply an authenticated account client whose events bus
+is unclaimed. The SDK reuses same-topic channels; this source checks getChannels
+before creation and rejects an existing bus without attaching/subscribing to or
+removing it. It must not take over the main process's assistant-work channel.
+
 Every request, pre-fill, post-pre-submit-audit and pre-confirm handoff check must
 fresh-read the policy. Local permission writes synchronously withdraw existing
 facts before their first settings I/O; fresh facts remain unavailable until all

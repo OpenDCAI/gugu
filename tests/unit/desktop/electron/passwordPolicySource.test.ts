@@ -14,16 +14,16 @@ afterEach(async () => { for (const source of sources.splice(0)) await source.dis
 async function fixture(ownerId = randomUUID()) {
   const lifetime = new AbortController(), read = vi.fn(async () => defaultPermissionPolicy()), off = vi.fn(async () => {})
   let options!: SubscribeElectronRealtimeChannelOptions
-  const channels: Array<{ emit(event: unknown): void }> = []
+  const channels: Array<{ topic: string; emit(event: unknown): void }> = []
   transport.subscribe.mockImplementation(async (_client: unknown, _channel: unknown, value: SubscribeElectronRealtimeChannelOptions) => { options = value; return off })
   const channel = vi.fn((_topic: string, _config: unknown) => {
     let receive: (event: unknown) => void = () => {}
-    const value = { on: (_kind: string, _filter: unknown, callback: (event: unknown) => void) => { receive = callback },
+    const value = { topic: `realtime:${_topic}`, on: (_kind: string, _filter: unknown, callback: (event: unknown) => void) => { receive = callback },
       subscribe: vi.fn(), emit: (event: unknown) => receive(event) }
     channels.push(value); return value
   })
   const store = { read }, source = await createPasswordPolicySource({ ownerId, store: store as unknown as ServicePermissionPolicyStore,
-    supabase: { channel, removeChannel: vi.fn(), realtime: { setAuth: vi.fn() } }, lifetime: lifetime.signal })
+    supabase: { channel, getChannels: () => channels, removeChannel: vi.fn(), realtime: { setAuth: vi.fn() } }, lifetime: lifetime.signal })
   sources.push(source)
   const caller = { ownerId, subjectId: 'agent', sessionId: 'session', installationId: 'install', deviceId: 'device', toolScope: 'gugu' }
   const status = (value: string) => options.onStatus!(value)
@@ -34,6 +34,14 @@ async function fixture(ownerId = randomUUID()) {
 }
 
 describe('live policy from the existing private settings bus', () => {
+  it('refuses an already owned account bus before attaching, subscribing or removing it', async () => {
+    const ownerId = randomUUID(), channel = vi.fn(), removeChannel = vi.fn(), before = transport.subscribe.mock.calls.length
+    await expect(createPasswordPolicySource({ ownerId, store: { read: vi.fn() } as unknown as ServicePermissionPolicyStore,
+      supabase: { channel, getChannels: () => [{ topic: `realtime:gugu:user:${ownerId}:events` }], removeChannel, realtime: { setAuth: vi.fn() } },
+      lifetime: new AbortController().signal })).rejects.toThrow('password_permission_unavailable')
+    expect(channel).not.toHaveBeenCalled(); expect(removeChannel).not.toHaveBeenCalled()
+    expect(transport.subscribe.mock.calls.length).toBe(before)
+  })
   it('requires a joined channel and fresh-reads for every phase rather than using broadcast values', async () => {
     const f = await fixture()
     await expect(f.current()).rejects.toThrow('password_permission_unavailable'); expect(f.read).not.toHaveBeenCalled()
@@ -82,8 +90,9 @@ describe('live policy from the existing private settings bus', () => {
   })
   it('rejects late callbacks from a replaced physical channel', async () => {
     const f = await fixture(); f.status('SUBSCRIBED'); const old = await f.current()
+    const retired = f.channels.shift()! // Managed reconnect removes the old physical channel first.
     f.options.createChannel!(); expect(old.signal.aborted).toBe(true); await expect(f.current()).rejects.toThrow()
-    f.status('SUBSCRIBED'); const fresh = await f.current(); f.channels[0]!.emit({})
+    f.status('SUBSCRIBED'); const fresh = await f.current(); retired.emit({})
     expect(() => fresh.assertCurrent()).not.toThrow()
   })
   it('captures its actual store method, and closes outstanding facts when a later query fails', async () => {
