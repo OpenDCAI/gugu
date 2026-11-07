@@ -17,7 +17,10 @@ export type PasswordAvailability =
   | Readonly<{ status: 'unavailable'; reason: 'password_permission_unavailable' }>
 
 export function requirePasswordProtections(window: PasswordFactWindow, facts: PasswordProtectionFacts): void {
-  for (const key of PASSWORD_PROTECTIONS) if (window.capture(facts?.[key]!) !== 'ready') throw passwordUnavailable()
+  for (const key of PASSWORD_PROTECTIONS) {
+    const fact = facts?.[key]
+    if (!fact || window.capture(fact) !== 'ready') throw passwordUnavailable()
+  }
 }
 
 /** Availability only. Vault person authentication/locking and per-use approval remain mandatory. */
