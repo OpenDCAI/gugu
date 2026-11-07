@@ -66,15 +66,14 @@ function mount(width: number, mode: string, layout: ChatLayout = { preset: 'doub
 it.each([{ width: 1440, mode: 'light' }, { width: 1440, mode: 'dark' }, { width: 480, mode: 'light' }, { width: 480, mode: 'dark' }])('aligns delivery and background metadata at $width in $mode', async ({ width, mode }) => {
   await page.viewport(width, 1000);
   const { host } = mount(width, mode);
-  const header = () => host.querySelector<HTMLElement>('[data-delivery-route="scheduled"] [data-slot="delivery-header"]');
+  const header = () => host.querySelector<HTMLElement>('[data-scheduled-prompt] [data-slot="semantic-disclosure"]');
   const background = () => host.querySelector<HTMLElement>('[data-slot="background-tasks"] [data-slot="collapse-header"]') ?? host.querySelector<HTMLElement>('[data-slot="background-tasks-pill"]');
   await until('real scheduled header and background control mount', () => !!header() && !!background());
   await untilStable('real transcript geometry settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
   await document.fonts.ready;
   await untilStable('two real transcript columns settle', () => host.querySelector('[data-slot=background-tasks]')?.getBoundingClientRect().top);
-  const scheduledCard = header()!.closest('[data-delivery-card]')!;
-  const bubble = scheduledCard.querySelector<HTMLElement>('[data-user-card]')!;
-  const source = header()!.firstElementChild!;
+  const scheduledCard = header()!.closest('[data-scheduled-prompt]')!;
+  const source = header()!.lastElementChild!;
   const lastFact = source.lastElementChild!;
   const strip = background()!;
   const silent = [...host.querySelectorAll<HTMLElement>('[data-slot="turn-process"]')].at(-1)!.lastElementChild as HTMLElement;
@@ -83,7 +82,8 @@ it.each([{ width: 1440, mode: 'light' }, { width: 1440, mode: 'dark' }, { width:
     phase: capturePhase ?? 'test', width, mode,
     headerRight: lastFact.getBoundingClientRect().right,
     headerContainerRight: header()!.getBoundingClientRect().right,
-    bubbleRight: bubble.getBoundingClientRect().right,
+    summaryCenter: (source.getBoundingClientRect().left + source.getBoundingClientRect().right) / 2,
+    rowCenter: (header()!.getBoundingClientRect().left + header()!.getBoundingClientRect().right) / 2,
     stripLeft: strip.getBoundingClientRect().left,
     stripLabelLeft: label.getBoundingClientRect().left,
     bodyLeft: silent.getBoundingClientRect().left,
@@ -91,32 +91,55 @@ it.each([{ width: 1440, mode: 'light' }, { width: 1440, mode: 'dark' }, { width:
     backgroundInset: strip.closest<HTMLElement>('[data-row-kind]')?.dataset.rowInset,
     silentText: silent.textContent,
     font: getComputedStyle(strip).fontFamily,
-    bubbleBackground: getComputedStyle(bubble).backgroundColor,
   };
   if (capturePhase) {
     console.log(`ALIGNMENT_READING ${JSON.stringify(reading)}`);
     await page.screenshot({ element: host, path: `__screenshots__/alignment-${capturePhase}-${mode}-${width}.png` });
   }
-  expect(bubble.getBoundingClientRect().width).toBeGreaterThan(100);
-  expect(Math.abs(reading.headerRight - reading.bubbleRight)).toBeLessThanOrEqual(1);
+  expect(scheduledCard.querySelector('[data-user-card]')).toBeNull();
+  expect(scheduledCard.textContent).toBe('定时任务：三图 + 合并账 每小时整点更新 + 任务对账');
+  expect(Math.abs(reading.summaryCenter - reading.rowCenter)).toBeLessThanOrEqual(1);
   expect(Math.abs(reading.stripLeft - reading.bodyLeft)).toBeLessThanOrEqual(1);
 });
 
-it('keeps the source details and standalone roster expandable after alignment', async () => {
+it('keeps the scheduled prompt and standalone roster expandable after alignment', async () => {
   await page.viewport(480, 1000);
   const { host } = mount(480, 'light');
-  const card = () => host.querySelector<HTMLElement>('[data-delivery-route="scheduled"]');
+  const card = () => host.querySelector<HTMLElement>('[data-scheduled-prompt]');
   const background = () => host.querySelector<HTMLElement>('[data-slot="background-tasks"]');
   await until('source and standalone roster mount', () => !!card() && !!background());
   card()!.querySelector<HTMLButtonElement>('button[data-collapse-id]')!.click();
-  await until('scheduled source details open', () => !!card()!.querySelector('[data-slot="delivery-facts"]'));
+  await until('scheduled original prompt opens', () => card()!.textContent!.includes('1. 先对账'));
   card()!.querySelector<HTMLButtonElement>('button[data-collapse-id]')!.click();
-  await until('scheduled source details close', () => !card()!.querySelector('[data-slot="delivery-facts"]'));
+  await until('scheduled original prompt closes', () => !card()!.textContent!.includes('1. 先对账'));
   background()!.querySelector<HTMLElement>('[data-collapse-id]')!.click();
   await until('standalone roster opens', () => !!background()!.querySelector('[data-slot="background-task"]'));
   expect(background()!.textContent).toContain('核对验收原件');
   background()!.querySelector<HTMLElement>('[data-collapse-id]')!.click();
   await until('standalone roster closes', () => !background()!.querySelector('[data-slot="background-task"]'));
+});
+
+it('folds only the scheduled part of a mixed delivery batch', async () => {
+  const { host, state } = mount(390, 'light');
+  state.transcript.history.seed([{ id: 'mixed', seq: 1, initiator: 'user', trigger: { kind: 'owner' },
+    outcome: { kind: 'done' }, items: [{ kind: 'message', id: 'mixed-input', seq: 0, role: 'user',
+      text: `${scheduled}\n${incoming}`, _meta: { guguOwnerInput: false } }] }]);
+  await until('mixed scheduled disclosure mounts', () => !!host.querySelector('[data-scheduled-prompt]'));
+  const card = () => host.querySelector<HTMLElement>('[data-scheduled-prompt]')!;
+  expect(card().textContent).toBe('定时任务：三图 + 合并账 每小时整点更新 + 任务对账');
+  expect(host.textContent).toContain('预发云电脑控制器已恢复');
+  expect(host.textContent).not.toContain('1. 先对账');
+  card().querySelector<HTMLButtonElement>('[data-collapse-id]')!.click();
+  await until('one mixed prompt expands', () => card().textContent!.includes('1. 先对账'));
+  expect(card().textContent).not.toContain('预发云电脑控制器已恢复');
+});
+
+it('uses a generic schedule label when authentic older metadata has no title', async () => {
+  const { host, state } = mount(390, 'dark');
+  state.transcript.history.seed([{ id: 'old-schedule', seq: 1, initiator: 'user', outcome: { kind: 'done' },
+    items: [{ kind: 'message', id: 'old-input', seq: 0, role: 'user', text: scheduled.replace(/ schedule="[^"]*"/, '') }] }]);
+  await until('untitled scheduled disclosure mounts', () => !!host.querySelector('[data-scheduled-prompt]'));
+  expect(host.querySelector('[data-scheduled-prompt]')!.textContent).toBe('定时任务');
 });
 
 it.each([{ width: 1440, mode: 'light' }, { width: 1440, mode: 'dark' }, { width: 480, mode: 'light' }, { width: 480, mode: 'dark' }])('keeps single full-width source metadata at its original edge at $width in $mode', async ({ width, mode }) => {

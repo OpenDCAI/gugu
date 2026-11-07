@@ -211,6 +211,8 @@ const fallbackMessages = {
   'transcript.deliveryViaForum': 'from the forum',
   'transcript.deliveryFromGugu': 'from 咕咕',
   'transcript.deliveryScheduled': 'scheduled, due now',
+  'transcript.scheduledTask': 'Scheduled task',
+  'transcript.scheduledTaskTitled': 'Scheduled task: {title}',
   'transcript.deliveryScheduledTitled': 'scheduled “{title}”, due now',
   'transcript.deliveryDetails': 'Details',
   'transcript.deliveryReplyTo': 'Replying to {from}: {preview}',

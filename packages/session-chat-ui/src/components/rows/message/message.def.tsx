@@ -17,7 +17,8 @@ import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import { pxTokens } from '@session-chat/styles/px-tokens';
 import { assignInlineVars } from '@vanilla-extract/dynamic';
-import { Show, createMemo } from 'solid-js';
+import { For, Show, createMemo } from 'solid-js';
+import { ScheduledPrompt, isScheduledPrompt, scheduledPromptHeight, scheduledPromptParts } from './ScheduledPrompt';
 import type { ChatMessage } from '@session-chat/model';
 import {
   effectiveMessageVars,
@@ -114,6 +115,9 @@ export function messageFromItem(item: ChatMessage, ctx: SegmentCtx): ChatMessage
 // ── Measure ───────────────────────────────────────────────────────────────────
 
 export function measureMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: MessageVars): number {
+  const scheduled = ctx.theme.layout.agentConversation ? scheduledPromptParts(item) : [];
+  if (scheduled.length) return scheduled.reduce((height, part) => height + (isScheduledPrompt(part)
+    ? scheduledPromptHeight([part], ctx) : measureMessage(part, ctx, baseVars)), 0);
   if (isConversationMessage(item, ctx)) return conversationMessageHeight(item, ctx, baseVars);
   if (item.questionAnswer) return QUESTION_ANSWER_H;
   const vars = effectiveMessageVars(baseVars, ctx.theme.layout);
@@ -258,11 +262,17 @@ export function UserMessageRender(props: { data: ChatMessage; ctx: RenderCtx; va
  * assistant reply inside the user card it was born with.
  */
 function MessageUnitRender(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
+  const deliveryParts = createMemo(() => scheduledPromptParts(props.data));
+  const scheduled = () => props.ctx.measureCtx?.().theme.layout.agentConversation ? deliveryParts() : [];
   return (
+    <Show when={scheduled().length} fallback={
     <Show when={props.ctx.measureCtx && isConversationMessage(props.data, props.ctx.measureCtx())}
       fallback={<LegacyMessageUnitRender {...props} />}>
       <ConversationMessage {...props} />
     </Show>
+    }><For each={scheduled()}>{part => <Show when={isScheduledPrompt(part)} fallback={<MessageUnitRender {...props} data={part} />}>
+      <ScheduledPrompt data={part} anchorId={props.data.id} ctx={props.ctx} />
+    </Show>}</For></Show>
   );
 }
 
@@ -327,6 +337,8 @@ export const messageUnitDef = defineUnit<ChatMessage, MessageVars>({
   },
 
   estimate(item, ctx, baseVars): number {
+    const scheduled = ctx.theme.layout.agentConversation ? scheduledPromptParts(item) : [];
+    if (scheduled.length) return measureMessage(item, ctx, baseVars);
     if (isConversationMessage(item, ctx)) return conversationMessageHeight(item, ctx, baseVars);
     const vars = effectiveMessageVars(baseVars, ctx.theme.layout);
     if (item.questionAnswer) return QUESTION_ANSWER_H;

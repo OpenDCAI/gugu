@@ -42,10 +42,18 @@ describe('conversation hooks remain semantic process steps', () => {
     expect(head.textContent).toBe('Fixture agent');
     expect(head.querySelector('[data-slot="conversation-quote"]')).toBeNull();
     const completion = v.host.querySelector<HTMLElement>('[data-conversation-step="wake"]')!;
-    expect(completion.textContent).toContain('RAW-WAKE-991');
+    expect(completion.textContent).toBe(`${kind === 'background-command-done-tool-call' ? 'background command' : 'subagent'} finished›`);
+    expect(completion.textContent).not.toContain('RAW-WAKE-991');
     expect(completion.closest('[data-slot="conversation-process-steps"]')).toBeNull();
     expect(completion.getBoundingClientRect().bottom).toBeLessThanOrEqual(head.getBoundingClientRect().top + 1);
     expect(v.host.textContent).not.toContain('Bash');
+    const disclosure = completion.querySelector<HTMLButtonElement>('[data-collapse-id]')!;
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    disclosure.click();
+    await until('the independent completion original opens', () => completion.textContent?.includes(command) === true);
+    expect(head.textContent).not.toContain('RAW-WAKE-991');
+    disclosure.click();
+    await until('the independent completion original closes', () => !completion.textContent?.includes('RAW-WAKE-991'));
   });
 
   it('keeps an independent long completion measured through resizing, disclosure and process folding', async () => {

@@ -383,13 +383,17 @@ describe('approved A2A activity', () => {
     for (const mask of masks()) expect(getComputedStyle(mask).opacity).toBe('0');
   });
   it.each([
-    { width: 360, background: '#ffffff' }, { width: 1280, background: '#ffffff' },
-    { width: 360, background: '#212121' }, { width: 1280, background: '#212121' },
-  ])('keeps the pinned semantic line quiet and its page-colored strip inside the row ($width/$background)', async ({ width, background }) => {
+    { width: 360, background: '#ffffff', endInset: 0 }, { width: 1280, background: '#ffffff', endInset: 15 },
+    { width: 360, background: '#212121', endInset: 0 }, { width: 1280, background: '#212121', endInset: 15 },
+  ])('keeps the pinned semantic line quiet and its page-colored strip inside the row ($width/$background/$endInset)', async ({ width, background, endInset }) => {
     const question = 'A longer owner question above the agent exchange. '.repeat(3);
     const t = await mount(width, [turn('own', [ordinary(question, 'user'),
       ...Array.from({ length: 20 }, (_, i) => delivery(`quiet${i}`, `Long underlying message ${i}. `.repeat(45)))]),
       turn('conclusion', [ordinary('Following conclusion. '.repeat(60))])]);
+    // A non-overlay scrollbar consumes an asymmetric trailing gutter. Exercise
+    // the same column offset on overlay-scrollbar platforms as well.
+    t.scroll().style.paddingRight = `${16 + endInset}px`;
+    await untilStable('asymmetric content gutter settles', () => t.host.querySelector('[data-chat-width-probe]')?.getBoundingClientRect().width);
     if (background === '#212121') t.host.classList.add('emdark');
     t.host.style.setProperty('--chat-bg', background);
     const label = () => t.head()!.lastElementChild as HTMLElement;
@@ -409,6 +413,9 @@ describe('approved A2A activity', () => {
     const lane = t.head()!.closest<HTMLElement>('[data-index]')!;
     const backdrop = lane.querySelector<HTMLElement>('[data-chat-pin-backdrop]')!;
     const paint = backdrop.getBoundingClientRect(), viewport = t.scroll().getBoundingClientRect();
+    console.info('ACTIVITY_PIN_FRAME', JSON.stringify({ width, background, endInset,
+      viewport: { left: viewport.left, right: viewport.right }, paint: { left: paint.left, right: paint.right },
+      clientWidth: t.scroll().clientWidth, scrollWidth: t.scroll().offsetWidth }));
     const style = getComputedStyle(backdrop);
     expect(style.opacity).toBe('1');
     expect(style.backgroundColor).toBe(background === '#ffffff' ? 'rgb(255, 255, 255)' : 'rgb(33, 33, 33)');

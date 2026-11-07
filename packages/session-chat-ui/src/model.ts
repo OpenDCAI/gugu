@@ -92,6 +92,8 @@ export type ChatMessage = {
   at?: number;
   /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
   guguDelivery?: DeliveryReading;
+  /** Native input provenance survives presentation normalization, including non-owner steers. */
+  _meta?: import('@gugu/session-core/acp/client').TranscriptMessage['_meta'];
   /**
    * View-only reference to the message this one explicitly replies to. Only a real anchor counts
    * (the delivery's `reply_to`, or the `reply_to_message_id` the agent passed to message_send) —

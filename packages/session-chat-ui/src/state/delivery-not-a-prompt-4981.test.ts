@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * #4981 —— 别的 agent 投递进来的那条不占「人刚发言」的身份。
  *
@@ -13,8 +14,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { collectUserTurnUnits, isDeliveredFromAgent, makeUnitsView } from './flatten';
-import type { ChatItem } from '../model';
+import type { ChatItem, ChatMessage } from '../model';
 import type { TranscriptTurn } from '../model';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { normalizeMessage } from '../components/rows/message/message.def';
 
 const DELIVERY = [
   '<gugu_delivery route="chat" from="小雨" from_id="u_42" msg="m1" at="2026-09-06T08:00:00Z">',
@@ -22,8 +25,8 @@ const DELIVERY = [
   '</gugu_delivery>',
 ].join('\n');
 
-function message(id: string, role: 'user' | 'assistant', text: string): ChatItem {
-  return { kind: 'message', id, seq: 0, role, text } as unknown as ChatItem;
+function message(id: string, role: 'user' | 'assistant', text: string): ChatMessage {
+  return { kind: 'message', id, seq: 0, role, text };
 }
 
 function turnOf(items: ChatItem[]): TranscriptTurn {
@@ -70,6 +73,14 @@ describe('#4981 投递进来的不是人打的字', () => {
     expect(isDeliveredFromAgent(message('f', 'assistant', DELIVERY))).toBe(false);
   });
 
+  it('keeps normalized and explicitly non-owner inputs out of owner pinning', () => {
+    const normalized = { ...message('scheduled', 'user', 'Original scheduled prompt'),
+      guguDelivery: readDeliveryEnvelope('<gugu_delivery route="scheduled" from="System" from_id="system:gugu"><![CDATA[Original scheduled prompt]]></gugu_delivery>')! };
+    expect(isDeliveredFromAgent(normalized as ChatMessage)).toBe(true);
+    expect(isDeliveredFromAgent({ ...message('steer', 'user', 'Delivered during an owner turn'), _meta: { guguOwnerInput: false } })).toBe(true);
+    expect(isDeliveredFromAgent({ ...message('owner', 'user', 'Actually typed'), _meta: { guguOwnerInput: true } })).toBe(false);
+  });
+
   it('投递卡不进「钉到顶端」的名单', () => {
     const items = [message('m1', 'user', DELIVERY), message('m2', 'assistant', '好的')];
     expect(collectUserTurnUnits([turnOf(items)], unitsOf(items))).toEqual([]);
@@ -90,12 +101,19 @@ describe('#4981 投递进来的不是人打的字', () => {
 describe('viewer-owned cross-client delivery pins', () => {
   const viewerId = '11111111-1111-4111-8111-111111111111';
   const envelope = (fromId: string, type: string) => `<gugu_delivery route="chat" from_id="user:${fromId}" from_type="${type}" msg="msg:own"><![CDATA[Own request]]></gugu_delivery>`;
-  it('recognizes only the authenticated viewer human delivery, never another actor or a mixed batch', () => {
+  for (const normalized of [false, true]) it(`recognizes only the authenticated viewer human delivery (normalized=${normalized})`, () => {
     const own = envelope(viewerId, 'human');
     const other = envelope('22222222-2222-4222-8222-222222222222', 'human');
     for (const [text, expected] of [[own, [0]], [other, []], [envelope(viewerId, 'agent'), []], [own + '\n' + other, []]] as const) {
-      const items = [message('input', 'user', text), message('reply', 'assistant', 'The original answer')];
+      const input = message('input', 'user', text);
+      const items = [normalized ? normalizeMessage(input) : input, message('reply', 'assistant', 'The original answer')];
       expect(collectUserTurnUnits([turnOf(items)], unitsOf(items), { viewerId })).toEqual(expected);
+    }
+    const scheduled = '<gugu_delivery route="scheduled" from_id="system:gugu" schedule="Check results"><![CDATA[Review the results]]></gugu_delivery>';
+    for (const input of [message('scheduled', 'user', scheduled),
+      { ...message('steered', 'user', 'Delivered while the owner turn is active'), _meta: { guguOwnerInput: false } }]) {
+      const item = normalized ? normalizeMessage(input) : input;
+      expect(collectUserTurnUnits([turnOf([item])], unitsOf([item]), { viewerId })).toEqual([]);
     }
   });
 });

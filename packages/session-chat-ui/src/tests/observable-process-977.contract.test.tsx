@@ -69,4 +69,23 @@ describe('observable conversation process', () => {
     expect(v.host.textContent).not.toContain(nativeName);
     expect(v.host.querySelector('[data-row-kind="mcp-tool-call"]')).toBeNull();
   });
+
+  it.each(['completed', 'failed', 'stopped'] as const)('keeps a %s background completion semantic until explicitly opened', async outcome => {
+    const command = 'cd /tmp && (which pnpm >/dev/null && pnpm --version)';
+    const v = mount([{ kind: 'background-command-done-tool-call', id: 'completed-command', seq: 1,
+      toolCallId: 'done', launchToolCallId: 'launch', title: command, name: command, status: 'done', outcome, summary: 'Original completion details' }]);
+    const row = () => v.host.querySelector<HTMLElement>('[data-conversation-step="completed-command"]');
+    await until('standalone completion mounts', () => !!row());
+    const button = () => row()!.querySelector<HTMLButtonElement>('[data-collapse-id]')!;
+    expect(row()!.textContent).toBe(`background command ${outcome === 'completed' ? 'finished' : outcome}›`);
+    expect(row()!.textContent).not.toContain(command);
+    expect(button().getAttribute('aria-expanded')).toBe('false');
+    button().click();
+    await until('completion command can be read', () => row()!.textContent!.includes(command));
+    expect(row()!.textContent).toContain('Original completion details');
+    expect(button().getAttribute('aria-expanded')).toBe('true');
+    button().click();
+    await until('completion command closes', () => !row()!.textContent!.includes(command));
+    expect(row()!.getBoundingClientRect().height).toBe(32);
+  });
 });
