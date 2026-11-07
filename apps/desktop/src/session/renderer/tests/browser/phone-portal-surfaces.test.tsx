@@ -15,10 +15,11 @@ vi.mock('@gugu/core/cloud/config', async (original) => ({
 }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(async () => { await page.viewport(390, 844); harness = createReactHarness() })
-afterEach(() => { harness.cleanup(); document.querySelectorAll('[data-portal-probe]').forEach(e => e.remove()); delete document.documentElement.dataset.theme })
+afterEach(() => { harness.cleanup(); document.documentElement.removeAttribute('data-phone-root'); document.querySelectorAll('[data-portal-probe]').forEach(e => e.remove()); delete document.documentElement.dataset.theme })
 
 it.each(['light', 'dark'] as const)('%s: an actual portalled menu keeps phone spacing and nested neutral tokens', async theme => {
   document.documentElement.dataset.theme = theme
+  document.documentElement.toggleAttribute('data-phone-root', true)
   await harness.render(<div data-phone-shell=""><button data-anchor>Open menu</button></div>)
   const anchor = harness.container.querySelector('[data-anchor]')!
   await harness.render(<div data-phone-shell=""><button data-anchor>Open menu</button><Menu anchor={anchor}><MenuItem>Nested menu item</MenuItem></Menu></div>)

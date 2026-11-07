@@ -1475,16 +1475,16 @@ body.barcode-scanner-active #root {
 [data-phone-shell],
 [data-phone-shell][data-ta-scope],
 [data-phone-shell] :is(.ta-app, .ta-phone, .ta-dialog, [data-ta-menu], [data-ta-scope]),
-:root:has([data-phone-shell]) :is(.ta-dialog, [data-ta-menu]),
+:root[data-phone-root] :is(.ta-dialog, [data-ta-menu]),
 [data-theme='light'] [data-phone-shell],
-[data-theme='light']:has([data-phone-shell]) :is(.ta-dialog, [data-ta-menu]),
+[data-theme='light'][data-phone-root] :is(.ta-dialog, [data-ta-menu]),
 [data-theme='light'] [data-phone-shell] :is(.ta-app, .ta-phone, .ta-dialog, [data-ta-menu], [data-ta-scope]) {
   --ta-app-bg: var(--bg);
   --ta-panel-bg: var(--bg);
   --ta-tint-wash: color-mix(in oklab, var(--fg) 4%, transparent);
 }
 [data-theme='light'] [data-phone-shell],
-[data-theme='light']:has([data-phone-shell]) :is(.ta-dialog, [data-ta-menu]),
+[data-theme='light'][data-phone-root] :is(.ta-dialog, [data-ta-menu]),
 [data-theme='light'] [data-phone-shell] :is(.ta-app, .ta-phone, .ta-dialog, [data-ta-menu], [data-ta-scope]) {
   --ta-bubble-other: var(--muted);
 }

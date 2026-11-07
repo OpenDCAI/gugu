@@ -219,16 +219,16 @@
 
 /* Portals live beside the shell, not under it. Scope through the actual phone root so
    nested menus retain the phone presentation in portrait and landscape alike. */
-:root:has([data-phone-shell]) {
+:root[data-phone-root] {
   --chat-level-selected-bg: var(--muted);
   --chat-level-selected-fg: var(--fg);
 }
-:root:has([data-phone-shell]) .gg-menu {
+:root[data-phone-root] .gg-menu {
   --gg-menu-padding: var(--spacing-xs);
   --gg-menu-item-padding: var(--spacing-sm) var(--spacing-lg);
   background: var(--card);
 }
-:root:has([data-phone-shell]) .gg-menu-item {
+:root[data-phone-root] .gg-menu-item {
   min-height: var(--control-h-touch);
   font-size: var(--font-prose);
   line-height: var(--lh-prose);

@@ -223,6 +223,11 @@ function InnerLayout({
   // index.html 的引导脚本已经落过一次;这里补一次,兜住属性被别处清掉的情况(与主题同办法)。
   useEffect(() => { hydrateSidebarTint() }, [])
   const mobile = useMobileShell()
+  // @@@phone-root — 弹层挂在壳外,只能从 <html> 认手机;用属性而不是 `:root:has([data-phone-shell])`:桌面用不到它,不该替它付 :has 失效。
+  useLayoutEffect(() => {
+    document.documentElement.toggleAttribute('data-phone-root', mobile)
+    return () => document.documentElement.removeAttribute('data-phone-root')
+  }, [mobile])
   const chatOpenNonce = useMobileChatOpenNonce(mobile, mobilePane)
   const [sessionCreateOpen, setSessionCreateOpen] = useState(false)
   useSessionpageAgentInstallNavigation(sessionHostAvailable, setSessionCreateOpen, setActiveTab)
