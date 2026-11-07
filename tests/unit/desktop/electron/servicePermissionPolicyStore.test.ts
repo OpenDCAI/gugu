@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ServicePermissionPolicyStore } from '../../../../apps/desktop/electron/permissions/policy-store'
 import { defaultPermissionPolicy } from '../../../../apps/desktop/electron/permissions/rules'
 import type { VersionedSettingsTableClient } from '../../../../packages/core/src/cloud/userSettings'
+import { observePermissionPolicyWrites } from '../../../../apps/desktop/electron/permissions/policy-write-lifetime'
 
 function fixture() {
   const state = { row: { scope: 'user', config: { unrelated: { keep: true } } as Record<string, unknown>, updated_at: '2026-01-01T00:00:00.000Z' }, race: false }
@@ -40,6 +41,17 @@ function fixture() {
 }
 
 describe('account-scoped service permission settings', () => {
+  it('withdraws local policy facts before settings I/O and releases the barrier after a failed write', async () => {
+    const f = fixture(), events: boolean[] = []
+    const off = observePermissionPolicyWrites('owner', pending => events.push(pending))
+    try {
+      f.state.row.config.service_permissions = { ...defaultPermissionPolicy(), revision: 3 }
+      const pending = f.store.write({ kind: 'person', userId: 'owner' }, 'owner', defaultPermissionPolicy())
+      expect(events).toEqual([false, true])
+      await expect(pending).rejects.toThrow('reload before saving')
+      expect(events).toEqual([false, true, false])
+    } finally { off() }
+  })
   it('preserves unrelated settings through compare-and-set retries', async () => {
     const f = fixture()
     f.state.race = true
