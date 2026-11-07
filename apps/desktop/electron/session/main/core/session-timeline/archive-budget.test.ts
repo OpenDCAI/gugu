@@ -38,6 +38,13 @@ describe('timeline archive disk budget', () => {
     expect(await loadTimelineArchive('small')).toEqual(one);
   });
 
+  it.each([32 * 1024 * 1024 - 1, 32 * 1024 * 1024])('writes and reloads an archive with %i consumed source bytes', async (sourceBytes) => {
+    const one = archive({ sourceBytes, seq: 2, seenKeys: ['boundary'] });
+    await saveTimelineArchive('boundary', one);
+    expect(JSON.parse(await readFile(file('boundary'), 'utf8'))).toEqual(one);
+    expect(await loadTimelineArchive('boundary')).toEqual(one);
+  });
+
   it.each([64 * 1024 * 1024 + 1, 596_177_689])('skips a %i-byte sparse cache before read or parse', async (size) => {
     await writeFile(file('large'), '');
     await truncate(file('large'), size);
@@ -52,7 +59,7 @@ describe('timeline archive disk budget', () => {
     const huge = 'x'.repeat(128 * 1024 * 1024);
     const encode = vi.spyOn(JSON, 'stringify');
     await saveTimelineArchive('large-text', archive({ sourceBytes: 600 * 1024 * 1024, text: huge }));
-    await saveTimelineArchive('many', archive({ sourceBytes: 8 * 1024 * 1024 + 1, seenKeys: new Array(1_000_000) }));
+    await saveTimelineArchive('many', archive({ sourceBytes: 32 * 1024 * 1024 + 1, seenKeys: new Array(1_000_000) }));
     expect(encode).not.toHaveBeenCalled();
     await expect(stat(file('large-text'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(stat(file('many'))).rejects.toMatchObject({ code: 'ENOENT' });
