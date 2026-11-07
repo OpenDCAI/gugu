@@ -30,13 +30,15 @@ async function mount(theme: 'light' | 'dark', role: 'user' | 'assistant', surfac
   if (surface === 'phone') surfaceHost.setAttribute('data-phone-shell', '');
   if (surface === 'today') surfaceHost.className = 'ta-chat';
   if (surface === 'task') surfaceHost.className = 'assistant-task-chat-window';
-  const context = createChatContext({ locale: () => 'en-US' });
+  const context = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', agentConversation: true, userGutter: 0 } });
   const state = createChatState(context);
   state.transcript.history.seed([{ id: 'turn', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [
     { kind: 'message', id: 'code', seq: 0, role, text: TEXT },
   ] }]);
   const root = createRoot(surfaceHost);
   cleanups.push(() => { root.unmount(); state.dispose(); context.dispose(); host.remove(); });
+  // Use Code's synchronous cache-hit path for these palette assertions.
+  expect(await context.sharedCaches.highlightWhenReady(SQL, 'sql')).not.toBeNull();
   root.render(<AgentConversationView context={context} state={state} />);
   await until('code tokens rendered in the actual message bubble', () => host.querySelectorAll(`.${codeWrapper} span[style*="--shiki-light"]`).length > 5);
   await until('nested code grammar loaded', () => !!host.querySelector('.gg-md pre code span[style*="--shiki-light"]'));
