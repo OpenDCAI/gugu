@@ -298,9 +298,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   }
 
   for (const layout of ['desktop', 'phone', 'tab'] as const) {
-    it(`${layout}: topic header only identifies the topic and its source`, async () => {
+    it(`${layout}: topic header only identifies the topic and its source, and the phone tab has none`, async () => {
       await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, sourceMessagePreview: '下载到 60% 就断', mobile: layout === 'phone', embedded: layout === 'tab' }))
-      expect(harness.container.querySelector(layout === 'phone' ? '[data-testid="topic-tab-source"]' : '[data-testid="topic-breadcrumb"]')).not.toBeNull()
+      expect(harness.container.querySelector('[data-testid="topic-breadcrumb"]') !== null).toBe(layout !== 'phone')
       for (const id of ['topic-split-more', 'topic-split-members-toggle', 'topic-split-files-toggle']) {
         expect(harness.container.querySelector(`[data-testid="${id}"]`)).toBeNull()
       }
