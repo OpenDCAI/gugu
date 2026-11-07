@@ -11,7 +11,7 @@ import { createReactHarness } from '../../../support/testHarness'
 const scope = vi.hoisted(() => ({ updates: 0, current: undefined as ChatCommands | undefined }))
 vi.mock('@gugu/session-chat-ui', () => ({ createChatView: () => ({
   setCommands: (commands: ChatCommands) => { scope.current = commands; scope.updates++ },
-  setShown: () => {}, setModel: () => {}, setContentPadding: () => {}, dispose: () => {},
+  setShown: () => {}, setPinUserMessages: () => {}, setModel: () => {}, setContentPadding: () => {}, dispose: () => {},
 }) }))
 const context = {} as ChatContext, state = {} as ChatState
 let harness: ReturnType<typeof createReactHarness>

@@ -42,6 +42,7 @@ import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { platform } from '@/platform';
+import { useMobileShell } from '@/hooks/useMobileShell';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { TabLayerShownContext } from '@renderer/features/tabs/retained-tab-content';
 import { isEmbedVisible, subscribeEmbedVisibility } from '../portal-container';
@@ -108,9 +109,11 @@ export function loadChatUi(): Promise<ChatUi> {
 }
 
 export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
+  const mobile = useMobileShell();
+  const pinUserMessages = !!props.pinUserMessages && !mobile;
   const ref = useRef<HTMLDivElement>(null);
-  const propsRef = useRef(props);
-  propsRef.current = props;
+  const propsRef = useRef({ ...props, pinUserMessages });
+  propsRef.current = { ...props, pinUserMessages };
   const pageShown = useContext(PageShownContext);
   const layerShown = useContext(TabLayerShownContext);
   const embedVisible = useSyncExternalStore(subscribeEmbedVisibility, isEmbedVisible);
@@ -194,6 +197,10 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
     };
      
   }, []);
+
+  useLayoutEffect(() => {
+    viewRef.current?.setPinUserMessages(pinUserMessages);
+  }, [pinUserMessages]);
 
   useLayoutEffect(() => {
     viewRef.current?.setShown(shown);
