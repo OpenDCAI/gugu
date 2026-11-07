@@ -133,6 +133,7 @@ describe('AgentAccountSection', () => {
     vi.stubGlobal('window', dom.window);
     vi.stubGlobal('document', dom.window.document);
     vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
+    for (const key of ['Element', 'Node', 'CustomEvent', 'MutationObserver'] as const) vi.stubGlobal(key, dom.window[key]);
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     container = dom.window.document.getElementById('root') as HTMLDivElement;
     root = createRoot(container);
@@ -185,7 +186,7 @@ describe('AgentAccountSection', () => {
     mocks.auth = { status: { kind: 'unauthenticated' }, login: null };
     await render({ ...agent({ ...CLI_LOGIN, ...(declared ? { connections: { kind: 'managed' as const } } : {}) }), id: provider, name: provider });
     await act(async () => {
-      await vi.waitFor(() => expect(container.querySelector('[data-testid="agent-account-configure"]')).not.toBeNull());
+      await vi.waitFor(() => expect(container.querySelector('[aria-label="agentsPage.currentConnection"]')).not.toBeNull());
     });
     expect(container.querySelector('[data-testid="agent-account-sign-in"]')).toBeNull();
     expect(mocks.signIn).not.toHaveBeenCalled();
