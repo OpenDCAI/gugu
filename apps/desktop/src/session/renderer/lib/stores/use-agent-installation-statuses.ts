@@ -1,6 +1,6 @@
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
-import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
+import { matchQuery, useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createElement, type ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -14,6 +14,7 @@ import {
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useLibraryHost, type LibraryAgentsRpc } from '@renderer/features/library/library-host';
+import { subscriptionKey } from '@renderer/features/settings/subscriptions/subscription-queries';
 import type {
   AgentInstallationStatus,
   AgentInstallError,
@@ -222,12 +223,15 @@ export function useAgentInstallationStatuses() {
    * 把「从安装状态派生的那一族缓存」一次作废。`keepStatus` 留给已经手工打准 status 的调用方。
    * 这是这一族唯一知道成员是谁的地方 —— 见下方 invalidate() 上的那段账。
    */
-  const invalidateDerived = (opts?: { keepStatus?: boolean }) => {
+  const invalidateDerived = (opts?: { keepStatus?: boolean; providerId?: string }) => {
     void queryClient.invalidateQueries({
-      queryKey: AGENT_DERIVED_QUERY_PREFIX,
-      ...(opts?.keepStatus
-        ? { predicate: (q: { queryKey: readonly unknown[] }) => q.queryKey[1] !== 'status' }
-        : {}),
+      // Auth/connection readings share the subscription cache. Re-read them on the host
+      // that completed the operation, including when the library has since switched hosts.
+      predicate: (q) =>
+        (matchQuery({ queryKey: AGENT_DERIVED_QUERY_PREFIX }, q) &&
+          (!opts?.keepStatus || q.queryKey[1] !== 'status')) ||
+        (!opts?.keepStatus &&
+          matchQuery({ queryKey: subscriptionKey(host.remote?.deviceId ?? null, opts?.providerId) }, q)),
     });
   };
 
@@ -272,8 +276,8 @@ export function useAgentInstallationStatuses() {
    * 代价可控：react-query 默认只**重新拉取挂着的查询**（refetchType: 'active'），
    * 没在屏幕上的那些只是标脏，等下次用到再说。
    */
-  const invalidate = () => {
-    invalidateDerived();
+  const invalidate = (providerId?: string) => {
+    invalidateDerived({ providerId });
   };
 
   /**
@@ -322,7 +326,7 @@ export function useAgentInstallationStatuses() {
     mutationFn: ({ id, method, registry }) =>
       agentsRpc.install(id, method, registry) as Promise<AgentInstallResult>,
     onSuccess: (result, vars) => {
-      invalidate();
+      invalidate(vars.id);
       const name = nameOf(vars.id);
       if (result.success) {
         toast({ title: translate('agentsPage.installSucceeded', { name }) });
@@ -355,7 +359,7 @@ export function useAgentInstallationStatuses() {
     mutationFn: ({ id, method, registry }) =>
       agentsRpc.update(id, method, registry) as Promise<AgentUpdateResult>,
     onSuccess: (result, vars) => {
-      invalidate();
+      invalidate(vars.id);
       const name = nameOf(vars.id);
       if (result.success) {
         toast({ title: translate('agentsPage.updateSucceeded', { name }) });
@@ -389,7 +393,7 @@ export function useAgentInstallationStatuses() {
     mutationKey: opKey('uninstall', host.key),
     mutationFn: ({ id, method }) =>
       agentsRpc.uninstall(id, method) as Promise<AgentUninstallResult>,
-    onSuccess: invalidate,
+    onSuccess: (_result, vars) => invalidate(vars.id),
   });
 
   const setUsedMutation = useMutation<
@@ -398,19 +402,19 @@ export function useAgentInstallationStatuses() {
     { id: string; selection: HostDependencySelection }
   >({
     mutationFn: ({ id, selection }) => agentsRpc.setUsedInstallation(id, selection),
-    onSuccess: invalidate,
+    onSuccess: (_result, vars) => invalidate(vars.id),
   });
 
   const refreshLatestMutation = useMutation<void, Error, string>({
     mutationFn: (id) => agentsRpc.refreshLatestVersion(id),
-    onSuccess: invalidate,
+    onSuccess: (_result, id) => invalidate(id),
   });
 
   const probeAllMutation = useMutation<void, Error, void>({
     mutationFn: async () => {
       await agentsRpc.probeAll();
     },
-    onSuccess: invalidate,
+    onSuccess: () => invalidate(),
   });
 
   return {

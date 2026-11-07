@@ -4,8 +4,11 @@ import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentInstallProgressChannel } from '@shared/events/appEvents';
+import { agentInstallProgressChannel, agentInstallationStatusUpdatedChannel } from '@shared/events/appEvents';
 import { useAgentInstallationStatus, useAgentInstallationStatuses } from './use-agent-installation-statuses';
+import { LibraryHostProvider, LOCAL_LIBRARY_HOST } from '@renderer/features/library/library-host';
+import { useConnectionAvailability } from '@renderer/features/settings/subscriptions/use-connection-availability';
+import { subscriptionKey } from '@renderer/features/settings/subscriptions/subscription-queries';
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -18,6 +21,13 @@ const mocks = vi.hoisted(() => ({
   on: vi.fn<(channel: unknown, listener: (event: unknown) => void) => () => void>(() => () => {}),
   refreshLatestVersion: vi.fn(),
   probeAll: vi.fn(),
+  refreshAuthStatus: vi.fn(),
+}));
+
+vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
+  getAgentConfigRuntimeClient: async (machine: string | null) => ({
+    refreshAuthStatus: (input: { providerId: string }) => mocks.refreshAuthStatus(machine, input),
+  }),
 }));
 
 vi.mock('@renderer/lib/ipc', () => ({
@@ -72,6 +82,7 @@ describe('useAgentInstallationStatuses invalidate', () => {
     mocks.install.mockResolvedValue({ success: true, data: {} });
     mocks.refreshLatestVersion.mockResolvedValue(undefined);
     mocks.probeAll.mockResolvedValue(undefined);
+    mocks.refreshAuthStatus.mockResolvedValue({ success: true, data: { kind: 'unknown' } });
 
     dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -119,6 +130,121 @@ describe('useAgentInstallationStatuses invalidate', () => {
       await vi.advanceTimersByTimeAsync(50);
     });
   }
+
+  let availability: ReturnType<typeof useConnectionAvailability>;
+  async function renderAvailability(machine: string | null, providerId = 'codex') {
+    function Availability() {
+      availability = useConnectionAvailability(providerId, machine);
+      return null;
+    }
+    const host = machine ? {
+      ...LOCAL_LIBRARY_HOST,
+      key: `remote:${machine}`,
+      remote: { deviceId: machine, deviceLabel: machine, online: true, lastSeenAt: null },
+    } : LOCAL_LIBRARY_HOST;
+    await act(async () => {
+      root.render(React.createElement(QueryClientProvider, { client: queryClient },
+        React.createElement(SessionLocalizationProvider, null,
+          // LibraryMainPanel remounts its host subtree when the selected device changes.
+          React.createElement(LibraryHostProvider, { value: host, key: host.key },
+            React.createElement(Probe, { onReady: (value: Api) => { api = value; } }),
+            React.createElement(Availability)))));
+    });
+    await settle();
+  }
+
+  it('re-reads the open connection after installation through the existing cache refresh', async () => {
+    let installed = false;
+    mocks.refreshAuthStatus.mockImplementation(async () => ({
+      success: true, data: { kind: installed ? 'unauthenticated' : 'unknown' },
+    }));
+    let finish!: (value: { success: true; data: object }) => void;
+    mocks.install.mockImplementation(() => {
+      installed = true;
+      const statusEvent = mocks.on.mock.calls.find(([channel]) => channel === agentInstallationStatusUpdatedChannel);
+      statusEvent![1]({ id: 'codex', reading: 'installed', installations: [] });
+      return new Promise(resolve => { finish = resolve; });
+    });
+    await renderAvailability(null);
+    expect(availability.state).toBe('failed');
+
+    let operation!: Promise<unknown>;
+    await act(async () => { operation = api!.installAsync({ id: 'codex', method: 'mise' }); });
+    await settle();
+    expect(mocks.refreshAuthStatus).toHaveBeenCalledTimes(1);
+    await act(async () => { finish({ success: true, data: {} }); await operation; });
+    await settle();
+
+    expect(availability.auth?.kind).toBe('unauthenticated');
+    expect(availability.state).toBe('unusable');
+    expect(mocks.refreshAuthStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the actual unknown reading when installation fails', async () => {
+    mocks.install.mockResolvedValue({ success: false, error: { type: 'no-install-command' } });
+    await renderAvailability(null);
+
+    await act(async () => { await api!.installAsync({ id: 'codex', method: 'mise' }); });
+    await settle();
+
+    expect(availability.auth).toEqual({ kind: 'unknown' });
+    expect(availability.state).toBe('failed');
+  });
+
+  it('preserves an authentication read error after a successful install', async () => {
+    await renderAvailability(null);
+    mocks.refreshAuthStatus.mockRejectedValue(new Error('Authentication read failed'));
+
+    await act(async () => { await api!.installAsync({ id: 'codex', method: 'mise' }); });
+    await settle();
+
+    expect(availability.state).toBe('failed');
+    expect(availability.error?.message).toBe('Authentication read failed');
+    expect(availability.auth?.kind).not.toBe('authenticated');
+  });
+
+  it.each([
+    { machine: 'server-b', providerId: 'codex' },
+    { machine: 'server-a', providerId: 'claude' },
+  ])('refreshes the initiating host/provider after switching to $machine/$providerId', async (other) => {
+    let installed = false;
+    mocks.refreshAuthStatus.mockImplementation(async (machine: string, { providerId }: { providerId: string }) => ({
+      success: true, data: { kind: machine === 'server-a' && providerId === 'codex' && installed ? 'unauthenticated' : 'unknown' },
+    }));
+    let finish!: (value: { success: true; data: object }) => void;
+    mocks.install.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    await renderAvailability('server-a');
+    let operation!: Promise<unknown>;
+    await act(async () => { operation = api!.installAsync({ id: 'codex', method: 'mise' }); });
+    await renderAvailability(other.machine, other.providerId);
+    const otherReads = () => mocks.refreshAuthStatus.mock.calls.filter(([machine, input]) =>
+      machine === other.machine && input.providerId === other.providerId);
+    expect(otherReads()).toHaveLength(1);
+
+    await act(async () => { installed = true; finish({ success: true, data: {} }); await operation; });
+    await settle();
+
+    expect(otherReads()).toHaveLength(1);
+    expect(queryClient.getQueryState([...subscriptionKey('server-a', 'codex'), 'availability'])?.isInvalidated).toBe(true);
+    expect(availability.auth).toEqual({ kind: 'unknown' });
+    await renderAvailability('server-a');
+    expect(availability.auth?.kind).toBe('unauthenticated');
+    expect(otherReads()).toHaveLength(1);
+  });
+
+  it('keeps a pending recheck scoped when the host subtree remounts', async () => {
+    let finish!: () => void;
+    mocks.probeAll.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    await renderAvailability('server-a');
+    await act(async () => { api!.probeAll(); });
+    await renderAvailability('server-b');
+
+    await act(async () => { finish(); });
+    await settle();
+
+    expect(mocks.refreshAuthStatus.mock.calls.filter(([machine]) => machine === 'server-b')).toHaveLength(1);
+    expect(queryClient.getQueryState([...subscriptionKey('server-a', 'codex'), 'availability'])?.isInvalidated).toBe(true);
+  });
 
   it('subscribes to progress while updating and clears it when the update settles', async () => {
     let complete!: (value: { success: true; data: object }) => void;
