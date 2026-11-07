@@ -120,21 +120,21 @@ export const AgentAdvancedSection = observer(function AgentAdvancedSection({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="flex items-center justify-between gap-3">
+      <div className="relative flex items-center justify-between gap-3">
         <CollapsibleTrigger
           type="button"
           data-testid="agent-advanced-trigger"
           className="flex w-full items-center justify-between text-sm font-semibold"
         >
           {translate(compact ? 'agentsPage.advanced' : 'agentsPage.advancedSettings')}
-          <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+          <ChevronRight className={cn('absolute right-0 size-3.5 transition-transform', open && 'rotate-90')} />
         </CollapsibleTrigger>
         {isOverridden && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="shrink-0 gap-1.5 text-xs"
+            className="mr-6 shrink-0 gap-1.5 text-xs"
             onClick={handleResetToDefaults}
           >
             <RotateCcw className="size-3.5" />
