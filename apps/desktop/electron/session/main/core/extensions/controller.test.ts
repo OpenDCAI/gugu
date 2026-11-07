@@ -196,6 +196,48 @@ beforeEach(async () => {
 });
 
 describe('extensions controller', () => {
+  it.each(['55555555-5555-4555-8555-555555555555', null])('invalidates the host unread association after selecting or clearing %s', async (chatId) => {
+    const binding = await import('./app-unread-bindings');
+    const save = vi.spyOn(binding, 'setUnreadBinding').mockResolvedValue();
+    const args = { extensionId: EXTENSION_ID, name: 'main', ownerId: '11111111-1111-4111-8111-111111111111', authority: '22222222-2222-4222-8222-222222222222', chatId };
+    emitted.length = 0;
+    try {
+      expect(await extensionsController.setUnreadBinding(args)).toEqual({ success: true });
+      expect(save).toHaveBeenCalledExactlyOnceWith(args);
+      expect(emitted.filter(event => event.name === extensionsInventoryChangedChannel.name)).toEqual([
+        { name: extensionsInventoryChangedChannel.name, data: { extensionId: EXTENSION_ID } },
+      ]);
+    } finally { save.mockRestore(); }
+  });
+
+  it('does not announce a rejected unread selection as an authority change', async () => {
+    const binding = await import('./app-unread-bindings');
+    const save = vi.spyOn(binding, 'setUnreadBinding').mockRejectedValue(Object.assign(new Error('App unread authority changed'), { code: 'denied' }));
+    emitted.length = 0;
+    try {
+      expect((await extensionsController.setUnreadBinding({ extensionId: EXTENSION_ID, name: 'main', ownerId: '11111111-1111-4111-8111-111111111111', authority: '22222222-2222-4222-8222-222222222222', chatId: null })).success).toBe(false);
+      expect(emitted.filter(event => event.name === extensionsInventoryChangedChannel.name)).toEqual([]);
+    } finally { save.mockRestore(); }
+  });
+
+  it('invalidates the host unread association when its permission or enabled state changes', async () => {
+    const source = writeBundle([], undefined, ['chat:unread']);
+    const file = join(source, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(file, 'utf8'));
+    manifest.permissions.bindings = [{ name: 'main', kind: 'conversation', actions: ['unread'] }];
+    writeFileSync(file, JSON.stringify(manifest));
+    const inspected = await folderAsk(source);
+    expect((await folderGiven(source, inspected.ask.manifestDigest)).success).toBe(true);
+    for (const on of [false, true]) {
+      emitted.length = 0;
+      expect((await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'chat:unread', granted: on })).success).toBe(true);
+      expect(emitted).toContainEqual({ name: extensionsInventoryChangedChannel.name, data: { extensionId: EXTENSION_ID } });
+      emitted.length = 0;
+      expect((await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: on })).success).toBe(true);
+      expect(emitted).toContainEqual({ name: extensionsInventoryChangedChannel.name, data: { extensionId: EXTENSION_ID } });
+    }
+  });
+
   it('an uninstall still clears state and publishes inventory when native retirement rejects', async () => {
     await installViaController([]);
     const identity = { publisher: 'gugu', id: EXTENSION_ID };

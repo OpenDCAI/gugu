@@ -800,6 +800,14 @@ only (no chat to say it in), and retries once it is there.
 
 export const EXTENSION_GUIDE_MESSAGES = `# gugu.chats, gugu.messages — the chats you are in, and what was said
 
+Needs \`chat:unread\` (desktop, API 32): declare \`permissions.bindings: [{name: "main", kind: "conversation", actions: ["unread"]}]\`
+and \`chat:unread\`. The person chooses one conversation in the App's common permission section.
+\`gugu.bindings.get("main")\` returns \`state: "bound"\` plus an opaque handle, or \`state: "unbound"\`; it never returns
+a chat ID, messages or another conversation. This grants neither \`chat:read\` nor Agent control.
+The host validates the current account, installed publisher, grant and active membership. An App cannot set its own target.
+Declare \`contributes.unreadSource: {binding: "main"}\` for the host rail red dot. It follows the original chat unread source
+even before your page opens or after eviction. Opening the App does not mark messages read; page badges still work.
+
 Which chats the reader is in and who is in one — for a page that is in no chat (an App's own tab, full screen) to
 offer one — and what people and agents said in a chat: a stretch of its timeline, one thread, or the messages that
 cite a file (a pill, a link) — "this passage was discussed 3 times", each a click away with \`gugu.showMessage(m.id)\`.

@@ -501,6 +501,8 @@ export async function forwardTargets(page: DesktopFilePage, args: { refs?: unkno
   return files.forwardTargets(chatSurface(page), { refs });
 }
 export const chatMembersOf = files.members;
+/** Host permission UI only; App content access still goes through chat:read. */
+export const unreadBindingChatChoices = () => files.chats();
 export const chatsOf = files.chats;
 export const surfaceChatOf = files.chat;
 export const resourceChatOf = files.resourceChat;
