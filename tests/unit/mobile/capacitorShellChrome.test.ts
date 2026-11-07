@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  native: vi.fn(), syncTone: vi.fn(), tone: vi.fn(), preference: vi.fn(),
+  native: vi.fn(), pluginAvailable: vi.fn(), syncTone: vi.fn(), tone: vi.fn(), preference: vi.fn(),
   subscribeTone: vi.fn(), subscribePreference: vi.fn(),
 }))
 vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: mocks.native }, registerPlugin: () => ({ syncTone: mocks.syncTone }),
+  Capacitor: { isNativePlatform: mocks.native, isPluginAvailable: mocks.pluginAvailable }, registerPlugin: () => ({ syncTone: mocks.syncTone }),
 }))
 vi.mock('../../../apps/desktop/src/session/renderer/lib/theme/host-theme', () => ({
   readEffectiveHostTheme: mocks.tone, readThemePreference: mocks.preference,
@@ -18,6 +18,7 @@ describe('native startup theme mirror', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     mocks.native.mockReturnValue(true)
+    mocks.pluginAvailable.mockReturnValue(true)
     mocks.syncTone.mockResolvedValue(undefined)
     mocks.tone.mockReturnValue('dark')
     mocks.preference.mockReturnValue('dark')
@@ -40,5 +41,12 @@ describe('native startup theme mirror', () => {
     startShellChromeTone()
     expect(mocks.syncTone).not.toHaveBeenCalled()
     expect(mocks.subscribePreference).not.toHaveBeenCalled()
+  })
+
+  it('does not call or subscribe to an absent native theme plugin on iOS', () => {
+    mocks.pluginAvailable.mockReturnValue(false)
+    startShellChromeTone()
+    expect(mocks.syncTone).not.toHaveBeenCalled()
+    expect(mocks.subscribeTone).not.toHaveBeenCalled()
   })
 })

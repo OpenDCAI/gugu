@@ -198,7 +198,7 @@ export const capacitorPlatform: AppPlatform = {
     ready: nativeOpenedLinksReady,
     subscribe: (listener, onError) => subscribeNativeOpenedLinks('auth', listener, onError),
   },
-  capabilities: { ...base.capabilities, clipboard: true, barcodeScan: true, notifications: true, backgroundWatch: true, appUpdates: true, shareToApps: true, externalFileOpen: true },
+  capabilities: { ...base.capabilities, clipboard: true, barcodeScan: true, notifications: true, backgroundWatch: true, appUpdates: true, shareToApps: true, externalFileOpen: true, mobileApps: true, phoneDevice: true },
   async writeClipboardText(value) {
     await Clipboard.write({ string: value })
   },

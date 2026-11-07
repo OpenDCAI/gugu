@@ -31,6 +31,10 @@ interface PlatformCapabilities {
    * 附件来不及下载;电脑上没有能把内容直接发进微信的系统分享。
    */
   shareToApps: boolean
+  /** This shell can install and run phone Apps. */
+  mobileApps: boolean
+  /** This shell implements the native phone tools and installation identity. */
+  phoneDevice: boolean
 }
 
 /** 交给系统分享面板的一份内容。附件只给地址,由宿主自己取字节,交出去的是文件本身。 */

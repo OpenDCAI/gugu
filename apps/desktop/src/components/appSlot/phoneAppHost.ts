@@ -955,7 +955,7 @@ export const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__
 
 /** Host facts and transports only; target parsing and opening order are shared with main. */
 export async function openPhoneLink(target: string | OpenTarget) {
-  if (platform.kind === 'capacitor') await phoneApps.ready()
+  if (platform.capabilities.mobileApps) await phoneApps.ready()
   return openLinkWith({
     installed: () => installedExtensionsStore.manifests.map((manifest) => ({ manifest })),
     isEnabled: (id) => installedExtensionsStore.isEnabled(id),

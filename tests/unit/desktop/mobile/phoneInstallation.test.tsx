@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, deferred, waitForCondition } from '../../../support/testHarness'
 
 const mocks = vi.hoisted(() => ({
-  owner: '', kind: 'capacitor', available: true, failBinding: false,
+  owner: '', kind: 'capacitor', available: true, phoneDevice: true, failBinding: false,
   deviceInfo: vi.fn(), start: vi.fn(), cleanup: vi.fn(),
   stopped: vi.fn(async (_ownerId: string) => undefined),
   grants: vi.fn(async (_input: { ownerId: string; calendar: boolean; groups: Record<string, boolean> }) => undefined),
@@ -26,6 +26,7 @@ vi.mock('../../../../apps/desktop/src/lib/myAssistant', () => ({
 vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => ({ error: vi.fn(), warn: vi.fn() }) }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {
   get kind() { return mocks.kind }, systemPermissions: [], subscribeAppForeground: () => () => {},
+  get capabilities() { return { phoneDevice: mocks.kind === 'capacitor' && mocks.phoneDevice } },
 } }))
 vi.mock('../../../../apps/desktop/src/mobile/backgroundWatchClaims', () => ({ claimBackgroundWatch: () => () => {} }))
 vi.mock('../../../../apps/desktop/src/mobile/local-agent/nativeAgent', () => ({
@@ -74,7 +75,7 @@ function expectNoPhoneEffects() {
 }
 beforeEach(() => {
   vi.clearAllMocks(); values.clear()
-  mocks.owner = crypto.randomUUID(); mocks.kind = 'capacitor'; mocks.available = true; mocks.failBinding = false
+  mocks.owner = crypto.randomUUID(); mocks.kind = 'capacitor'; mocks.available = true; mocks.phoneDevice = true; mocks.failBinding = false
   mocks.start.mockImplementation(() => mocks.cleanup)
   mocks.grants.mockResolvedValue(undefined); mocks.stopped.mockResolvedValue(undefined)
   mocks.deviceInfo.mockReset().mockResolvedValue({ install_key: NATIVE_KEY, registration_id: 'verified-registration' })
@@ -91,6 +92,15 @@ beforeEach(() => {
 afterEach(() => { for (const harness of active.splice(0)) harness.cleanup(); vi.unstubAllGlobals() })
 
 describe('native installation verification gates the actual phone effect roots', () => {
+  it('does not touch Android installation or tools in an iOS shell, even with restored enabled choices', async () => {
+    choose()
+    mocks.phoneDevice = false
+    mocks.available = false
+    const harness = await render()
+    expect(harness.container.querySelector('[data-testid="basic-product"]')).not.toBeNull()
+    expect(mocks.deviceInfo).not.toHaveBeenCalled()
+    expectNoPhoneEffects()
+  })
   it('does nothing without a verified-installation provider, even with saved enabled choices', async () => {
     choose()
     const harness = createReactHarness(); active.push(harness)

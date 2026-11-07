@@ -16,7 +16,7 @@ const native = vi.hoisted(() => ({
   remove: vi.fn(async ({ key }: { key: string }) => { native.temporary.delete(key) }),
 }))
 vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => native.enabled },
+  Capacitor: { isNativePlatform: () => native.enabled, getPlatform: () => native.enabled ? 'android' : 'web' },
   registerPlugin: () => ({ get: native.get, write: native.write, remove: native.remove }),
 }))
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: vi.fn(() => ({ auth: {} })) }))

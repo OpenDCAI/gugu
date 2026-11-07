@@ -25,6 +25,7 @@ vi.mock('../../../../apps/desktop/src/mobile/phone-device/phoneDeviceRuntime', (
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {
   get kind() { return mocks.kind }, systemPermissions: mocks.permissions,
+  get capabilities() { return { phoneDevice: mocks.kind === 'capacitor' } },
   checkSystemPermission: mocks.check, requestSystemPermission: mocks.request, openSystemPermissionSettings: mocks.settings,
   subscribeAppForeground: (listener: () => void) => { mocks.foreground.push(listener); return () => { mocks.foreground = mocks.foreground.filter(value => value !== listener) } },
 } }))

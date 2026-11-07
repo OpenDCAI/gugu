@@ -11,6 +11,8 @@ export function createCapacitorPlatformTestDouble() {
       clipboard: false,
       notifications: false,
       rendererCommandBridge: false,
+      mobileApps: true,
+      phoneDevice: true,
     },
   }
 }

@@ -48,8 +48,8 @@ const sectionsFor = (mobile: boolean): ActiveSection[] =>
   SETTINGS_SECTIONS.filter(
     (section) =>
       (section !== 'permissions' || platform.kind === 'electron' || platform.systemPermissions.length > 0) &&
-      (section !== 'apps' || platform.kind === 'capacitor') &&
-      (section !== 'phone' || platform.kind === 'capacitor') &&
+      (section !== 'apps' || platform.capabilities.mobileApps) &&
+      (section !== 'phone' || platform.capabilities.phoneDevice) &&
       (!SESSION_HOST_SETTINGS_SECTIONS.includes(section) || (mobile && section === 'connectors') || (!mobile && platform.capabilities.sessionHost)),
   )
 const MOBILE_SECTIONS_FOR_PLATFORM = sectionsFor(true)
@@ -95,7 +95,10 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   // @@@1507 初始 section 可由调用方指定(如侧栏「额度」直接开到 quota);缺省 account。
   const [internalSection, setInternalSection] = useState<ActiveSection>(initialSection)
   const requestedSection = section ?? internalSection
-  const activeSection = requestedSection === 'channels' ? 'connectors' : requestedSection
+  const resolvedSection = requestedSection === 'channels' ? 'connectors' : requestedSection
+  const unsupportedPhoneSection = (resolvedSection === 'apps' && !platform.capabilities.mobileApps)
+    || (resolvedSection === 'phone' && !platform.capabilities.phoneDevice)
+  const activeSection = unsupportedPhoneSection ? 'account' : resolvedSection
   const setActiveSection = onSectionChange ?? setInternalSection
   const [internalPane, setInternalPane] = useState<'nav' | 'detail'>(mobile ? 'nav' : 'detail')
   const mobilePane = pane ?? internalPane

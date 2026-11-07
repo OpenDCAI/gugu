@@ -9,7 +9,7 @@ const log = rendererLogger('mobile/shell-chrome')
 const shellChrome = registerPlugin<{ syncTone(options: { tone: 'light' | 'dark'; preference: 'light' | 'dark' | 'system' }): Promise<void> }>('GuguShellChrome')
 
 export function startShellChromeTone(): void {
-  if (!Capacitor.isNativePlatform()) return
+  if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('GuguShellChrome')) return
   const sync = () => {
     const tone = readEffectiveHostTheme()
     shellChrome.syncTone({ tone, preference: readThemePreference() }).catch((error: unknown) => log.error({ tone, error: String(error) }, 'the system bars did not take the page tone'))
