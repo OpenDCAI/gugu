@@ -974,13 +974,16 @@ async function saveFolder(page: DesktopFilePage, place: WorkspacePlace, folder: 
     if (signal.aborted) throw stopped();
     await fs.mkdir(to, { recursive: true });
     for (const entry of await listAppFiles(page, { place, folder: from })) {
+      // A name that is a path here (another machine's `..\x`, `a\b`, `C:x`) is left out and said, never followed.
+      const into = entryPath(to, entry.name);
+      if (!into) { skipped.push(entry.id); continue; }
       if (entry.type === 'folder') {
         // Followed, a link to a folder above it never ends.
         if (entry.symlink) skipped.push(entry.id);
-        else await walk(entry.id, path.join(to, entry.name));
+        else await walk(entry.id, into);
         continue;
       }
-      found.push({ id: entry.id, to: path.join(to, entry.name), size: entry.size ?? 0, link: !!entry.symlink });
+      found.push({ id: entry.id, to: into, size: entry.size ?? 0, link: !!entry.symlink });
       if (found.length > FOLDER_DOWNLOAD_MAX_FILES) throw new AppFileError('too-large', `More than ${FOLDER_DOWNLOAD_MAX_FILES} files in this folder`);
     }
   };
@@ -1017,11 +1020,23 @@ async function saveTo(source: SaveSource, filePath: string, saving?: Saving): Pr
   await writeFileHandle(source.file, filePath);
 }
 
+/**
+ * `name` — a working copy's or a chat's, maybe from another machine — as one entry directly in `folder` on this one; `null`
+ * when it is a path here instead: empty, `.`, `..`, a `/`, `\` or NUL in it, or anything else that resolves elsewhere (a
+ * Windows drive, `C:x`).
+ */
+export function entryPath(folder: string, name: string, paths: path.PlatformPath = path): string | null {
+  if (!name || name === '.' || name === '..' || /[\\/\u0000]/.test(name)) return null;
+  const to = paths.resolve(folder, name);
+  return paths.dirname(to) === paths.resolve(folder) ? to : null;
+}
+
 /** A name not yet in `folder`: the file's own, else with 「 (2)」, 「 (3)」… before its suffix (as the folder names a clash). */
 async function freePath(folder: string, name: string): Promise<string> {
   const { name: stem, ext } = path.parse(name);
   for (let n = 1; ; n++) {
-    const candidate = path.join(folder, n === 1 ? name : `${stem} (${n})${ext}`);
+    const candidate = entryPath(folder, n === 1 ? name : `${stem} (${n})${ext}`);
+    if (!candidate) throw new AppFileError('invalid', `"${name}" can't be saved here: it is a path, not a file name`);
     try { await fs.access(candidate); } catch { return candidate; }
   }
 }

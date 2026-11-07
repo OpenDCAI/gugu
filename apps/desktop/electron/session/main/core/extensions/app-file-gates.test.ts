@@ -44,7 +44,7 @@ vi.mock('@main/core/workspaces/workspace-runtime', () => ({
   },
 }));
 
-const { removeAppFile, forwardTargets, downloadAppFile, revealAppFile, listAppFiles, writeAppFileChunk, readAppFileText, openAppFileIn, watchAppFile, watchAppFolder, FORWARD_MAX_BYTES } = await import('./app-files');
+const { removeAppFile, forwardTargets, downloadAppFile, entryPath, revealAppFile, listAppFiles, writeAppFileChunk, readAppFileText, openAppFileIn, watchAppFile, watchAppFolder, FORWARD_MAX_BYTES } = await import('./app-files');
 const { events } = await import('@main/lib/events');
 const { appFileWatchElsewhereChannel, workingCopyMovedChannel } = await import('@shared/events/appEvents');
 const { releaseWorkingCopies } = await import('./working-copy-files');
@@ -229,6 +229,41 @@ describe('downloading a folder', () => {
     const saved = await downloadAppFile(page(), { ref: { workspace, id: 'sub' }, folder: true }, null) as { skipped: string[] };
     expect(saved.skipped.toSorted()).toEqual(['sub/key', 'sub/loop', 'sub/out']);
     expect(fs.readdirSync(path.join(f.dialogDir, 'sub'))).toEqual(['ok.txt']);
+  });
+});
+
+describe('a name from elsewhere saved here', () => {
+  it('on Windows, a POSIX name that is a path there resolves nowhere', () => {
+    const root = 'D:\\Downloads\\sub';
+    for (const name of ['..\\evil', '..\\..\\evil', 'a\\b', 'C:', 'C:evil', 'C:\\evil', '\\\\host\\share', '../evil', '..', '.', '', 'a\u0000b']) {
+      expect(entryPath(root, name, path.win32), name).toBeNull();
+    }
+    expect(entryPath(root, 'report (2).pdf', path.win32)).toBe('D:\\Downloads\\sub\\report (2).pdf');
+  });
+
+  it('on POSIX, only the separators and dot names are refused', () => {
+    for (const name of ['../evil', 'a/b', '..', '.', '', 'a\\b', '..\\evil']) expect(entryPath('/dl/sub', name, path.posix), name).toBeNull();
+    expect(entryPath('/dl/sub', 'C:evil', path.posix)).toBe('/dl/sub/C:evil');
+  });
+
+  it('a folder holding such names saves the rest under the folder chosen and says which were left out', async () => {
+    f.capabilities.add('files:read');
+    fs.mkdirSync(path.join(f.root, 'sub', '..\\up'), { recursive: true });
+    fs.writeFileSync(path.join(f.root, 'sub', 'ok.txt'), 'ok');
+    fs.writeFileSync(path.join(f.root, 'sub', '..\\evil'), 'canary');
+    fs.writeFileSync(path.join(f.root, 'sub', 'a\\b'), 'canary');
+    fs.writeFileSync(path.join(f.root, 'sub', '..\\up', 'deep'), 'canary');
+    const saved = await downloadAppFile(page(), { ref: { workspace, id: 'sub' }, folder: true }, null) as { skipped: string[] };
+    expect(saved.skipped.toSorted()).toEqual(['sub/..\\evil', 'sub/..\\up', 'sub/a\\b']);
+    expect(fs.readdirSync(f.dialogDir)).toEqual(['sub']);
+    expect(fs.readdirSync(path.join(f.dialogDir, 'sub'))).toEqual(['ok.txt']);
+  });
+
+  it('several files: one whose name is a path is refused by name, before anything is written for it', async () => {
+    f.capabilities.add('files:read');
+    fs.writeFileSync(path.join(f.root, '..\\evil'), 'canary');
+    await expect(downloadAppFile(page(), { refs: [{ workspace, id: '..\\evil' }] }, null)).rejects.toThrow('"..\\evil" can\'t be saved here: it is a path, not a file name');
+    expect(fs.readdirSync(f.dialogDir)).toEqual([]);
   });
 });
 
